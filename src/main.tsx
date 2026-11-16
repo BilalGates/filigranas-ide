@@ -10,6 +10,8 @@ const html = document.documentElement;
 html.dataset.platform = ua.includes('Mac') ? 'mac' : ua.includes('Windows') ? 'win' : 'other';
 
 async function start() {
+  // Monaco y xterm miden el ancho de los caracteres al crearse.
+  await document.fonts.load('12px Iosevka');
   // En el navegador (sin Tauri) se usa el núcleo simulado.
   if (import.meta.env.DEV && !isTauri()) {
     html.dataset.browser = 'true';

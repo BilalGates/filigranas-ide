@@ -42,7 +42,7 @@ export default function Terminal({ project, hidden }: { project: string; hidden:
   useEffect(() => {
     const term = new XTerm({
       allowTransparency: true,
-      fontFamily: "Menlo, Consolas, monospace",
+      fontFamily: "Iosevka, Menlo, Consolas, monospace",
       fontSize: 12,
       lineHeight: 1.25,
       cursorBlink: true,

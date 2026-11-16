@@ -125,7 +125,7 @@ export function languageFor(path: string): string {
 export function baseOptions() {
   return {
     theme: themeName(),
-    fontFamily: "Menlo, Consolas, monospace",
+    fontFamily: "Iosevka, Menlo, Consolas, monospace",
     fontSize: 12.5,
     lineHeight: 22,
     fontLigatures: false,

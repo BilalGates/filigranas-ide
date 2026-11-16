@@ -1,7 +1,7 @@
 # Plan de implementación — Filigranas IDE
 
-**Estado:** pendiente de implementación · **Plataforma inicial:** macOS · **Fecha:** 2026-11-15  
-**Referencia visual:** [`docs/mockup.html`](docs/mockup.html). El mockup usa datos de ejemplo y no ejecuta agentes ni comandos.
+**Estado:** entrega 1 en curso · **Plataformas:** macOS (prioridad) y Windows, desarrollo en ambas · **Fecha:** 2026-11-16  
+**Referencia visual:** [mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) (estética de terminal, ultra minimalista). [`docs/mockup.html`](docs/mockup.html) queda como primera versión. Los mockups usan datos de ejemplo y no ejecutan agentes ni comandos.
 
 ## 1. Resultado esperado
 
@@ -12,18 +12,24 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
 ## 2. Interfaz y comportamiento
 
 - **Columna izquierda:** grupos plegables de proyectos, contador, búsqueda, grupo «Sin clasificar» y sección «Archivados». Proponer grupos por contexto o tipo (Asserta, Webs, Aplicaciones, Herramientas), permitir crear/renombrar grupos y mover proyectos manualmente. La elección manual prevalece sobre cualquier sugerencia automática. Al seleccionar un proyecto, mostrar su árbol de archivos y abrirlos en el editor.
-- **Centro:** editor de código y conversación visibles lado a lado; terminal ajustable debajo. Hansi Flick es la pestaña fija de cada proyecto. Cada tarea abre una pestaña que indica motor, rol, rama, estado y cuota si se conoce. Editor y terminal siguen la copia de trabajo de la pestaña seleccionada; una pestaña «Proyecto» vuelve al checkout principal.
-- **Derecha:** rama actual, archivos modificados, diffs, historial y gráfico de todas las ramas locales y remotas conocidas; acceso a Larry y a «Crear pull request». Mostrar la rama de destino y los conflictos pendientes de cada tarea.
+- **Centro:** editor de código y conversación visibles lado a lado; terminal ajustable debajo. El editor se puede minimizar para dar todo el ancho a la conversación. El coordinador es la pestaña fija de cada proyecto y abre el checkout principal. Cada tarea abre una pestaña con el nombre de su agente, motor y estado. Editor y terminal siguen la copia de trabajo de la pestaña seleccionada.
+- **Controles de sesión:** en la cabecera de cada conversación, siempre visibles: motor actual con acceso al handoff (lista de motores con su cuota; los que no tienen cuota, desactivados), nivel de rendimiento (bajo, medio, alto, máx; se traduce al parámetro de esfuerzo o modelo de cada proveedor cuando lo admite) y tokens o cuota restantes. La cuota también aparece en la barra de estado.
+- **Derecha:** rama actual y destino, archivos modificados, diffs, y gráfico de ramas locales y remotas conocidas. El botón de commits (Larry) va justo encima del gráfico y se desactiva sin cambios. «Crear pull request» solo aparece cuando la rama de la tarea está lista para revisar y aún no tiene PR. Mostrar los conflictos pendientes de cada tarea.
 - **Persistencia:** tras reiniciar, recuperar grupos, proyectos archivados, tareas, relación con sesiones de proveedor y ramas. No importar las sesiones antiguas de MonoCode u otras aplicaciones en la primera versión.
 - **Estados visibles:** inactiva, en marcha, esperando permiso, pausada por cuota, fallida, lista para revisar, integrada. Las acciones que no estén disponibles para un proveedor se muestran desactivadas con su motivo.
+- **Identidad (Barça):** paleta blaugrana: negro azulado de base, rojo como acento, azul para estados y dorado para «esperando permiso». Tipografía monoespaciada (Geist Mono) en toda la interfaz, sin textos ni elementos superfluos. En macOS, paneles con vibrancy nativa; en Windows, Mica/Acrylic.
+- **Coordinadores:** el coordinador de cada proyecto se elige entre Hansi Flick (directo y eficaz, por defecto), Pep Guardiola (perfeccionista y controlador), Luis Enrique (innovador, identidad propia) y Johan Cruyff (completo, el mejor en todos los terrenos). Cada uno es un perfil de instrucciones sobre el mismo motor de coordinación: cambia el tono, el nivel de control y el criterio de delegación, no las capacidades.
+- **Agentes:** cada sesión nueva recibe el nombre de un futbolista histórico del Barça (xavi, iniesta, puyol, messi, ronaldinho, kubala, koeman, stoichkov, laudrup, rivaldo, busquets…), sin repetir entre las sesiones activas de un proyecto. El nombre identifica la sesión en pestañas, conversación y relevos; el motor se muestra aparte.
 
 ## 3. Arquitectura y contratos internos
 
-- **Aplicación:** Electron + React + TypeScript; Monaco para el editor y xterm.js con PTY para la terminal. El proceso principal administra archivos, Git, procesos de agentes y credenciales delegadas a las CLI existentes. El renderer no ejecuta comandos ni accede directamente al sistema de archivos. Usar IPC tipado con operaciones delimitadas por proyecto/tarea.
-- **Datos locales:** SQLite en Application Support para ajustes, grupos, proyectos, tareas, ramas de trabajo, IDs de sesiones y eventos resumidos. Guardar referencias a credenciales, nunca tokens. La carpeta raíz seleccionada y las copias de trabajo se validan por ruta canónica antes de operar.
+- **Aplicación:** Tauri 2. Núcleo en Rust; interfaz en TypeScript + React dentro del WebView del sistema (WKWebView en macOS, WebView2 en Windows), sin Chromium empaquetado. Monaco para el editor y xterm.js para la terminal, con `portable-pty` (ConPTY en Windows). El núcleo administra archivos (`notify`), Git (`gix`, con la CLI `git` para operaciones de escritura), procesos de agentes y credenciales delegadas a las CLI existentes. La interfaz no ejecuta comandos ni accede directamente al sistema de archivos: solo comandos y eventos Tauri tipados, delimitados por proyecto/tarea, con los permisos (capabilities) mínimos.
+- **Eficiencia:** objetivo de app ligera: instalador de pocas decenas de MB, arranque rápido y RAM en reposo baja. Vigilar solo las carpetas abiertas, calcular diffs y gráfico bajo demanda, y no bloquear nunca el hilo de la interfaz.
+- **Multiplataforma:** rutas a través de los directorios de datos del sistema (Application Support en macOS, `%APPDATA%` en Windows), nunca rutas fijas. Las diferencias de plataforma (vibrancy, shell por defecto, empaquetado) quedan aisladas en módulos propios.
+- **Datos locales:** SQLite (`rusqlite`) en el directorio de datos de la app para ajustes, grupos, proyectos, tareas, ramas de trabajo, IDs de sesiones y eventos resumidos. Guardar referencias a credenciales, nunca tokens. La carpeta raíz seleccionada y las copias de trabajo se validan por ruta canónica antes de operar.
 - **Adaptadores de agentes:** interfaz común `start`, `send`, `stream`, `approve/deny`, `interrupt`, `resume`, `status` y `dispose`. Codex usa `app-server`; Claude Code usa su salida estructurada en streaming; OpenCode, Antigravity y Devin usan ACP. Cada adaptador traduce eventos nativos a mensajes, llamadas de herramienta, peticiones de permiso, uso/cuota y errores. Las CLI mantienen su autenticación habitual; el IDE muestra el paso de inicio de sesión cuando falte.
 - **Filigranas:** incluir una versión del kit en el paquete de la app. Hansi usa sus roles y criterio de delegación; cada sesión recibe las reglas pertinentes y las instrucciones propias del proyecto, con prioridad para estas últimas. El kit incluido se actualiza al publicar una versión de la app. No instalar `.agents`, hooks ni otros archivos en los repositorios detectados.
-- **Coordinación:** una conversación persistente de Hansi por proyecto. Cada encargo crea una tarea con objetivo, criterios de terminado, motor/rol elegidos, rama de origen y rama de trabajo. Hansi explica su elección y puede abrir sesiones adicionales; los permisos de escritura siguen pasando por el mecanismo del proveedor y se muestran en el IDE.
+- **Coordinación:** una conversación persistente del coordinador por proyecto. Cada encargo crea una tarea con objetivo, criterios de terminado, motor/rol elegidos, rama de origen y rama de trabajo. El coordinador explica su elección y puede abrir sesiones adicionales; los permisos de escritura siguen pasando por el mecanismo del proveedor y se muestran en el IDE.
 
 ## 4. Ramas, handoff y Git
 
@@ -36,11 +42,11 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
 
 ## 5. Entregas de implementación
 
-1. **Base de la aplicación:** estructura Electron/React, persistencia, selección de carpeta, detección de repositorios, grupos, archivo/restauración y navegación de archivos. El mockup es la referencia visual; adaptar sus datos ficticios a datos reales.
+1. **Base de la aplicación:** estructura Tauri/React, ventana translúcida en macOS y Windows, persistencia, selección de carpeta, detección de repositorios, grupos, archivo/restauración y navegación de archivos. El mockup es la referencia visual; adaptar sus datos ficticios a datos reales.
 2. **Editor y Git local:** Monaco, PTY, estado/diffs, selección de rama, gráfico e historial. Probar apertura de proyectos grandes y cambios externos de archivos.
 3. **Sesiones y coordinación:** adaptadores de los cinco motores, Hansi por proyecto, streaming, permisos, cancelación, persistencia y recuperación tras reinicio.
 4. **Trabajo paralelo:** creación de ramas/worktrees aislados, handoff entre motores, pausa por cuota, reanudación e integración guiada.
-5. **Cierre de tareas:** Larry, generación de commits por unidad funcional, publicación de rama y creación/seguimiento de PR en GitHub. Empaquetar una app macOS instalable.
+5. **Cierre de tareas:** Larry, generación de commits por unidad funcional, publicación de rama y creación/seguimiento de PR en GitHub. Empaquetar la app instalable para macOS (.dmg) y Windows (.msi).
 
 ## 6. Comprobaciones de aceptación
 
@@ -54,4 +60,4 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
 
 ## 7. Límites de la primera versión
 
-macOS y GitHub. Las CLI y sus cuentas deben estar instaladas/autenticadas por el usuario. La detección de cuota depende de la información que entregue cada proveedor; siempre existe pausa manual. El historial antiguo de MonoCode y de otras aplicaciones permanece donde está. Los grupos iniciales son sugerencias editables: la aplicación no asume que un repositorio pertenece a una organización solo por su nombre.
+macOS (prioridad) y Windows; solo GitHub. Las CLI y sus cuentas deben estar instaladas/autenticadas por el usuario. La detección de cuota depende de la información que entregue cada proveedor; siempre existe pausa manual. El historial antiguo de MonoCode y de otras aplicaciones permanece donde está. Los grupos iniciales son sugerencias editables: la aplicación no asume que un repositorio pertenece a una organización solo por su nombre.

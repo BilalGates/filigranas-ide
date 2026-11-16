@@ -1,0 +1,571 @@
+/* Filigranas — blaugrana, monoespaciada, sin elementos de más.
+   Referencia: mockup v2. Los paneles dejan pasar el material nativo
+   (vibrancy en macOS, Mica en Windows) en la columna izquierda. */
+
+:root {
+  color-scheme: dark;
+  --wall: #04060c;
+  --side: rgba(9, 13, 28, 0.35);
+  --pane: rgba(8, 11, 23, 0.82);
+  --pane2: rgba(6, 8, 18, 0.88);
+  --menu: rgba(12, 16, 32, 0.97);
+  --hair: rgba(160, 180, 255, 0.08);
+  --hair2: rgba(160, 180, 255, 0.14);
+  --tx: #e6e9f2;
+  --dim: #8f96aa;
+  --mute: #878ea3;
+  --ac: #ef4a66;
+  --acbg: #c8102e;
+  --blue: #5b8ff0;
+  --gold: #edbb00;
+  --sel: rgba(120, 150, 255, 0.08);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --wall: #dfe4ef;
+    --side: rgba(244, 246, 252, 0.35);
+    --pane: rgba(251, 252, 255, 0.85);
+    --pane2: rgba(246, 248, 253, 0.9);
+    --menu: rgba(252, 253, 255, 0.98);
+    --hair: rgba(10, 20, 60, 0.08);
+    --hair2: rgba(10, 20, 60, 0.14);
+    --tx: #141a2c;
+    --dim: #565e74;
+    --mute: #5f667b;
+    --ac: #b5123a;
+    --acbg: #b5123a;
+    --blue: #1f4fb5;
+    --gold: #7d6100;
+    --sel: rgba(20, 50, 160, 0.06);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Ventana transparente: el material nativo pinta el fondo. */
+html,
+body {
+  background: transparent;
+}
+
+/* En el navegador (núcleo simulado) no hay material nativo: se imita
+   con un fondo de escritorio para juzgar las transparencias. */
+html[data-browser] body {
+  background-color: var(--wall);
+  background-image: radial-gradient(60% 70% at 15% 20%, #0d2f7a, transparent 70%),
+    radial-gradient(50% 60% at 88% 82%, #6b0a2c, transparent 70%);
+}
+
+html[data-browser] .sidebar {
+  backdrop-filter: blur(40px) saturate(180%);
+}
+
+body {
+  font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  -webkit-font-smoothing: antialiased;
+  color: var(--tx);
+  user-select: none;
+  cursor: default;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+:focus-visible {
+  outline: 1px solid var(--ac);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  min-width: 0;
+  user-select: text;
+}
+
+input::placeholder {
+  color: var(--mute);
+}
+
+.muted {
+  color: var(--dim);
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── estructura ─────────────────────────────────────────── */
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-rows: 40px minmax(0, 1fr) 24px;
+}
+
+.sidebar {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 8px 10px;
+  background: var(--side);
+}
+
+/* Espacio para el semáforo de macOS; en Windows la barra es nativa. */
+.sidebar-top {
+  height: 40px;
+  flex: none;
+}
+
+[data-platform='win'] .sidebar-top,
+[data-platform='other'] .sidebar-top {
+  height: 10px;
+}
+
+.tabs {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--pane);
+  border-bottom: 1px solid var(--hair);
+  border-left: 1px solid var(--hair);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--dim);
+}
+
+.tab.is-active {
+  color: var(--tx);
+  box-shadow: inset 0 -1px 0 var(--ac);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dot-coach {
+  background: linear-gradient(90deg, var(--blue) 50%, var(--ac) 50%);
+}
+
+.main {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+  display: flex;
+  background: var(--pane);
+  border-left: 1px solid var(--hair);
+}
+
+.empty {
+  flex: 1;
+}
+
+.status {
+  grid-column: 1 / 3;
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--mute);
+  border-top: 1px solid var(--hair);
+  background: var(--pane2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status .push {
+  margin-left: auto;
+}
+
+.status-error {
+  color: var(--ac);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── barra lateral ──────────────────────────────────────── */
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 14px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--sel);
+  color: var(--dim);
+}
+
+.search input {
+  flex: 1;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.group {
+  margin-bottom: 10px;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 2px 8px;
+  min-height: 20px;
+}
+
+.group-name {
+  flex: 1;
+  font-size: 11px;
+  color: var(--mute);
+}
+
+.group-actions {
+  display: none;
+  gap: 2px;
+}
+
+.group-head:hover .group-actions,
+.group-head:focus-within .group-actions {
+  display: flex;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--dim);
+}
+
+.icon:hover,
+.row-main:hover,
+.tree-row:hover,
+.menu-item:hover,
+.ghost:hover {
+  background: var(--sel);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+}
+
+.project-row .more {
+  visibility: hidden;
+}
+
+.project-row:hover .more,
+.project-row:focus-within .more,
+.project-row .more[aria-expanded='true'] {
+  visibility: visible;
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--dim);
+}
+
+.project-row.is-open .row-main {
+  color: var(--tx);
+}
+
+.chev {
+  width: 10px;
+  color: var(--mute);
+}
+
+.project {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  z-index: 10;
+  top: 24px;
+  left: 16px;
+  right: 0;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--menu);
+  border: 1px solid var(--hair2);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.menu-label {
+  padding: 2px 8px 4px;
+  font-size: 11px;
+  color: var(--mute);
+}
+
+.menu-item {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.menu-item .mark {
+  width: 10px;
+  color: var(--ac);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--hair);
+}
+
+.inline-input input {
+  width: 100%;
+  padding: 3px 8px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px var(--hair2);
+}
+
+.sidebar-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px 0;
+}
+
+.archived {
+  padding: 1px 0 1px 8px;
+  color: var(--dim);
+}
+
+.root {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--mute);
+}
+
+/* ── árbol ──────────────────────────────────────────────── */
+
+.tree {
+  padding: 2px 0 4px;
+}
+
+.tree-row {
+  display: block;
+  width: 100%;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-right: 8px;
+  border-radius: 5px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-row.is-selected {
+  color: var(--tx);
+  background: var(--sel);
+}
+
+.tree-error {
+  font-size: 11px;
+  color: var(--ac);
+}
+
+/* ── visor ──────────────────────────────────────────────── */
+
+.viewer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewer-head {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 16px;
+  flex: none;
+}
+
+.dirty {
+  width: 5px;
+  height: 5px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.monaco {
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer-msg {
+  padding: 16px;
+  color: var(--dim);
+}
+
+.code {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0 16px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  user-select: text;
+  cursor: text;
+}
+
+.ln {
+  display: flex;
+}
+
+.num {
+  width: 56px;
+  flex: none;
+  padding-right: 18px;
+  text-align: right;
+  color: var(--mute);
+  user-select: none;
+}
+
+.txt {
+  white-space: pre;
+}
+
+/* ── botones y formularios ──────────────────────────────── */
+
+.primary {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--acbg);
+  color: #ffffff;
+  font-weight: 500;
+  text-align: center;
+}
+
+.ghost {
+  padding: 3px 10px;
+  border-radius: 5px;
+  color: var(--dim);
+  box-shadow: inset 0 0 0 1px var(--hair2);
+}
+
+.ghost.small {
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.onboarding {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--pane);
+}
+
+.onboarding-card {
+  width: min(520px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.onboarding-card .primary {
+  align-self: flex-end;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--hair2);
+}
+
+.field input {
+  flex: 1;
+}
+
+.prompt {
+  color: var(--ac);
+}
+
+.error {
+  margin: 0;
+  color: var(--ac);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

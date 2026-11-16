@@ -1,0 +1,251 @@
+import { useEffect, useRef, useState } from 'react';
+import { api, type Project, type Workspace } from './ipc';
+import FileTree from './FileTree';
+
+type Props = {
+  ws: Workspace;
+  project: string | null;
+  file: string | null;
+  onProject: (path: string | null) => void;
+  onFile: (path: string) => void;
+  onUpdate: (p: Promise<Workspace>) => void;
+};
+
+const COLLAPSED_KEY = 'filigranas.collapsed';
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
+export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate }: Props) {
+  const [query, setQuery] = useState('');
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const [menu, setMenu] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<number | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(collapsed));
+    } catch {
+      /* sin almacenamiento: no pasa nada */
+    }
+  }, [collapsed]);
+
+  const q = query.trim().toLowerCase();
+  const visible = ws.projects.filter((p) => !p.archived && (!q || p.name.toLowerCase().includes(q)));
+  const archived = ws.projects.filter((p) => p.archived);
+
+  const sections = [
+    ...ws.groups.map((g) => ({ key: `g${g.id}`, id: g.id as number | null, name: g.name })),
+    { key: 'none', id: null, name: 'sin clasificar' },
+  ]
+    .map((s) => ({ ...s, items: visible.filter((p) => p.groupId === s.id) }))
+    .filter((s) => s.items.length > 0 || (s.id !== null && !q));
+
+  const toggle = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+  return (
+    <aside className="sidebar" aria-label="Proyectos">
+      <div className="sidebar-top" data-tauri-drag-region />
+      <label className="search">
+        <span aria-hidden="true">/</span>
+        <input aria-label="Buscar proyecto" placeholder="buscar" value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
+      </label>
+
+      <div className="sidebar-scroll">
+        {sections.map((s) => (
+          <section key={s.key} className="group">
+            <div className="group-head">
+              {renaming === s.id && s.id !== null ? (
+                <InlineInput
+                  initial={s.name}
+                  label="Nombre del grupo"
+                  onCancel={() => setRenaming(null)}
+                  onSubmit={(name) => {
+                    setRenaming(null);
+                    onUpdate(api.renameGroup(s.id!, name));
+                  }}
+                />
+              ) : (
+                <button className="group-name" onClick={() => toggle(s.key)} onDoubleClick={() => s.id !== null && setRenaming(s.id)} aria-expanded={!collapsed[s.key]}>
+                  {s.name}
+                </button>
+              )}
+              {s.id !== null && renaming !== s.id && (
+                <span className="group-actions">
+                  <button className="icon" onClick={() => setRenaming(s.id)} aria-label={`Renombrar ${s.name}`} title="renombrar">
+                    ✎
+                  </button>
+                  <button className="icon" onClick={() => onUpdate(api.deleteGroup(s.id!))} aria-label={`Quitar grupo ${s.name}`} title="quitar grupo (los proyectos pasan a sin clasificar)">
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+            {!collapsed[s.key] &&
+              s.items.map((p) => (
+                <ProjectRow
+                  key={p.path}
+                  p={p}
+                  ws={ws}
+                  open={p.path === project}
+                  menuOpen={menu === p.path}
+                  onMenu={(open) => setMenu(open ? p.path : null)}
+                  onSelect={() => onProject(p.path === project ? null : p.path)}
+                  onUpdate={onUpdate}
+                >
+                  {p.path === project && <FileTree root={p.path} selected={file} onOpen={onFile} />}
+                </ProjectRow>
+              ))}
+          </section>
+        ))}
+      </div>
+
+      <div className="sidebar-foot">
+        {archived.length > 0 && (
+          <>
+            <button className="group-name" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived}>
+              archivados · {archived.length}
+            </button>
+            {showArchived &&
+              archived.map((p) => (
+                <div key={p.path} className="row archived">
+                  <span className="grow">{p.name}</span>
+                  <button className="ghost small" onClick={() => onUpdate(api.setArchived(p.path, false))}>
+                    restaurar
+                  </button>
+                </div>
+              ))}
+          </>
+        )}
+        <div className="root" title={ws.root ?? ''}>
+          {shortRoot(ws.root ?? '')} · {ws.projects.length}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function shortRoot(root: string) {
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts.length > 1 ? `~/${parts[parts.length - 1]}` : root;
+}
+
+function ProjectRow(props: {
+  p: Project;
+  ws: Workspace;
+  open: boolean;
+  menuOpen: boolean;
+  onMenu: (open: boolean) => void;
+  onSelect: () => void;
+  onUpdate: (p: Promise<Workspace>) => void;
+  children?: React.ReactNode;
+}) {
+  const { p, ws, open, menuOpen, onMenu, onSelect, onUpdate, children } = props;
+  const [creating, setCreating] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onMenu(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onMenu(false);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [menuOpen, onMenu]);
+
+  const act = (promise: Promise<Workspace>) => {
+    onMenu(false);
+    setCreating(false);
+    onUpdate(promise);
+  };
+
+  return (
+    <div ref={ref} className="project">
+      <div className={`row project-row${open ? ' is-open' : ''}`}>
+        <button className="row-main" onClick={onSelect} aria-expanded={open}>
+          <span className="chev" aria-hidden="true">
+            {open ? '⌄' : '›'}
+          </span>
+          <span className="grow">{p.name}</span>
+        </button>
+        <button className="icon more" onClick={() => onMenu(!menuOpen)} aria-label={`Opciones de ${p.name}`} aria-haspopup="menu" aria-expanded={menuOpen}>
+          ⋯
+        </button>
+      </div>
+      {menuOpen && (
+        <div className="menu" role="menu">
+          <div className="menu-label">mover a</div>
+          {ws.groups.map((g) => (
+            <button key={g.id} role="menuitemradio" aria-checked={p.groupId === g.id} className="menu-item" onClick={() => act(api.moveProject(p.path, g.id))}>
+              <span className="mark">{p.groupId === g.id ? '●' : ''}</span>
+              {g.name}
+            </button>
+          ))}
+          <button role="menuitemradio" aria-checked={p.groupId === null} className="menu-item" onClick={() => act(api.moveProject(p.path, null))}>
+            <span className="mark">{p.groupId === null ? '●' : ''}</span>
+            sin clasificar
+          </button>
+          {creating ? (
+            <InlineInput
+              label="Nuevo grupo"
+              initial=""
+              onCancel={() => setCreating(false)}
+              onSubmit={(name) =>
+                act(
+                  api.createGroup(name).then((next) => {
+                    const g = next.groups.find((x) => x.name === name.trim());
+                    return g ? api.moveProject(p.path, g.id) : next;
+                  }),
+                )
+              }
+            />
+          ) : (
+            <button role="menuitem" className="menu-item" onClick={() => setCreating(true)}>
+              <span className="mark">+</span>nuevo grupo
+            </button>
+          )}
+          <div className="menu-sep" />
+          <button role="menuitem" className="menu-item" onClick={() => act(api.setArchived(p.path, true))}>
+            <span className="mark" />
+            archivar
+          </button>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function InlineInput({ initial, label, onSubmit, onCancel }: { initial: string; label: string; onSubmit: (v: string) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      className="inline-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onSubmit(value.trim());
+      }}
+    >
+      <input
+        aria-label={label}
+        value={value}
+        autoFocus
+        spellCheck={false}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={onCancel}
+        onKeyDown={(e) => e.key === 'Escape' && onCancel()}
+      />
+    </form>
+  );
+}

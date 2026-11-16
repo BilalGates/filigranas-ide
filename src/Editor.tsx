@@ -1,14 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
+import { listen } from '@tauri-apps/api/event';
 import { api } from './ipc';
-
-type MonacoModule = typeof import('./monaco');
-
-let loading: Promise<MonacoModule> | null = null;
-const loadMonaco = () => (loading ??= import('./monaco'));
-
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-const themeName = () => (darkQuery.matches ? 'filigranas-dark' : 'filigranas-light');
+import { darkQuery, loadMonaco, themeName } from './monacoLoader';
 
 /**
  * Editor del archivo seleccionado. Guarda con ⌘S / Ctrl+S y marca con un
@@ -27,31 +21,9 @@ export default function Editor({ path, root, onError }: { path: string; root: st
   // Crear el editor una vez.
   useEffect(() => {
     let disposed = false;
-    loadMonaco().then(({ monaco }) => {
+    loadMonaco().then(({ monaco, baseOptions }) => {
       if (disposed || !host.current) return;
-      editor.current = monaco.editor.create(host.current, {
-        theme: themeName(),
-        fontFamily: "'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
-        fontSize: 12.5,
-        lineHeight: 22,
-        fontLigatures: false,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        overviewRulerLanes: 0,
-        overviewRulerBorder: false,
-        hideCursorInOverviewRuler: true,
-        renderLineHighlight: 'line',
-        lineNumbersMinChars: 4,
-        glyphMargin: false,
-        folding: true,
-        stickyScroll: { enabled: false },
-        padding: { top: 4, bottom: 16 },
-        smoothScrolling: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        cursorBlinking: 'phase',
-        automaticLayout: true,
-        scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, useShadows: false },
-        model: null,
-      });
+      editor.current = monaco.editor.create(host.current, { ...baseOptions(), model: null });
     });
     const onScheme = () => loadMonaco().then(({ monaco }) => monaco.editor.setTheme(themeName()));
     darkQuery.addEventListener('change', onScheme);
@@ -91,8 +63,10 @@ export default function Editor({ path, root, onError }: { path: string; root: st
           keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
           run: async () => {
             const version = model!.getAlternativeVersionId();
+            const content = model!.getValue();
             try {
-              await api.writeText(path, model!.getValue());
+              await api.writeText(path, content);
+              disk = content;
               saved.current = version;
               setDirty(model!.getAlternativeVersionId() !== version);
             } catch (e) {
@@ -101,7 +75,37 @@ export default function Editor({ path, root, onError }: { path: string; root: st
           },
         });
         ed.focus();
+
+        // Cambios externos (un agente, un cambio de rama): sin cambios
+        // locales se toma la versión del disco; con ellos no se toca nada y
+        // se avisa, porque guardar sobrescribiría lo que hay en disco.
+        let disk = text;
+        let timer: number | undefined;
+        const reload = () =>
+          api.readText(path).then(
+            (now) => {
+              if (!alive || now === disk) return;
+              disk = now;
+              // Lo guardado desde aquí también llega por el observador.
+              if (now === model!.getValue()) return;
+              if (model!.getAlternativeVersionId() === saved.current) {
+                const view = ed.saveViewState();
+                model!.setValue(now);
+                saved.current = model!.getAlternativeVersionId();
+                if (view) ed.restoreViewState(view);
+              } else {
+                onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; guardar sobrescribirá esa versión`);
+              }
+            },
+            () => {}, // borrado o ilegible: se mantiene lo que hay en pantalla
+          );
+        const unlisten = listen('project-changed', () => {
+          window.clearTimeout(timer);
+          timer = window.setTimeout(reload, 300);
+        });
         cleanup = () => {
+          window.clearTimeout(timer);
+          unlisten.then((off) => off());
           sub.dispose();
           save.dispose();
         };

@@ -95,7 +95,7 @@ fn load(conn: &Connection) -> CmdResult<Workspace> {
 }
 
 /// Valida que `path` sea un proyecto de la raíz y devuelve su ruta canónica.
-fn project_path(conn: &Connection, path: &str) -> CmdResult<String> {
+pub(crate) fn project_path(conn: &Connection, path: &str) -> CmdResult<String> {
     let root = root_of(conn)?;
     let p = paths::direct_child(&root, Path::new(path))?;
     // Guardamos la ruta tal como la produce `scan` (raíz + nombre).

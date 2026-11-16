@@ -50,6 +50,13 @@ export async function enqueue(client: string, action: string) {
 
 let root: string | null = null;
 let nextGroup = 5;
+let nextPty = 1;
+let coachProfile = 'hansi';
+let nextSession = 1;
+const mockSessions: { id: number; project: string; engine: string; name: string; providerSession: string; effort: string | null }[] = [];
+let sessionAnswer: ((decision: string) => void) | null = null;
+let pendingApproval: ((decision: string) => void) | null = null;
+const ptys = new Map<number, (data: string) => void>();
 const groups: Group[] = [
   { id: 1, name: 'asserta' },
   { id: 2, name: 'webs' },
@@ -132,6 +139,92 @@ mockIPC(
         if (!(rel(a.path) in files)) fail('solo se pueden guardar archivos existentes');
         files[rel(a.path)] = a.content;
         return null;
+      case 'git_status':
+        return {
+          branch: 'main',
+          head: '84ab176',
+          upstream: 'origin/main',
+          ahead: 1,
+          behind: 0,
+          changes: rel(a.project) === 'bitacola' ? [{ path: 'src/lib/autonomy.ts', orig: null, status: 'M', adds: 3, dels: 1 }] : [],
+        };
+      case 'git_log':
+        return [
+          { hash: '9af2c5a', parents: ['6c4e902'], refs: 'HEAD -> main, origin/main', subject: 'valida antes de encolar' },
+          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'tests de la cola' },
+          { hash: '6c4e902', parents: [], refs: '', subject: 'cola con reintentos' },
+        ];
+      case 'git_diff_texts': {
+        const now = files[`${rel(a.project)}/${a.path}`] ?? '';
+        return { old: now.replace('// valida antes de encolar\n', ''), new: now };
+      }
+      case 'git_branches':
+        return ['ide/tests-e27', 'main'];
+      case 'git_switch':
+        return a.branch === 'main' ? null : fail('tus cambios locales se sobrescribirían al cambiar de rama');
+      case 'watch_project':
+        return null;
+      // Terminal de eco: sin shell real, repite lo que se escribe.
+      case 'pty_open': {
+        const id = nextPty++;
+        const send = (data: string) => a.onEvent.onmessage({ kind: 'data', data });
+        ptys.set(id, send);
+        setTimeout(() => send(`\x1b[2m[núcleo simulado · ${rel(a.project)}]\x1b[0m\r\n$ `));
+        return id;
+      }
+      case 'pty_write':
+        ptys.get(a.id)?.(a.data === '\r' ? '\r\n$ ' : a.data === '\x7f' ? '\b \b' : a.data);
+        return null;
+      case 'pty_resize':
+        return null;
+      case 'pty_close':
+        ptys.delete(a.id);
+        return null;
+      case 'session_list':
+        return mockSessions.filter((x) => x.project === a.project);
+      case 'session_create': {
+        if (a.engine !== 'claude') fail(`el motor «${a.engine}» todavía no está disponible`);
+        const used = mockSessions.filter((x) => x.project === a.project).map((x) => x.name);
+        const name = ['xavi', 'iniesta', 'puyol', 'messi'].find((n) => !used.includes(n)) ?? 'kubala';
+        const created = { id: nextSession++, project: a.project, engine: 'claude', name, providerSession: crypto.randomUUID(), effort: null };
+        mockSessions.push(created);
+        return created;
+      }
+      case 'session_history':
+        return [];
+      case 'session_send':
+        void demoSession(a.id);
+        return null;
+      case 'session_respond':
+        sessionAnswer?.(a.decision);
+        return null;
+      case 'session_interrupt':
+        return null;
+      case 'session_close':
+        mockSessions.splice(mockSessions.findIndex((x) => x.id === a.id), 1);
+        return null;
+      case 'coordinator_open':
+        return {
+          threadId: 'hilo-demo',
+          profile: coachProfile,
+          model: 'gpt-6-sol',
+          effort: 'medium',
+          efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+          turns: [],
+          rateLimits: { primary: { usedPercent: 22, windowDurationMins: 300, resetsAt: Date.now() / 1000 + 9000 }, secondary: { usedPercent: 47, windowDurationMins: 10080, resetsAt: null }, rateLimitReachedType: null },
+          activeTurn: null,
+        };
+      case 'coordinator_send':
+        void demoTurn(a.text);
+        return null;
+      case 'coordinator_respond':
+        pendingApproval?.(a.decision);
+        return null;
+      case 'coordinator_interrupt':
+        return null;
+      case 'coordinator_set_profile':
+        coachProfile = a.profile;
+        return null;
       case 'plugin:dialog|open':
         return ROOT;
       default:
@@ -141,6 +234,64 @@ mockIPC(
   },
   { shouldMockEvents: true },
 );
+
+// Turno de ejemplo del coordinador: razonamiento, respuesta en streaming,
+// un comando que pide permiso y un cambio de archivo.
+async function demoTurn(text: string) {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const ev = (method: string, params: object, requestId: unknown = null) =>
+    emit('coordinator', { method, params: { threadId: 'hilo-demo', turnId: 't1', ...params }, requestId });
+  const n = Date.now();
+  await ev('turn/started', { turn: { id: 't1' } });
+  await ev('item/completed', { item: { id: `u${n}`, type: 'userMessage', content: [{ type: 'text', text }] } });
+  await ev('item/started', { item: { id: `r${n}`, type: 'reasoning', summary: [], content: [] } });
+  await ev('item/reasoning/summaryTextDelta', { itemId: `r${n}`, summaryIndex: 0, delta: 'Reviso la cola y la validación antes de tocar nada.' });
+  await ev('item/started', { item: { id: `a${n}`, type: 'agentMessage', text: '' } });
+  for (const word of 'Miro primero los tests de la cola para saber de dónde partimos.'.split(' ')) {
+    await wait(40);
+    await ev('item/agentMessage/delta', { itemId: `a${n}`, delta: word + ' ' });
+  }
+  const cmd = { id: `c${n}`, type: 'commandExecution', command: 'npm test -- queue', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+  await ev('item/started', { item: cmd });
+  const decision = await new Promise<string>((resolve) => {
+    pendingApproval = resolve;
+    void ev('item/commandExecution/requestApproval', { itemId: cmd.id, command: cmd.command, reason: 'ejecutar los tests necesita red para instalar dependencias' }, 7);
+  });
+  pendingApproval = null;
+  if (decision === 'decline') {
+    await ev('item/completed', { item: { ...cmd, status: 'declined' } });
+  } else {
+    await ev('item/commandExecution/outputDelta', { itemId: cmd.id, delta: '✓ queue.test.ts (3 tests)\n' });
+    await ev('item/completed', { item: { ...cmd, status: 'completed', exitCode: 0, aggregatedOutput: '✓ queue.test.ts (3 tests)\n' } });
+    await ev('item/completed', { item: { id: `f${n}`, type: 'fileChange', status: 'completed', changes: [{ path: `${ROOT}/bitacola/src/lib/autonomy.ts`, kind: { type: 'update', move_path: null }, diff: '' }] } });
+  }
+  await ev('item/completed', { item: { id: `z${n}`, type: 'agentMessage', text: decision === 'decline' ? 'Sin los tests no sigo. Dime si prefieres otra forma.' : 'Hecho. Los tests pasan:\n```\n✓ queue.test.ts (3 tests)\n```' } });
+  await ev('turn/completed', { turn: { id: 't1', error: null } });
+}
+
+// Respuesta de ejemplo de una sesión de Claude Code, con los mensajes que
+// emite `claude -p --output-format stream-json`.
+async function demoSession(id: number) {
+  const ev = (msg: object) => emit('session', { id, msg });
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await ev({ type: 'system', subtype: 'init', model: 'claude-opus-5-5' });
+  for (const word of 'Voy a añadir el caso de política deshabilitada.'.split(' ')) {
+    await wait(40);
+    await ev({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: word + ' ' } } });
+  }
+  const n = Date.now();
+  const path = `${ROOT}/bitacola/src/lib/autonomy.ts`;
+  await ev({ type: 'assistant', message: { id: `m${n}`, content: [{ type: 'text', text: 'Voy a añadir el caso de política deshabilitada.' }, { type: 'tool_use', id: `t${n}`, name: 'Edit', input: { file_path: path } }] } });
+  const decision = await new Promise<string>((resolve) => {
+    sessionAnswer = resolve;
+    void ev({ type: 'control_request', request_id: `r${n}`, request: { subtype: 'can_use_tool', tool_name: 'Edit', input: { file_path: path }, tool_use_id: `t${n}` } });
+  });
+  sessionAnswer = null;
+  const ok = decision !== 'decline';
+  await ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `t${n}`, is_error: !ok, content: ok ? 'ok' : 'rechazado' }] } });
+  await ev({ type: 'assistant', message: { id: `m${n}b`, content: [{ type: 'text', text: ok ? 'Hecho: la validación rechaza clientes sin política.' : 'Entendido, no toco el archivo.' }] } });
+  await ev({ type: 'result', subtype: 'success', is_error: false, result: '' });
+}
 
 // Atajo de depuración: simular que aparece un repositorio nuevo.
 (window as any).__filigranasNuevoRepo = (name: string) => {

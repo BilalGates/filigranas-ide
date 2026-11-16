@@ -1,6 +1,7 @@
-// Monaco se carga solo al abrir el primer archivo (import dinámico desde
-// Editor.tsx), para que el arranque de la app no pague su peso.
+// Monaco se carga solo al abrir el primer archivo o diff (import dinámico
+// desde monacoLoader.ts), para que el arranque de la app no pague su peso.
 import * as monaco from 'monaco-editor';
+import { themeName } from './monacoLoader';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import JsonWorker from 'monaco-editor/language/json/json.worker?worker';
@@ -118,6 +119,32 @@ export function languageFor(path: string): string {
     if (lang.extensions?.some((ext) => name.endsWith(ext.toLowerCase()))) return lang.id;
   }
   return 'plaintext';
+}
+
+/** Opciones comunes del editor y del diff, con el tema del sistema. */
+export function baseOptions() {
+  return {
+    theme: themeName(),
+    fontFamily: "Menlo, Consolas, monospace",
+    fontSize: 12.5,
+    lineHeight: 22,
+    fontLigatures: false,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    overviewRulerLanes: 0,
+    overviewRulerBorder: false,
+    hideCursorInOverviewRuler: true,
+    renderLineHighlight: 'line',
+    lineNumbersMinChars: 4,
+    glyphMargin: false,
+    folding: true,
+    stickyScroll: { enabled: false },
+    padding: { top: 4, bottom: 16 },
+    smoothScrolling: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    cursorBlinking: 'phase',
+    automaticLayout: true,
+    scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8, useShadows: false },
+  } satisfies monaco.editor.IStandaloneEditorConstructionOptions;
 }
 
 export { monaco };

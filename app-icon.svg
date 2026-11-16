@@ -1,43 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#0c1430"/>
-      <stop offset="1" stop-color="#070b18"/>
+    <!-- fondo: negro azulado con brillo metálico arriba -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#18213f"/>
+      <stop offset="0.45" stop-color="#0a0f22"/>
+      <stop offset="1" stop-color="#05070f"/>
     </linearGradient>
-    <clipPath id="frame">
-      <rect x="64" y="64" width="896" height="896" rx="200"/>
-    </clipPath>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fa2d8" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#2a3866" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#2a3866" stop-opacity="0.15"/>
+    </linearGradient>
+    <!-- estela de velocidad azul que se desvanece hacia la izquierda -->
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b8ff0" stop-opacity="0"/>
+      <stop offset="1" stop-color="#5b8ff0" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dfef"/>
+    </linearGradient>
   </defs>
+
   <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="68" y="68" width="888" height="888" rx="196" fill="none" stroke="url(#edge)" stroke-width="8"/>
 
-  <g clip-path="url(#frame)" stroke-linecap="round" stroke-linejoin="round">
-    <!-- suelo -->
-    <path d="M120 828 H900" stroke="#1f3266" stroke-width="10" fill="none"/>
+  <!-- estela azul a la altura del brazo medio -->
+  <polygon points="200,470 470,470 444,552 174,552" fill="url(#trail)"/>
 
-    <!-- pierna de atrás (armando el golpeo) -->
-    <path d="M370 150 L300 470" stroke="#d7deef" stroke-width="128" fill="none"/>
-    <path d="M300 470 L215 615" stroke="#ef4a66" stroke-width="96" fill="none"/>
-    <path d="M270 530 L250 560" stroke="#eef1fa" stroke-width="100" fill="none" opacity="0"/>
-    <path d="M205 618 L268 708" stroke="#eef1fa" stroke-width="74" fill="none"/>
+  <!-- F en cursiva: palo y brazo superior en una sola pieza -->
+  <polygon points="392,760 546,280 806,280 776.6,372 620.2,372 496,760" fill="url(#ink)"/>
 
-    <!-- pierna de apoyo -->
-    <path d="M540 150 L560 480" stroke="#d7deef" stroke-width="132" fill="none"/>
-    <path d="M560 480 L545 735" stroke="#ef4a66" stroke-width="100" fill="none"/>
-    <path d="M532 790 L650 796" stroke="#eef1fa" stroke-width="72" fill="none"/>
-    <path d="M520 760 L540 735" stroke="#eef1fa" stroke-width="84" fill="none"/>
+  <!-- brazo medio en azul, continuación de la estela -->
+  <polygon points="616.8,470 742,470 715.8,552 590.6,552" fill="#5b8ff0"/>
 
-    <!-- pantalón -->
-    <path d="M220 40 H660 L640 300 Q560 330 480 290 Q420 320 300 300 Z" fill="#5b8ff0"/>
-  </g>
-
-  <!-- balón -->
-  <circle cx="790" cy="728" r="100" fill="#eef1fa"/>
-  <g fill="#070b18" opacity="0.85">
-    <path d="M790 690 l34 25 -13 40 h-42 l-13 -40 z"/>
-    <path d="M700 700 q10 -40 40 -60 l10 30 -28 34 z"/>
-    <path d="M880 700 q-10 -40 -40 -60 l-10 30 28 34 z"/>
-    <path d="M745 815 q45 15 90 0 l-15 -32 h-60 z"/>
-  </g>
-
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#1b2a55" stroke-width="8"/>
+  <!-- cursor de terminal en rojo blaugrana -->
+  <polygon points="586.2,678 672,678 645.8,760 560,760" fill="#ef4a66"/>
 </svg>

@@ -2,6 +2,7 @@ mod db;
 mod files;
 mod git;
 mod paths;
+mod pty;
 mod watch;
 mod window;
 mod workspace;
@@ -17,6 +18,7 @@ pub(crate) struct AppState {
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     /// Observa el proyecto abierto (recursivo) para refrescar Git y archivos.
     pub project_watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    pub ptys: pty::Ptys,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -39,6 +41,7 @@ pub fn run() {
                 db: Mutex::new(conn),
                 watcher: Mutex::new(None),
                 project_watcher: Mutex::new(None),
+                ptys: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -68,6 +71,10 @@ pub fn run() {
             git::git_branches,
             git::git_switch,
             watch::watch_project,
+            pty::pty_open,
+            pty::pty_write,
+            pty::pty_resize,
+            pty::pty_close,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Filigranas");

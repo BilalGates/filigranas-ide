@@ -36,3 +36,14 @@ export const git = {
   switch: (project: string, branch: string) => invoke<void>('git_switch', { project, branch }),
   watch: (path: string | null) => invoke<void>('watch_project', { path }),
 };
+
+// Terminales. La salida llega por el canal que se pasa al abrir.
+export type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };
+
+export const pty = {
+  open: (project: string, cols: number, rows: number, onEvent: Channel<PtyEvent>) =>
+    invoke<number>('pty_open', { project, cols, rows, onEvent }),
+  write: (id: number, data: string) => invoke<void>('pty_write', { id, data }),
+  resize: (id: number, cols: number, rows: number) => invoke<void>('pty_resize', { id, cols, rows }),
+  close: (id: number) => invoke<void>('pty_close', { id }),
+};

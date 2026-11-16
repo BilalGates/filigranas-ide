@@ -73,7 +73,7 @@ html[data-browser] .sidebar {
 }
 
 body {
-  font-family: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-family: Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
   font-feature-settings: 'calt' 1, 'liga' 0;

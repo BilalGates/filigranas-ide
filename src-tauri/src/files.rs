@@ -20,7 +20,7 @@ pub struct Entry {
 /// Contenido de una carpeta dentro de la raíz: carpetas primero, sin `.git`.
 #[tauri::command]
 pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
-    let root = root_of(&state.db.lock().map_err(err)?)?;
+    let root = root_of(&*state.db.lock().map_err(err)?)?;
     let dir = paths::inside(&root, Path::new(&path))?;
     let mut entries: Vec<Entry> = std::fs::read_dir(&dir)
         .map_err(err)?
@@ -44,7 +44,7 @@ pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
 /// un temporal junto al archivo y lo renombra, para no dejarlo a medias.
 #[tauri::command]
 pub fn write_text(state: State<AppState>, path: String, content: String) -> CmdResult<()> {
-    let root = root_of(&state.db.lock().map_err(err)?)?;
+    let root = root_of(&*state.db.lock().map_err(err)?)?;
     let file = paths::inside(&root, Path::new(&path))?;
     if !file.is_file() {
         return Err("solo se pueden guardar archivos existentes".into());
@@ -61,14 +61,26 @@ pub fn write_text(state: State<AppState>, path: String, content: String) -> CmdR
 /// Lee un archivo de texto dentro de la raíz. Rechaza binarios y archivos grandes.
 #[tauri::command]
 pub fn read_text(state: State<AppState>, path: String) -> CmdResult<String> {
-    let root = root_of(&state.db.lock().map_err(err)?)?;
-    let file = paths::inside(&root, Path::new(&path))?;
-    let meta = std::fs::metadata(&file).map_err(err)?;
+    let root = root_of(&*state.db.lock().map_err(err)?)?;
+    read_file(&paths::inside(&root, Path::new(&path))?)
+}
+
+/// Lee un archivo ya validado. Rechaza binarios y archivos grandes.
+pub(crate) fn read_file(file: &Path) -> CmdResult<String> {
+    let meta = std::fs::metadata(file).map_err(err)?;
     if meta.len() > MAX_TEXT {
         return Err(format!("archivo demasiado grande ({} KB)", meta.len() / 1024));
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
-    std::fs::File::open(&file).map_err(err)?.read_to_end(&mut bytes).map_err(err)?;
+    std::fs::File::open(file).map_err(err)?.read_to_end(&mut bytes).map_err(err)?;
+    text(bytes)
+}
+
+/// Convierte bytes en texto con los mismos límites que el visor.
+pub(crate) fn text(bytes: Vec<u8>) -> CmdResult<String> {
+    if bytes.len() as u64 > MAX_TEXT {
+        return Err(format!("archivo demasiado grande ({} KB)", bytes.len() / 1024));
+    }
     if bytes.iter().take(8192).any(|&b| b == 0) {
         return Err("archivo binario".into());
     }

@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, type Channel } from '@tauri-apps/api/core';
 
 // Contrato tipado con el núcleo en Rust (src-tauri/src). La interfaz no
 // accede al sistema de archivos ni ejecuta comandos por su cuenta.
@@ -20,4 +20,19 @@ export const api = {
   listDir: (path: string) => invoke<Entry[]>('list_dir', { path }),
   readText: (path: string) => invoke<string>('read_text', { path }),
   writeText: (path: string, content: string) => invoke<void>('write_text', { path, content }),
+};
+
+// Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
+export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
+export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
+export type LogRow = { hash: string; parents: string[]; refs: string; subject: string };
+export type DiffTexts = { old: string; new: string };
+
+export const git = {
+  status: (project: string) => invoke<GitStatus>('git_status', { project }),
+  log: (project: string) => invoke<LogRow[]>('git_log', { project }),
+  diffTexts: (project: string, path: string, orig: string | null) => invoke<DiffTexts>('git_diff_texts', { project, path, orig }),
+  branches: (project: string) => invoke<string[]>('git_branches', { project }),
+  switch: (project: string, branch: string) => invoke<void>('git_switch', { project, branch }),
+  watch: (path: string | null) => invoke<void>('watch_project', { path }),
 };

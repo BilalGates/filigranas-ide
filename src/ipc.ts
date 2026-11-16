@@ -47,3 +47,57 @@ export const pty = {
   resize: (id: number, cols: number, rows: number) => invoke<void>('pty_resize', { id, cols, rows }),
   close: (id: number) => invoke<void>('pty_close', { id }),
 };
+
+// Coordinador (Codex app-server). Tipos reducidos a lo que se pinta.
+export type CItem = {
+  id: string;
+  type: string;
+  text?: string;
+  content?: { type: string; text?: string }[];
+  summary?: string[];
+  command?: string;
+  status?: string;
+  aggregatedOutput?: string | null;
+  exitCode?: number | null;
+  changes?: { path: string; kind: { type: string } }[];
+  server?: string;
+  tool?: string;
+};
+export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
+export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
+export type RateLimits = { primary: RateWindow | null; secondary: RateWindow | null; rateLimitReachedType: string | null };
+export type Opened = {
+  threadId: string;
+  profile: string;
+  model: string | null;
+  effort: string | null;
+  efforts: string[];
+  turns: CTurn[];
+  rateLimits: RateLimits | null;
+  activeTurn: string | null;
+};
+export type CoordinatorEvent = { method: string; params: any; requestId: unknown | null };
+export type Decision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
+
+export const coordinator = {
+  open: (project: string) => invoke<Opened>('coordinator_open', { project }),
+  send: (project: string, text: string, effort: string | null) => invoke<void>('coordinator_send', { project, text, effort }),
+  interrupt: (project: string) => invoke<void>('coordinator_interrupt', { project }),
+  respond: (requestId: unknown, decision: Decision) => invoke<void>('coordinator_respond', { requestId, decision }),
+  setProfile: (project: string, profile: string) => invoke<void>('coordinator_set_profile', { project, profile }),
+};
+
+// Sesiones de agentes ejecutores (Claude Code en este tramo). Los mensajes
+// llegan tal como los emite el motor; Session.tsx los traduce.
+export type Session = { id: number; project: string; engine: string; name: string; providerSession: string; effort: string | null };
+export type SessionEvent = { id: number; msg: any };
+
+export const sessions = {
+  list: (project: string) => invoke<Session[]>('session_list', { project }),
+  create: (project: string, engine: string) => invoke<Session>('session_create', { project, engine }),
+  history: (id: number) => invoke<any[]>('session_history', { id }),
+  send: (id: number, text: string, effort: string | null) => invoke<void>('session_send', { id, text, effort }),
+  interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
+  respond: (requestId: string, decision: Decision) => invoke<void>('session_respond', { requestId, decision }),
+  close: (id: number) => invoke<void>('session_close', { id }),
+};

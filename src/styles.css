@@ -19,6 +19,8 @@
   --blue: #5b8ff0;
   --gold: #edbb00;
   --sel: rgba(120, 150, 255, 0.08);
+  --add: #6fcf97;
+  --del: #ef6b7f;
 }
 
 @media (prefers-color-scheme: light) {
@@ -39,6 +41,8 @@
     --blue: #1f4fb5;
     --gold: #7d6100;
     --sel: rgba(20, 50, 160, 0.06);
+    --add: #22784a;
+    --del: #b5123a;
   }
 }
 
@@ -140,6 +144,10 @@ input::placeholder {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
   grid-template-rows: 40px minmax(0, 1fr) 24px;
+}
+
+.app.has-git {
+  grid-template-columns: 232px minmax(0, 1fr) 280px;
 }
 
 .sidebar {
@@ -568,4 +576,180 @@ input::placeholder {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Control de versiones */
+.git {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  padding: 0 16px 14px;
+  background: var(--pane);
+  border-left: 1px solid var(--hair);
+}
+
+.git-top {
+  height: 26px;
+  flex: none;
+  margin-bottom: -6px;
+}
+
+.git-branch {
+  max-width: 100%;
+  margin-left: -4px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--tx);
+  font: inherit;
+}
+
+.git-branch:hover:not(:disabled) {
+  background: var(--sel);
+}
+
+.git-branch:focus-visible {
+  outline: 1px solid var(--blue);
+}
+
+.git-sub,
+.git-label {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.git-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: var(--mute);
+}
+
+.git-error {
+  color: var(--ac);
+  overflow-wrap: anywhere;
+}
+
+.git-change {
+  display: flex;
+  gap: 8px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.git-change:hover,
+.git-change.is-selected {
+  background: var(--sel);
+}
+
+.git-path,
+.git-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add {
+  color: var(--add);
+}
+
+.del {
+  color: var(--del);
+}
+
+.git-commits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--hair2);
+}
+
+.git-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-top: -10px;
+}
+
+.git-log-body {
+  position: relative;
+}
+
+.git-graph-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.git-row {
+  display: flex;
+  position: relative;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  line-height: 24px;
+  white-space: pre;
+}
+
+.git-graph {
+  flex: none;
+}
+
+.git-row:has(.git-hash):hover {
+  background: var(--sel);
+}
+
+.git-row:has(.git-hash):hover .git-subject {
+  color: var(--tx);
+}
+
+.git-hash {
+  flex: none;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.git-subject {
+  color: var(--mute);
+}
+
+/* Ramas y tags como etiquetas con filete; la rama de HEAD lleva el acento. */
+.git-ref {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--hair2);
+  color: var(--tx);
+  font-size: 11px;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+
+.git-ref.is-head {
+  background: color-mix(in srgb, var(--ac) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ac) 55%, transparent);
+}
+
+.git-ref.is-remote {
+  color: var(--dim);
+}
+
+.git-ref.is-tag {
+  color: var(--gold);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 45%, transparent);
 }

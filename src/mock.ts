@@ -132,6 +132,29 @@ mockIPC(
         if (!(rel(a.path) in files)) fail('solo se pueden guardar archivos existentes');
         files[rel(a.path)] = a.content;
         return null;
+      case 'git_status':
+        return {
+          branch: 'main',
+          head: '84ab176',
+          upstream: 'origin/main',
+          ahead: 1,
+          behind: 0,
+          changes: rel(a.project) === 'bitacola' ? [{ path: 'src/lib/autonomy.ts', orig: null, status: 'M', adds: 3, dels: 1 }] : [],
+        };
+      case 'git_log':
+        return [
+          { hash: '9af2c5a', parents: ['6c4e902'], refs: 'HEAD -> main, origin/main', subject: 'valida antes de encolar' },
+          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'tests de la cola' },
+          { hash: '6c4e902', parents: [], refs: '', subject: 'cola con reintentos' },
+        ];
+      case 'git_diff_texts': {
+        const now = files[`${rel(a.project)}/${a.path}`] ?? '';
+        return { old: now.replace('// valida antes de encolar\n', ''), new: now };
+      }
+      case 'git_branches':
+        return ['ide/tests-e27', 'main'];
+      case 'git_switch':
+        return a.branch === 'main' ? null : fail('tus cambios locales se sobrescribirían al cambiar de rama');
       case 'plugin:dialog|open':
         return ROOT;
       default:

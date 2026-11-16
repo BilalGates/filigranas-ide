@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- fondo: negro azulado con brillo metálico arriba -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#18213f"/>
+      <stop offset="0.45" stop-color="#0a0f22"/>
+      <stop offset="1" stop-color="#05070f"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fa2d8" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#2a3866" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#2a3866" stop-opacity="0.15"/>
+    </linearGradient>
+    <!-- estela de velocidad azul que se desvanece hacia la izquierda -->
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5b8ff0" stop-opacity="0"/>
+      <stop offset="1" stop-color="#5b8ff0" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9dfef"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="68" y="68" width="888" height="888" rx="196" fill="none" stroke="url(#edge)" stroke-width="8"/>
+
+  <!-- estela azul a la altura del brazo medio -->
+  <polygon points="200,470 470,470 444,552 174,552" fill="url(#trail)"/>
+
+  <!-- F en cursiva: palo y brazo superior en una sola pieza -->
+  <polygon points="392,760 546,280 806,280 776.6,372 620.2,372 496,760" fill="url(#ink)"/>
+
+  <!-- brazo medio en azul, continuación de la estela -->
+  <polygon points="616.8,470 742,470 715.8,552 590.6,552" fill="#5b8ff0"/>
+
+  <!-- cursor de terminal en rojo blaugrana -->
+  <polygon points="586.2,678 672,678 645.8,760 560,760" fill="#ef4a66"/>
+</svg>

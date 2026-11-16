@@ -32,7 +32,11 @@ function theme(): ITheme {
  * Sigue vivo mientras está oculto (al cambiar de proyecto) y termina al
  * desmontarse. Si el shell sale, se puede abrir otro con Intro.
  */
-export default function Terminal({ project, hidden }: { project: string; hidden: boolean }) {
+type Props = { project: string; agentSession?: number | null; hidden: boolean; /** Orden que se escribe al abrir (p. ej. un inicio de sesión). */ initial?: string };
+
+export default function Terminal({ project, agentSession = null, hidden, initial }: Props) {
+  // Solo la primera sesión del terminal recibe la orden inicial.
+  const pendingInitial = useRef(initial);
   const host = useRef<HTMLDivElement>(null);
   const fit = useRef<FitAddon | null>(null);
   const terminal = useRef<XTerm | null>(null);
@@ -66,10 +70,14 @@ export default function Terminal({ project, hidden }: { project: string; hidden:
         setExited(true);
       }
     };
-    pty.open(project, term.cols, term.rows, channel).then(
+    pty.open(project, agentSession, term.cols, term.rows, channel).then(
       (pid) => {
-        if (alive) id = pid;
-        else void pty.close(pid);
+        if (!alive) return void pty.close(pid);
+        id = pid;
+        if (pendingInitial.current) {
+          void pty.write(pid, pendingInitial.current + '\r');
+          pendingInitial.current = undefined;
+        }
       },
       (e) => term.write(`\x1b[31m${String(e)}\x1b[0m\r\n`),
     );
@@ -93,7 +101,7 @@ export default function Terminal({ project, hidden }: { project: string; hidden:
       fit.current = null;
       terminal.current = null;
     };
-  }, [project, session]);
+  }, [project, session, agentSession]);
 
   // Al volver a mostrarse puede haber cambiado el tamaño disponible.
   useEffect(() => {

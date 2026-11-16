@@ -9,7 +9,7 @@ import { darkQuery, loadMonaco, themeName } from './monacoLoader';
  * punto dorado los cambios sin guardar. Un modelo por archivo: al volver a
  * un archivo se conserva su deshacer mientras la app siga abierta.
  */
-export default function Editor({ path, root, onError }: { path: string; root: string; onError: (msg: string) => void }) {
+export default function Editor({ path, root, session = null, onError }: { path: string; root: string; session?: number | null; onError: (msg: string) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const saved = useRef<number>(0);
@@ -39,7 +39,7 @@ export default function Editor({ path, root, onError }: { path: string; root: st
   useEffect(() => {
     let alive = true;
     setError(null);
-    Promise.all([loadMonaco(), api.readText(path)]).then(
+    Promise.all([loadMonaco(), api.readText(path, session)]).then(
       ([{ monaco, languageFor }, text]) => {
         if (!alive) return;
         const uri = monaco.Uri.file(path);
@@ -65,7 +65,7 @@ export default function Editor({ path, root, onError }: { path: string; root: st
             const version = model!.getAlternativeVersionId();
             const content = model!.getValue();
             try {
-              await api.writeText(path, content);
+              await api.writeText(path, content, session);
               disk = content;
               saved.current = version;
               setDirty(model!.getAlternativeVersionId() !== version);
@@ -82,7 +82,7 @@ export default function Editor({ path, root, onError }: { path: string; root: st
         let disk = text;
         let timer: number | undefined;
         const reload = () =>
-          api.readText(path).then(
+          api.readText(path, session).then(
             (now) => {
               if (!alive || now === disk) return;
               disk = now;
@@ -99,10 +99,18 @@ export default function Editor({ path, root, onError }: { path: string; root: st
             },
             () => {}, // borrado o ilegible: se mantiene lo que hay en pantalla
           );
-        const unlisten = listen('project-changed', () => {
+        const later = () => {
           window.clearTimeout(timer);
           timer = window.setTimeout(reload, 300);
-        });
+        };
+        // Archivos de una sesión: su carpeta no se observa; se relee cuando
+        // el agente termina un turno.
+        const unlisten =
+          session == null
+            ? listen('project-changed', later)
+            : listen<{ id: number; msg: any }>('session', ({ payload }) => {
+                if (payload.id === session && ['result', 'turn_end'].includes(payload.msg?.type)) later();
+              });
         cleanup = () => {
           window.clearTimeout(timer);
           unlisten.then((off) => off());
@@ -117,7 +125,7 @@ export default function Editor({ path, root, onError }: { path: string; root: st
       alive = false;
       cleanup();
     };
-  }, [path]);
+  }, [path, session]);
 
   const rel = root && path.startsWith(root) ? path.slice(root.length + 1) : path;
   const sep = rel.search(/[^\\/]*$/);

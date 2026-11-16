@@ -184,6 +184,25 @@ fn thread_params(cwd: &str, profile: &str) -> Value {
 
 /// PATH del shell de login del usuario. Una app abierta desde el Finder
 /// hereda un PATH mínimo en el que no están `codex` ni `node`.
+/// Programa externo listo para lanzar. En Windows, `Command` solo busca
+/// `.exe` en el PATH y las CLI instaladas con npm son `.cmd`: se resuelve la
+/// ruta completa a mano. En macOS basta el nombre con el PATH de login.
+pub(crate) fn program(name: &str) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let path = login_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+        for dir in std::env::split_paths(&path) {
+            for ext in ["exe", "cmd", "bat"] {
+                let candidate = dir.join(format!("{name}.{ext}"));
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+    }
+    std::path::PathBuf::from(name)
+}
+
 pub(crate) fn login_path() -> Option<&'static str> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| {
@@ -215,6 +234,8 @@ struct Shared {
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
     approvals: HashSet<String>,
+    /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
+    waiters: HashMap<String, Sender<(String, Value)>>,
 }
 
 #[derive(Default)]
@@ -232,6 +253,51 @@ struct Event {
 }
 
 impl Codex {
+    /// Turno único en un hilo efímero de solo lectura, con salida JSON según
+    /// `schema`. Devuelve el texto final del agente. Para tareas internas
+    /// del IDE como proponer commits.
+    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str) -> CmdResult<String> {
+        let rpc = self.rpc(app)?;
+        let res = rpc.request(
+            "thread/start",
+            json!({ "cwd": cwd, "sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions, "ephemeral": true }),
+            LONG,
+        )?;
+        let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        let (tx, rx) = channel();
+        self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let result = (|| {
+            rpc.request(
+                "turn/start",
+                json!({ "threadId": thread, "effort": effort, "outputSchema": schema, "input": [{ "type": "text", "text": prompt, "text_elements": [] }] }),
+                LONG,
+            )?;
+            let mut last = String::new();
+            loop {
+                let (method, params) = rx.recv_timeout(Duration::from_secs(600)).map_err(|_| "codex no terminó a tiempo".to_string())?;
+                match method.as_str() {
+                    "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
+                        last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
+                    }
+                    "turn/completed" => {
+                        if let Some(e) = params.pointer("/turn/error/message").and_then(Value::as_str) {
+                            return Err(e.to_string());
+                        }
+                        return Ok(last);
+                    }
+                    _ => {}
+                }
+            }
+        })();
+        self.shared.lock().map_err(err)?.waiters.remove(&thread);
+        result
+    }
+
+    /// El proceso en marcha, sin arrancar otro.
+    pub fn current(&self) -> Option<Arc<Rpc>> {
+        self.server.lock().ok()?.as_ref().filter(|s| s.rpc.alive()).map(|s| s.rpc.clone())
+    }
+
     /// El proceso en marcha, o uno nuevo si no hay o terminó.
     fn rpc(&self, app: &AppHandle) -> CmdResult<Arc<Rpc>> {
         let mut slot = self.server.lock().map_err(err)?;
@@ -244,7 +310,7 @@ impl Codex {
             let _ = old.child.kill();
             let _ = old.child.wait();
         }
-        let mut cmd = Command::new("codex");
+        let mut cmd = Command::new(program("codex"));
         cmd.arg("app-server").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
@@ -264,6 +330,10 @@ impl Codex {
             let event = match msg {
                 Incoming::Notification { method, params } => {
                     let thread = params.get("threadId").and_then(Value::as_str).unwrap_or("").to_string();
+                    if let Some(tx) = sh.waiters.get(&thread) {
+                        let _ = tx.send((method.clone(), params.clone()));
+                        return; // hilo interno: no va a la interfaz
+                    }
                     match method.as_str() {
                         "turn/started" => {
                             if let Some(turn) = params.pointer("/turn/id").and_then(Value::as_str) {
@@ -285,6 +355,23 @@ impl Codex {
                     Event { method, params, request_id: None }
                 }
                 Incoming::Request { id, method, params } => {
+                    if method == "item/tool/call" {
+                        // Herramientas del coordinador; pueden esperar minutos.
+                        let app = handle.clone();
+                        std::thread::spawn(move || {
+                            let thread = params["threadId"].as_str().unwrap_or("");
+                            let tool = params["tool"].as_str().unwrap_or("");
+                            let (text, success) = match crate::delegate::handle(&app, thread, tool, &params["arguments"]) {
+                                Ok(text) => (text, true),
+                                Err(e) => (format!("error: {e}"), false),
+                            };
+                            let response = json!({ "contentItems": [{ "type": "inputText", "text": text }], "success": success });
+                            if let Some(rpc) = app.state::<AppState>().codex.current() {
+                                let _ = rpc.respond(id, response);
+                            }
+                        });
+                        return;
+                    }
                     if !APPROVALS.contains(&method.as_str()) {
                         // Sin soporte todavía: contestar para que Codex no espere.
                         let _ = rpc.respond_error(id, "Filigranas no admite esta petición todavía");
@@ -306,7 +393,7 @@ impl Codex {
             "initialize",
             json!({
                 "clientInfo": { "name": "filigranas", "title": "Filigranas", "version": env!("CARGO_PKG_VERSION") },
-                "capabilities": { "experimentalApi": false, "requestAttestation": false },
+                "capabilities": { "experimentalApi": true, "requestAttestation": false },
             }),
             SHORT,
         );
@@ -323,8 +410,11 @@ impl Codex {
     /// respuesta de `thread/resume` o `thread/start` si hubo que pedirla.
     fn thread(&self, app: &AppHandle, state: &AppState, path: &str, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
         let (saved, profile) = db::coordinator(&*state.db.lock().map_err(err)?, path).map_err(err)?;
+        let tools = db::coordinator_tools(&*state.db.lock().map_err(err)?, path).map_err(err)?;
         let rpc = self.rpc(app)?;
-        if let Some(id) = &saved {
+        // Las herramientas solo se fijan al crear el hilo: uno anterior a la
+        // versión actual se sustituye (su conversación sigue en Codex).
+        if let Some(id) = saved.as_ref().filter(|_| tools == crate::delegate::TOOLS_VERSION) {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
@@ -336,9 +426,11 @@ impl Codex {
             }
             // Un hilo sin turnos no llega a guardarse en disco: empezar otro.
         }
-        let res = rpc.request("thread/start", thread_params(path, &profile), LONG)?;
+        let mut params = thread_params(path, &profile);
+        params["dynamicTools"] = crate::delegate::specs();
+        let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
-        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(&id)).map_err(err)?;
+        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(&id), crate::delegate::TOOLS_VERSION).map_err(err)?;
         self.shared.lock().map_err(err)?.loaded.insert(id.clone());
         Ok((rpc, id, Some(res)))
     }

@@ -53,7 +53,7 @@ let nextGroup = 5;
 let nextPty = 1;
 let coachProfile = 'hansi';
 let nextSession = 1;
-const mockSessions: { id: number; project: string; engine: string; name: string; providerSession: string; effort: string | null }[] = [];
+const mockSessions: any[] = [];
 let sessionAnswer: ((decision: string) => void) | null = null;
 let pendingApproval: ((decision: string) => void) | null = null;
 const ptys = new Map<number, (data: string) => void>();
@@ -183,12 +183,27 @@ mockIPC(
       case 'session_list':
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
-        if (a.engine !== 'claude') fail(`el motor «${a.engine}» todavía no está disponible`);
         const used = mockSessions.filter((x) => x.project === a.project).map((x) => x.name);
         const name = ['xavi', 'iniesta', 'puyol', 'messi'].find((n) => !used.includes(n)) ?? 'kubala';
-        const created = { id: nextSession++, project: a.project, engine: 'claude', name, providerSession: crypto.randomUUID(), effort: null };
+        const id = nextSession++;
+        const created = {
+          id,
+          project: a.project,
+          engine: a.engine,
+          name,
+          providerSession: crypto.randomUUID(),
+          effort: null,
+          worktree: `/Users/demo/Library/Application Support/filigranas/worktrees/${rel(a.project)}/${name}-${id}`,
+          branch: `ide/${name}-${id}`,
+          base: 'main',
+          baseCommit: '84ab176',
+          integrated: null,
+          task: null,
+          handoffFrom: null,
+          paused: null,
+        };
         mockSessions.push(created);
-        return created;
+        return { ...created, notice: rel(a.project) === 'bitacola' ? `${name} parte del último commit de main: los cambios sin commit del proyecto no están en su rama` : null };
       }
       case 'session_history':
         return [];
@@ -200,6 +215,60 @@ mockIPC(
         return null;
       case 'session_interrupt':
         return null;
+      case 'session_changes':
+        return { branch: 'ide/demo', head: '84ab176', upstream: null, ahead: 0, behind: 0, changes: [{ path: 'src/lib/autonomy.ts', orig: null, status: 'M', adds: 4, dels: 1 }] };
+      case 'session_diff_texts': {
+        const now = files['bitacola/src/lib/autonomy.ts'] ?? '';
+        return { old: now, new: now.replace('// valida antes de encolar\n', '// valida antes de encolar (política obligatoria)\n') };
+      }
+      case 'session_integrate':
+        return ['src/lib/autonomy.ts'];
+      case 'session_integrate_merging':
+        return { files: ['src/lib/autonomy.ts'], conflicts: [] };
+      case 'session_cleanup':
+        mockSessions.splice(mockSessions.findIndex((x) => x.id === a.id), 1);
+        void emit('sessions-changed', { project: mockSessions[0]?.project ?? `${ROOT}/bitacola` });
+        return null;
+      case 'session_pause':
+        void emit('session', { id: a.id, msg: { type: 'paused', reason: 'pausa manual' } });
+        return null;
+      case 'session_resume':
+        void demoSession(a.id);
+        return null;
+      case 'session_handoff': {
+        const from = mockSessions.find((x) => x.id === a.id);
+        const used = mockSessions.filter((x) => x.project === from.project).map((x) => x.name);
+        const name = ['xavi', 'iniesta', 'puyol', 'messi', 'busquets'].find((n) => !used.includes(n)) ?? 'kubala';
+        const to = { ...from, id: nextSession++, engine: a.engine, name, providerSession: '', handoffFrom: from.id, paused: null };
+        mockSessions.splice(mockSessions.indexOf(from), 1, to);
+        void emit('sessions-changed', { project: from.project, focus: to.id });
+        return to;
+      }
+      case 'session_orphans':
+        return rel(a.project) === 'bitacola'
+          ? [
+              {
+                id: 90,
+                project: a.project,
+                engine: 'opencode',
+                name: 'puyol',
+                providerSession: 'ses_demo',
+                effort: null,
+                worktree: '/Users/demo/Library/Application Support/filigranas/worktrees/bitacola/puyol-90',
+                branch: 'ide/puyol-90',
+                base: 'main',
+                baseCommit: '84ab176',
+                integrated: null,
+                task: 'Encargo del coordinador del proyecto:\n\nAñade reintentos con espera exponencial a la cola.',
+                handoffFrom: null,
+                paused: null,
+              },
+            ]
+          : [];
+      case 'session_reopen':
+        return null;
+      case 'session_set_option':
+        return [{ id: 'model', name: 'Model', category: 'model', currentValue: a.value, options: [{ value: 'opencode/big-pickle', name: 'Big Pickle (gratis)' }, { value: 'openai/gpt-5', name: 'GPT-5' }] }];
       case 'session_close':
         mockSessions.splice(mockSessions.findIndex((x) => x.id === a.id), 1);
         return null;
@@ -225,6 +294,41 @@ mockIPC(
       case 'coordinator_set_profile':
         coachProfile = a.profile;
         return null;
+      case 'larry_propose':
+        return {
+          branch: 'main',
+          commits: [{ message: 'fix(lib): valida la política antes de encolar', files: ['src/lib/autonomy.ts'] }],
+          notes: null,
+          fallback: false,
+        };
+      case 'larry_commit':
+        return { created: ['9af2c5b fix(lib): valida la política antes de encolar'], stopped: null };
+      case 'pr_draft':
+        return {
+          branch: 'feat/autonomia',
+          bases: ['main', 'develop'],
+          base: a.base ?? 'main',
+          title: 'fix(lib): valida la política antes de encolar',
+          body: '## Cambios\n\n- fix(lib): valida la política antes de encolar\n\n## Pruebas\n\n- [ ] (describe cómo se ha comprobado)\n',
+          commits: ['fix(lib): valida la política antes de encolar'],
+          dirty: false,
+          existing: null,
+          blocked: null,
+        };
+      case 'pr_publish':
+        return { url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.draftPr, checks: [2, 0, 1] };
+      case 'open_pr_url':
+        return null;
+      case 'tools_status':
+        return [
+          { id: 'codex', name: 'Codex', role: 'coordinador y Larry', installed: true, loggedIn: true, detail: 'codex-cli 0.169.0', login: 'codex login' },
+          { id: 'claude', name: 'Claude Code', role: 'agente ejecutor', installed: true, loggedIn: true, detail: '2.1.325 (Claude Code)', login: 'claude auth login' },
+          { id: 'opencode', name: 'OpenCode', role: 'agente ejecutor', installed: true, loggedIn: false, detail: '0 credentials', login: 'opencode auth login' },
+          { id: 'agy', name: 'Antigravity', role: 'agente ejecutor', installed: true, loggedIn: null, detail: '1.5.9', login: 'agy' },
+          { id: 'devin', name: 'Devin', role: 'agente ejecutor', installed: false, loggedIn: null, detail: 'no está instalada o no está en el PATH', login: 'devin auth login' },
+          { id: 'gh', name: 'GitHub CLI', role: 'publicar ramas y PR', installed: true, loggedIn: true, detail: 'gh version 2.101.0', login: 'gh auth login' },
+          { id: 'node', name: 'Node.js', role: 'agrupar commits (Larry)', installed: true, loggedIn: null, detail: 'v26.0.0', login: null },
+        ];
       case 'plugin:dialog|open':
         return ROOT;
       default:

@@ -1249,3 +1249,280 @@ button.co-file:hover {
 .co-tool {
   font-size: 12px;
 }
+
+/* Rama aislada de una sesión */
+.co-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 6px 16px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.co-branch .push {
+  flex: 1;
+}
+
+.co-branch .co-btn {
+  padding: 2px 8px;
+}
+
+.co-link {
+  color: var(--blue);
+}
+
+.co-link:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+.co-link:focus-visible {
+  outline: 1px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.co-changes {
+  flex: none;
+  max-height: 180px;
+  overflow: auto;
+  padding: 6px 16px 8px 22px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.co-notice {
+  color: var(--add);
+  overflow-wrap: anywhere;
+}
+
+.co-head .push {
+  flex: 1;
+}
+
+.co-state.is-en-pausa {
+  color: var(--gold);
+}
+
+.co-paused {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 6px 16px;
+  font-size: 11px;
+  color: var(--gold);
+  border-bottom: 1px solid var(--hair);
+  overflow-wrap: anywhere;
+}
+
+/* Larry */
+.larry-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 80ch;
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--hair2);
+}
+
+.larry-commit textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--sel);
+  color: var(--tx);
+  font: inherit;
+}
+
+.larry-commit textarea:focus-visible {
+  outline: 1px solid var(--blue);
+}
+
+.larry-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding-left: 6px;
+}
+
+.larry .co-compose-bar {
+  margin-top: 0;
+}
+
+/* Publicar */
+.pub-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 80ch;
+  font-size: 12px;
+}
+
+.pub-field input,
+.pub-field textarea,
+.pub-field select {
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--sel);
+  color: var(--tx);
+  font: inherit;
+}
+
+.pub-field textarea {
+  resize: vertical;
+}
+
+.pub-field :focus-visible {
+  outline: 1px solid var(--blue);
+}
+
+.pub-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+/* Ramas sin integrar */
+.git-pending {
+  align-self: flex-start;
+  margin-top: -8px;
+  font-size: 11px;
+  color: var(--gold);
+}
+
+.git-pending:hover {
+  text-decoration: underline;
+}
+
+.pending-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 90ch;
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--hair2);
+}
+
+.pending-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.pending-task {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-row .co-changes {
+  border: 0;
+  padding: 0 0 0 6px;
+}
+
+.pending-row .co-actions {
+  margin-top: 2px;
+}
+
+/* Herramientas */
+.status-warn {
+  color: var(--gold);
+}
+
+.tool-row {
+  display: grid;
+  grid-template-columns: 8px 110px 170px 200px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  max-width: 110ch;
+  font-size: 12px;
+}
+
+.tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.tool-dot.is-ok {
+  background: var(--add);
+}
+
+.tool-dot.is-sin-sesión,
+.tool-dot.is-falta {
+  background: var(--gold);
+}
+
+.tool-state.is-sin-sesión,
+.tool-state.is-falta {
+  color: var(--gold);
+}
+
+.tool-state.is-ok {
+  color: var(--add);
+}
+
+.tool-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.co-change-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.co-change-row .git-change {
+  flex: 1;
+  min-width: 0;
+}
+
+.co-change-row .co-link {
+  font-size: 11px;
+}
+
+.co-head .push + .co-quota {
+  margin-left: 0;
+}
+
+.co-option {
+  max-width: 220px;
+  color: var(--dim);
+}
+
+/* Conflictos */
+.conflict-file {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conflict-block {
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--gold);
+}
+
+.conflict-sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.conflict-sides .co-code {
+  margin: 0;
+}

@@ -23,4 +23,12 @@ Preferencias (no obligatorias; explica cualquier desvío):
 | Diseño visual o perspectiva alternativa | Antigravity con Gemini | alto |
 | Revisión crítica | Codex o Claude Code, distinto del autor | alto; máximo para seguridad |
 
-**Estado actual de la aplicación:** todavía no puedes abrir sesiones de otros agentes desde el IDE. Haz tú el trabajo cuando sea razonable. Si la tabla aconseja otro agente, dilo en una línea («esto lo delegaría en Claude Code porque…») y continúa, salvo que el usuario prefiera esperar.
+## Cómo delegas
+
+Tienes tres herramientas del IDE:
+
+- `delegar`: crea una sesión de un agente (claude, opencode, agy o devin) en este proyecto y le envía la tarea. Escribe tareas autocontenidas: objetivo, archivos relevantes, restricciones y cómo comprobar que está hecha. Cada sesión recibe el nombre de un futbolista y aparece como pestaña para el usuario.
+- `estado_sesiones`: estado de las sesiones abiertas y su última respuesta.
+- `esperar_sesion`: espera a que una sesión termine el turno y devuelve su respuesta.
+
+Antes de delegar, explica en una línea a quién y por qué. Haz tú mismo las consultas y los cambios triviales. Los agentes trabajan en la misma carpeta que tú: no delegues a la vez dos tareas que toquen los mismos archivos, y no edites tú lo que otro agente está cambiando. Si un agente espera un permiso, avisa al usuario de que lo apruebe en la pestaña de esa sesión. Cuando una sesión termine, comprueba el resultado (diff, comandos, pruebas) antes de darlo por bueno.

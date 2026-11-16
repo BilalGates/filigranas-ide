@@ -163,6 +163,22 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
           ))}
         </div>
       );
+    case 'dynamicToolCall': {
+      const args = it.arguments ?? {};
+      const what =
+        it.tool === 'delegar' ? `delegar en ${args.agente}: ${String(args.tarea ?? '').split('\n')[0]}` : it.tool === 'esperar_sesion' ? `esperar a ${args.sesion}` : (it.tool ?? '');
+      const output = (it.contentItems ?? []).map((c) => c.text ?? '').join('\n');
+      const status = it.success === false ? 'failed' : it.status;
+      return (
+        <details className="co-cmd">
+          <summary>
+            <span className={`co-status is-${status}`}>{status === 'inProgress' ? '…' : status === 'failed' ? '!' : '✓'}</span>
+            <span className="co-cmd-line">{what}</span>
+          </summary>
+          {output && <Prose text={output} />}
+        </details>
+      );
+    }
     case 'mcpToolCall':
       return (
         <div className="co-aside co-tool">

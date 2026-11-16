@@ -43,8 +43,8 @@ pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
 /// nuevos: eso llegará con acciones explícitas del árbol. Escribe primero en
 /// un temporal junto al archivo y lo renombra, para no dejarlo a medias.
 #[tauri::command]
-pub fn write_text(state: State<AppState>, path: String, content: String) -> CmdResult<()> {
-    let root = root_of(&*state.db.lock().map_err(err)?)?;
+pub fn write_text(state: State<AppState>, path: String, content: String, session: Option<i64>) -> CmdResult<()> {
+    let root = root_for(&state, session)?;
     let file = paths::inside(&root, Path::new(&path))?;
     if !file.is_file() {
         return Err("solo se pueden guardar archivos existentes".into());
@@ -60,9 +60,21 @@ pub fn write_text(state: State<AppState>, path: String, content: String) -> CmdR
 
 /// Lee un archivo de texto dentro de la raíz. Rechaza binarios y archivos grandes.
 #[tauri::command]
-pub fn read_text(state: State<AppState>, path: String) -> CmdResult<String> {
-    let root = root_of(&*state.db.lock().map_err(err)?)?;
-    read_file(&paths::inside(&root, Path::new(&path))?)
+pub fn read_text(state: State<AppState>, path: String, session: Option<i64>) -> CmdResult<String> {
+    read_file(&paths::inside(&root_for(&state, session)?, Path::new(&path))?)
+}
+
+/// Carpeta dentro de la que se puede leer o escribir: la de proyectos o, para
+/// los archivos de una sesión aislada, su worktree (registrado por el IDE).
+fn root_for(state: &AppState, session: Option<i64>) -> CmdResult<std::path::PathBuf> {
+    let conn = state.db.lock().map_err(err)?;
+    match session {
+        None => root_of(&conn),
+        Some(id) => {
+            let s = crate::db::session_any(&conn, id).map_err(err)?.ok_or("la sesión no existe")?;
+            Ok(std::path::PathBuf::from(s.worktree.ok_or("la sesión no tiene rama propia")?))
+        }
+    }
 }
 
 /// Lee un archivo ya validado. Rechaza binarios y archivos grandes.

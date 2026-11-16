@@ -74,8 +74,27 @@ fn size(cols: u16, rows: u16) -> PtySize {
 
 /// Abre un terminal en el proyecto y devuelve su identificador.
 #[tauri::command]
-pub fn pty_open(app: AppHandle, state: State<AppState>, project: String, cols: u16, rows: u16, on_event: Channel<PtyEvent>) -> CmdResult<u32> {
+pub fn pty_open(
+    app: AppHandle,
+    state: State<AppState>,
+    project: String,
+    session: Option<i64>,
+    cols: u16,
+    rows: u16,
+    on_event: Channel<PtyEvent>,
+) -> CmdResult<u32> {
     let dir = project_path(&*state.db.lock().map_err(err)?, &project)?;
+    // Terminal de una sesión aislada: en su worktree (registrado por el IDE).
+    let dir = match session {
+        Some(id) => {
+            let s = crate::claude::open_session(&state, id)?;
+            if s.project != dir {
+                return Err("la sesión no es de este proyecto".into());
+            }
+            s.worktree.ok_or("la sesión no tiene worktree propio")?
+        }
+        None => dir,
+    };
     let pair = native_pty_system().openpty(size(cols, rows)).map_err(err)?;
     // El shell por defecto como shell de login, para que tenga el PATH del
     // perfil del usuario aunque la app se abra desde el Finder.

@@ -101,6 +101,28 @@ Una tarea no está terminada hasta que el diff, los comandos y las pruebas lo de
 }
 
 impl Claude {
+    /// Pide a Claude Code que corte el turno en curso.
+    pub fn interrupt(&self, id: i64) -> CmdResult<()> {
+        let procs = self.procs.lock().map_err(err)?;
+        let p = procs.get(&id).filter(|p| p.alive.load(Ordering::SeqCst)).ok_or("la sesión no está en marcha")?;
+        write_line(&p.stdin, &json!({ "type": "control_request", "request_id": uuid::Uuid::new_v4().to_string(), "request": { "subtype": "interrupt" } }))
+    }
+
+    /// Termina el proceso de la sesión y olvida sus permisos pendientes.
+    pub fn forget(&self, id: i64) {
+        if let Ok(mut procs) = self.procs.lock() {
+            procs.remove(&id);
+        }
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.retain(|_, (sid, _)| *sid != id);
+        }
+    }
+
+    /// Permisos sin contestar de una sesión.
+    pub fn pending_for(&self, id: i64) -> usize {
+        self.pending.lock().map(|p| p.values().filter(|(sid, _)| *sid == id).count()).unwrap_or(0)
+    }
+
     /// Proceso de la sesión con el esfuerzo pedido. Si el esfuerzo cambia,
     /// se reinicia reanudando la misma conversación.
     fn proc(&self, app: &AppHandle, session: &db::Session, effort: Option<&str>) -> CmdResult<Arc<Mutex<ChildStdin>>> {
@@ -112,7 +134,7 @@ impl Claude {
         }
         procs.remove(&session.id); // termina el anterior (Drop)
 
-        let mut cmd = Command::new("claude");
+        let mut cmd = Command::new(crate::codex::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
             .args(["--append-system-prompt", &system_prompt(&session.name)]);
@@ -124,7 +146,7 @@ impl Claude {
         if let Some(e) = effort {
             cmd.args(["--effort", e]);
         }
-        cmd.current_dir(&session.project).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        cmd.current_dir(session.cwd()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
         }
@@ -156,6 +178,18 @@ impl Claude {
                         p.insert(request_id, (id, msg["request"].clone()));
                     }
                 }
+                if msg["type"] == json!("rate_limit_event") && msg.pointer("/rate_limit_info/status") == Some(&json!("rejected")) {
+                    let window = msg.pointer("/rate_limit_info/rateLimitType").and_then(Value::as_str).unwrap_or("del plan");
+                    crate::handoff::pause(&handle, id, &format!("cuota agotada: límite {window} de Claude"));
+                }
+                if msg["type"] == json!("result") {
+                    handle.state::<AppState>().tracker.finished(id, msg["result"].as_str());
+                    if msg["is_error"] == json!(true) {
+                        if let Some(reason) = crate::handoff::quota_reason(&msg.to_string()) {
+                            crate::handoff::pause(&handle, id, &reason);
+                        }
+                    }
+                }
                 if forward(&msg) {
                     let _ = handle.emit("session", Event { id, msg });
                 }
@@ -164,6 +198,7 @@ impl Claude {
             if let Ok(mut p) = pending.lock() {
                 p.retain(|_, (sid, _)| *sid != id);
             }
+            handle.state::<AppState>().tracker.exited(id);
             let _ = handle.emit("session", Event { id, msg: json!({ "type": "exit" }) });
         });
 
@@ -174,7 +209,7 @@ impl Claude {
     }
 }
 
-fn open_session(state: &AppState, id: i64) -> CmdResult<db::Session> {
+pub(crate) fn open_session(state: &AppState, id: i64) -> CmdResult<db::Session> {
     db::session(&*state.db.lock().map_err(err)?, id).map_err(err)?.ok_or_else(|| "la sesión ya no existe".into())
 }
 
@@ -187,19 +222,57 @@ pub fn session_list(state: State<AppState>, project: String) -> CmdResult<Vec<db
     db::sessions(&conn, &path).map_err(err)
 }
 
+/// Sesión recién creada y, si procede, un aviso para el usuario.
+#[derive(Serialize)]
+pub struct Created {
+    #[serde(flatten)]
+    pub session: db::Session,
+    pub notice: Option<String>,
+}
+
 /// Crea una sesión. El proceso arranca con el primer mensaje.
 #[tauri::command]
-pub fn session_create(state: State<AppState>, project: String, engine: String) -> CmdResult<db::Session> {
-    // Claude Code acepta un UUID propio; los agentes ACP asignan el suyo al
-    // crear la sesión y se guarda entonces.
-    let provider = match engine.as_str() {
+pub async fn session_create(app: AppHandle, project: String, engine: String) -> CmdResult<Created> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        new_session(&app, &path, &engine)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Crea una sesión en un proyecto ya validado, aislada en su propia rama y
+/// worktree cuando el repositorio tiene commits. Claude Code acepta un UUID
+/// propio; los agentes ACP asignan el suyo al crearla y se guarda entonces.
+pub fn new_session(app: &AppHandle, project: &str, engine: &str) -> CmdResult<Created> {
+    let state = app.state::<AppState>();
+    let provider = match engine {
         "claude" => uuid::Uuid::new_v4().to_string(),
         e if crate::acp::ENGINES.contains(&e) => String::new(),
         _ => return Err(format!("motor desconocido: {engine}")),
     };
+    let session = db::create_session(&*state.db.lock().map_err(err)?, project, engine, &provider, &NAMES).map_err(err)?;
+    let data_dir = app.path().app_data_dir().map_err(err)?;
+    let iso = match crate::isolate::create(&data_dir, std::path::Path::new(project), &session.name, session.id) {
+        Ok(iso) => iso,
+        Err(e) => {
+            let _ = db::close_session(&*state.db.lock().map_err(err)?, session.id);
+            return Err(format!("no se pudo crear la rama de la sesión: {e}"));
+        }
+    };
     let conn = state.db.lock().map_err(err)?;
-    let path = project_path(&conn, &project)?;
-    db::create_session(&conn, &path, &engine, &provider, &NAMES).map_err(err)
+    let notice = match &iso {
+        Some(iso) => {
+            db::set_session_worktree(&conn, session.id, &iso.worktree, &iso.branch, &iso.base, &iso.base_commit).map_err(err)?;
+            iso.main_dirty.then(|| {
+                format!("{} parte del último commit de {}: los cambios sin commit del proyecto no están en su rama", session.name, iso.base)
+            })
+        }
+        None => Some(format!("{} trabaja directamente en el proyecto: el repositorio aún no tiene commits de los que partir", session.name)),
+    };
+    let session = db::session(&conn, session.id).map_err(err)?.ok_or("la sesión no se guardó")?;
+    Ok(Created { session, notice })
 }
 
 /// Conversación guardada, para pintarla al abrir la sesión. La de Claude
@@ -234,20 +307,32 @@ pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<
     if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) {
         return Err("nivel de esfuerzo no válido".into());
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let session = open_session(&state, id)?;
-        if session.engine != "claude" {
-            return state.acp.send(&app, &state, &session, text);
+    tauri::async_runtime::spawn_blocking(move || send_message(&app, id, text, effort)).await.map_err(err)?
+}
+
+/// Envía un mensaje a la sesión, arrancando su proceso si hace falta.
+/// Bloquea mientras arranca: llamar fuera del hilo principal.
+pub fn send_message(app: &AppHandle, id: i64, text: String, effort: Option<String>) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let session = open_session(&state, id)?;
+    {
+        // Enviar reanuda una sesión pausada; el primer mensaje es el objetivo.
+        let conn = state.db.lock().map_err(err)?;
+        db::set_session_task(&conn, id, &text).map_err(err)?;
+        if session.paused.is_some() {
+            db::set_session_paused(&conn, id, None).map_err(err)?;
         }
-        if let Some(e) = &effort {
-            db::set_session_effort(&*state.db.lock().map_err(err)?, id, e).map_err(err)?;
-        }
-        let stdin = state.claude.proc(&app, &session, effort.as_deref())?;
-        write_line(&stdin, &json!({ "type": "user", "message": { "role": "user", "content": text }, "parent_tool_use_id": null, "session_id": "" }))
-    })
-    .await
-    .map_err(err)?
+    }
+    if session.engine != "claude" {
+        return state.acp.send(app, &state, &session, text);
+    }
+    if let Some(e) = &effort {
+        db::set_session_effort(&*state.db.lock().map_err(err)?, id, e).map_err(err)?;
+    }
+    let stdin = state.claude.proc(app, &session, effort.as_deref())?;
+    write_line(&stdin, &json!({ "type": "user", "message": { "role": "user", "content": text }, "parent_tool_use_id": null, "session_id": "" }))?;
+    state.tracker.started(id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -255,9 +340,7 @@ pub fn session_interrupt(state: State<AppState>, id: i64) -> CmdResult<()> {
     if open_session(&state, id)?.engine != "claude" {
         return state.acp.interrupt(id);
     }
-    let procs = state.claude.procs.lock().map_err(err)?;
-    let p = procs.get(&id).filter(|p| p.alive.load(Ordering::SeqCst)).ok_or("la sesión no está en marcha")?;
-    write_line(&p.stdin, &json!({ "type": "control_request", "request_id": uuid::Uuid::new_v4().to_string(), "request": { "subtype": "interrupt" } }))
+    state.claude.interrupt(id)
 }
 
 /// Respuesta de permiso de Claude Code para una decisión del usuario.
@@ -289,6 +372,21 @@ pub fn session_respond(state: State<AppState>, request_id: String, decision: Str
         &p.stdin,
         &json!({ "type": "control_response", "response": { "subtype": "success", "request_id": request_id, "response": permission(&request, &decision) } }),
     )
+}
+
+/// Cambia el modelo o el razonamiento de una sesión ACP.
+#[tauri::command]
+pub async fn session_set_option(app: AppHandle, id: i64, key: String, value: String) -> CmdResult<Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let session = open_session(&state, id)?;
+        if session.engine == "claude" {
+            return Err("en Claude Code el esfuerzo se elige junto al mensaje".into());
+        }
+        state.acp.set_option(&app, &state, &session, &key, &value)
+    })
+    .await
+    .map_err(err)?
 }
 
 /// Cierra la sesión: termina el proceso y la quita de las pestañas. El

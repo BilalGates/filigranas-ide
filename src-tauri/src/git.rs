@@ -12,7 +12,7 @@ use crate::{err, files, workspace::project_path, AppState, CmdResult};
 // `--no-optional-locks` evita incluso refrescar el índice, para no chocar
 // con un agente que esté trabajando a la vez.
 
-fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
+pub(crate) fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
@@ -136,11 +136,40 @@ fn apply_numstat(changes: &mut [Change], out: &str) {
 
 #[tauri::command]
 pub fn git_status(state: State<AppState>, project: String) -> CmdResult<Status> {
-    let repo = repo(&state, &project)?;
-    let out = git(&repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
+    status_at(&repo(&state, &project)?, "HEAD")
+}
+
+/// Estado de una rama de sesión: archivos que difieren del commit del que
+/// partió, estén o no en commits (`git diff <base>` sobre el árbol de
+/// trabajo). Los archivos nuevos deben estar marcados con intent-to-add.
+pub(crate) fn status_since(repo: &Path, base: &str) -> CmdResult<Status> {
+    let mut status = status_at(repo, base)?;
+    let out = git(repo, &["diff", "--name-status", "--no-renames", "-z", base])?;
+    let out = String::from_utf8_lossy(&out).into_owned();
+    let mut parts = out.split('\0').filter(|p| !p.is_empty());
+    let mut changes = Vec::new();
+    while let (Some(code), Some(path)) = (parts.next(), parts.next()) {
+        let status = match code.chars().next() {
+            Some('A') => 'A',
+            Some('D') => 'D',
+            Some('U') => '!',
+            _ => 'M',
+        };
+        changes.push(Change { path: path.to_string(), orig: None, status, adds: None, dels: None });
+    }
+    let out = git(repo, &["diff", base, "--numstat", "-z"])?;
+    apply_numstat(&mut changes, &String::from_utf8_lossy(&out));
+    status.changes = changes;
+    Ok(status)
+}
+
+/// Estado de un árbol de trabajo. Los contadores se calculan frente a
+/// `against` (HEAD, o el commit del que partió una sesión aislada).
+pub(crate) fn status_at(repo: &Path, against: &str) -> CmdResult<Status> {
+    let out = git(repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
     let mut status = parse_status(&String::from_utf8_lossy(&out));
     if status.head.is_some() {
-        let out = git(&repo, &["diff", "HEAD", "--numstat", "-z"])?;
+        let out = git(repo, &["diff", against, "--numstat", "-z"])?;
         apply_numstat(&mut status.changes, &String::from_utf8_lossy(&out));
     }
     Ok(status)
@@ -156,10 +185,15 @@ pub struct DiffTexts {
 /// Un archivo nuevo no tiene versión antigua; uno borrado, nueva.
 #[tauri::command]
 pub fn git_diff_texts(state: State<AppState>, project: String, path: String, orig: Option<String>) -> CmdResult<DiffTexts> {
-    let repo = repo(&state, &project)?;
-    let path = relative(&path)?;
-    let before = relative(orig.as_deref().unwrap_or(path))?;
-    let old = match git(&repo, &["cat-file", "blob", &format!("HEAD:{before}")]) {
+    diff_texts_at(&repo(&state, &project)?, "HEAD", &path, orig.as_deref())
+}
+
+/// Versión en `against` y versión en disco de un archivo de `repo`.
+pub(crate) fn diff_texts_at(repo: &Path, against: &str, path: &str, orig: Option<&str>) -> CmdResult<DiffTexts> {
+    let repo = repo.to_path_buf();
+    let path = relative(path)?;
+    let before = relative(orig.unwrap_or(path))?;
+    let old = match git(&repo, &["cat-file", "blob", &format!("{against}:{before}")]) {
         Ok(bytes) => files::text(bytes)?,
         Err(_) => String::new(),
     };

@@ -18,8 +18,9 @@ export const api = {
   moveProject: (path: string, groupId: number | null) => invoke<Workspace>('move_project', { path, groupId }),
   setArchived: (path: string, archived: boolean) => invoke<Workspace>('set_archived', { path, archived }),
   listDir: (path: string) => invoke<Entry[]>('list_dir', { path }),
-  readText: (path: string) => invoke<string>('read_text', { path }),
-  writeText: (path: string, content: string) => invoke<void>('write_text', { path, content }),
+  // `session`: archivo del worktree de una sesión aislada.
+  readText: (path: string, session: number | null = null) => invoke<string>('read_text', { path, session }),
+  writeText: (path: string, content: string, session: number | null = null) => invoke<void>('write_text', { path, content, session }),
 };
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
@@ -41,8 +42,8 @@ export const git = {
 export type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };
 
 export const pty = {
-  open: (project: string, cols: number, rows: number, onEvent: Channel<PtyEvent>) =>
-    invoke<number>('pty_open', { project, cols, rows, onEvent }),
+  open: (project: string, session: number | null, cols: number, rows: number, onEvent: Channel<PtyEvent>) =>
+    invoke<number>('pty_open', { project, session, cols, rows, onEvent }),
   write: (id: number, data: string) => invoke<void>('pty_write', { id, data }),
   resize: (id: number, cols: number, rows: number) => invoke<void>('pty_resize', { id, cols, rows }),
   close: (id: number) => invoke<void>('pty_close', { id }),
@@ -62,6 +63,10 @@ export type CItem = {
   changes?: { path: string; kind: { type: string } }[];
   server?: string;
   tool?: string;
+  // Herramientas dinámicas del IDE (delegar, estado_sesiones, esperar_sesion).
+  arguments?: any;
+  contentItems?: { type: string; text?: string }[] | null;
+  success?: boolean | null;
 };
 export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
 export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
@@ -89,15 +94,84 @@ export const coordinator = {
 
 // Sesiones de agentes ejecutores (Claude Code en este tramo). Los mensajes
 // llegan tal como los emite el motor; Session.tsx los traduce.
-export type Session = { id: number; project: string; engine: string; name: string; providerSession: string; effort: string | null };
+export type Session = {
+  id: number;
+  project: string;
+  engine: string;
+  name: string;
+  providerSession: string;
+  effort: string | null;
+  // Aislamiento: rama y worktree propios (null si trabaja en el proyecto).
+  worktree: string | null;
+  branch: string | null;
+  base: string | null;
+  baseCommit: string | null;
+  integrated: string | null;
+  // Continuidad: primer encargo, sesión de la que viene y motivo de pausa.
+  task: string | null;
+  handoffFrom: number | null;
+  paused: string | null;
+};
+export type CreatedSession = Session & { notice: string | null };
+/** Archivo a comparar: del proyecto, o de una sesión aislada. */
+export type DiffTarget = Change & { session?: number; label?: string };
 export type SessionEvent = { id: number; msg: any };
+/** Opción editable de un agente ACP (modelo o nivel de razonamiento). */
+export type AcpOption = { id: string; name: string; category: string; currentValue: string; options: { value: string; name: string }[] };
 
 export const sessions = {
   list: (project: string) => invoke<Session[]>('session_list', { project }),
-  create: (project: string, engine: string) => invoke<Session>('session_create', { project, engine }),
+  create: (project: string, engine: string) => invoke<CreatedSession>('session_create', { project, engine }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
   send: (id: number, text: string, effort: string | null) => invoke<void>('session_send', { id, text, effort }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
   respond: (requestId: string, decision: Decision) => invoke<void>('session_respond', { requestId, decision }),
   close: (id: number) => invoke<void>('session_close', { id }),
+  changes: (id: number) => invoke<GitStatus>('session_changes', { id }),
+  diffTexts: (id: number, path: string, orig: string | null) => invoke<DiffTexts>('session_diff_texts', { id, path, orig }),
+  integrate: (id: number) => invoke<string[]>('session_integrate', { id }),
+  integrateMerging: (id: number) => invoke<{ files: string[]; conflicts: string[] }>('session_integrate_merging', { id }),
+  cleanup: (id: number) => invoke<void>('session_cleanup', { id }),
+  pause: (id: number) => invoke<void>('session_pause', { id }),
+  setOption: (id: number, key: string, value: string) => invoke<AcpOption[]>('session_set_option', { id, key, value }),
+  orphans: (project: string) => invoke<Session[]>('session_orphans', { project }),
+  reopen: (id: number) => invoke<Session>('session_reopen', { id }),
+  resume: (id: number) => invoke<void>('session_resume', { id }),
+  handoff: (id: number, engine: string) => invoke<Session>('session_handoff', { id, engine }),
 };
+
+// Larry: propuesta y creación de commits locales.
+export type LarryCommit = { message: string; files: string[] };
+export type LarryPlan = { branch: string; commits: LarryCommit[]; notes: string | null; fallback: boolean };
+export type LarryOutcome = { created: string[]; stopped: string | null };
+
+export const larry = {
+  propose: (project: string, session: number | null) => invoke<LarryPlan>('larry_propose', { project, session }),
+  commit: (project: string, session: number | null, commits: LarryCommit[]) => invoke<LarryOutcome>('larry_commit', { project, session, commits }),
+};
+
+// Publicar la rama y abrir la PR (gh). Siempre por acción explícita.
+export type PrInfo = { url: string; state: string; isDraft: boolean; checks: [number, number, number] };
+export type PrDraft = {
+  branch: string;
+  bases: string[];
+  base: string;
+  title: string;
+  body: string;
+  commits: string[];
+  dirty: boolean;
+  existing: PrInfo | null;
+  blocked: string | null;
+};
+
+export const pr = {
+  draft: (project: string, session: number | null, base: string | null) => invoke<PrDraft>('pr_draft', { project, session, base }),
+  publish: (project: string, session: number | null, base: string, title: string, body: string, draftPr: boolean) =>
+    invoke<PrInfo>('pr_publish', { project, session, base, title, body, draftPr }),
+  open: (url: string) => invoke<void>('open_pr_url', { url }),
+  status: (project: string, session: number | null) => invoke<PrInfo | null>('pr_status', { project, session }),
+};
+
+// Herramientas externas que usa el IDE.
+export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null };
+export const tools = { status: () => invoke<Tool[]>('tools_status') };

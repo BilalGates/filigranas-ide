@@ -13,10 +13,10 @@ const STATUS_LABEL: Record<string, string> = {
   '!': 'en conflicto',
 };
 
-type Props = { project: string; selected: Change | null; onDiff: (c: Change) => void };
+type Props = { project: string; selected: Change | null; onDiff: (c: Change) => void; onCommits: () => void; onPublish: () => void; pending: number; onPending: () => void };
 
 /** Control de versiones del proyecto abierto: rama, cambios e historial. */
-export default function GitPanel({ project, selected, onDiff }: Props) {
+export default function GitPanel({ project, selected, onDiff, onCommits, onPublish, pending, onPending }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -124,12 +124,24 @@ export default function GitPanel({ project, selected, onDiff }: Props) {
             {changes.length === 0 && <div className="muted">árbol limpio</div>}
           </section>
 
-          <button className="git-commits" disabled title="larry llegará en la entrega 5">
+          {pending > 0 && (
+            <button className="git-pending" onClick={onPending} title="sesiones cerradas cuya rama sigue guardada">
+              ⎇ {pending} rama{pending === 1 ? '' : 's'} sin integrar
+            </button>
+          )}
+
+          <button className="git-commits" disabled={changes.length === 0} onClick={onCommits} title="larry propone los commits por unidad funcional">
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
               <circle cx="6" cy="6" r="2.2" stroke="currentColor" strokeWidth="1.2" fill="none" />
               <path d="M0 6h3.8M8.2 6H12" stroke="currentColor" strokeWidth="1.2" />
             </svg>
             <span>commits</span>
+          </button>
+          <button className="git-commits" onClick={onPublish} title="git push y pull request en GitHub, con confirmación">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" stroke="currentColor" strokeWidth="1.2" fill="none" />
+            </svg>
+            <span>publicar rama</span>
           </button>
 
           <section className="git-log" aria-label="Historial">

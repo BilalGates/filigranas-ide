@@ -177,6 +177,17 @@ mockIPC(
         return mockStashes.shift() ? 'Dropped refs/stash@{0}' : fail('No stash entries found.');
       case 'git_stash_list':
         return mockStashes;
+      case 'git_commit_detail':
+        return {
+          hash: a.hash,
+          author: 'Bilal',
+          date: 'hace 2 horas',
+          body: 'Valida la política de autonomía antes de encolar la tarea.\n\nSin política, la cola rechazaba en silencio.',
+          files: [
+            { status: 'M', path: 'src/lib/autonomy.ts', adds: 14, dels: 3 },
+            { status: 'A', path: 'tests/autonomy.test.ts', adds: 42, dels: 0 },
+          ],
+        };
       case 'git_undo_commit':
         return 'HEAD is now at 6c4e902';
       // Terminal de eco: sin shell real, repite lo que se escribe.
@@ -199,7 +210,7 @@ mockIPC(
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
         const used = mockSessions.filter((x) => x.project === a.project).map((x) => x.name);
-        const name = ['xavi', 'iniesta', 'puyol', 'messi'].find((n) => !used.includes(n)) ?? 'kubala';
+        const name = ['cruyff', 'kubala', 'stoichkov', 'neeskens'].sort(() => Math.random() - 0.5).find((n) => !used.includes(n)) ?? 'samitier';
         const id = nextSession++;
         const created = {
           id,
@@ -253,7 +264,7 @@ mockIPC(
       case 'session_handoff': {
         const from = mockSessions.find((x) => x.id === a.id);
         const used = mockSessions.filter((x) => x.project === from.project).map((x) => x.name);
-        const name = ['xavi', 'iniesta', 'puyol', 'messi', 'busquets'].find((n) => !used.includes(n)) ?? 'kubala';
+        const name = ['laudrup', 'romario', 'koeman', 'rivaldo', 'migueli'].find((n) => !used.includes(n)) ?? 'samitier';
         const to = { ...from, id: nextSession++, engine: a.engine, name, providerSession: '', handoffFrom: from.id, paused: null };
         mockSessions.splice(mockSessions.indexOf(from), 1, to);
         void emit('sessions-changed', { project: from.project, focus: to.id });
@@ -266,11 +277,11 @@ mockIPC(
                 id: 90,
                 project: a.project,
                 engine: 'opencode',
-                name: 'puyol',
+                name: 'zubizarreta',
                 providerSession: 'ses_demo',
                 effort: null,
-                worktree: '/Users/demo/Library/Application Support/filigranas/worktrees/bitacola/puyol-90',
-                branch: 'ide/puyol-90',
+                worktree: '/Users/demo/Library/Application Support/filigranas/worktrees/bitacola/zubizarreta-90',
+                branch: 'ide/zubizarreta-90',
                 base: 'main',
                 baseCommit: '84ab176',
                 integrated: null,

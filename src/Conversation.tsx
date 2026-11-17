@@ -1,10 +1,15 @@
-import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Change, CItem, Decision } from './ipc';
 import Splitter, { SIZES } from './Splitter';
+import { beep } from './ui';
 
 // Piezas comunes a las conversaciones del coordinador y de las sesiones de
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
 // pintan igual.
+
+// Atajos de la vista visible: la conversación oculta (hidden) no responde.
+const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
+const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 export const EFFORT_LABEL: Record<string, string> = { low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
 export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', update: 'M' };
@@ -63,6 +68,23 @@ export function ConversationLog({ items, asks, agent, project, onDiff, children 
   }, [items, asks]);
 
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
+
+  // ⌘Y aprueba y ⌘N rechaza la petición de permiso más antigua.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const a = asks[0];
+      if (!a || !mod(e) || e.shiftKey || !shown(log.current)) return;
+      if (e.code === 'KeyY') {
+        e.preventDefault();
+        a.decide('accept');
+      } else if (e.code === 'KeyN') {
+        e.preventDefault();
+        a.decide('decline');
+      }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [asks]);
 
   return (
     <div
@@ -217,6 +239,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
     if (!el || !text || busy.current) return;
     busy.current = true;
     el.value = '';
+    beep('send');
     onSend(text)
       .catch(() => {
         if (!el.value) el.value = text; // devolver el borrador si falló
@@ -224,8 +247,35 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
       .finally(() => (busy.current = false));
   };
 
+  // ⌘. interrumpe, ⌘⇧E cambia el esfuerzo y ⌘M abre el modelo.
+  const root = useRef<HTMLDivElement>(null);
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  keys.current = (e) => {
+    if (!mod(e) || !shown(root.current)) return;
+    if (e.code === 'Period' && running) {
+      e.preventDefault();
+      onInterrupt();
+    } else if (e.code === 'KeyE' && e.shiftKey && efforts.length && !disabled) {
+      e.preventDefault();
+      onEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]);
+      beep('tick');
+    } else if (e.code === 'KeyM' && !e.shiftKey) {
+      const pick = root.current?.querySelector<HTMLElement>('.co-model select, .co-model button');
+      if (pick) {
+        e.preventDefault();
+        pick.focus();
+        pick.click();
+      }
+    }
+  };
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keys.current(e);
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
+
   return (
-    <div className="co-compose">
+    <div className="co-compose" ref={root}>
       <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
         ref={area}
@@ -244,25 +294,30 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
         <div className="co-compose-opts">
           {model && <span className="co-model">{model}</span>}
           {efforts.length > 0 && (
-            <label className="muted">
-              esfuerzo{' '}
-              <select value={effort} onChange={(e) => onEffort(e.target.value)} disabled={disabled}>
-                {efforts.map((e) => (
-                  <option key={e} value={e}>
-                    {EFFORT_LABEL[e] ?? e}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <button
+              className="chip"
+              title="esfuerzo · ⌘⇧E"
+              disabled={disabled}
+              onClick={() => {
+                beep('tick');
+                onEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]);
+              }}
+            >
+              {EFFORT_LABEL[effort] ?? effort}
+            </button>
           )}
         </div>
         {running ? (
-          <button className="co-btn" onClick={onInterrupt}>
-            interrumpir
+          <button className="send" aria-label="Detener" title="detener · ⌘." onClick={onInterrupt}>
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <rect x="1" y="1" width="8" height="8" rx="1.5" fill="currentColor" />
+            </svg>
           </button>
         ) : (
-          <button className="co-btn is-primary" onClick={send} disabled={disabled}>
-            enviar
+          <button className="send" aria-label="Enviar" title="enviar · ⌘↩" onClick={send} disabled={disabled}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" />
+            </svg>
           </button>
         )}
       </div>

@@ -49,7 +49,9 @@ export const gitOps = {
   stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
   stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
   undoCommit: (project: string) => invoke<string>('git_undo_commit', { project }),
+  detail: (project: string, hash: string) => invoke<CommitDetail>('git_commit_detail', { project, hash }),
 };
+export type CommitDetail = { hash: string; author: string; date: string; body: string; files: { status: string; path: string; adds: number | null; dels: number | null }[] };
 
 // Terminales. La salida llega por el canal que se pasa al abrir.
 export type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };

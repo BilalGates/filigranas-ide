@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, git, sessions, tools as toolsApi, type DiffTarget, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
-import GitPanel from './GitPanel';
+import GitPanel, { Icon, RightHeader } from './GitPanel';
 import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
@@ -13,6 +13,9 @@ import Larry from './Larry';
 import Publish from './Publish';
 import Pending from './Pending';
 import Tools, { toolState } from './Tools';
+import UsagePanel, { UsageSummary } from './Usage';
+import { Cheatsheet, Palette, type Command } from './Palette';
+import { emit, toggleMute, useUi } from './ui';
 import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Splitter, { SIZES } from './Splitter';
@@ -59,7 +62,7 @@ export default function App() {
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
   // Columna derecha: Git o contenedores Docker del proyecto.
   const [rightView, setRightView] = useState<'git' | 'containers'>('git');
-  const [containerCount, setContainerCount] = useState<number | null>(null);
+  const [, setContainerCount] = useState<number | null>(null);
   // Larry abierto (su pestaña) y una clave para relanzarlo.
   const [larryKey, setLarryKey] = useState<number | null>(null);
   const [coach, setCoach] = useState('hansi');
@@ -67,6 +70,13 @@ export default function App() {
   // Proyecto cuya lista de sesiones ya está cargada (mientras carga, vacía).
   const [sessionsOf, setSessionsOf] = useState<string | null>(null);
   const [engineMenu, setEngineMenu] = useState(false);
+  // Rama del proyecto abierto (la informa el panel Git) y capas flotantes.
+  const [branch, setBranch] = useState<string | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
+  const [noSide, setNoSide] = useState(false);
+  const [noRight, setNoRight] = useState(false);
+  const { activity, muted } = useUi();
 
   const openTerminal = useCallback((path: string, newTab = false, initial?: string) => {
     const existing = terms.filter((t) => t.project === path && t.session == null);
@@ -220,19 +230,6 @@ export default function App() {
     git.watch(project).catch((e) => setError(String(e)));
   }, [project]);
 
-  // ⌃` muestra u oculta el terminal del proyecto, como en otros editores.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.code === 'Backquote' && project) {
-        e.preventDefault();
-        if (termOpen) setTermOpen(false);
-        else openTerminal(project);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [project, termOpen, openTerminal]);
-
   // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
   useEffect(() => {
     if (typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
@@ -262,15 +259,8 @@ export default function App() {
     setView((v) => (v === 'larry' ? 'coach' : v));
   };
 
-  const rightTabs = (
-    <div className="right-tabs" role="tablist" aria-label="Panel derecho">
-      <button role="tab" aria-selected={rightView === 'git'} className={rightView === 'git' ? 'is-active' : ''} onClick={() => setRightView('git')}>
-        git
-      </button>
-      <button role="tab" aria-selected={rightView === 'containers'} className={rightView === 'containers' ? 'is-active' : ''} onClick={() => setRightView('containers')}>
-        contenedores{containerCount != null ? ` ${containerCount}` : ''}
-      </button>
-    </div>
+  const containersHeader = (
+    <RightHeader view="containers" branch={branch} onBranch={() => setRightView('git')} onContainers={() => setRightView('containers')} />
   );
 
   const showConflicts = (files: string[]) => {
@@ -285,16 +275,106 @@ export default function App() {
 
   const update = (p: Promise<Workspace>) => p.then(setWs, (e) => setError(String(e)));
 
+  // Atajos globales: el manejador se rehace en cada render (ve el estado actual).
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => keys.current(e);
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
+
+  // Indicador azul de la pestaña activa, que se desliza entre pestañas.
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [ind, setInd] = useState<{ x: number; w: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = tabsRef.current?.querySelector<HTMLElement>('.tab.is-active');
+    const next = el ? { x: el.offsetLeft, w: el.offsetWidth } : null;
+    setInd((prev) => (prev?.x === next?.x && prev?.w === next?.w ? prev : next));
+  });
+
+  const closeFile = () => {
+    setFile(null);
+    setDiff(null);
+    setFileSession(null);
+    setView((v) => (v === 'file' ? 'coach' : v));
+  };
+
   if (!ws) return <div className="app" />;
   if (!ws.root) return <Onboarding onDone={setWs} />;
 
   const current = ws.projects.find((p) => p.path === project);
-  const active = ws.projects.filter((p) => !p.archived).length;
   const projectTerms = terms.filter((t) => t.project === project);
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
+  const toggleTerminal = () => {
+    if (!current) return;
+    if (termOpen) setTermOpen(false);
+    else openTerminal(current.path);
+  };
+  const toolsBad = (toolList ?? []).filter((t) => ['falta', 'sin sesión'].includes(toolState(t))).length;
+  const closeActive = () => {
+    if (view === 'file') closeFile();
+    else if (typeof view === 'number') closeSession(view);
+    else if (view === 'larry') closeLarry();
+    else if (view === 'publish') {
+      setPublishKey(null);
+      setView('coach');
+    } else if (view === 'pending') {
+      setPendingKey(null);
+      setView('coach');
+    } else if (view === 'conflicts') {
+      setConflictFiles(null);
+      setView('coach');
+    }
+  };
+
+  const commands: Command[] = [
+    { id: 'palette', label: 'órdenes', keys: '⌘K', run: () => setOverlay('palette') },
+    { id: 'cheat', label: 'atajos de teclado', keys: '⌘/', run: () => setOverlay('cheat') },
+    { id: 'new', label: 'nueva sesión', keys: '⌘T', run: () => current && setEngineMenu(true) },
+    { id: 'close', label: 'cerrar pestaña', keys: '⌘W', run: closeActive },
+    { id: 'pm', label: 'project manager', keys: '⌘1', run: () => current && setView('coach') },
+    ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => setView(s.id) })),
+    { id: 'term', label: termOpen ? 'ocultar terminal' : 'abrir terminal', keys: '⌘J', run: toggleTerminal },
+    { id: 'side', label: noSide ? 'mostrar barra lateral' : 'ocultar barra lateral', keys: '⌘B', run: () => setNoSide((v) => !v) },
+    { id: 'right', label: noRight ? 'mostrar columna derecha' : 'ocultar columna derecha', keys: '⌘I', run: () => setNoRight((v) => !v) },
+    { id: 'git', label: 'git', keys: '⌘G', run: () => (setNoRight(false), setRightView('git')) },
+    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => (setNoRight(false), setRightView('containers')) },
+    { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
+    { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
+    { id: 'larry', label: 'larry propone de nuevo', keys: '⌘⇧G', run: () => emit('larry') },
+    { id: 'send', label: 'enviar mensaje', keys: '⌘↩', run: () => {} },
+    { id: 'stop', label: 'interrumpir', keys: '⌘.', run: () => {} },
+    { id: 'model', label: 'modelo', keys: '⌘M', run: () => {} },
+    { id: 'effort', label: 'esfuerzo', keys: '⌘⇧E', run: () => {} },
+    { id: 'allow', label: 'aprobar permiso', keys: '⌘Y', run: () => {} },
+    { id: 'deny', label: 'rechazar permiso', keys: '⌘N', run: () => {} },
+    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => setUsageOpen((v) => !v) },
+    { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
+    { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
+  ];
+  // Atajos que resuelve la vista visible (conversación, editor).
+  const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
+  const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`' };
+  keys.current = (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) {
+      if (e.ctrlKey && e.code === 'Backquote') toggleTerminal();
+      return;
+    }
+    const k = KEY[e.code] ?? e.code.replace(/^Key|^Digit/, '');
+    const combo = `⌘${e.shiftKey ? '⇧' : ''}${k}`;
+    if (combo === '⌘`') return;
+    const c = commands.find((x) => x.keys === combo && !LOCAL.has(x.id));
+    if (!c) return;
+    // ⌘P lo usa el editor (abrir archivo); ⌘W cierra la pestaña y no la ventana.
+    e.preventDefault();
+    e.stopPropagation();
+    if (overlay && c.id !== overlay) setOverlay(null);
+    if (c.id === overlay) return setOverlay(null);
+    c.run();
+  };
 
   return (
-    <div className={`app${current ? ' has-git' : ''}`}>
+    <div className={`app${current && !noRight ? ' has-git' : ''}${noSide ? ' no-side' : ''}`}>
       <Sidebar
         ws={ws}
         project={project}
@@ -318,20 +398,24 @@ export default function App() {
         onUpdate={update}
       />
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
-      <div className="tabs" data-tauri-drag-region>
+      <div className="tabs" data-tauri-drag-region ref={tabsRef}>
+        {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
         {current && (
-          <button className={`tab${view === 'coach' ? ' is-active' : ''}`} onClick={() => setView('coach')}>
-            <span className="dot dot-coach" aria-hidden="true" />
-            {coach.replace('-', ' ')}
-          </button>
+          <div className={`tab${view === 'coach' ? ' is-active' : ''}${activity.coach ? ` is-${activity.coach}` : ''}`}>
+            <button onClick={() => setView('coach')} title="project manager · ⌘1">
+              {coach.replace('-', ' ')}
+            </button>
+            <span className="tag">pm</span>
+            {activity.coach === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
+          </div>
         )}
         {current &&
           agentSessions.map((s) => (
-            <div className={`tab${view === s.id ? ' is-active' : ''}`} key={s.id}>
-              <button onClick={() => setView(s.id)} title={`sesión de ${ENGINE_LABEL[s.engine] ?? s.engine}`}>
-                <span className="dot dot-agent" aria-hidden="true" />
+            <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
+              <button onClick={() => setView(s.id)} title={`${ENGINE_LABEL[s.engine] ?? s.engine}`}>
                 {s.name}
               </button>
+              {activity[String(s.id)] === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
               <button className="tab-close" aria-label={`Cerrar la sesión ${s.name}`} title="cerrar sesión" onClick={() => closeSession(s.id)}>
                 ×
               </button>
@@ -339,8 +423,8 @@ export default function App() {
           ))}
         {current && (
           <div className="tab-new">
-            <button aria-label="Nueva sesión de agente" aria-expanded={engineMenu} title="nueva sesión" onClick={() => setEngineMenu((o) => !o)}>
-              +
+            <button aria-label="Nueva sesión de agente" aria-expanded={engineMenu} title="nueva sesión · ⌘T" onClick={() => setEngineMenu((o) => !o)}>
+              <Icon name="plus" size={12} />
             </button>
             {engineMenu && (
               <div className="menu engine-menu" role="menu" onMouseLeave={() => setEngineMenu(false)}>
@@ -427,10 +511,15 @@ export default function App() {
           </div>
         )}
         {current && (diff || file) && (
-          <button className={`tab${view === 'file' ? ' is-active' : ''}`} onClick={() => setView('file')}>
-            {(diff?.path ?? file ?? '').split(/[\\/]/).pop()}
-            {diff && <span className="muted">diff</span>}
-          </button>
+          <div className={`tab${view === 'file' ? ' is-active' : ''}`}>
+            <button onClick={() => setView('file')} title={diff?.path ?? file ?? ''}>
+              {(diff?.path ?? file ?? '').split(/[\\/]/).pop()}
+              {diff && <span className="muted">diff</span>}
+            </button>
+            <button className="tab-close" aria-label="Cerrar el archivo" title="cerrar · ⌘W" onClick={closeFile}>
+              ×
+            </button>
+          </div>
         )}
       </div>
       <main className="main">
@@ -506,8 +595,8 @@ export default function App() {
               ))}
               <button className="terminal-new" aria-label="Nuevo terminal" title="nuevo terminal" onClick={() => current && openTerminal(current.path, true)}>+</button>
             </div>
-            <button className="push" onClick={() => setTermOpen(false)} title="ocultar · ⌃`">
-              ocultar
+            <button className="push status-ic" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title="ocultar · ⌘J">
+              <Icon name="close" size={12} />
             </button>
           </div>
           {terms
@@ -518,24 +607,33 @@ export default function App() {
         </section>
       </main>
       {current &&
+        !noRight &&
         (rightView === 'git' ? (
-          <GitPanel header={rightTabs} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
+          <GitPanel onContainers={() => setRightView('containers')} onBranch={setBranch} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
             setPendingKey(Date.now());
             setView('pending');
           }} onPublish={() => openPublish()} />
         ) : (
-          <Containers key={current.path} project={current.path} header={rightTabs} onCount={setContainerCount} />
+          <Containers key={current.path} project={current.path} header={containersHeader} onCount={setContainerCount} />
         ))}
       <footer className="status">
-        <span>{current ? current.name : ws.root}</span>
-        {current && !termOpen && (
-          <button
-            onClick={() => {
-              openTerminal(current.path);
-            }}
-            title="abrir terminal · ⌃`"
-          >
-            terminal
+        <span className="status-path" title={current?.path ?? ws.root}>
+          {(() => {
+            const full = (current?.path ?? ws.root).replace(/^\/Users\/[^/]+/, '~');
+            const cut = full.lastIndexOf('/');
+            return current ? (
+              <>
+                <span>{full.slice(0, cut + 1)}</span>
+                <b>{full.slice(cut + 1)}</b>
+              </>
+            ) : (
+              full
+            );
+          })()}
+        </span>
+        {current && (
+          <button className={`status-ic${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label={termOpen ? 'Ocultar el terminal' : 'Abrir el terminal'} title={`${termOpen ? 'ocultar' : 'abrir'} terminal · ⌘J`}>
+            <Icon name="terminal" size={13} />
           </button>
         )}
         {error && (
@@ -543,23 +641,28 @@ export default function App() {
             {error}
           </button>
         )}
-        {toolList && (
-          <button
-            className={toolList.some((t) => ['falta', 'sin sesión'].includes(toolState(t))) ? 'status-warn' : undefined}
-            onClick={() => {
-              setToolsOpen(true);
-              setView('tools');
-            }}
-            title="estado de las CLI de los agentes, Node y GitHub"
-          >
-            {(() => {
-              const bad = toolList.filter((t) => ['falta', 'sin sesión'].includes(toolState(t))).length;
-              return bad ? `herramientas · ${bad} por revisar` : 'herramientas ✓';
-            })()}
+        <span className="push" />
+        {muted && (
+          <button className="status-ic" onClick={() => toggleMute()} aria-label="Activar el sonido" title="silenciado · ⌘⇧M">
+            <Icon name="mute" size={13} />
           </button>
         )}
-        <span className="push">{active} proyectos</span>
+        <button className={`status-usage${usageOpen ? ' is-on' : ''}${toolsBad ? ' is-warn' : ''}`} onClick={() => setUsageOpen((v) => !v)} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso · ⌘U'}>
+          <UsageSummary />
+          {toolsBad > 0 && <span className="ask-dot" aria-hidden="true" />}
+        </button>
+        {usageOpen && (
+          <UsagePanel
+            tools={toolList}
+            checking={checkingTools}
+            onRefresh={checkTools}
+            onLogin={current ? (command) => (setUsageOpen(false), openTerminal(current.path, true, command)) : null}
+            onClose={() => setUsageOpen(false)}
+          />
+        )}
       </footer>
+      {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
+      {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}
     </div>
   );
 }

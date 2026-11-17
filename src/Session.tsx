@@ -219,6 +219,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
       switch (msg.type) {
         // Claude Code
         case 'stream_event': {
+          setRunning(true); // también un turno que no empezó aquí (relevo)
           const d = msg.event?.delta;
           if (d?.type === 'text_delta') chunk('agentMessage', d.text, 'live');
           else if (d?.type === 'thinking_delta') chunk('reasoning', d.thinking, 'live-think');
@@ -261,6 +262,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           break;
         case 'update': {
           const u = msg.update ?? {};
+          if (!replaying.current && ['agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update'].includes(u.sessionUpdate)) setRunning(true);
           switch (u.sessionUpdate) {
             case 'agent_message_chunk':
               if (u.content?.type === 'text') chunk('agentMessage', u.content.text);

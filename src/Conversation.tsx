@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Change, CItem, Decision } from './ipc';
+import Splitter, { SIZES } from './Splitter';
 
 // Piezas comunes a las conversaciones del coordinador y de las sesiones de
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
@@ -118,7 +119,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
     case 'agentMessage':
       return (
         <div className="co-msg">
-          <div className="co-by">{agent}</div>
+          <div className="co-by">{it.by ?? agent}</div>
           <Prose text={it.text ?? ''} />
         </div>
       );
@@ -163,6 +164,24 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
           ))}
         </div>
       );
+    case 'dynamicToolCall': {
+      const args = it.arguments ?? {};
+      const what =
+        it.tool === 'delegar' ? `delegar en ${args.agente}: ${String(args.tarea ?? '').split('\n')[0]}` : it.tool === 'esperar_sesion' ? `esperar a ${args.sesion}` : (it.tool ?? '');
+      const output = (it.contentItems ?? []).map((c) => c.text ?? '').join('\n');
+      const status = it.success === false ? 'failed' : it.status;
+      return (
+        <details className="co-cmd">
+          <summary>
+            <span className={`co-status is-${status}`}>{status === 'inProgress' ? '…' : status === 'failed' ? '!' : '✓'}</span>
+            <span className="co-cmd-line">{what}</span>
+          </summary>
+          {output && <Prose text={output} />}
+        </details>
+      );
+    }
+    case 'notice':
+      return <div className="co-marker">{it.text}</div>;
     case 'mcpToolCall':
       return (
         <div className="co-aside co-tool">
@@ -180,13 +199,15 @@ type ComposerProps = {
   efforts: string[];
   effort: string;
   onEffort: (e: string) => void;
+  /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
+  model?: ReactNode;
   onSend: (text: string) => Promise<unknown>;
   onInterrupt: () => void;
   placeholder: string;
 };
 
 /** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, onSend, onInterrupt, placeholder }: ComposerProps) {
+export function Composer({ disabled, running, efforts, effort, onEffort, model, onSend, onInterrupt, placeholder }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
 
@@ -205,11 +226,12 @@ export function Composer({ disabled, running, efforts, effort, onEffort, onSend,
 
   return (
     <div className="co-compose">
+      <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
         ref={area}
         aria-label="Mensaje"
         placeholder={running ? 'trabajando… puedes interrumpir' : placeholder}
-        rows={3}
+        rows={2}
         disabled={disabled}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -219,20 +241,21 @@ export function Composer({ disabled, running, efforts, effort, onEffort, onSend,
         }}
       />
       <div className="co-compose-bar">
-        {efforts.length > 0 ? (
-          <label className="muted">
-            esfuerzo{' '}
-            <select value={effort} onChange={(e) => onEffort(e.target.value)} disabled={disabled}>
-              {efforts.map((e) => (
-                <option key={e} value={e}>
-                  {EFFORT_LABEL[e] ?? e}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <span />
-        )}
+        <div className="co-compose-opts">
+          {model && <span className="co-model">{model}</span>}
+          {efforts.length > 0 && (
+            <label className="muted">
+              esfuerzo{' '}
+              <select value={effort} onChange={(e) => onEffort(e.target.value)} disabled={disabled}>
+                {efforts.map((e) => (
+                  <option key={e} value={e}>
+                    {EFFORT_LABEL[e] ?? e}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
         {running ? (
           <button className="co-btn" onClick={onInterrupt}>
             interrumpir

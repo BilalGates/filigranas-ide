@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type * as Monaco from 'monaco-editor';
-import { git, type Change } from './ipc';
+import { git, sessions, type DiffTarget } from './ipc';
 import { darkQuery, loadMonaco, themeName } from './monacoLoader';
 
 /**
- * Diff de un archivo cambiado: versión en HEAD frente a la del disco. Solo
- * lectura; para editar se abre el archivo desde el árbol. Se refresca cuando
- * cambia algo en el proyecto.
+ * Diff de un archivo cambiado: versión en HEAD frente a la del disco, o, en
+ * una sesión aislada, frente al commit del que partió. Solo lectura; para
+ * editar se abre el archivo desde el árbol. Se refresca cuando cambia algo
+ * en el proyecto o la sesión termina un turno.
  */
-export default function Diff({ project, change }: { project: string; change: Change }) {
+export default function Diff({ project, change }: { project: string; change: DiffTarget }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +20,10 @@ export default function Diff({ project, change }: { project: string; change: Cha
     let models: Monaco.editor.ITextModel[] = [];
 
     const load = () =>
-      Promise.all([loadMonaco(), git.diffTexts(project, change.path, change.orig)]).then(
+      Promise.all([
+        loadMonaco(),
+        change.session != null ? sessions.diffTexts(change.session, change.path, change.orig) : git.diffTexts(project, change.path, change.orig),
+      ]).then(
         ([{ monaco, baseOptions, languageFor }, texts]) => {
           if (!alive || !host.current) return;
           setError(null);
@@ -38,9 +42,13 @@ export default function Diff({ project, change }: { project: string; change: Cha
 
     load();
     let timer: number | undefined;
-    const unlisten = listen('project-changed', () => {
+    const later = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(load, 300);
+    };
+    const unlisten = listen('project-changed', later);
+    const unlistenSession = listen<{ id: number; msg: any }>('session', ({ payload }) => {
+      if (payload.id === change.session && ['result', 'turn_end'].includes(payload.msg?.type)) later();
     });
     const onScheme = () => loadMonaco().then(({ monaco }) => monaco.editor.setTheme(themeName()));
     darkQuery.addEventListener('change', onScheme);
@@ -48,11 +56,12 @@ export default function Diff({ project, change }: { project: string; change: Cha
       alive = false;
       window.clearTimeout(timer);
       unlisten.then((off) => off());
+      unlistenSession.then((off) => off());
       darkQuery.removeEventListener('change', onScheme);
       diff?.dispose();
       models.forEach((m) => m.dispose());
     };
-  }, [project, change.path, change.orig]);
+  }, [project, change.path, change.orig, change.session]);
 
   const sep = change.path.search(/[^\\/]*$/);
 
@@ -61,7 +70,7 @@ export default function Diff({ project, change }: { project: string; change: Cha
       <div className="viewer-head">
         <span className="muted">{change.orig ? `${change.orig} → ` : ''}{change.path.slice(0, sep)}</span>
         <span>{change.path.slice(sep)}</span>
-        <span className="muted">diff · HEAD</span>
+        <span className="muted">diff · {change.label ?? 'HEAD'}</span>
       </div>
       {error && <div className="viewer-msg">{error}</div>}
       <div ref={host} className="monaco" hidden={!!error} />

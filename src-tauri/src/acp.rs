@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::codex::{login_path, Incoming, Rpc};
 use crate::{db, err, AppState, CmdResult};
@@ -55,6 +55,26 @@ struct Proc {
     rpc: Arc<Rpc>,
     child: Child,
     session_id: String,
+    /// Opciones que ofrece el agente (`configOptions` de ACP).
+    config: Value,
+}
+
+/// Categorías de opción que el IDE deja cambiar. El modo queda fuera: en
+/// algunos agentes incluye saltarse los permisos.
+const EDITABLE: [&str; 2] = ["model", "thought_level"];
+
+/// Comprueba que la opción existe, es editable y admite ese valor.
+fn allowed(config: &Value, id: &str, value: &str) -> bool {
+    config.as_array().into_iter().flatten().any(|o| {
+        o["id"].as_str() == Some(id)
+            && o["category"].as_str().is_some_and(|c| EDITABLE.contains(&c))
+            && o["options"].as_array().into_iter().flatten().any(|x| x["value"].as_str() == Some(value))
+    })
+}
+
+/// Solo las opciones editables, para la interfaz.
+fn editable(config: &Value) -> Value {
+    Value::Array(config.as_array().into_iter().flatten().filter(|o| o["category"].as_str().is_some_and(|c| EDITABLE.contains(&c))).cloned().collect())
 }
 
 impl Drop for Proc {
@@ -82,6 +102,11 @@ struct Event {
 }
 
 impl Acp {
+    /// Permisos sin contestar de una sesión.
+    pub fn pending_for(&self, id: i64) -> usize {
+        self.pending.lock().map(|p| p.values().filter(|(sid, _, _)| *sid == id).count()).unwrap_or(0)
+    }
+
     fn slot(&self, id: i64) -> CmdResult<Slot> {
         Ok(self.procs.lock().map_err(err)?.entry(id).or_default().clone())
     }
@@ -99,8 +124,8 @@ impl Acp {
         *guard = None;
 
         let engine = session.engine.as_str();
-        let mut cmd = Command::new(engine);
-        cmd.arg("acp").current_dir(&session.project).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+        let mut cmd = Command::new(crate::codex::program(engine));
+        cmd.arg("acp").current_dir(session.cwd()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
         }
@@ -117,13 +142,20 @@ impl Acp {
             let _ = handle.emit("session", Event { id, msg });
         };
         let on_emit = emit.clone();
+        let tracker_handle = app.clone();
         let rpc = Rpc::start_with(
             stdout,
             stdin,
             move |rpc, msg| match msg {
                 Incoming::Notification { method, params } => {
                     if method == "session/update" {
-                        on_emit(json!({ "type": "update", "update": params["update"] }));
+                        let update = &params["update"];
+                        if update["sessionUpdate"] == json!("agent_message_chunk") {
+                            if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
+                                tracker_handle.state::<AppState>().tracker.chunk(id, text);
+                            }
+                        }
+                        on_emit(json!({ "type": "update", "update": update }));
                     }
                 }
                 Incoming::Request { id: rid, method, params } => {
@@ -141,6 +173,7 @@ impl Acp {
                     if let Ok(mut p) = pending.lock() {
                         p.retain(|_, (sid, _, _)| *sid != id);
                     }
+                    tracker_handle.state::<AppState>().tracker.exited(id);
                     on_emit(json!({ "type": "exit" }));
                 }
             },
@@ -166,7 +199,7 @@ impl Acp {
             Err(e) => return Err(fail(&mut child, format!("{engine} no arrancó: {e}"))),
         };
         let can_load = init.pointer("/agentCapabilities/loadSession") == Some(&json!(true));
-        let base = json!({ "cwd": session.project, "mcpServers": [] });
+        let base = json!({ "cwd": session.cwd(), "mcpServers": [] });
 
         let mut loaded = None;
         if can_load && !session.provider_session.is_empty() {
@@ -189,8 +222,22 @@ impl Acp {
                 (sid, res)
             }
         };
+        // Reaplicar lo elegido antes en el IDE (sobrevive a reinicios).
+        let mut config = res["configOptions"].clone();
+        let chosen = db::session_options(&*state.db.lock().map_err(err)?, session.id).map_err(err)?;
+        for (key, value) in chosen {
+            let Some(value) = value.as_str() else { continue };
+            if !allowed(&config, &key, value) {
+                continue;
+            }
+            if let Ok(r) = rpc.request("session/set_config_option", json!({ "sessionId": session_id, "configId": key, "value": value }), INIT) {
+                if r.get("configOptions").is_some() {
+                    config = r["configOptions"].clone();
+                }
+            }
+        }
         // Modelo actual, para la cabecera.
-        let model = res["configOptions"]
+        let model = config
             .as_array()
             .and_then(|opts| opts.iter().find(|o| o["category"] == json!("model")))
             .and_then(|o| {
@@ -199,9 +246,9 @@ impl Acp {
                 Some(name.unwrap_or(current).to_string())
             })
             .or_else(|| res.pointer("/models/currentModelId").and_then(Value::as_str).map(str::to_string));
-        emit(json!({ "type": "ready", "model": model }));
+        emit(json!({ "type": "ready", "model": model, "options": editable(&config) }));
 
-        *guard = Some(Proc { rpc: rpc.clone(), child, session_id: session_id.clone() });
+        *guard = Some(Proc { rpc: rpc.clone(), child, session_id: session_id.clone(), config });
         Ok((rpc, session_id))
     }
 
@@ -214,10 +261,22 @@ impl Acp {
     pub fn send(&self, app: &AppHandle, state: &AppState, session: &db::Session, text: String) -> CmdResult<()> {
         let (rpc, sid) = self.ensure(app, state, session)?;
         let (id, handle, engine) = (session.id, app.clone(), session.engine.clone());
+        state.tracker.started(id);
         std::thread::spawn(move || {
+            let tracker = &handle.state::<AppState>().tracker;
             let msg = match rpc.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), TURN) {
-                Ok(res) => json!({ "type": "turn_end", "stopReason": res["stopReason"] }),
-                Err(e) => json!({ "type": "error", "message": explain(&engine, e) }),
+                Ok(res) => {
+                    tracker.finished(id, None);
+                    json!({ "type": "turn_end", "stopReason": res["stopReason"] })
+                }
+                Err(e) => {
+                    let message = explain(&engine, e);
+                    tracker.finished(id, Some(&format!("error: {message}")));
+                    if let Some(reason) = crate::handoff::quota_reason(&message) {
+                        crate::handoff::pause(&handle, id, &reason);
+                    }
+                    json!({ "type": "error", "message": message })
+                }
             };
             let _ = handle.emit("session", Event { id, msg });
         });
@@ -255,6 +314,24 @@ impl Acp {
         Ok(true)
     }
 
+    /// Cambia una opción (modelo o razonamiento) y la guarda para las
+    /// siguientes ejecuciones. Devuelve las opciones editables actualizadas.
+    pub fn set_option(&self, app: &AppHandle, state: &AppState, session: &db::Session, key: &str, value: &str) -> CmdResult<Value> {
+        self.ensure(app, state, session)?;
+        let slot = self.slot(session.id)?;
+        let mut guard = slot.lock().map_err(err)?;
+        let p = guard.as_mut().ok_or("la sesión no está en marcha")?;
+        if !allowed(&p.config, key, value) {
+            return Err("esa opción no está disponible en este agente".into());
+        }
+        let r = p.rpc.request("session/set_config_option", json!({ "sessionId": p.session_id, "configId": key, "value": value }), INIT)?;
+        if r.get("configOptions").is_some() {
+            p.config = r["configOptions"].clone();
+        }
+        db::set_session_option(&*state.db.lock().map_err(err)?, session.id, key, value).map_err(err)?;
+        Ok(editable(&p.config))
+    }
+
     pub fn close(&self, id: i64) -> CmdResult<()> {
         self.procs.lock().map_err(err)?.remove(&id); // Drop termina el proceso
         self.pending.lock().map_err(err)?.retain(|_, (sid, _, _)| *sid != id);
@@ -281,6 +358,22 @@ mod tests {
         let only_once = json!([{ "optionId": "x", "kind": "allow_once" }]);
         assert_eq!(pick_option(&only_once, "acceptForSession").as_deref(), Some("x"));
         assert_eq!(pick_option(&only_once, "decline"), None);
+    }
+
+    #[test]
+    fn only_model_and_reasoning_are_editable() {
+        let config = json!([
+            { "id": "model", "category": "model", "options": [{ "value": "a" }, { "value": "b" }] },
+            { "id": "mode", "category": "mode", "options": [{ "value": "bypass" }] },
+            { "id": "thought_level", "category": "thought_level", "options": [{ "value": "high" }] }
+        ]);
+        assert!(allowed(&config, "model", "b"));
+        assert!(!allowed(&config, "model", "z"));
+        assert!(!allowed(&config, "mode", "bypass"));
+        assert!(allowed(&config, "thought_level", "high"));
+        let shown = editable(&config);
+        let ids: Vec<&str> = shown.as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["model", "thought_level"]);
     }
 
     #[test]

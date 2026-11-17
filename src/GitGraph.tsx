@@ -3,7 +3,8 @@ import type { LogRow } from './ipc';
 const ROW = 24;
 const LANE = 14;
 const ORIGIN = 8;
-const COLORS = ['var(--blue)', 'var(--ac)', 'var(--gold)', 'var(--add)'];
+// Carriles en escala de grises: la forma del grafo ya los distingue.
+const COLORS = ['var(--tx)', 'var(--tx3)', 'var(--tx2)', 'var(--tx4)'];
 
 const x = (lane: number) => ORIGIN + lane * LANE;
 const curve = (x1: number, y1: number, x2: number, y2: number) =>
@@ -76,7 +77,7 @@ export default function GitGraph({ graph, rows }: { graph: Graph; rows: number }
       {graph.dots.map((dot, index) =>
         dot.head ? (
           // HEAD: anillo hueco, para encontrarlo de un vistazo.
-          <circle key={index} cx={dot.x} cy={dot.y} r="4" fill="var(--pane)" stroke={dot.color} strokeWidth="1.8" />
+          <circle key={index} cx={dot.x} cy={dot.y} r="4" fill="var(--bg)" stroke={dot.color} strokeWidth="1.8" />
         ) : (
           <circle key={index} cx={dot.x} cy={dot.y} r="3.5" fill={dot.color} />
         ),

@@ -1,12 +1,21 @@
 mod acp;
 mod claude;
 mod codex;
+mod containers;
 mod db;
+mod delegate;
 mod files;
 mod git;
+mod handoff;
+mod isolate;
+mod larry;
 mod paths;
+mod pr;
 mod pty;
+mod tools;
+mod tracker;
 mod watch;
+mod git_ops;
 mod window;
 mod workspace;
 
@@ -25,6 +34,7 @@ pub(crate) struct AppState {
     pub codex: codex::Codex,
     pub claude: claude::Claude,
     pub acp: acp::Acp,
+    pub tracker: tracker::Tracker,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -51,6 +61,7 @@ pub fn run() {
                 codex: Default::default(),
                 claude: Default::default(),
                 acp: Default::default(),
+                tracker: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -63,6 +74,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            git_ops::git_fetch,
+            git_ops::git_pull,
+            git_ops::git_push,
+            git_ops::git_stash,
+            git_ops::git_stash_pop,
+            git_ops::git_stash_list,
+            git_ops::git_undo_commit,
             workspace::get_workspace,
             workspace::default_root,
             workspace::set_root,
@@ -96,6 +114,28 @@ pub fn run() {
             claude::session_interrupt,
             claude::session_respond,
             claude::session_close,
+            claude::session_set_option,
+            isolate::session_changes,
+            isolate::session_diff_texts,
+            isolate::session_integrate,
+            isolate::session_integrate_merging,
+            isolate::session_cleanup,
+            isolate::session_orphans,
+            isolate::session_reopen,
+            handoff::session_pause,
+            handoff::session_resume,
+            handoff::session_handoff,
+            larry::larry_propose,
+            larry::larry_commit,
+            larry::larry_groups,
+            pr::pr_draft,
+            pr::pr_publish,
+            pr::open_pr_url,
+            pr::pr_status,
+            tools::tools_status,
+            containers::containers_list,
+            containers::container_link,
+            containers::container_unlink,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Filigranas");

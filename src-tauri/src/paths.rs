@@ -31,3 +31,33 @@ pub fn direct_child(root: &Path, path: &Path) -> Result<PathBuf, String> {
 pub fn to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_parent_traversal_and_nested_projects() {
+        let dir = std::env::temp_dir().join(format!("filigranas-paths-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("projects");
+        let child = root.join("repo");
+        std::fs::create_dir_all(child.join("nested")).unwrap();
+        std::fs::write(dir.join("outside.txt"), "outside").unwrap();
+        assert!(inside(&root, &root.join("../outside.txt")).is_err());
+        assert!(direct_child(&root, &child).is_ok());
+        assert!(direct_child(&root, &child.join("nested")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_outside_root() {
+        let dir = std::env::temp_dir().join(format!("filigranas-path-link-{}", uuid::Uuid::new_v4()));
+        let root = dir.join("projects");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(dir.join("private.txt"), "outside").unwrap();
+        std::os::unix::fs::symlink(dir.join("private.txt"), root.join("link.txt")).unwrap();
+        assert!(inside(&root, &root.join("link.txt")).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

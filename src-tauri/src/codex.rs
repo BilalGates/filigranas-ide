@@ -160,14 +160,31 @@ const QUIET: [&str; 3] = ["mcpServer/startupStatus/updated", "remoteControl/stat
 const SHORT: Duration = Duration::from_secs(30);
 const LONG: Duration = Duration::from_secs(120);
 
-fn instructions(profile: &str) -> String {
-    let persona = match profile {
+fn persona(profile: &str) -> &'static str {
+    match profile {
         "pep" => include_str!("../resources/coordinadores/pep.md"),
         "luis-enrique" => include_str!("../resources/coordinadores/luis-enrique.md"),
         "cruyff" => include_str!("../resources/coordinadores/cruyff.md"),
         _ => include_str!("../resources/coordinadores/hansi.md"),
-    };
-    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona)
+    }
+}
+
+fn instructions(profile: &str) -> String {
+    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
+}
+
+/// Mensaje de desarrollador que cambia el perfil de un hilo ya creado.
+/// `thread/resume` no aplica unas instrucciones nuevas a un hilo cargado;
+/// inyectado en el historial, el modelo lo ve en los turnos siguientes.
+fn profile_switch(profile: &str) -> Value {
+    json!({
+        "type": "message",
+        "role": "developer",
+        "content": [{
+            "type": "input_text",
+            "text": format!("El usuario ha cambiado tu perfil de coordinador. Este perfil sustituye al anterior desde ahora:\n\n{}", persona(profile)),
+        }],
+    })
 }
 
 /// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
@@ -184,6 +201,25 @@ fn thread_params(cwd: &str, profile: &str) -> Value {
 
 /// PATH del shell de login del usuario. Una app abierta desde el Finder
 /// hereda un PATH mínimo en el que no están `codex` ni `node`.
+/// Programa externo listo para lanzar. En Windows, `Command` solo busca
+/// `.exe` en el PATH y las CLI instaladas con npm son `.cmd`: se resuelve la
+/// ruta completa a mano. En macOS basta el nombre con el PATH de login.
+pub(crate) fn program(name: &str) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let path = login_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+        for dir in std::env::split_paths(&path) {
+            for ext in ["exe", "cmd", "bat"] {
+                let candidate = dir.join(format!("{name}.{ext}"));
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+    }
+    std::path::PathBuf::from(name)
+}
+
 pub(crate) fn login_path() -> Option<&'static str> {
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| {
@@ -215,6 +251,8 @@ struct Shared {
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
     approvals: HashSet<String>,
+    /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
+    waiters: HashMap<String, Sender<(String, Value)>>,
 }
 
 #[derive(Default)]
@@ -232,6 +270,59 @@ struct Event {
 }
 
 impl Codex {
+    /// Turno único en un hilo efímero de solo lectura, con salida JSON según
+    /// `schema`. Devuelve el texto final del agente. Para tareas internas
+    /// del IDE como proponer commits.
+    /// Si vence `limit`, interrumpe el turno y devuelve un error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str, limit: Duration) -> CmdResult<String> {
+        let rpc = self.rpc(app)?;
+        let res = rpc.request(
+            "thread/start",
+            json!({ "cwd": cwd, "sandbox": "read-only", "approvalPolicy": "never", "developerInstructions": instructions, "ephemeral": true }),
+            LONG,
+        )?;
+        let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        let (tx, rx) = channel();
+        self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let deadline = std::time::Instant::now() + limit;
+        let result = (|| {
+            let started = rpc.request(
+                "turn/start",
+                json!({ "threadId": thread, "effort": effort, "outputSchema": schema, "input": [{ "type": "text", "text": prompt, "text_elements": [] }] }),
+                LONG,
+            )?;
+            let turn = started.pointer("/turn/id").and_then(Value::as_str).unwrap_or("").to_string();
+            let mut last = String::new();
+            loop {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                let Ok((method, params)) = rx.recv_timeout(left) else {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), SHORT);
+                    return Err(format!("codex no respondió en {} s", limit.as_secs()));
+                };
+                match method.as_str() {
+                    "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
+                        last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
+                    }
+                    "turn/completed" => {
+                        if let Some(e) = params.pointer("/turn/error/message").and_then(Value::as_str) {
+                            return Err(e.to_string());
+                        }
+                        return Ok(last);
+                    }
+                    _ => {}
+                }
+            }
+        })();
+        self.shared.lock().map_err(err)?.waiters.remove(&thread);
+        result
+    }
+
+    /// El proceso en marcha, sin arrancar otro.
+    pub fn current(&self) -> Option<Arc<Rpc>> {
+        self.server.lock().ok()?.as_ref().filter(|s| s.rpc.alive()).map(|s| s.rpc.clone())
+    }
+
     /// El proceso en marcha, o uno nuevo si no hay o terminó.
     fn rpc(&self, app: &AppHandle) -> CmdResult<Arc<Rpc>> {
         let mut slot = self.server.lock().map_err(err)?;
@@ -244,7 +335,7 @@ impl Codex {
             let _ = old.child.kill();
             let _ = old.child.wait();
         }
-        let mut cmd = Command::new("codex");
+        let mut cmd = Command::new(program("codex"));
         cmd.arg("app-server").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
@@ -264,6 +355,10 @@ impl Codex {
             let event = match msg {
                 Incoming::Notification { method, params } => {
                     let thread = params.get("threadId").and_then(Value::as_str).unwrap_or("").to_string();
+                    if let Some(tx) = sh.waiters.get(&thread) {
+                        let _ = tx.send((method.clone(), params.clone()));
+                        return; // hilo interno: no va a la interfaz
+                    }
                     match method.as_str() {
                         "turn/started" => {
                             if let Some(turn) = params.pointer("/turn/id").and_then(Value::as_str) {
@@ -285,6 +380,23 @@ impl Codex {
                     Event { method, params, request_id: None }
                 }
                 Incoming::Request { id, method, params } => {
+                    if method == "item/tool/call" {
+                        // Herramientas del coordinador; pueden esperar minutos.
+                        let app = handle.clone();
+                        std::thread::spawn(move || {
+                            let thread = params["threadId"].as_str().unwrap_or("");
+                            let tool = params["tool"].as_str().unwrap_or("");
+                            let (text, success) = match crate::delegate::handle(&app, thread, tool, &params["arguments"]) {
+                                Ok(text) => (text, true),
+                                Err(e) => (format!("error: {e}"), false),
+                            };
+                            let response = json!({ "contentItems": [{ "type": "inputText", "text": text }], "success": success });
+                            if let Some(rpc) = app.state::<AppState>().codex.current() {
+                                let _ = rpc.respond(id, response);
+                            }
+                        });
+                        return;
+                    }
                     if !APPROVALS.contains(&method.as_str()) {
                         // Sin soporte todavía: contestar para que Codex no espere.
                         let _ = rpc.respond_error(id, "Filigranas no admite esta petición todavía");
@@ -306,7 +418,7 @@ impl Codex {
             "initialize",
             json!({
                 "clientInfo": { "name": "filigranas", "title": "Filigranas", "version": env!("CARGO_PKG_VERSION") },
-                "capabilities": { "experimentalApi": false, "requestAttestation": false },
+                "capabilities": { "experimentalApi": true, "requestAttestation": false },
             }),
             SHORT,
         );
@@ -323,8 +435,11 @@ impl Codex {
     /// respuesta de `thread/resume` o `thread/start` si hubo que pedirla.
     fn thread(&self, app: &AppHandle, state: &AppState, path: &str, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
         let (saved, profile) = db::coordinator(&*state.db.lock().map_err(err)?, path).map_err(err)?;
+        let tools = db::coordinator_tools(&*state.db.lock().map_err(err)?, path).map_err(err)?;
         let rpc = self.rpc(app)?;
-        if let Some(id) = &saved {
+        // Las herramientas solo se fijan al crear el hilo: uno anterior a la
+        // versión actual se sustituye (su conversación sigue en Codex).
+        if let Some(id) = saved.as_ref().filter(|_| tools == crate::delegate::TOOLS_VERSION) {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
@@ -336,9 +451,11 @@ impl Codex {
             }
             // Un hilo sin turnos no llega a guardarse en disco: empezar otro.
         }
-        let res = rpc.request("thread/start", thread_params(path, &profile), LONG)?;
+        let mut params = thread_params(path, &profile);
+        params["dynamicTools"] = crate::delegate::specs();
+        let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
-        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(&id)).map_err(err)?;
+        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(&id), crate::delegate::TOOLS_VERSION).map_err(err)?;
         self.shared.lock().map_err(err)?.loaded.insert(id.clone());
         Ok((rpc, id, Some(res)))
     }
@@ -455,15 +572,29 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
 }
 
-/// Cambia el perfil del coordinador. Se aplica al volver a abrirlo.
+/// Cambia el perfil del coordinador. En un hilo existente se inyecta el
+/// perfil nuevo en su historial para que el modelo lo aplique ya.
 #[tauri::command]
-pub fn coordinator_set_profile(state: State<AppState>, project: String, profile: String) -> CmdResult<()> {
+pub async fn coordinator_set_profile(app: AppHandle, project: String, profile: String) -> CmdResult<()> {
     if !PROFILES.contains(&profile.as_str()) {
         return Err("perfil desconocido".into());
     }
-    let conn = state.db.lock().map_err(err)?;
-    let path = project_path(&conn, &project)?;
-    db::set_coordinator_profile(&conn, &path, &profile).map_err(err)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let (thread, current) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
+        if current == profile {
+            return Ok(());
+        }
+        db::set_coordinator_profile(&*state.db.lock().map_err(err)?, &path, &profile).map_err(err)?;
+        if thread.is_some() {
+            let (rpc, id, _) = state.codex.thread(&app, &state, &path, false)?;
+            rpc.request("thread/inject_items", json!({ "threadId": id, "items": [profile_switch(&profile)] }), SHORT)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(err)?
 }
 
 #[cfg(test)]
@@ -561,6 +692,26 @@ mod tests {
         let text = p["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE") && text.contains("Pep Guardiola"));
         assert!(instructions("desconocido").contains("Hansi Flick"));
+        let switch = profile_switch("cruyff");
+        assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
+        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
+    }
+
+    #[test]
+    fn timeout_discards_late_response_and_auth_errors_are_delivered() {
+        let (rx, tx) = fake(|msg, w| {
+            if msg["method"] == "slow" {
+                std::thread::sleep(Duration::from_millis(40));
+                write(w, json!({ "id": msg["id"], "result": "late" }));
+            } else {
+                write(w, json!({ "id": msg["id"], "error": { "code": 401, "message": "credentials expired" } }));
+            }
+        });
+        let rpc = Rpc::start(rx, tx, |_, _| {});
+        assert!(rpc.request("slow", Value::Null, Duration::from_millis(5)).unwrap_err().contains("no respondió"));
+        assert!(rpc.pending.lock().unwrap().is_empty());
+        assert_eq!(rpc.request("next", Value::Null, Duration::from_secs(1)).unwrap_err(), "credentials expired");
+        assert!(rpc.pending.lock().unwrap().is_empty());
     }
 
     /// Contra Codex real: necesita sesión iniciada y gasta un turno corto.

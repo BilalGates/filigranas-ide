@@ -90,6 +90,15 @@ export default function Publish({ project, session, hidden }: Props) {
             <Checks info={info} />
           </div>
         )}
+        {draft?.previous && !published && (
+          <div className="co-aside">
+            La PR anterior de esta rama está {draft.previous.state === 'MERGED' ? 'fusionada' : 'cerrada'} (
+            <button className="co-link" onClick={() => pr.open(draft.previous!.url).catch((e) => setError(String(e)))}>
+              {draft.previous.url}
+            </button>
+            ). Publicar abrirá una PR nueva con los commits posteriores.
+          </div>
+        )}
         {draft && !published && (
           <>
             {draft.blocked && <div className="co-error">{draft.blocked}</div>}

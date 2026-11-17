@@ -164,6 +164,7 @@ export type PrDraft = {
   commits: string[];
   dirty: boolean;
   existing: PrInfo | null;
+  previous: PrInfo | null;
   blocked: string | null;
 };
 

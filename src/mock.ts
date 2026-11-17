@@ -315,6 +315,7 @@ mockIPC(
           commits: ['fix(lib): valida la política antes de encolar'],
           dirty: false,
           existing: null,
+          previous: null,
           blocked: null,
         };
       case 'pr_publish':

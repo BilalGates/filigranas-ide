@@ -697,6 +697,23 @@ mod tests {
         assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
     }
 
+    #[test]
+    fn timeout_discards_late_response_and_auth_errors_are_delivered() {
+        let (rx, tx) = fake(|msg, w| {
+            if msg["method"] == "slow" {
+                std::thread::sleep(Duration::from_millis(40));
+                write(w, json!({ "id": msg["id"], "result": "late" }));
+            } else {
+                write(w, json!({ "id": msg["id"], "error": { "code": 401, "message": "credentials expired" } }));
+            }
+        });
+        let rpc = Rpc::start(rx, tx, |_, _| {});
+        assert!(rpc.request("slow", Value::Null, Duration::from_millis(5)).unwrap_err().contains("no respondió"));
+        assert!(rpc.pending.lock().unwrap().is_empty());
+        assert_eq!(rpc.request("next", Value::Null, Duration::from_secs(1)).unwrap_err(), "credentials expired");
+        assert!(rpc.pending.lock().unwrap().is_empty());
+    }
+
     /// Contra Codex real: necesita sesión iniciada y gasta un turno corto.
     /// `cargo test -- --ignored real_codex_turn`
     #[test]

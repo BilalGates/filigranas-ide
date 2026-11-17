@@ -22,7 +22,8 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "theme": "Dark"
+        "theme": "Dark",
+        "trafficLightPosition": { "x": 16, "y": 16 }
       }
     ],
     "security": {

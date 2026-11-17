@@ -393,14 +393,31 @@ button,
   background: var(--side);
 }
 
-/* Espacio para el semáforo de macOS; en Windows la barra es nativa. */
+/* Semáforo de macOS: a 16 px de la esquina (como Codex y las apps del
+   sistema). La barra lateral reserva esa franja. */
 .sidebar-top {
-  height: 40px;
+  position: relative;
+  height: 48px;
   flex: none;
 }
 
+/* En el navegador no hay ventana nativa: se dibuja el semáforo para
+   juzgar el encaje. Medidas de macOS 26/27: 16 px desde la esquina,
+   14 px de diámetro y 23 px entre centros. */
+html[data-browser] .sidebar-top::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  left: 8px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 23px 0 0 #febc2e, 46px 0 0 #28c840;
+}
+
 [data-platform='win'] .sidebar-top,
-[data-platform='other'] .sidebar-top {
+html:not([data-browser])[data-platform='other'] .sidebar-top {
   height: 10px;
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { sessions, type AcpOption, type Change, type CItem, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
 import { Composer, ConversationLog, type Ask } from './Conversation';
+import { addTokens, reportLimits } from './usageStore';
 
 export const ENGINE_LABEL: Record<string, string> = { claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -133,19 +134,19 @@ function acpAsk(msg: any): Pending {
   };
 }
 
-/** Uso de las ventanas de cuota de Claude (5 h y semana). */
-function ClaudeQuota({ info }: { info: any }) {
-  const windows: [string, any][] = Object.entries(info.unifiedWindows ?? {});
+/** Cuota de Claude Code (ventanas de 5 h y semana) en el formato común. */
+function reportClaude(info: any) {
   const label = (k: string) => (k === 'five_hour' ? '5 h' : k === 'seven_day' ? 'semana' : k.replace('_', ' '));
-  const out = info.status && info.status !== 'allowed' && info.status !== 'allowed_warning';
-  const reset = info.resetsAt ? new Date(info.resetsAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-  if (!windows.length && !out) return null;
-  return (
-    <span className={out ? 'co-quota is-out' : 'co-quota'} title={reset ? `se renueva a las ${reset}` : undefined}>
-      {out ? 'cuota agotada · ' : 'uso '}
-      {windows.map(([k, w]) => `${label(k)} ${Math.round((w?.utilization ?? 0) * 100)}%`).join(' · ')}
-    </span>
-  );
+  const out = !!info.status && info.status !== 'allowed' && info.status !== 'allowed_warning';
+  reportLimits({
+    engine: 'claude',
+    out,
+    windows: Object.entries<any>(info.unifiedWindows ?? {}).map(([k, w]) => ({
+      label: label(k),
+      percent: (w?.utilization ?? 0) * 100,
+      resetsAt: w?.resetsAt ?? info.resetsAt ?? null,
+    })),
+  });
 }
 
 // ── componente ──────────────────────────────────────────────────────────
@@ -177,8 +178,6 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
-  // Uso de cuota que informa Claude Code en cada turno.
-  const [quota, setQuota] = useState<any>(null);
   // Modelo y razonamiento elegibles en los agentes ACP.
   const [acpOptions, setAcpOptions] = useState<AcpOption[]>([]);
   // La integración directa chocó: se ofrece fusionar con marcas.
@@ -239,6 +238,8 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           setPending((p) => [...p, claudeAsk(msg)]);
           break;
         case 'result':
+          for (const [m, u] of Object.entries<any>(msg.modelUsage ?? {}))
+            addTokens('claude', m, { input: (u.inputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0), cached: u.cacheReadInputTokens, output: u.outputTokens });
           refreshChanges();
           setRunning(false);
           setItems((list) => list.filter((it) => !it.id.startsWith('live')));
@@ -323,7 +324,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           break;
 
         case 'rate_limit_event':
-          setQuota(msg.rate_limit_info ?? null);
+          if (msg.rate_limit_info) reportClaude(msg.rate_limit_info);
           break;
         case 'paused':
           pausedReason.current = msg.reason;
@@ -478,30 +479,8 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
     <section className="coach" aria-label={`Sesión ${session.name}`} hidden={hidden}>
       <div className="co-head">
         <span>{session.name}</span>
-        <span className="muted">
-          {engine}
-          {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
-        </span>
-        {acpOptions.map((o) => (
-          <select
-            key={o.id}
-            className="co-profile co-option"
-            aria-label={o.category === 'model' ? 'Modelo' : 'Razonamiento'}
-            title={o.category === 'model' ? 'modelo' : 'nivel de razonamiento'}
-            value={o.currentValue}
-            disabled={running}
-            onChange={(e) => setOption(o.id, e.target.value)}
-          >
-            {o.options.map((x) => (
-              <option key={x.value} value={x.value}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-        ))}
         <span className={`co-state is-${state.replace(' ', '-')}`}>{state}</span>
         <span className="push" />
-        {quota && <ClaudeQuota info={quota} />}
         {running && (
           <button className="co-link" onClick={() => sessions.pause(session.id).catch((e) => setError(String(e)))} title="detiene el turno y deja la sesión en pausa">
             pausar
@@ -596,6 +575,31 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         efforts={isClaude ? CLAUDE_EFFORTS : []}
         effort={effort}
         onEffort={setEffort}
+        model={
+          <>
+            <span>
+              {engine}
+              {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
+            </span>
+            {acpOptions.map((o) => (
+              <select
+                key={o.id}
+                className="co-profile co-option"
+                aria-label={o.category === 'model' ? 'Modelo' : 'Razonamiento'}
+                title={o.category === 'model' ? 'modelo' : 'nivel de razonamiento'}
+                value={o.currentValue}
+                disabled={running}
+                onChange={(e) => setOption(o.id, e.target.value)}
+              >
+                {o.options.map((x) => (
+                  <option key={x.value} value={x.value}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            ))}
+          </>
+        }
         onSend={send}
         onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
         placeholder="escribe la tarea · ⌘↩ para enviar"

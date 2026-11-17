@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type CoordinatorEvent, type Decision, type Opened, type RateLimits, type RateWindow } from './ipc';
 import { Composer, ConversationLog, KIND_LETTER, type Ask } from './Conversation';
+import { addTokens, reportLimits, spanLabel } from './usageStore';
 
 const PROFILES: [string, string][] = [
   ['hansi', 'Hansi Flick'],
@@ -14,22 +15,14 @@ const APPROVAL_METHODS = ['item/commandExecution/requestApproval', 'item/fileCha
 type Approval = { requestId: unknown; method: string; params: any };
 type Props = { project: string; hidden: boolean; onDiff: (c: Change) => void; onProfile: (name: string) => void };
 
-function windowLabel(w: RateWindow) {
-  const mins = w.windowDurationMins ?? 0;
-  const span = mins >= 10080 ? 'semana' : mins >= 1440 ? `${Math.round(mins / 1440)} d` : `${Math.round(mins / 60)} h`;
-  return `${span} ${Math.round(w.usedPercent)}%`;
-}
-
-function Quota({ limits }: { limits: RateLimits | null }) {
-  if (!limits) return null;
+/** Cuota de Codex en el formato común del panel de consumo. */
+function report(limits: RateLimits) {
   const windows = [limits.primary, limits.secondary].filter((w): w is RateWindow => !!w);
-  const reset = limits.primary?.resetsAt ? new Date(limits.primary.resetsAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-  return (
-    <span className={limits.rateLimitReachedType ? 'co-quota is-out' : 'co-quota'} title={reset ? `se renueva a las ${reset}` : undefined}>
-      {limits.rateLimitReachedType ? 'cuota agotada · ' : 'uso '}
-      {windows.map(windowLabel).join(' · ')}
-    </span>
-  );
+  reportLimits({
+    engine: 'codex',
+    out: !!limits.rateLimitReachedType,
+    windows: windows.map((w) => ({ label: spanLabel(w.windowDurationMins), percent: w.usedPercent, resetsAt: w.resetsAt ?? null })),
+  });
 }
 
 /**
@@ -43,10 +36,15 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [running, setRunning] = useState<string | null>(null);
   const [limits, setLimits] = useState<RateLimits | null>(null);
+  useEffect(() => {
+    if (limits) report(limits);
+  }, [limits]);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(true);
   const [effort, setEffort] = useState('medium');
   const thread = useRef<string | null>(null);
+  const model = useRef<string | null>(null);
+  model.current = info?.model ?? null;
   const onProfileRef = useRef(onProfile);
   onProfileRef.current = onProfile;
   // Perfil vigente, para firmar las respuestas según llegan.
@@ -105,6 +103,11 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
         return;
       }
       if (method === 'account/rateLimits/updated') return setLimits(params.rateLimits);
+      if (method === 'thread/tokenUsage/updated') {
+        const last = params.tokenUsage?.last;
+        if (last) addTokens('codex', model.current, { input: (last.inputTokens ?? 0) - (last.cachedInputTokens ?? 0), cached: last.cachedInputTokens, output: last.outputTokens });
+        return;
+      }
       if (!thread.current || params?.threadId !== thread.current) return;
       if (APPROVAL_METHODS.includes(method)) return setApprovals((a) => [...a, { requestId, method, params }]);
       switch (method) {
@@ -208,9 +211,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
             </option>
           ))}
         </select>
-        <span className="muted">codex{info?.model ? ` · ${info.model}` : ''}</span>
         <span className={`co-state is-${state.replace(' ', '-')}`}>{state}</span>
-        <Quota limits={limits} />
       </div>
 
       <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
@@ -234,6 +235,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
         efforts={info?.efforts ?? ['medium']}
         effort={effort}
         onEffort={setEffort}
+        model={`codex${info?.model ? ` · ${info.model}` : ''}`}
         onSend={send}
         onInterrupt={() => coordinator.interrupt(project).catch((e) => setError(String(e)))}
         placeholder="escribe un encargo · ⌘↩ para enviar"

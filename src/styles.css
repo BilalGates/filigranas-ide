@@ -2119,3 +2119,173 @@ html[data-resizing] .splitter:active::after {
   top: 0;
 }
 
+/* ── consumo ────────────────────────────────────────────── */
+
+.usage {
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.usage-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 14px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+.usage-head:hover {
+  color: var(--tx2);
+}
+
+.usage-title {
+  color: inherit;
+}
+
+.usage-sum {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-sum.is-out {
+  color: var(--warn);
+}
+
+.usage-chev {
+  width: 10px;
+  font-size: 13px;
+  color: var(--tx4);
+  text-align: center;
+  transform: rotate(-90deg);
+  transition: transform var(--mid) var(--ease);
+}
+
+.usage.is-open .usage-chev {
+  transform: rotate(90deg);
+}
+
+.meter {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  min-width: 40px;
+  background: var(--line2);
+  overflow: hidden;
+}
+
+.meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--blau);
+  transition: width 400ms var(--ease);
+  animation: meter 600ms var(--ease);
+}
+
+.meter > span.is-hot {
+  background: var(--warn);
+}
+
+.meter.is-thin {
+  display: block;
+  height: 1px;
+  margin: 4px 0 3px;
+}
+
+@keyframes meter {
+  from {
+    width: 0;
+  }
+}
+
+.usage-num {
+  font-variant-numeric: tabular-nums;
+  color: var(--tx);
+}
+
+.usage-num.is-out {
+  color: var(--warn);
+}
+
+.usage-body {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 2px 14px 12px;
+  animation: rise var(--mid) var(--ease);
+}
+
+.usage-engine + .usage-engine {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.usage-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+.usage-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
+  font-size: 12px;
+}
+
+.usage-span {
+  width: 48px;
+  color: var(--tx2);
+}
+
+.usage-model {
+  padding: 4px 0;
+}
+
+.usage-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+
+.usage-model.is-top .usage-name {
+  color: var(--tx);
+}
+
+.usage-model.is-top .usage-name::after {
+  content: 'más usado';
+  margin-left: 8px;
+  padding: 0 4px;
+  background: var(--grana);
+  color: #fff;
+  font-family: var(--ui);
+  font-size: 9.5px;
+  vertical-align: 1px;
+}
+
+.usage-model.is-top .meter > span {
+  background: var(--grana);
+}
+
+.usage-split {
+  font-size: 10.5px;
+}
+
+.usage-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 11px;
+}

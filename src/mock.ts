@@ -389,6 +389,7 @@ async function demoTurn(text: string) {
     await ev('item/completed', { item: { id: `f${n}`, type: 'fileChange', status: 'completed', changes: [{ path: `${ROOT}/bitacola/src/lib/autonomy.ts`, kind: { type: 'update', move_path: null }, diff: '' }] } });
   }
   await ev('item/completed', { item: { id: `z${n}`, type: 'agentMessage', text: decision === 'decline' ? 'Sin los tests no sigo. Dime si prefieres otra forma.' : 'Hecho. Los tests pasan:\n```\n✓ queue.test.ts (3 tests)\n```' } });
+  await ev('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 48200, cachedInputTokens: 31000, outputTokens: 2400 } } });
   await ev('turn/completed', { turn: { id: 't1', error: null } });
 }
 
@@ -413,7 +414,8 @@ async function demoSession(id: number) {
   const ok = decision !== 'decline';
   await ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `t${n}`, is_error: !ok, content: ok ? 'ok' : 'rechazado' }] } });
   await ev({ type: 'assistant', message: { id: `m${n}b`, content: [{ type: 'text', text: ok ? 'Hecho: la validación rechaza clientes sin política.' : 'Entendido, no toco el archivo.' }] } });
-  await ev({ type: 'result', subtype: 'success', is_error: false, result: '' });
+  await ev({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.31 }, seven_day: { utilization: 0.58 } } } });
+  await ev({ type: 'result', subtype: 'success', is_error: false, result: '', modelUsage: { 'claude-opus-5-5': { inputTokens: 1200, cacheCreationInputTokens: 9000, cacheReadInputTokens: 64000, outputTokens: 3100 } } });
 }
 
 // Atajo de depuración: simular que aparece un repositorio nuevo.

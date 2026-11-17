@@ -402,7 +402,7 @@ button,
 }
 
 /* En el navegador no hay ventana nativa: se dibuja el semáforo para
-   juzgar el encaje. Medidas de macOS 26/27: 16 px desde la esquina,
+   juzgar el encaje. Referencia aprobada de ChatGPT: 16 px desde la esquina,
    14 px de diámetro y 23 px entre centros. */
 html[data-browser] .sidebar-top::before {
   content: '';

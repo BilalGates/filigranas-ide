@@ -149,6 +149,7 @@ export type LarryOutcome = { created: string[]; stopped: string | null };
 
 export const larry = {
   propose: (project: string, session: number | null) => invoke<LarryPlan>('larry_propose', { project, session }),
+  groups: (project: string, session: number | null) => invoke<LarryPlan>('larry_groups', { project, session }),
   commit: (project: string, session: number | null, commits: LarryCommit[]) => invoke<LarryOutcome>('larry_commit', { project, session, commits }),
 };
 

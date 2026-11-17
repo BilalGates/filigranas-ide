@@ -1532,3 +1532,9 @@ button.co-file:hover {
   font-size: 11px;
   color: var(--dim);
 }
+
+.co-error-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}

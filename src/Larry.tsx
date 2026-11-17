@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { larry, type DiffTarget, type LarryCommit, type LarryOutcome, type LarryPlan, type Session } from './ipc';
 
 type Props = { project: string; session: Session | null; hidden: boolean; onDiff: (c: DiffTarget) => void; onDone: () => void };
@@ -16,24 +16,48 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<LarryOutcome | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  // Cada petición tiene su número; una respuesta tardía de otra se ignora.
+  const request = useRef(0);
+
+  const show = (id: number) => ({
+    ok: (p: LarryPlan) => {
+      if (id !== request.current) return;
+      setPlan(p);
+      setCommits(p.commits);
+      setLoading(false);
+    },
+    fail: (e: unknown) => {
+      if (id !== request.current) return;
+      setError(String(e));
+      setPlan(null);
+      setLoading(false);
+    },
+  });
 
   const propose = useCallback(() => {
+    const id = ++request.current;
     setLoading(true);
     setError(null);
     setOutcome(null);
-    larry.propose(project, sid).then(
-      (p) => {
-        setPlan(p);
-        setCommits(p.commits);
-        setLoading(false);
-      },
-      (e) => {
-        setError(String(e));
-        setPlan(null);
-        setLoading(false);
-      },
-    );
+    const { ok, fail } = show(id);
+    larry.propose(project, sid).then(ok, fail);
   }, [project, sid]);
+
+  /** No esperar al modelo: grupos del script al instante. */
+  const useScript = () => {
+    const id = ++request.current;
+    const { ok, fail } = show(id);
+    larry.groups(project, sid).then(ok, fail);
+  };
+
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   useEffect(propose, [propose]);
 
@@ -60,8 +84,15 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
         </button>
       </div>
       <div className="co-log">
-        {loading && <div className="muted">larry está agrupando los cambios…</div>}
-        {plan?.notes && <div className={plan.fallback ? 'co-error' : 'co-aside'}>{plan.notes}</div>}
+        {loading && (
+          <div className="co-error-row muted">
+            larry está agrupando los cambios… {elapsed} s
+            <button className="co-link" onClick={useScript}>
+              no esperar: usar los grupos del script
+            </button>
+          </div>
+        )}
+        {plan?.notes && <div className={plan.notes.includes('no pudo') ? 'co-error' : 'co-aside'}>{plan.notes}</div>}
         {!outcome &&
           commits.map((c, i) => (
             <div className="larry-commit" key={i}>

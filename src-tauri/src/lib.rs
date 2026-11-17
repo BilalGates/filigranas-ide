@@ -119,6 +119,7 @@ pub fn run() {
             larry::larry_propose,
             larry::larry_commit,
             pr::pr_draft,
+            larry::larry_groups,
             pr::pr_publish,
             pr::open_pr_url,
             pr::pr_status,

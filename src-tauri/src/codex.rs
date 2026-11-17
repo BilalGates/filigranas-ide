@@ -273,7 +273,9 @@ impl Codex {
     /// Turno único en un hilo efímero de solo lectura, con salida JSON según
     /// `schema`. Devuelve el texto final del agente. Para tareas internas
     /// del IDE como proponer commits.
-    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str) -> CmdResult<String> {
+    /// Si vence `limit`, interrumpe el turno y devuelve un error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str, limit: Duration) -> CmdResult<String> {
         let rpc = self.rpc(app)?;
         let res = rpc.request(
             "thread/start",
@@ -283,15 +285,21 @@ impl Codex {
         let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
         let (tx, rx) = channel();
         self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let deadline = std::time::Instant::now() + limit;
         let result = (|| {
-            rpc.request(
+            let started = rpc.request(
                 "turn/start",
                 json!({ "threadId": thread, "effort": effort, "outputSchema": schema, "input": [{ "type": "text", "text": prompt, "text_elements": [] }] }),
                 LONG,
             )?;
+            let turn = started.pointer("/turn/id").and_then(Value::as_str).unwrap_or("").to_string();
             let mut last = String::new();
             loop {
-                let (method, params) = rx.recv_timeout(Duration::from_secs(600)).map_err(|_| "codex no terminó a tiempo".to_string())?;
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                let Ok((method, params)) = rx.recv_timeout(left) else {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), SHORT);
+                    return Err(format!("codex no respondió en {} s", limit.as_secs()));
+                };
                 match method.as_str() {
                     "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
                         last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
@@ -684,6 +692,9 @@ mod tests {
         let text = p["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE") && text.contains("Pep Guardiola"));
         assert!(instructions("desconocido").contains("Hansi Flick"));
+        let switch = profile_switch("cruyff");
+        assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
+        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
     }
 
     /// Contra Codex real: necesita sesión iniciada y gasta un turno corto.
@@ -692,9 +703,6 @@ mod tests {
     #[ignore]
     fn real_codex_turn() {
         let mut child = Command::new("codex")
-        let switch = profile_switch("cruyff");
-        assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
-        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
             .arg("app-server")
             .env("PATH", login_path().unwrap_or_default())
             .stdin(Stdio::piped())

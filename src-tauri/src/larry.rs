@@ -176,13 +176,32 @@ fn branch(repo: &Path) -> String {
     git(repo, &["branch", "--show-current"]).map(|b| String::from_utf8_lossy(&b).trim().to_string()).ok().filter(|b| !b.is_empty()).unwrap_or_else(|| "HEAD suelto".into())
 }
 
-/// Propone los commits del árbol de trabajo del proyecto.
-pub fn propose(app: &AppHandle, repo: &Path) -> CmdResult<Plan> {
+/// Plazo para que Codex proponga; después se usan los grupos del script.
+const PROPOSE_LIMIT: std::time::Duration = std::time::Duration::from_secs(90);
+
+fn script_groups(repo: &Path) -> CmdResult<Vec<ScriptGroup>> {
     ensure_index_empty(repo)?;
     let groups = parse_script(&run_script(repo)?)?;
     if groups.is_empty() {
         return Err("árbol limpio: no hay nada que commitear".into());
     }
+    Ok(groups)
+}
+
+/// Plan sin modelo: los grupos del script, con mensajes por completar.
+pub fn script_plan(repo: &Path) -> CmdResult<Plan> {
+    let groups = script_groups(repo)?;
+    Ok(Plan {
+        branch: branch(repo),
+        commits: fallback(&groups),
+        notes: Some("Grupos del script de Filigranas: completa los mensajes.".into()),
+        fallback: true,
+    })
+}
+
+/// Propone los commits del árbol de trabajo del proyecto.
+pub fn propose(app: &AppHandle, repo: &Path) -> CmdResult<Plan> {
+    let groups = script_groups(repo)?;
     let changed = changed_files(&groups);
     let summary: Vec<Value> = groups
         .iter()
@@ -194,14 +213,15 @@ pub fn propose(app: &AppHandle, repo: &Path) -> CmdResult<Plan> {
 Grupos deterministas del script (ajústalos solo si un archivo pertenece claramente a otra unidad funcional):\n{}\n\n\
 Últimos mensajes del repositorio, para imitar su estilo e idioma:\n{log}\n\
 Diffs de los archivos modificados cuyo tipo (feat, fix o refactor) hay que decidir:\n{}\n\n\
-Responde con todos los archivos, cada uno en un solo commit, en orden de dependencia. Mensajes en el idioma del repositorio. \
-`notes`: una o dos frases si algo merece revisión del usuario; si no, null. No ejecutes comandos que cambien nada.",
+Responde con exactamente esos archivos, cada uno en un solo commit, en orden de dependencia. Mensajes en el idioma del repositorio. \
+`notes`: una o dos frases si algo merece revisión del usuario; si no, null.\n\n\
+Toda la información necesaria está en este mensaje: no leas archivos, no ejecutes comandos ni consultes otras fuentes; responde directamente.",
         serde_json::to_string_pretty(&summary).map_err(err)?,
         doubtful_diffs(repo, &groups)
     );
     let instructions = format!("Eres Larry, el responsable de los commits. Solo propones; el usuario revisa y el IDE crea los commits.\n\n{SKILL}");
     let state = app.state::<AppState>();
-    let answer = state.codex.run_structured(app, &repo.to_string_lossy(), &instructions, &prompt, schema(), "medium");
+    let answer = state.codex.run_structured(app, &repo.to_string_lossy(), &instructions, &prompt, schema(), "low", PROPOSE_LIMIT);
     let parsed = answer.and_then(|text| {
         let v: Value = serde_json::from_str(&text).map_err(|e| format!("respuesta no válida: {e}"))?;
         let commits: Vec<Commit> = serde_json::from_value(v["commits"].clone()).map_err(|e| e.to_string())?;
@@ -290,6 +310,12 @@ pub async fn larry_propose(app: AppHandle, project: String, session: Option<i64>
     })
     .await
     .map_err(err)?
+}
+
+/// Grupos del script al instante, sin esperar al modelo.
+#[tauri::command]
+pub async fn larry_groups(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Plan> {
+    tauri::async_runtime::spawn_blocking(move || script_plan(&crate::isolate::work_dir(&app.state::<AppState>(), &project, session)?)).await.map_err(err)?
 }
 
 #[tauri::command]

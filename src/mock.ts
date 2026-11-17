@@ -301,6 +301,8 @@ mockIPC(
           notes: null,
           fallback: false,
         };
+      case 'larry_groups':
+        return { branch: 'main', commits: [{ message: 'fix(lib): describe el cambio', files: ['src/lib/autonomy.ts'] }], notes: 'Grupos del script de Filigranas: completa los mensajes.', fallback: true };
       case 'larry_commit':
         return { created: ['9af2c5b fix(lib): valida la política antes de encolar'], stopped: null };
       case 'pr_draft':

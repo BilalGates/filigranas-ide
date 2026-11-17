@@ -176,6 +176,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
+  const pausedReason = useRef<string | null>(session.paused);
   // Uso de cuota que informa Claude Code en cada turno.
   const [quota, setQuota] = useState<any>(null);
   // Modelo y razonamiento elegibles en los agentes ACP.
@@ -241,7 +242,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           refreshChanges();
           setRunning(false);
           setItems((list) => list.filter((it) => !it.id.startsWith('live')));
-          if (msg.is_error || (msg.subtype && msg.subtype !== 'success')) setError(msg.result || `la sesión terminó con error (${msg.subtype})`);
+          if (!pausedReason.current && (msg.is_error || (msg.subtype && msg.subtype !== 'success'))) setError(msg.result || `la sesión terminó con error (${msg.subtype})`);
           break;
         case 'system':
           if (msg.model) setModel(msg.model);
@@ -325,7 +326,11 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           setQuota(msg.rate_limit_info ?? null);
           break;
         case 'paused':
+          pausedReason.current = msg.reason;
           setPaused(msg.reason);
+          setPending([]);
+          setError(null);
+          setStarting(false);
           setRunning(false);
           break;
         case 'exit':
@@ -359,6 +364,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
 
   const send = (text: string) => {
     setError(null);
+    pausedReason.current = null;
     setPaused(null);
     setRunning(true);
     current.current = null;
@@ -445,6 +451,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
 
   const resume = () => {
     setError(null);
+    pausedReason.current = null;
     setPaused(null);
     setRunning(true);
     sessions.resume(session.id).catch((e) => {

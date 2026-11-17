@@ -15,6 +15,7 @@ mod pty;
 mod tools;
 mod tracker;
 mod watch;
+mod git_ops;
 mod window;
 mod workspace;
 
@@ -73,6 +74,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            git_ops::git_fetch,
+            git_ops::git_pull,
+            git_ops::git_push,
+            git_ops::git_stash,
+            git_ops::git_stash_pop,
+            git_ops::git_stash_list,
+            git_ops::git_undo_commit,
             workspace::get_workspace,
             workspace::default_root,
             workspace::set_root,

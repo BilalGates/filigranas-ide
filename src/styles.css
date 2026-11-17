@@ -2119,6 +2119,239 @@ html[data-resizing] .splitter:active::after {
   top: 0;
 }
 
+/* ── panel de git: secciones ────────────────────────────── */
+
+.git > div:has(> .git-branch),
+.git > div:has(> .git-sub) {
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+
+.git-actions {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding-left: 6px !important;
+  padding-right: 6px !important;
+}
+
+.git-act {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tx2);
+}
+
+.git-act:hover:not(:disabled) {
+  color: var(--tx);
+  background: var(--s1);
+}
+
+.git-act:disabled {
+  opacity: 0.3;
+}
+
+.git-act.is-on {
+  color: var(--tx);
+  box-shadow: inset 0 -2px 0 var(--grana);
+}
+
+.git-act.is-busy {
+  opacity: 1;
+  color: var(--blau);
+}
+
+.git-act.is-busy svg {
+  animation: spin 900ms linear infinite;
+}
+
+.git-act:first-child svg {
+  color: var(--tx);
+}
+
+.git-badge {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 15px);
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  background: var(--blau);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 13px;
+  text-align: center;
+  animation: grow-in var(--mid) var(--spring);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.git-out {
+  display: block;
+  width: 100%;
+  max-height: 96px;
+  overflow: auto;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: var(--tx3);
+  animation: rise var(--mid) var(--ease);
+}
+
+.git-out.is-error {
+  color: var(--err);
+}
+
+.git > .git-changes {
+  flex: 1 1 auto;
+  min-height: 44px;
+  overflow: auto;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.git > .git-draft {
+  flex: 0 0 auto;
+  min-height: 120px;
+  max-height: 60%;
+  overflow: auto;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-top: 1px solid var(--line);
+  animation: rise 240ms var(--ease);
+}
+
+.git-draft-wait {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+  color: var(--tx3);
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--line2);
+  border-top-color: var(--blau);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+.git-note {
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+.git-commit {
+  position: relative;
+  padding: 8px 0 10px 12px;
+  box-shadow: inset 2px 0 0 var(--grana);
+  animation: rise var(--mid) var(--ease) backwards;
+}
+
+.git-commit + .git-commit {
+  margin-top: 8px;
+}
+
+.git-commit:nth-child(3) {
+  animation-delay: 40ms;
+}
+
+.git-commit:nth-child(4) {
+  animation-delay: 80ms;
+}
+
+.git-commit textarea {
+  width: 100%;
+  field-sizing: content;
+  padding: 0 18px 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: none;
+  user-select: text;
+  box-shadow: inset 0 -1px 0 transparent;
+  transition: box-shadow var(--fast) var(--ease);
+}
+
+.git-commit textarea:hover {
+  box-shadow: inset 0 -1px 0 var(--line2);
+}
+
+.git-commit textarea:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--blau);
+}
+
+.git-commit-files {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: 4px;
+}
+
+.git-commit-files .git-path {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--tx3);
+  text-align: left;
+}
+
+.git-commit-files .git-path:hover {
+  color: var(--tx);
+}
+
+.git-commit-drop {
+  position: absolute;
+  top: 6px;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--tx4);
+  text-align: center;
+  line-height: 16px;
+}
+
+.git-commit-drop:hover {
+  color: var(--err);
+}
+
+.git-draft-bar {
+  position: sticky;
+  bottom: -12px;
+  padding: 10px 0 12px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  margin-bottom: -12px;
+}
+
+.git-draft-bar .primary {
+  flex: 1;
+}
+
 /* ── consumo ────────────────────────────────────────────── */
 
 .usage {

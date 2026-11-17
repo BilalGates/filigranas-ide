@@ -522,7 +522,7 @@ export default function App() {
           <GitPanel header={rightTabs} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
             setPendingKey(Date.now());
             setView('pending');
-          }} onCommits={() => openLarry()} onPublish={() => openPublish()} />
+          }} onPublish={() => openPublish()} />
         ) : (
           <Containers key={current.path} project={current.path} header={rightTabs} onCount={setContainerCount} />
         ))}

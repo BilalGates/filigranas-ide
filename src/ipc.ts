@@ -38,6 +38,19 @@ export const git = {
   watch: (path: string | null) => invoke<void>('watch_project', { path }),
 };
 
+// Acciones de git que cambian el repositorio o hablan con el remoto. Cada
+// una devuelve el texto que imprime git, para mostrarlo tal cual.
+export type Stash = { name: string; subject: string };
+export const gitOps = {
+  fetch: (project: string) => invoke<string>('git_fetch', { project }),
+  pull: (project: string) => invoke<string>('git_pull', { project }),
+  push: (project: string, setUpstream: boolean) => invoke<string>('git_push', { project, setUpstream }),
+  stash: (project: string, message: string | null) => invoke<string>('git_stash', { project, message }),
+  stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
+  stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
+  undoCommit: (project: string) => invoke<string>('git_undo_commit', { project }),
+};
+
 // Terminales. La salida llega por el canal que se pasa al abrir.
 export type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };
 

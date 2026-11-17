@@ -34,7 +34,13 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
              closed           INTEGER NOT NULL DEFAULT 0,
              created_at       INTEGER NOT NULL DEFAULT (unixepoch())
          );
-         CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project, closed);",
+         CREATE INDEX IF NOT EXISTS sessions_project ON sessions(project, closed);
+         -- Contenedores sueltos asociados a mano a un proyecto (por id).
+         CREATE TABLE IF NOT EXISTS container_links (
+             container_id TEXT PRIMARY KEY,
+             project      TEXT NOT NULL,
+             name         TEXT NOT NULL
+         );",
     )?;
     migrate(&conn)?;
     Ok(conn)
@@ -258,6 +264,27 @@ pub fn set_session_option(conn: &Connection, id: i64, key: &str, value: &str) ->
     let mut opts = session_options(conn, id)?;
     opts.insert(key.into(), serde_json::Value::String(value.into()));
     conn.execute("UPDATE sessions SET options = ?2 WHERE id = ?1", params![id, serde_json::Value::Object(opts).to_string()])?;
+    Ok(())
+}
+
+/// Asociaciones manuales: id corto de contenedor → proyecto.
+pub fn container_links(conn: &Connection) -> rusqlite::Result<std::collections::HashMap<String, String>> {
+    let mut stmt = conn.prepare("SELECT container_id, project FROM container_links")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+pub fn link_container(conn: &Connection, id: &str, project: &str, name: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO container_links (container_id, project, name) VALUES (?1, ?2, ?3)
+         ON CONFLICT(container_id) DO UPDATE SET project = excluded.project, name = excluded.name",
+        params![id, project, name],
+    )?;
+    Ok(())
+}
+
+pub fn unlink_container(conn: &Connection, id: &str) -> rusqlite::Result<()> {
+    conn.execute("DELETE FROM container_links WHERE container_id = ?1", [id])?;
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { git, type Change, type GitStatus, type LogRow } from './ipc';
 import GitGraph, { layoutGraph, parseRefs } from './GitGraph';
@@ -13,10 +13,20 @@ const STATUS_LABEL: Record<string, string> = {
   '!': 'en conflicto',
 };
 
-type Props = { project: string; selected: Change | null; onDiff: (c: Change) => void; onCommits: () => void; onPublish: () => void; pending: number; onPending: () => void };
+type Props = {
+  project: string;
+  selected: Change | null;
+  onDiff: (c: Change) => void;
+  onCommits: () => void;
+  onPublish: () => void;
+  pending: number;
+  onPending: () => void;
+  /** Selector Git / Contenedores de la columna. */
+  header?: ReactNode;
+};
 
 /** Control de versiones del proyecto abierto: rama, cambios e historial. */
-export default function GitPanel({ project, selected, onDiff, onCommits, onPublish, pending, onPending }: Props) {
+export default function GitPanel({ project, selected, onDiff, onCommits, onPublish, pending, onPending, header }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -75,6 +85,7 @@ export default function GitPanel({ project, selected, onDiff, onCommits, onPubli
   return (
     <aside className="git" aria-label="Control de versiones">
       <div className="git-top" data-tauri-drag-region />
+      {header}
       {error && <div className="git-error">{error}</div>}
       {status && (
         <>

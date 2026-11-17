@@ -179,3 +179,18 @@ export const pr = {
 // Herramientas externas que usa el IDE.
 export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null };
 export const tools = { status: () => invoke<Tool[]>('tools_status') };
+
+// Contenedores Docker del proyecto (solo lectura).
+export type Container = { id: string; name: string; image: string; state: string; health: string | null; ports: string[]; service: string | null };
+export type ContainersView = {
+  status: 'ok' | 'absent' | 'stopped' | 'denied' | 'error';
+  message: string | null;
+  compose: Container[];
+  linked: Container[];
+  unlinked: Container[];
+};
+export const containers = {
+  list: (project: string) => invoke<ContainersView>('containers_list', { project }),
+  link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
+  unlink: (id: string) => invoke<void>('container_unlink', { id }),
+};

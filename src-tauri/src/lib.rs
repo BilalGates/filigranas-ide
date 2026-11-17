@@ -1,6 +1,7 @@
 mod acp;
 mod claude;
 mod codex;
+mod containers;
 mod db;
 mod delegate;
 mod files;
@@ -118,12 +119,15 @@ pub fn run() {
             handoff::session_handoff,
             larry::larry_propose,
             larry::larry_commit,
-            pr::pr_draft,
             larry::larry_groups,
+            pr::pr_draft,
             pr::pr_publish,
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            containers::containers_list,
+            containers::container_link,
+            containers::container_unlink,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Filigranas");

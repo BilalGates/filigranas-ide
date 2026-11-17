@@ -46,6 +46,7 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
 
 1. **Base de la aplicación:** estructura Tauri/React, ventana translúcida en macOS y Windows, persistencia, selección de carpeta, detección de repositorios, grupos, archivo/restauración y navegación de archivos. El mockup es la referencia visual; adaptar sus datos ficticios a datos reales.
 2. **Editor, Git y contenedores locales:** Monaco, PTY, estado/diffs, selección de rama, gráfico e historial; vista de contenedores Docker por proyecto, con asociación automática de Compose y manual de contenedores independientes, de solo lectura. Probar apertura de proyectos grandes, cambios externos de archivos y ausencia o desconexión de Docker.
+   - **Contenedores (hecho):** pestaña en la columna derecha; Compose asociado por rutas canónicas, sueltos por asociación manual (tabla `container_links`); refresco al abrir, a demanda y cada 10 s solo mientras está visible.
 3. **Sesiones y coordinación:** adaptadores de los cinco motores, Hansi por proyecto, streaming, permisos, cancelación, persistencia y recuperación tras reinicio.
    - **3a · Coordinador Codex (hecho):** `codex app-server` con un hilo por proyecto guardado en SQLite, perfiles de coordinador, streaming, aprobaciones de comandos y archivos, interrupción, cuota visible y reanudación tras reinicio.
    - **3b · Claude Code (hecho):** adaptador por salida estructurada en streaming y pestañas de sesión con nombres de futbolistas.

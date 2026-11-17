@@ -332,6 +332,22 @@ mockIPC(
           { id: 'gh', name: 'GitHub CLI', role: 'publicar ramas y PR', installed: true, loggedIn: true, detail: 'gh version 2.101.0', login: 'gh auth login' },
           { id: 'node', name: 'Node.js', role: 'agrupar commits (Larry)', installed: true, loggedIn: null, detail: 'v26.0.0', login: null },
         ];
+      case 'containers_list':
+        return rel(a.project) === 'bitacola'
+          ? {
+              status: 'ok',
+              message: null,
+              compose: [
+                { id: 'a1b2c3d4e5f6', name: 'bitacola-db-1', image: 'pgvector/pgvector:pg16', state: 'running', health: 'healthy', ports: ['127.0.0.1:5433→5432/tcp'], service: 'db' },
+                { id: 'b2c3d4e5f6a1', name: 'bitacola-redis-1', image: 'redis:7', state: 'exited', health: null, ports: [], service: 'redis' },
+              ],
+              linked: [],
+              unlinked: [{ id: 'c3d4e5f6a1b2', name: 'vantia-local', image: 'postgis/postgis:17-3.5', state: 'exited', health: null, ports: [], service: null }],
+            }
+          : { status: 'stopped', message: 'El daemon de Docker no está en marcha. Arráncalo (Docker Desktop u otro) y actualiza.', compose: [], linked: [], unlinked: [] };
+      case 'container_link':
+      case 'container_unlink':
+        return null;
       case 'plugin:dialog|open':
         return ROOT;
       default:

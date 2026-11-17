@@ -1526,3 +1526,9 @@ button.co-file:hover {
 .conflict-sides .co-code {
   margin: 0;
 }
+
+.co-marker {
+  align-self: center;
+  font-size: 11px;
+  color: var(--dim);
+}

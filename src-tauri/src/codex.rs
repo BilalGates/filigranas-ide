@@ -160,14 +160,31 @@ const QUIET: [&str; 3] = ["mcpServer/startupStatus/updated", "remoteControl/stat
 const SHORT: Duration = Duration::from_secs(30);
 const LONG: Duration = Duration::from_secs(120);
 
-fn instructions(profile: &str) -> String {
-    let persona = match profile {
+fn persona(profile: &str) -> &'static str {
+    match profile {
         "pep" => include_str!("../resources/coordinadores/pep.md"),
         "luis-enrique" => include_str!("../resources/coordinadores/luis-enrique.md"),
         "cruyff" => include_str!("../resources/coordinadores/cruyff.md"),
         _ => include_str!("../resources/coordinadores/hansi.md"),
-    };
-    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona)
+    }
+}
+
+fn instructions(profile: &str) -> String {
+    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
+}
+
+/// Mensaje de desarrollador que cambia el perfil de un hilo ya creado.
+/// `thread/resume` no aplica unas instrucciones nuevas a un hilo cargado;
+/// inyectado en el historial, el modelo lo ve en los turnos siguientes.
+fn profile_switch(profile: &str) -> Value {
+    json!({
+        "type": "message",
+        "role": "developer",
+        "content": [{
+            "type": "input_text",
+            "text": format!("El usuario ha cambiado tu perfil de coordinador. Este perfil sustituye al anterior desde ahora:\n\n{}", persona(profile)),
+        }],
+    })
 }
 
 /// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
@@ -547,15 +564,29 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
 }
 
-/// Cambia el perfil del coordinador. Se aplica al volver a abrirlo.
+/// Cambia el perfil del coordinador. En un hilo existente se inyecta el
+/// perfil nuevo en su historial para que el modelo lo aplique ya.
 #[tauri::command]
-pub fn coordinator_set_profile(state: State<AppState>, project: String, profile: String) -> CmdResult<()> {
+pub async fn coordinator_set_profile(app: AppHandle, project: String, profile: String) -> CmdResult<()> {
     if !PROFILES.contains(&profile.as_str()) {
         return Err("perfil desconocido".into());
     }
-    let conn = state.db.lock().map_err(err)?;
-    let path = project_path(&conn, &project)?;
-    db::set_coordinator_profile(&conn, &path, &profile).map_err(err)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let (thread, current) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
+        if current == profile {
+            return Ok(());
+        }
+        db::set_coordinator_profile(&*state.db.lock().map_err(err)?, &path, &profile).map_err(err)?;
+        if thread.is_some() {
+            let (rpc, id, _) = state.codex.thread(&app, &state, &path, false)?;
+            rpc.request("thread/inject_items", json!({ "threadId": id, "items": [profile_switch(&profile)] }), SHORT)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(err)?
 }
 
 #[cfg(test)]
@@ -661,6 +692,9 @@ mod tests {
     #[ignore]
     fn real_codex_turn() {
         let mut child = Command::new("codex")
+        let switch = profile_switch("cruyff");
+        assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
+        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
             .arg("app-server")
             .env("PATH", login_path().unwrap_or_default())
             .stdin(Stdio::piped())

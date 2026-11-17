@@ -49,6 +49,8 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
   const thread = useRef<string | null>(null);
   const onProfileRef = useRef(onProfile);
   onProfileRef.current = onProfile;
+  // Perfil vigente, para firmar las respuestas según llegan.
+  const signer = useRef('coordinador');
 
   const open = useCallback(() => {
     setOpening(true);
@@ -56,6 +58,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
     coordinator.open(project).then(
       (o) => {
         thread.current = o.threadId;
+        signer.current = (PROFILES.find(([id]) => id === o.profile)?.[1] ?? 'coordinador').toLowerCase();
         setInfo(o);
         setItems(o.turns.flatMap((t) => t.items));
         setRunning(o.activeTurn);
@@ -116,7 +119,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
           break;
         case 'item/started':
         case 'item/completed':
-          upsert(params.item);
+          upsert(params.item.type === 'agentMessage' ? { ...params.item, by: signer.current } : params.item);
           break;
         case 'item/agentMessage/delta':
         case 'item/plan/delta':
@@ -161,7 +164,17 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
   };
 
   const changeProfile = (profile: string) => {
-    coordinator.setProfile(project, profile).then(open, (e) => setError(String(e)));
+    const name = PROFILES.find(([id]) => id === profile)?.[1] ?? profile;
+    setError(null);
+    coordinator.setProfile(project, profile).then(
+      () => {
+        signer.current = name.toLowerCase();
+        setInfo((i) => (i ? { ...i, profile } : i));
+        onProfileRef.current(profile);
+        setItems((list) => [...list, { id: `perfil-${Date.now()}`, type: 'notice', text: `perfil cambiado a ${name}: se aplica desde el siguiente mensaje` }]);
+      },
+      (e) => setError(String(e)),
+    );
   };
 
   const asks: Ask[] = approvals.map((a, i) => {
@@ -200,7 +213,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
         <Quota limits={limits} />
       </div>
 
-      <ConversationLog items={items} asks={asks} agent={profileName.toLowerCase()} project={project} onDiff={onDiff}>
+      <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
         {opening && <div className="muted">abriendo el coordinador…</div>}
         {!opening && info && items.length === 0 && <div className="muted co-empty">Cuéntale a {profileName} qué hay que hacer en este proyecto.</div>}
         {error && (

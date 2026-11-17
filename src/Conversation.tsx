@@ -118,7 +118,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
     case 'agentMessage':
       return (
         <div className="co-msg">
-          <div className="co-by">{agent}</div>
+          <div className="co-by">{it.by ?? agent}</div>
           <Prose text={it.text ?? ''} />
         </div>
       );
@@ -179,6 +179,8 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
         </details>
       );
     }
+    case 'notice':
+      return <div className="co-marker">{it.text}</div>;
     case 'mcpToolCall':
       return (
         <div className="co-aside co-tool">

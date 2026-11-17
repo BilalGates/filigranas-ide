@@ -67,6 +67,8 @@ export type CItem = {
   arguments?: any;
   contentItems?: { type: string; text?: string }[] | null;
   success?: boolean | null;
+  /** Quién firma la respuesta, si se sabe (p. ej. el perfil de Hansi al escribirla). */
+  by?: string;
 };
 export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
 export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };

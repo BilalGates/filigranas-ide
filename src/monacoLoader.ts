@@ -5,4 +5,5 @@ let loading: Promise<MonacoModule> | null = null;
 export const loadMonaco = () => (loading ??= import('./monaco'));
 
 export const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
-export const themeName = () => (darkQuery.matches ? 'filigranas-dark' : 'filigranas-light');
+// La interfaz es solo oscura (fondo negro puro): el editor también.
+export const themeName = () => 'filigranas-dark';

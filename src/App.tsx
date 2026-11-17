@@ -15,6 +15,7 @@ import Pending from './Pending';
 import Tools, { toolState } from './Tools';
 import Conflicts from './Conflicts';
 import Containers from './Containers';
+import Splitter, { SIZES } from './Splitter';
 
 // Motores de sesión. Uno no disponible se muestra desactivado con el motivo.
 const ENGINES: [string, string, string | null][] = [
@@ -316,6 +317,7 @@ export default function App() {
         }}
         onUpdate={update}
       />
+      <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
       <div className="tabs" data-tauri-drag-region>
         {current && (
           <button className={`tab${view === 'coach' ? ' is-active' : ''}`} onClick={() => setView('coach')}>
@@ -486,6 +488,7 @@ export default function App() {
           )}
         </div>
         <section className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
+          <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
           <div className="terminal-head">
             <span>terminal</span>
             <div className="terminal-tabs" role="tablist" aria-label="Terminales del proyecto">

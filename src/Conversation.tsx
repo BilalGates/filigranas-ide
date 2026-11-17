@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Change, CItem, Decision } from './ipc';
+import Splitter, { SIZES } from './Splitter';
 
 // Piezas comunes a las conversaciones del coordinador y de las sesiones de
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
@@ -198,13 +199,15 @@ type ComposerProps = {
   efforts: string[];
   effort: string;
   onEffort: (e: string) => void;
+  /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
+  model?: ReactNode;
   onSend: (text: string) => Promise<unknown>;
   onInterrupt: () => void;
   placeholder: string;
 };
 
 /** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, onSend, onInterrupt, placeholder }: ComposerProps) {
+export function Composer({ disabled, running, efforts, effort, onEffort, model, onSend, onInterrupt, placeholder }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
 
@@ -223,11 +226,12 @@ export function Composer({ disabled, running, efforts, effort, onEffort, onSend,
 
   return (
     <div className="co-compose">
+      <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
         ref={area}
         aria-label="Mensaje"
         placeholder={running ? 'trabajando… puedes interrumpir' : placeholder}
-        rows={3}
+        rows={2}
         disabled={disabled}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -237,20 +241,21 @@ export function Composer({ disabled, running, efforts, effort, onEffort, onSend,
         }}
       />
       <div className="co-compose-bar">
-        {efforts.length > 0 ? (
-          <label className="muted">
-            esfuerzo{' '}
-            <select value={effort} onChange={(e) => onEffort(e.target.value)} disabled={disabled}>
-              {efforts.map((e) => (
-                <option key={e} value={e}>
-                  {EFFORT_LABEL[e] ?? e}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <span />
-        )}
+        <div className="co-compose-opts">
+          {model && <span className="co-model">{model}</span>}
+          {efforts.length > 0 && (
+            <label className="muted">
+              esfuerzo{' '}
+              <select value={effort} onChange={(e) => onEffort(e.target.value)} disabled={disabled}>
+                {efforts.map((e) => (
+                  <option key={e} value={e}>
+                    {EFFORT_LABEL[e] ?? e}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
         {running ? (
           <button className="co-btn" onClick={onInterrupt}>
             interrumpir

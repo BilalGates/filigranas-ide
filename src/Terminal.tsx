@@ -14,16 +14,16 @@ function theme(): ITheme {
   return {
     background: '#00000000',
     foreground: v('--tx'),
-    cursor: v('--ac'),
-    selectionBackground: darkQuery.matches ? '#5b8ff045' : '#1f4fb530',
-    red: v('--ac'),
-    brightRed: v('--del'),
-    green: v('--add'),
-    brightGreen: v('--add'),
-    yellow: v('--gold'),
-    brightYellow: v('--gold'),
-    blue: v('--blue'),
-    brightBlue: v('--blue'),
+    cursor: v('--tx'),
+    selectionBackground: '#ffffff26',
+    red: v('--err'),
+    brightRed: v('--err'),
+    green: v('--ok'),
+    brightGreen: v('--ok'),
+    yellow: v('--warn'),
+    brightYellow: v('--warn'),
+    blue: v('--tx2'),
+    brightBlue: v('--tx'),
   };
 }
 

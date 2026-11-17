@@ -175,7 +175,7 @@ function ProjectRow(props: {
       <div className={`row project-row${open ? ' is-open' : ''}`}>
         <button className="row-main" onClick={onSelect} aria-expanded={open}>
           <span className="chev" aria-hidden="true">
-            {open ? '⌄' : '›'}
+            ›
           </span>
           <span className="grow">{p.name}</span>
         </button>

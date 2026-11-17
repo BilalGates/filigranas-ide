@@ -122,6 +122,23 @@ pub struct Merged {
     pub conflicts: Vec<String>,
 }
 
+// No seguir enlaces ni permitir rutas especiales durante la fusión manual.
+// git apply ya comprueba las rutas; las operaciones std::fs necesitan la
+// misma protección, tanto en el proyecto como en la copia de la sesión.
+fn merge_path_safe(root: &Path, relative: &str) -> bool {
+    let mut current = root.to_path_buf();
+    for part in Path::new(relative).components() {
+        let std::path::Component::Normal(name) = part else { return false };
+        current.push(name);
+        match std::fs::symlink_metadata(&current) {
+            Ok(meta) if meta.file_type().is_symlink() => return false,
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return false,
+            _ => {}
+        }
+    }
+    !current.is_dir()
+}
+
 /// Integración a tres bandas, archivo por archivo, con `git merge-file`:
 /// versión base, la del proyecto y la de la sesión. Lo que no choca se
 /// aplica; lo que choca queda con marcas de conflicto para resolverlo en el
@@ -135,7 +152,7 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
     let out = git(&wt, &["diff", "--name-status", "--no-renames", "-z", &base])?;
     let out = String::from_utf8_lossy(&out).into_owned();
     let mut parts = out.split('\0').filter(|p| !p.is_empty());
-    let tmp = std::env::temp_dir().join(format!("filigranas-merge-{}-{}", std::process::id(), session.id));
+    let tmp = std::env::temp_dir().join(format!("filigranas-merge-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
     let (mut files, mut conflicts) = (Vec::new(), Vec::new());
 
@@ -143,6 +160,10 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
         let (ours, theirs) = (project.join(path), wt.join(path));
         let base_text = git(&wt, &["show", &format!("{base}:{path}")]).ok();
         files.push(path.to_string());
+        if !merge_path_safe(project, path) || !merge_path_safe(&wt, path) {
+            conflicts.push(path.to_string());
+            continue;
+        }
         match status {
             "D" => {
                 // Borrar solo si el proyecto no lo ha cambiado desde la base.
@@ -158,14 +179,16 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
                     continue;
                 };
                 let Ok(now) = std::fs::read(&ours) else {
-                    // No existe en el proyecto: se crea (o se recrea).
+                    // Una eliminación local frente a una modificación es
+                    // un conflicto: no resucitar ni sobrescribir el archivo.
+                    if base_text.is_some() || ours.exists() {
+                        conflicts.push(path.to_string());
+                        continue;
+                    }
                     if let Some(dir) = ours.parent() {
                         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                     }
                     std::fs::write(&ours, &new).map_err(|e| e.to_string())?;
-                    if base_text.is_some() {
-                        conflicts.push(path.to_string()); // el proyecto lo había borrado
-                    }
                     continue;
                 };
                 if now == new || base_text.as_deref() == Some(new.as_slice()) {
@@ -187,7 +210,9 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
                     .map_err(|e| format!("no se pudo ejecutar git: {e}"))?;
                 match merged.status.code() {
                     Some(0) => std::fs::write(&ours, &merged.stdout).map_err(|e| e.to_string())?,
-                    Some(n) if n > 0 => {
+                    // merge-file usa 1..=127 para conflictos de texto;
+                    // los errores (p. ej. binarios) llegan como 255.
+                    Some(n) if (1..=127).contains(&n) => {
                         std::fs::write(&ours, &merged.stdout).map_err(|e| e.to_string())?;
                         conflicts.push(path.to_string());
                     }
@@ -196,8 +221,31 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
             }
         }
     }
+    // Conservar el bit ejecutable cuando lo cambió la sesión. Si la
+    // sesión no lo cambió, respetar los permisos locales del proyecto.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in &files {
+            if conflicts.contains(path) { continue; }
+            let (ours, theirs) = (project.join(path), wt.join(path));
+            if !ours.is_file() || !theirs.is_file() { continue; }
+            let entry = git(&wt, &["ls-tree", &base, "--", path])?;
+            let base_mode = String::from_utf8_lossy(&entry).split_whitespace().next().unwrap_or("").to_string();
+            let mode = std::fs::metadata(&theirs).map_err(|e| e.to_string())?.permissions().mode();
+            let executable = mode & 0o111 != 0;
+            if base_mode.is_empty() || executable != (base_mode == "100755") {
+                let mut permissions = std::fs::metadata(&ours).map_err(|e| e.to_string())?.permissions();
+                permissions.set_mode((permissions.mode() & !0o111) | (mode & 0o111));
+                std::fs::set_permissions(&ours, permissions).map_err(|e| e.to_string())?;
+            }
+        }
+    }
     let _ = std::fs::remove_dir_all(&tmp);
-    Ok((Merged { files, conflicts }, fingerprint(&patch)))
+    // No autorizar la eliminación del worktree mientras haya trabajo
+    // que no se pudo aplicar. Un reintento sin conflictos lo confirmará.
+    let fp = if conflicts.is_empty() { fingerprint(&patch) } else { format!("conflicts:{}", fingerprint(&patch)) };
+    Ok((Merged { files, conflicts }, fp))
 }
 
 /// Borra worktree y rama, solo si todo lo que contienen ya está integrado.
@@ -205,6 +253,7 @@ pub fn cleanup(session: &db::Session) -> CmdResult<()> {
     let (wt, _, patch) = session_patch(session)?;
     match &session.integrated {
         Some(fp) if *fp == fingerprint(&patch) => {}
+        Some(fp) if fp.starts_with("conflicts:") => return Err("la integración dejó conflictos: confirma una integración sin conflictos antes de limpiar; se conserva la rama".into()),
         Some(_) => return Err("la sesión tiene cambios posteriores a la integración: intégralos antes de limpiar".into()),
         None if patch.is_empty() => {}
         None => return Err("la sesión tiene cambios sin integrar".into()),
@@ -454,6 +503,138 @@ mod tests {
         assert!(git(&project, &["diff", "--cached", "--name-only"]).unwrap().is_empty());
         assert!(wt.exists());
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn binary_merge_preserves_both_versions() {
+        let root = std::env::temp_dir().join(format!("filigranas-iso-binary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (project, data) = (root.join("p"), root.join("d"));
+        std::fs::create_dir_all(&project).unwrap();
+        for args in [vec!["init", "-q", "-b", "main"], vec!["config", "user.email", "t@t"], vec!["config", "user.name", "t"]] {
+            git(&project, &args).unwrap();
+        }
+        std::fs::write(project.join("image.bin"), b"base\0data").unwrap();
+        git(&project, &["add", "."]).unwrap();
+        git(&project, &["commit", "-qm", "inicio"]).unwrap();
+        let iso = create(&data, &project, "binary", 10).unwrap().unwrap();
+        let wt = PathBuf::from(&iso.worktree);
+        std::fs::write(wt.join("image.bin"), b"session\0data").unwrap();
+        std::fs::write(project.join("image.bin"), b"project\0data").unwrap();
+        let (merged, _) = integrate_merging(&session(&project, &iso)).unwrap();
+        assert_eq!(merged.conflicts, vec!["image.bin"]);
+        assert_eq!(std::fs::read(project.join("image.bin")).unwrap(), b"project\0data");
+        assert_eq!(std::fs::read(wt.join("image.bin")).unwrap(), b"session\0data");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn edge_fixture() -> (PathBuf, PathBuf, db::Session) {
+        let root = std::env::temp_dir().join(format!("filigranas-edge-{}", uuid::Uuid::new_v4()));
+        let project = root.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        for args in [vec!["init", "-q", "-b", "main"], vec!["config", "user.email", "t@t"], vec!["config", "user.name", "t"]] {
+            git(&project, &args).unwrap();
+        }
+        std::fs::write(project.join("a.txt"), "base\n").unwrap();
+        git(&project, &["add", "."]).unwrap();
+        git(&project, &["commit", "-qm", "base"]).unwrap();
+        let iso = create(&root.join("data"), &project, "edge", 42).unwrap().unwrap();
+        (root, PathBuf::from(&iso.worktree), session(&project, &iso))
+    }
+
+    #[test]
+    fn merging_delete_modify_preserves_project_changes() {
+        let (root, wt, s) = edge_fixture();
+        let project = Path::new(&s.project);
+        std::fs::remove_file(wt.join("a.txt")).unwrap();
+        std::fs::write(project.join("a.txt"), "local\n").unwrap();
+        let (merged, _) = integrate_merging(&s).unwrap();
+        assert_eq!(merged.conflicts, vec!["a.txt"]);
+        assert_eq!(std::fs::read_to_string(project.join("a.txt")).unwrap(), "local\n");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn merging_modify_delete_preserves_project_deletion() {
+        let (root, wt, s) = edge_fixture();
+        let file = Path::new(&s.project).join("a.txt");
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(wt.join("a.txt"), "session\n").unwrap();
+        let (merged, _) = integrate_merging(&s).unwrap();
+        assert_eq!(merged.conflicts, vec!["a.txt"]);
+        assert!(!file.exists(), "una integración conflictiva no debe deshacer el borrado local");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn merging_never_follows_project_symlinks() {
+        let (root, wt, s) = edge_fixture();
+        let outside = root.join("outside.txt");
+        std::fs::write(&outside, "base\n").unwrap();
+        let file = Path::new(&s.project).join("a.txt");
+        std::fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&outside, &file).unwrap();
+        std::fs::write(wt.join("a.txt"), "session\n").unwrap();
+        let (merged, _) = integrate_merging(&s).unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "base\n", "no escribe fuera del proyecto");
+        assert_eq!(merged.conflicts, vec!["a.txt"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn merging_rename_preserves_executable_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, wt, s) = edge_fixture();
+        std::fs::rename(wt.join("a.txt"), wt.join("run.sh")).unwrap();
+        std::fs::set_permissions(wt.join("run.sh"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (merged, _) = integrate_merging(&s).unwrap();
+        let project = Path::new(&s.project);
+        assert!(merged.conflicts.is_empty());
+        assert!(!project.join("a.txt").exists());
+        assert_eq!(std::fs::read_to_string(project.join("run.sh")).unwrap(), "base\n");
+        assert_ne!(std::fs::metadata(project.join("run.sh")).unwrap().permissions().mode() & 0o111, 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unresolved_conflict_blocks_cleanup_until_retry_succeeds() {
+        let (root, wt, mut s) = edge_fixture();
+        let file = Path::new(&s.project).join("a.txt");
+        std::fs::write(&file, "project\n").unwrap();
+        std::fs::write(wt.join("a.txt"), "session\n").unwrap();
+        let (merged, fp) = integrate_merging(&s).unwrap();
+        assert_eq!(merged.conflicts, vec!["a.txt"]);
+        s.integrated = Some(fp);
+        assert!(cleanup(&s).is_err());
+        assert!(wt.exists());
+        std::fs::write(&file, "session\n").unwrap();
+        let (merged, fp) = integrate_merging(&s).unwrap();
+        assert!(merged.conflicts.is_empty());
+        s.integrated = Some(fp);
+        cleanup(&s).unwrap();
+        assert!(!wt.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn merging_rejects_symlink_ancestors_and_session_links() {
+        let (root, wt, s) = edge_fixture();
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let project = Path::new(&s.project);
+        std::os::unix::fs::symlink(&outside, project.join("nested")).unwrap();
+        std::fs::create_dir_all(wt.join("nested")).unwrap();
+        std::fs::write(wt.join("nested/new.txt"), "session\n").unwrap();
+        std::os::unix::fs::symlink(root.join("missing"), wt.join("link.txt")).unwrap();
+        let (merged, _) = integrate_merging(&s).unwrap();
+        assert!(merged.conflicts.contains(&"nested/new.txt".into()));
+        assert!(merged.conflicts.contains(&"link.txt".into()));
+        assert!(!outside.join("new.txt").exists());
+        assert!(std::fs::symlink_metadata(project.join("link.txt")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

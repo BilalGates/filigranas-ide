@@ -81,6 +81,7 @@ pub fn run() {
             git_ops::git_stash_pop,
             git_ops::git_stash_list,
             git_ops::git_undo_commit,
+            git_ops::git_commit_detail,
             workspace::get_workspace,
             workspace::default_root,
             workspace::set_root,

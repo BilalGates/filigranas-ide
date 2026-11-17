@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { sessions, type AcpOption, type Change, type CItem, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
 import { Composer, ConversationLog, type Ask } from './Conversation';
 import { addTokens, reportLimits } from './usageStore';
+import { useReportActivity } from './ui';
 
 export const ENGINE_LABEL: Record<string, string> = { claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -473,13 +474,12 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
 
   const asks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
   const state = pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
+  useReportActivity(String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;
 
   return (
     <section className="coach" aria-label={`Sesión ${session.name}`} hidden={hidden}>
       <div className="co-head">
-        <span>{session.name}</span>
-        <span className={`co-state is-${state.replace(' ', '-')}`}>{state}</span>
         <span className="push" />
         {running && (
           <button className="co-link" onClick={() => sessions.pause(session.id).catch((e) => setError(String(e)))} title="detiene el turno y deja la sesión en pausa">
@@ -564,7 +564,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         </div>
       )}
       <ConversationLog items={items} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
-        {items.length === 0 && !error && !starting && <div className="muted co-empty">Sesión nueva de {engine} en este proyecto. Escribe la tarea.</div>}
+        {items.length === 0 && !error && !starting && <div className="co-empty">sin encargos</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
         {error && <div className="co-error">{error}</div>}
@@ -584,7 +584,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
             {acpOptions.map((o) => (
               <select
                 key={o.id}
-                className="co-profile co-option"
+                className="chip-select"
                 aria-label={o.category === 'model' ? 'Modelo' : 'Razonamiento'}
                 title={o.category === 'model' ? 'modelo' : 'nivel de razonamiento'}
                 value={o.currentValue}
@@ -602,7 +602,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         }
         onSend={send}
         onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
-        placeholder="escribe la tarea · ⌘↩ para enviar"
+        placeholder={`encargo para ${session.name}`}
       />
     </section>
   );

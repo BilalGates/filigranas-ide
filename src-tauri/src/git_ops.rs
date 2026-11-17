@@ -112,6 +112,62 @@ pub async fn git_undo_commit(project: String) -> Result<String, String> {
     spawn(project, args(&["reset", "--soft", "HEAD~1"])).await
 }
 
+#[derive(Serialize)]
+pub struct CommitFile {
+    status: String,
+    path: String,
+    adds: Option<u32>,
+    dels: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub struct CommitDetail {
+    hash: String,
+    author: String,
+    date: String,
+    body: String,
+    files: Vec<CommitFile>,
+}
+
+fn commit_detail(project: &str, hash: &str) -> Result<CommitDetail, String> {
+    if hash.is_empty() || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("{hash} no es un commit"));
+    }
+    let head = run(project, &["show", "-s", "--no-color", "--format=%H%x1f%an%x1f%ar%x1f%B", hash])?;
+    let mut parts = head.splitn(4, '\x1f');
+    let mut next = || parts.next().unwrap_or("").trim().to_string();
+    let (full, author, date, body) = (next(), next(), next(), next());
+    // Mismo orden en ambas salidas: se emparejan por posición.
+    let names = run(project, &["show", "--no-color", "--format=", "-M", "--name-status", hash])?;
+    let nums = run(project, &["show", "--no-color", "--format=", "-M", "--numstat", hash])?;
+    let mut nums = nums.lines().filter(|l| !l.trim().is_empty());
+    let files = names
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|line| {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let mut counts = nums.next().unwrap_or("").split('\t');
+            let mut count = || counts.next().and_then(|n| n.parse().ok());
+            let (adds, dels) = (count(), count());
+            CommitFile {
+                status: fields[0].chars().next().map(String::from).unwrap_or_default(),
+                path: fields.last().copied().unwrap_or("").to_string(),
+                adds,
+                dels,
+            }
+        })
+        .collect();
+    Ok(CommitDetail { hash: full, author, date, body, files })
+}
+
+/// Autor, fecha, mensaje completo y archivos de un commit del historial.
+#[tauri::command]
+pub async fn git_commit_detail(project: String, hash: String) -> Result<CommitDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || commit_detail(&project, &hash))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +211,25 @@ mod tests {
         run(p, &["stash", "pop"]).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "local\n");
         assert_eq!(std::fs::read_to_string(dir.join("new.txt")).unwrap(), "new\n");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn commit_detail_lists_files_and_counts() {
+        let dir = fixture();
+        let p = dir.to_str().unwrap();
+        std::fs::write(dir.join("a.txt"), "base\nmore\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+        run(p, &["add", "."]).unwrap();
+        run(p, &["commit", "-qm", "segundo\n\ncuerpo"]).unwrap();
+        let hash = run(p, &["rev-parse", "HEAD"]).unwrap();
+        let d = commit_detail(p, &hash).unwrap();
+        assert_eq!(d.hash, hash);
+        assert!(d.body.starts_with("segundo"));
+        let a = d.files.iter().find(|f| f.path == "a.txt").unwrap();
+        assert_eq!((a.status.as_str(), a.adds, a.dels), ("M", Some(1), Some(0)));
+        assert!(d.files.iter().any(|f| f.path == "b.txt" && f.status == "A"));
+        assert!(commit_detail(p, "HEAD; rm").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

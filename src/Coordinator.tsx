@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type CoordinatorEvent, type Decision, type Opened, type RateLimits, type RateWindow } from './ipc';
 import { Composer, ConversationLog, KIND_LETTER, type Ask } from './Conversation';
 import { addTokens, reportLimits, spanLabel } from './usageStore';
+import { useReportActivity } from './ui';
 
 const PROFILES: [string, string][] = [
   ['hansi', 'Hansi Flick'],
@@ -194,29 +195,14 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
 
   const profileName = PROFILES.find(([id]) => id === info?.profile)?.[1] ?? 'Hansi Flick';
   const state = approvals.length ? 'esperando permiso' : running ? 'en marcha' : error && !info ? 'fallida' : 'inactiva';
+  useReportActivity('coach', state);
 
   return (
     <section className="coach" aria-label="Coordinador" hidden={hidden}>
-      <div className="co-head">
-        <select
-          className="co-profile"
-          aria-label="Perfil del coordinador"
-          value={info?.profile ?? 'hansi'}
-          onChange={(e) => changeProfile(e.target.value)}
-          disabled={!info || !!running}
-        >
-          {PROFILES.map(([id, name]) => (
-            <option key={id} value={id}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <span className={`co-state is-${state.replace(' ', '-')}`}>{state}</span>
-      </div>
 
       <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
         {opening && <div className="muted">abriendo el coordinador…</div>}
-        {!opening && info && items.length === 0 && <div className="muted co-empty">Cuéntale a {profileName} qué hay que hacer en este proyecto.</div>}
+        {!opening && info && items.length === 0 && <div className="co-empty">sin encargos</div>}
         {error && (
           <div className="co-error">
             {error}
@@ -235,10 +221,28 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
         efforts={info?.efforts ?? ['medium']}
         effort={effort}
         onEffort={setEffort}
-        model={`codex${info?.model ? ` · ${info.model}` : ''}`}
+        model={
+          <>
+            <select
+              className="chip-select"
+              title="project manager"
+              aria-label="Perfil del coordinador"
+              value={info?.profile ?? 'hansi'}
+              onChange={(e) => changeProfile(e.target.value)}
+              disabled={!info || !!running}
+            >
+              {PROFILES.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <span className="chip is-static">codex{info?.model ? ` · ${info.model}` : ''}</span>
+          </>
+        }
         onSend={send}
         onInterrupt={() => coordinator.interrupt(project).catch((e) => setError(String(e)))}
-        placeholder="escribe un encargo · ⌘↩ para enviar"
+        placeholder={`encargo para ${profileName.toLowerCase()}`}
       />
     </section>
   );

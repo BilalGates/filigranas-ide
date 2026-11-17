@@ -27,6 +27,15 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  // Proyectos desplegados con el chevrón; seleccionar no abre la carpeta.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const expand = (path: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
 
   useEffect(() => {
     try {
@@ -94,12 +103,23 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
                   p={p}
                   ws={ws}
                   open={p.path === project}
+                  expanded={expanded.has(p.path)}
+                  onExpand={() => expand(p.path)}
                   menuOpen={menu === p.path}
                   onMenu={(open) => setMenu(open ? p.path : null)}
-                  onSelect={() => onProject(p.path === project ? null : p.path)}
+                  onSelect={() => p.path !== project && onProject(p.path)}
                   onUpdate={onUpdate}
                 >
-                  {p.path === project && <FileTree root={p.path} selected={file} onOpen={onFile} />}
+                  {expanded.has(p.path) && (
+                    <FileTree
+                      root={p.path}
+                      selected={p.path === project ? file : null}
+                      onOpen={(f) => {
+                        if (p.path !== project) onProject(p.path);
+                        onFile(f);
+                      }}
+                    />
+                  )}
                 </ProjectRow>
               ))}
           </section>
@@ -123,30 +143,25 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
               ))}
           </>
         )}
-        <div className="root" title={ws.root ?? ''}>
-          {shortRoot(ws.root ?? '')} · {ws.projects.length}
-        </div>
       </div>
     </aside>
   );
 }
 
-function shortRoot(root: string) {
-  const parts = root.split(/[\\/]/).filter(Boolean);
-  return parts.length > 1 ? `~/${parts[parts.length - 1]}` : root;
-}
 
 function ProjectRow(props: {
   p: Project;
   ws: Workspace;
   open: boolean;
+  expanded: boolean;
+  onExpand: () => void;
   menuOpen: boolean;
   onMenu: (open: boolean) => void;
   onSelect: () => void;
   onUpdate: (p: Promise<Workspace>) => void;
   children?: React.ReactNode;
 }) {
-  const { p, ws, open, menuOpen, onMenu, onSelect, onUpdate, children } = props;
+  const { p, ws, open, expanded, onExpand, menuOpen, onMenu, onSelect, onUpdate, children } = props;
   const [creating, setCreating] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -172,12 +187,14 @@ function ProjectRow(props: {
 
   return (
     <div ref={ref} className="project">
-      <div className={`row project-row${open ? ' is-open' : ''}`}>
-        <button className="row-main" onClick={onSelect} aria-expanded={open}>
-          <span className="chev" aria-hidden="true">
-            ›
-          </span>
+      <div className={`row project-row${open ? ' is-open' : ''}${expanded ? ' is-expanded' : ''}`}>
+        <button className="row-main" onClick={onSelect} aria-current={open ? 'true' : undefined}>
           <span className="grow">{p.name}</span>
+        </button>
+        <button className={`ex${expanded ? ' is-open' : ''}`} onClick={onExpand} aria-label={`${expanded ? 'Plegar' : 'Ver archivos de'} ${p.name}`} aria-expanded={expanded}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+            <path d="M3.5 2 6.5 5 3.5 8" />
+          </svg>
         </button>
         <button className="icon more" onClick={() => onMenu(!menuOpen)} aria-label={`Opciones de ${p.name}`} aria-haspopup="menu" aria-expanded={menuOpen}>
           ⋯

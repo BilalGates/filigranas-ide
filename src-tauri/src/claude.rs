@@ -17,11 +17,18 @@ use crate::{codex::login_path, db, err, workspace::project_path, AppState, CmdRe
 // desde el IDE. El transcript lo guarda el propio Claude; aquí solo se
 // recuerda el UUID para reanudar con `--resume`.
 
-/// Nombres de sesión: futbolistas históricos del Barça (PLAN.md).
+/// Nombres de sesión: leyendas históricas del Barça, al azar entre las libres.
 pub const NAMES: [&str; 20] = [
-    "xavi", "iniesta", "puyol", "messi", "ronaldinho", "kubala", "koeman", "stoichkov", "laudrup", "rivaldo", "busquets", "pique",
-    "valdes", "abidal", "alves", "suarez", "neymar", "pedri", "gavi", "yamal",
+    "kubala", "samitier", "cruyff", "neeskens", "migueli", "zubizarreta", "koeman", "stoichkov", "romario", "rivaldo", "basora", "cesar",
+    "rexach", "laudrup", "sotil", "alexanco", "amor", "nadal", "guardiola", "ronaldinho",
 ];
+/// Las leyendas en orden aleatorio: cada sesión nueva toma una libre al azar.
+pub fn shuffled_names() -> Vec<&'static str> {
+    let mut names = NAMES.to_vec();
+    names.sort_by_cached_key(|_| uuid::Uuid::new_v4().as_u128());
+    names
+}
+
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const DECISIONS: [&str; 4] = ["accept", "acceptForSession", "decline", "cancel"];
 
@@ -95,8 +102,8 @@ fn forward(msg: &Value) -> bool {
 fn system_prompt(name: &str) -> String {
     format!(
         "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
-Trabaja en la carpeta del proyecto, responde en español y con frases cortas. No hagas commits, push, merge ni rebase: los commits los propone Larry. \
-Una tarea no está terminada hasta que el diff, los comandos y las pruebas lo demuestran; resume al final qué cambiaste y cómo lo comprobaste."
+Trabaja en la carpeta del proyecto, responde en español, conciso y solo con lo necesario: sin preámbulos, sin repetir la tarea ni explicar lo obvio. No hagas commits, push, merge ni rebase: los commits los propone Larry. \
+Una tarea no está terminada hasta que el diff, los comandos y las pruebas lo demuestran; termina con una o dos líneas: qué cambiaste y cómo lo comprobaste."
     )
 }
 
@@ -256,7 +263,7 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str) -> CmdResult<Cr
         e if crate::acp::ENGINES.contains(&e) => String::new(),
         _ => return Err(format!("motor desconocido: {engine}")),
     };
-    let session = db::create_session(&*state.db.lock().map_err(err)?, project, engine, &provider, &NAMES).map_err(err)?;
+    let session = db::create_session(&*state.db.lock().map_err(err)?, project, engine, &provider, &shuffled_names()).map_err(err)?;
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let iso = match crate::isolate::create(&data_dir, std::path::Path::new(project), &session.name, session.id) {
         Ok(iso) => iso,

@@ -38,6 +38,19 @@ export const git = {
   watch: (path: string | null) => invoke<void>('watch_project', { path }),
 };
 
+// Acciones de git que cambian el repositorio o hablan con el remoto. Cada
+// una devuelve el texto que imprime git, para mostrarlo tal cual.
+export type Stash = { name: string; subject: string };
+export const gitOps = {
+  fetch: (project: string) => invoke<string>('git_fetch', { project }),
+  pull: (project: string) => invoke<string>('git_pull', { project }),
+  push: (project: string, setUpstream: boolean) => invoke<string>('git_push', { project, setUpstream }),
+  stash: (project: string, message: string | null) => invoke<string>('git_stash', { project, message }),
+  stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
+  stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
+  undoCommit: (project: string) => invoke<string>('git_undo_commit', { project }),
+};
+
 // Terminales. La salida llega por el canal que se pasa al abrir.
 export type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };
 
@@ -67,6 +80,8 @@ export type CItem = {
   arguments?: any;
   contentItems?: { type: string; text?: string }[] | null;
   success?: boolean | null;
+  /** Quién firma la respuesta, si se sabe (p. ej. el perfil de Hansi al escribirla). */
+  by?: string;
 };
 export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
 export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
@@ -147,6 +162,7 @@ export type LarryOutcome = { created: string[]; stopped: string | null };
 
 export const larry = {
   propose: (project: string, session: number | null) => invoke<LarryPlan>('larry_propose', { project, session }),
+  groups: (project: string, session: number | null) => invoke<LarryPlan>('larry_groups', { project, session }),
   commit: (project: string, session: number | null, commits: LarryCommit[]) => invoke<LarryOutcome>('larry_commit', { project, session, commits }),
 };
 
@@ -161,6 +177,7 @@ export type PrDraft = {
   commits: string[];
   dirty: boolean;
   existing: PrInfo | null;
+  previous: PrInfo | null;
   blocked: string | null;
 };
 
@@ -175,3 +192,18 @@ export const pr = {
 // Herramientas externas que usa el IDE.
 export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null };
 export const tools = { status: () => invoke<Tool[]>('tools_status') };
+
+// Contenedores Docker del proyecto (solo lectura).
+export type Container = { id: string; name: string; image: string; state: string; health: string | null; ports: string[]; service: string | null };
+export type ContainersView = {
+  status: 'ok' | 'absent' | 'stopped' | 'denied' | 'error';
+  message: string | null;
+  compose: Container[];
+  linked: Container[];
+  unlinked: Container[];
+};
+export const containers = {
+  list: (project: string) => invoke<ContainersView>('containers_list', { project }),
+  link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
+  unlink: (id: string) => invoke<void>('container_unlink', { id }),
+};

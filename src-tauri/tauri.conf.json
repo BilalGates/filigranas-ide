@@ -21,7 +21,9 @@
         "minHeight": 600,
         "transparent": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "theme": "Dark",
+        "trafficLightPosition": { "x": 16, "y": 16 }
       }
     ],
     "security": {

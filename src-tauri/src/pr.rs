@@ -88,7 +88,10 @@ pub struct Draft {
     commits: Vec<String>,
     /// Cambios sin commit (no viajan en la PR).
     dirty: bool,
+    /// PR abierta de la rama: publicar solo sube commits nuevos.
     existing: Option<PrInfo>,
+    /// Última PR ya fusionada o cerrada de la rama; no impide abrir otra.
+    previous: Option<PrInfo>,
     /// Motivo por el que no se puede publicar, si lo hay.
     blocked: Option<String>,
 }
@@ -122,7 +125,11 @@ fn draft(repo: &Path, base: Option<String>) -> CmdResult<Draft> {
     } else {
         None
     };
-    Ok(Draft { branch, bases, base, title, body, commits, dirty, existing: pr_info(repo), blocked })
+    let (existing, previous) = match pr_info(repo) {
+        Some(pr) if pr.state == "OPEN" => (Some(pr), None),
+        other => (None, other),
+    };
+    Ok(Draft { branch, bases, base, title, body, commits, dirty, existing, previous, blocked })
 }
 
 #[tauri::command]

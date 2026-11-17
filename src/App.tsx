@@ -14,6 +14,8 @@ import Publish from './Publish';
 import Pending from './Pending';
 import Tools, { toolState } from './Tools';
 import Conflicts from './Conflicts';
+import Containers from './Containers';
+import Splitter, { SIZES } from './Splitter';
 
 // Motores de sesión. Uno no disponible se muestra desactivado con el motivo.
 const ENGINES: [string, string, string | null][] = [
@@ -55,6 +57,9 @@ export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   // Archivos con marcas de conflicto tras una integración.
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
+  // Columna derecha: Git o contenedores Docker del proyecto.
+  const [rightView, setRightView] = useState<'git' | 'containers'>('git');
+  const [containerCount, setContainerCount] = useState<number | null>(null);
   // Larry abierto (su pestaña) y una clave para relanzarlo.
   const [larryKey, setLarryKey] = useState<number | null>(null);
   const [coach, setCoach] = useState('hansi');
@@ -257,6 +262,17 @@ export default function App() {
     setView((v) => (v === 'larry' ? 'coach' : v));
   };
 
+  const rightTabs = (
+    <div className="right-tabs" role="tablist" aria-label="Panel derecho">
+      <button role="tab" aria-selected={rightView === 'git'} className={rightView === 'git' ? 'is-active' : ''} onClick={() => setRightView('git')}>
+        git
+      </button>
+      <button role="tab" aria-selected={rightView === 'containers'} className={rightView === 'containers' ? 'is-active' : ''} onClick={() => setRightView('containers')}>
+        contenedores{containerCount != null ? ` ${containerCount}` : ''}
+      </button>
+    </div>
+  );
+
   const showConflicts = (files: string[]) => {
     setConflictFiles(files);
     setView('conflicts');
@@ -291,6 +307,7 @@ export default function App() {
           setPublishKey(null);
           setPendingKey(null);
           setConflictFiles(null);
+          setContainerCount(null);
         }}
         onFile={(f) => {
           setFile(f);
@@ -300,6 +317,7 @@ export default function App() {
         }}
         onUpdate={update}
       />
+      <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
       <div className="tabs" data-tauri-drag-region>
         {current && (
           <button className={`tab${view === 'coach' ? ' is-active' : ''}`} onClick={() => setView('coach')}>
@@ -470,6 +488,7 @@ export default function App() {
           )}
         </div>
         <section className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
+          <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
           <div className="terminal-head">
             <span>terminal</span>
             <div className="terminal-tabs" role="tablist" aria-label="Terminales del proyecto">
@@ -498,10 +517,15 @@ export default function App() {
             ))}
         </section>
       </main>
-      {current && <GitPanel project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
+      {current &&
+        (rightView === 'git' ? (
+          <GitPanel header={rightTabs} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
             setPendingKey(Date.now());
             setView('pending');
-          }} onCommits={() => openLarry()} onPublish={() => openPublish()} />}
+          }} onPublish={() => openPublish()} />
+        ) : (
+          <Containers key={current.path} project={current.path} header={rightTabs} onCount={setContainerCount} />
+        ))}
       <footer className="status">
         <span>{current ? current.name : ws.root}</span>
         {current && !termOpen && (

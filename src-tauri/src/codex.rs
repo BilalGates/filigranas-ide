@@ -160,14 +160,31 @@ const QUIET: [&str; 3] = ["mcpServer/startupStatus/updated", "remoteControl/stat
 const SHORT: Duration = Duration::from_secs(30);
 const LONG: Duration = Duration::from_secs(120);
 
-fn instructions(profile: &str) -> String {
-    let persona = match profile {
+fn persona(profile: &str) -> &'static str {
+    match profile {
         "pep" => include_str!("../resources/coordinadores/pep.md"),
         "luis-enrique" => include_str!("../resources/coordinadores/luis-enrique.md"),
         "cruyff" => include_str!("../resources/coordinadores/cruyff.md"),
         _ => include_str!("../resources/coordinadores/hansi.md"),
-    };
-    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona)
+    }
+}
+
+fn instructions(profile: &str) -> String {
+    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
+}
+
+/// Mensaje de desarrollador que cambia el perfil de un hilo ya creado.
+/// `thread/resume` no aplica unas instrucciones nuevas a un hilo cargado;
+/// inyectado en el historial, el modelo lo ve en los turnos siguientes.
+fn profile_switch(profile: &str) -> Value {
+    json!({
+        "type": "message",
+        "role": "developer",
+        "content": [{
+            "type": "input_text",
+            "text": format!("El usuario ha cambiado tu perfil de coordinador. Este perfil sustituye al anterior desde ahora:\n\n{}", persona(profile)),
+        }],
+    })
 }
 
 /// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
@@ -256,7 +273,9 @@ impl Codex {
     /// Turno único en un hilo efímero de solo lectura, con salida JSON según
     /// `schema`. Devuelve el texto final del agente. Para tareas internas
     /// del IDE como proponer commits.
-    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str) -> CmdResult<String> {
+    /// Si vence `limit`, interrumpe el turno y devuelve un error.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str, limit: Duration) -> CmdResult<String> {
         let rpc = self.rpc(app)?;
         let res = rpc.request(
             "thread/start",
@@ -266,15 +285,21 @@ impl Codex {
         let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
         let (tx, rx) = channel();
         self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let deadline = std::time::Instant::now() + limit;
         let result = (|| {
-            rpc.request(
+            let started = rpc.request(
                 "turn/start",
                 json!({ "threadId": thread, "effort": effort, "outputSchema": schema, "input": [{ "type": "text", "text": prompt, "text_elements": [] }] }),
                 LONG,
             )?;
+            let turn = started.pointer("/turn/id").and_then(Value::as_str).unwrap_or("").to_string();
             let mut last = String::new();
             loop {
-                let (method, params) = rx.recv_timeout(Duration::from_secs(600)).map_err(|_| "codex no terminó a tiempo".to_string())?;
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                let Ok((method, params)) = rx.recv_timeout(left) else {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), SHORT);
+                    return Err(format!("codex no respondió en {} s", limit.as_secs()));
+                };
                 match method.as_str() {
                     "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
                         last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
@@ -547,15 +572,29 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
 }
 
-/// Cambia el perfil del coordinador. Se aplica al volver a abrirlo.
+/// Cambia el perfil del coordinador. En un hilo existente se inyecta el
+/// perfil nuevo en su historial para que el modelo lo aplique ya.
 #[tauri::command]
-pub fn coordinator_set_profile(state: State<AppState>, project: String, profile: String) -> CmdResult<()> {
+pub async fn coordinator_set_profile(app: AppHandle, project: String, profile: String) -> CmdResult<()> {
     if !PROFILES.contains(&profile.as_str()) {
         return Err("perfil desconocido".into());
     }
-    let conn = state.db.lock().map_err(err)?;
-    let path = project_path(&conn, &project)?;
-    db::set_coordinator_profile(&conn, &path, &profile).map_err(err)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let (thread, current) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
+        if current == profile {
+            return Ok(());
+        }
+        db::set_coordinator_profile(&*state.db.lock().map_err(err)?, &path, &profile).map_err(err)?;
+        if thread.is_some() {
+            let (rpc, id, _) = state.codex.thread(&app, &state, &path, false)?;
+            rpc.request("thread/inject_items", json!({ "threadId": id, "items": [profile_switch(&profile)] }), SHORT)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(err)?
 }
 
 #[cfg(test)]
@@ -653,6 +692,26 @@ mod tests {
         let text = p["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE") && text.contains("Pep Guardiola"));
         assert!(instructions("desconocido").contains("Hansi Flick"));
+        let switch = profile_switch("cruyff");
+        assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
+        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
+    }
+
+    #[test]
+    fn timeout_discards_late_response_and_auth_errors_are_delivered() {
+        let (rx, tx) = fake(|msg, w| {
+            if msg["method"] == "slow" {
+                std::thread::sleep(Duration::from_millis(40));
+                write(w, json!({ "id": msg["id"], "result": "late" }));
+            } else {
+                write(w, json!({ "id": msg["id"], "error": { "code": 401, "message": "credentials expired" } }));
+            }
+        });
+        let rpc = Rpc::start(rx, tx, |_, _| {});
+        assert!(rpc.request("slow", Value::Null, Duration::from_millis(5)).unwrap_err().contains("no respondió"));
+        assert!(rpc.pending.lock().unwrap().is_empty());
+        assert_eq!(rpc.request("next", Value::Null, Duration::from_secs(1)).unwrap_err(), "credentials expired");
+        assert!(rpc.pending.lock().unwrap().is_empty());
     }
 
     /// Contra Codex real: necesita sesión iniciada y gasta un turno corto.

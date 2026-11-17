@@ -1,6 +1,7 @@
 mod acp;
 mod claude;
 mod codex;
+mod containers;
 mod db;
 mod delegate;
 mod files;
@@ -14,6 +15,7 @@ mod pty;
 mod tools;
 mod tracker;
 mod watch;
+mod git_ops;
 mod window;
 mod workspace;
 
@@ -72,6 +74,13 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            git_ops::git_fetch,
+            git_ops::git_pull,
+            git_ops::git_push,
+            git_ops::git_stash,
+            git_ops::git_stash_pop,
+            git_ops::git_stash_list,
+            git_ops::git_undo_commit,
             workspace::get_workspace,
             workspace::default_root,
             workspace::set_root,
@@ -118,11 +127,15 @@ pub fn run() {
             handoff::session_handoff,
             larry::larry_propose,
             larry::larry_commit,
+            larry::larry_groups,
             pr::pr_draft,
             pr::pr_publish,
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            containers::containers_list,
+            containers::container_link,
+            containers::container_unlink,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Filigranas");

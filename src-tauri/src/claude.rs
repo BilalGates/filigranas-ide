@@ -128,7 +128,11 @@ impl Claude {
     fn proc(&self, app: &AppHandle, session: &db::Session, effort: Option<&str>) -> CmdResult<Arc<Mutex<ChildStdin>>> {
         let mut procs = self.procs.lock().map_err(err)?;
         if let Some(p) = procs.get(&session.id) {
-            if p.alive.load(Ordering::SeqCst) && (effort.is_none() || p.effort.as_deref() == effort) {
+            // Con un turno en marcha nunca se reinicia (cortaría, p. ej., el
+            // turno de un relevo): el mensaje se encola y el esfuerzo nuevo
+            // se aplicará en el siguiente arranque.
+            let busy = app.state::<AppState>().tracker.get(session.id).running;
+            if p.alive.load(Ordering::SeqCst) && (busy || effort.is_none() || p.effort.as_deref() == effort) {
                 return Ok(p.stdin.clone());
             }
         }

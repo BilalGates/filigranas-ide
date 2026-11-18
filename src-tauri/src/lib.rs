@@ -12,6 +12,7 @@ mod larry;
 mod paths;
 mod pr;
 mod pty;
+mod skills;
 mod tools;
 mod tracker;
 mod watch;

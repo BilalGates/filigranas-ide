@@ -169,8 +169,8 @@ fn persona(profile: &str) -> &'static str {
     }
 }
 
-fn instructions(profile: &str) -> String {
-    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
+fn instructions(profile: &str, rules: &str) -> String {
+    format!("{}\n\n{rules}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
 }
 
 /// Mensaje de desarrollador que cambia el perfil de un hilo ya creado.
@@ -190,12 +190,12 @@ fn profile_switch(profile: &str) -> Value {
 /// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
 /// carpeta de trabajo, escritura dentro de él y aprobación para el resto
 /// (decisión del usuario del 2026-11-16).
-fn thread_params(cwd: &str, profile: &str) -> Value {
+fn thread_params(cwd: &str, profile: &str, rules: &str) -> Value {
     json!({
         "cwd": cwd,
         "sandbox": "workspace-write",
         "approvalPolicy": "on-request",
-        "developerInstructions": instructions(profile),
+        "developerInstructions": instructions(profile, rules),
     })
 }
 
@@ -443,7 +443,7 @@ impl Codex {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
-            let mut params = thread_params(path, &profile);
+            let mut params = thread_params(path, &profile, &crate::skills::instructions(app));
             params["threadId"] = json!(id);
             if let Ok(res) = rpc.request("thread/resume", params, LONG) {
                 self.shared.lock().map_err(err)?.loaded.insert(id.clone());
@@ -451,7 +451,7 @@ impl Codex {
             }
             // Un hilo sin turnos no llega a guardarse en disco: empezar otro.
         }
-        let mut params = thread_params(path, &profile);
+        let mut params = thread_params(path, &profile, &crate::skills::instructions(app));
         params["dynamicTools"] = crate::delegate::specs();
         let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
@@ -687,11 +687,11 @@ mod tests {
 
     #[test]
     fn thread_params_ask_before_leaving_the_project() {
-        let p = thread_params("/r/p", "pep");
+        let p = thread_params("/r/p", "pep", crate::skills::RULES);
         assert_eq!((p["cwd"].as_str(), p["sandbox"].as_str(), p["approvalPolicy"].as_str()), (Some("/r/p"), Some("workspace-write"), Some("on-request")));
         let text = p["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE") && text.contains("Pep Guardiola"));
-        assert!(instructions("desconocido").contains("Hansi Flick"));
+        assert!(instructions("desconocido", crate::skills::RULES).contains("Hansi Flick"));
         let switch = profile_switch("cruyff");
         assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
         assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
@@ -736,7 +736,7 @@ mod tests {
         rpc.request("initialize", json!({ "clientInfo": { "name": "filigranas-test", "title": null, "version": "0" }, "capabilities": null }), SHORT).unwrap();
         rpc.notify("initialized").unwrap();
         let dir = std::env::temp_dir();
-        let mut params = thread_params(dir.to_str().unwrap(), "hansi");
+        let mut params = thread_params(dir.to_str().unwrap(), "hansi", crate::skills::RULES);
         params["sandbox"] = json!("read-only");
         params["ephemeral"] = json!(true);
         let thread = rpc.request("thread/start", params, LONG).unwrap();

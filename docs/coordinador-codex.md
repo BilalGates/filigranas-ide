@@ -4,6 +4,8 @@
 
 **Alcance actual de V1.** Los relevos se aplican a sesiones ejecutoras. El coordinador conserva su hilo Codex y puede delegar con `delegar`, `estado_sesiones` y `esperar_sesion`. Esta política también describe objetivos de producto como el relevo del propio coordinador y la validación de dependencias entre tareas, pendientes de implementación. Véase el [inventario verificado](aceptacion-v1.md).
 
+La app incorpora las [reglas de trabajo](../src-tauri/resources/reglas.md) y un [catálogo de skills](../src-tauri/resources/skills) para el coordinador y Claude. Se puede citar una skill como `$debug`. Abre su guía solo para el encargo pertinente y aplica las instrucciones propias del proyecto dentro de los permisos del entorno.
+
 El coordinador recibe el objetivo y las instrucciones del proyecto, clasifica la tarea, propone una división con dependencias cuando corresponde, elige agentes disponibles y explica la elección. La aplicación valida el plan, controla cuotas observables, aísla los cambios en worktrees y conserva el contexto de cada relevo. No hay router Jev ni modelo local en la primera versión.
 
 ## Política de razonamiento y asignación

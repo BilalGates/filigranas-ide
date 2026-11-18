@@ -99,11 +99,10 @@ fn forward(msg: &Value) -> bool {
     }
 }
 
-fn system_prompt(name: &str) -> String {
+fn system_prompt(name: &str, rules: &str) -> String {
     format!(
         "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
-Trabaja en la carpeta del proyecto, responde en español, conciso y solo con lo necesario: sin preámbulos, sin repetir la tarea ni explicar lo obvio. No hagas commits, push, merge ni rebase: los commits los propone Larry. \
-Una tarea no está terminada hasta que el diff, los comandos y las pruebas lo demuestran; termina con una o dos líneas: qué cambiaste y cómo lo comprobaste."
+Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
     )
 }
 
@@ -148,7 +147,7 @@ impl Claude {
         let mut cmd = Command::new(crate::codex::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
-            .args(["--append-system-prompt", &system_prompt(&session.name)]);
+            .args(["--append-system-prompt", &system_prompt(&session.name, &crate::skills::instructions(app))]);
         if transcript(&session.provider_session).is_some() {
             cmd.args(["--resume", &session.provider_session]);
         } else {

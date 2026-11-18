@@ -17,7 +17,7 @@ use crate::{err, AppState, CmdResult};
 // mensajes. Nunca hace push, amend, rebase ni `--no-verify`.
 
 const SCRIPT: &str = include_str!("../resources/larry/agrupar-commits.mjs");
-const SKILL: &str = include_str!("../resources/larry/SKILL.md");
+const COMMIT_RULES: &str = include_str!("../resources/skills/github-flow/references/larry.md");
 /// Límite de diff que se le enseña al modelo (caracteres).
 const DIFF_BUDGET: usize = 24_000;
 
@@ -219,7 +219,7 @@ Toda la información necesaria está en este mensaje: no leas archivos, no ejecu
         serde_json::to_string_pretty(&summary).map_err(err)?,
         doubtful_diffs(repo, &groups)
     );
-    let instructions = format!("Eres Larry, el responsable de los commits. Solo propones; el usuario revisa y el IDE crea los commits.\n\n{SKILL}");
+    let instructions = format!("Eres Larry, el responsable de los commits. Solo propones; el usuario revisa y el IDE crea los commits.\n\n{COMMIT_RULES}");
     let state = app.state::<AppState>();
     let answer = state.codex.run_structured(app, &repo.to_string_lossy(), &instructions, &prompt, schema(), "low", PROPOSE_LIMIT);
     let parsed = answer.and_then(|text| {

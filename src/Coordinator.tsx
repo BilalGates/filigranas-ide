@@ -58,6 +58,9 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(true);
   const [effort, setEffort] = useState('medium');
+  const [taskEffort, setTaskEffort] = useState<{ id: number; value: string } | null>(null);
+  const automaticTask = sessionId == null ? task?.id : undefined;
+  const selectedEffort = automaticTask == null ? effort : taskEffort?.id === automaticTask ? taskEffort.value : 'auto';
   const thread = useRef<string | null>(null);
   const model = useRef<string | null>(null);
   model.current = info?.model ?? null;
@@ -172,7 +175,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   const send = (text: string) => {
     setError(null);
     setItems((list) => [...list, { id: `local-${Date.now()}`, type: 'userMessage', content: [{ type: 'text', text }] }]);
-    return coordinator.send(project, text, effort, sessionId, task?.id ?? null).catch((e) => {
+    return coordinator.send(project, text, selectedEffort, sessionId, task?.id ?? null).catch((e) => {
       setError(String(e));
       setItems((list) => list.filter((it) => !it.id.startsWith('local-')));
       throw e;
@@ -246,9 +249,9 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
       <Composer
         disabled={!info}
         running={!!running}
-        efforts={info?.efforts ?? ['medium']}
-        effort={effort}
-        onEffort={setEffort}
+        efforts={automaticTask == null ? info?.efforts ?? ['medium'] : ['auto', ...(info?.efforts ?? ['medium'])]}
+        effort={selectedEffort}
+        onEffort={(value) => automaticTask == null ? setEffort(value) : setTaskEffort({ id: automaticTask, value })}
         model={
           <>
             {!session && <select

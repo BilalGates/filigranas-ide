@@ -201,6 +201,35 @@ export type TaskRun = {
   quotaShort: [number, number] | null;
   quotaLong: [number, number] | null;
   contextTokens: number | null;
+  routing: {
+    source: 'local' | 'shadow' | 'jev';
+    reason: string | null;
+    effort: string | null;
+    recommendedEffort: string | null;
+    confidence: number | null;
+    model: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    costEstimateUsd: number | null;
+    durationMs: number | null;
+    complexity: string | null;
+    review: string | null;
+    context: string | null;
+    eventAdvice: string | null;
+    executionModel: string | null;
+  } | null;
+};
+export type JevSettings = {
+  mode: 'local' | 'active' | 'shadow';
+  policy: 'economy' | 'balanced' | 'quality';
+  timeoutSecs: number;
+  model: string | null;
+  lightModel: string | null;
+};
+export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export const jev = {
+  status: () => invoke<JevStatus>('jev_status'),
+  configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
 export const tasks = {
   list: (project: string) => invoke<Task[]>('tasks_list', { project }),

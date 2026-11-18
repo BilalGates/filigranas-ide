@@ -276,13 +276,16 @@ pub struct Run {
     quota_short: Option<(f64, i64)>,
     quota_long: Option<(f64, i64)>,
     context_tokens: Option<i64>,
+    routing: Option<crate::jev::Trace>,
 }
 
 pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
     let mut query = conn.prepare(
         "SELECT id,session_id,provider,model,started_ms,max(0,ended_ms-started_ms),outcome,retry,input_tokens,
          cached_input_tokens,output_tokens,cost_estimate_usd,quota_short_percent,quota_short_minutes,
-         quota_long_percent,quota_long_minutes,context_tokens FROM task_runs WHERE task_id=?1 ORDER BY id DESC LIMIT 30"
+         quota_long_percent,quota_long_minutes,context_tokens,jev_routes.data
+         FROM task_runs LEFT JOIN jev_routes ON jev_routes.run_id=task_runs.id
+         WHERE task_id=?1 ORDER BY id DESC LIMIT 30"
     )?;
     let rows = query.query_map([task], |r| Ok(Run {
         id: r.get(0)?, session_id: r.get(1)?, provider: r.get(2)?, model: r.get(3)?,
@@ -290,6 +293,7 @@ pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
         input_tokens: r.get(8)?, cached_input_tokens: r.get(9)?, output_tokens: r.get(10)?,
         cost_estimate_usd: r.get(11)?, quota_short: r.get::<_, Option<f64>>(12)?.zip(r.get(13)?),
         quota_long: r.get::<_, Option<f64>>(14)?.zip(r.get(15)?), context_tokens: r.get(16)?,
+        routing: r.get::<_, Option<String>>(17)?.and_then(|data| serde_json::from_str(&data).ok()),
     }))?;
     rows.collect()
 }

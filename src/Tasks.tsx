@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { EFFORT_LABEL } from './Conversation';
 import { pr, tasks, type Session, type Task, type TaskEdit, type TaskRun } from './ipc';
 import { CHECK_STATE } from './Publish';
 
@@ -19,6 +20,16 @@ const OUTCOME: Record<string, string> = {
 const EMPTY: TaskEdit = {
   id: null, parentId: null, title: '', goal: '', criteria: '', priority: 'normal', risk: 'normal',
   status: 'backlog', verification: '', tests: null, dependencies: [],
+};
+const ROUTE_REASON: Record<string, string> = {
+  credential: 'credencial inaccesible', rate_limit: 'límite de TypeSafe', timeout: 'plazo agotado',
+  unavailable: 'TypeSafe no disponible', invalid_response: 'respuesta inválida', capability: 'capacidad del modelo',
+  policy: 'política local', confidence: 'confianza insuficiente', busy: 'consulta en curso', budget: 'límite local de consultas',
+};
+const ROUTE_ADVICE: Record<string, string> = {
+  simple: 'sencilla', standard: 'habitual', complex: 'compleja', critical: 'crítica', independent: 'independiente',
+  reuse: 'reutilizar el contexto', recover: 'recuperar archivos y evidencias', summarize: 'resumir con Codex', handoff: 'preparar un relevo',
+  inspect: 'inspeccionar el estado local', retry_after_checks: 'valorar un reintento tras verificar el estado', ask_user: 'consultar al usuario',
 };
 
 type Props = {
@@ -243,6 +254,31 @@ function ObservedRun({ run }: { run: TaskRun }) {
         <dt>Coste estimado por el proveedor</dt><dd>{run.costEstimateUsd == null ? 'desconocido' : `${run.costEstimateUsd.toLocaleString(undefined, { maximumFractionDigits: 6 })} USD`}</dd>
         <dt>Cuota de cuenta usada</dt><dd>{windows.join(' · ') || 'desconocido'}</dd>
       </dl>
+      {run.routing && <ObservedRouting route={run.routing} />}
     </details>
+  );
+}
+
+function ObservedRouting({ route }: { route: NonNullable<TaskRun['routing']> }) {
+  const effort = (value: string | null) => value == null ? 'predeterminado del modelo' : EFFORT_LABEL[value] ?? value;
+  const number = (value: number | null) => value?.toLocaleString() ?? 'desconocido';
+  return (
+    <dl className="task-facts">
+      <dt>Enrutamiento</dt>
+      <dd>{route.source === 'jev' ? 'Jev' : route.source === 'shadow' ? 'Local con observación Jev' : 'Local'} · esfuerzo {effort(route.effort)}
+        {route.reason ? ` · ${ROUTE_REASON[route.reason] ?? route.reason}` : ''}</dd>
+      {route.executionModel && <><dt>Modelo Codex seleccionado</dt><dd>{route.executionModel}</dd></>}
+      {route.recommendedEffort && <><dt>Recomendación de Jev</dt>
+        <dd>{effort(route.recommendedEffort)} · confianza {route.confidence?.toLocaleString(undefined, { style: 'percent' }) ?? 'desconocida'}</dd></>}
+      {route.complexity && <><dt>Complejidad</dt><dd>{ROUTE_ADVICE[route.complexity]}</dd></>}
+      {route.review && <><dt>Revisión recomendada</dt><dd>{ROUTE_ADVICE[route.review]}</dd></>}
+      {route.context && <><dt>Contexto recomendado</dt><dd>{ROUTE_ADVICE[route.context]}</dd></>}
+      {route.eventAdvice && <><dt>Fallo anterior sin causa identificada</dt><dd>{ROUTE_ADVICE[route.eventAdvice]}</dd></>}
+      {route.model && <><dt>Modelo Jev</dt><dd>{route.model}</dd>
+        <dt>Tokens API Jev entrada / salida</dt><dd>{number(route.inputTokens)} / {number(route.outputTokens)}</dd>
+        <dt>Coste estimado Jev</dt><dd>{route.costEstimateUsd == null ? 'desconocido' : `${route.costEstimateUsd.toLocaleString(undefined, { maximumFractionDigits: 8 })} USD`}</dd>
+        <dt>Cuota TypeSafe</dt><dd>desconocida</dd></>}
+      {route.durationMs != null && <><dt>Duración de la consulta</dt><dd>{number(route.durationMs)} ms</dd></>}
+    </dl>
   );
 }

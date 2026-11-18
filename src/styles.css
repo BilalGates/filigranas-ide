@@ -2020,6 +2020,12 @@ button.co-file:hover {
   background: var(--tx4);
 }
 
+.jev-settings { max-width: 72ch; margin-top: 18px; }
+.jev-settings h2 { margin: 0; font-size: inherit; }
+.jev-options { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.jev-options input[type="number"] { width: 7ch; }
+.jev-settings .jev-check { grid-template-columns: auto 1fr; align-items: start; }
+
 .tool-dot.is-ok {
   background: var(--ok);
 }

@@ -1,0 +1,592 @@
+//! Opt-in routing for automatic task turns of the existing Codex coordinator.
+mod credential;
+mod typesafe;
+
+use std::sync::Mutex;
+
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tauri::{AppHandle, Manager, State};
+
+use crate::{db, err, AppState, CmdResult};
+use typesafe::Failure;
+
+// Changing the data disclosed to TypeSafe requires a new consent setting.
+const SETTING: &str = "jev.routing.v1";
+const DAILY_ATTEMPTS: u32 = 100;
+const EFFORTS: [&str; 3] = ["low", "medium", "high"];
+
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+enum Mode {
+    #[default]
+    Local,
+    Active,
+    Shadow,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "snake_case")]
+enum Policy {
+    Economy,
+    #[default]
+    Balanced,
+    Quality,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    mode: Mode,
+    policy: Policy,
+    timeout_secs: u32,
+    model: Option<String>,
+    light_model: Option<String>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { mode: Mode::Local, policy: Policy::Balanced, timeout_secs: 3, model: None, light_model: None }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    mode: Mode,
+    policy: Policy,
+    timeout_secs: u32,
+    consent: bool,
+    light_model: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    settings: Settings,
+    supported: bool,
+    service: &'static str,
+    account: &'static str,
+    #[serde(rename = "codexModels")]
+    codex_models: Vec<String>,
+}
+
+impl Status {
+    fn new(settings: Settings, codex_models: Vec<String>) -> Self {
+        Self {
+            settings, supported: cfg!(any(target_os = "macos", windows)),
+            service: credential::SERVICE, account: credential::ACCOUNT,
+            codex_models,
+        }
+    }
+}
+
+fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
+    Ok(db::get_setting(conn, SETTING)?.and_then(|s| serde_json::from_str::<Settings>(&s).ok())
+        .filter(|s| (1..=10).contains(&s.timeout_secs)).unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn jev_status(state: State<AppState>) -> CmdResult<Status> {
+    let saved = settings(&*state.db.lock().map_err(err)?).map_err(err)?;
+    Ok(Status::new(saved, state.codex.jev_models()?))
+}
+
+fn select_model(value: &Value) -> Option<String> {
+    let models = value["models"].as_array()?;
+    let mut names = models.iter().filter_map(|entry| entry["name"].as_str())
+        .filter(|name| valid_model(name));
+    names.clone().find(|name| name.ends_with("-latest"))
+        .or_else(|| names.find(|name| !name.ends_with("-preview"))).map(str::to_owned)
+}
+
+fn valid_model(name: &str) -> bool {
+    let Some(version) = name.strip_prefix("jev-") else { return false };
+    matches!(version, "latest" | "preview") || (
+        version.len() <= 24 && version.split('.').count() == 3
+            && version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    )
+}
+
+fn configure(change: Change, discover: impl FnOnce(u32) -> Result<Value, Failure>) -> CmdResult<Settings> {
+    if !(1..=10).contains(&change.timeout_secs) {
+        return Err("El plazo debe estar entre 1 y 10 segundos".into());
+    }
+    let model = match change.mode {
+        Mode::Local => None,
+        _ if !change.consent => return Err("Autoriza el envío de metadatos a TypeSafe para activar Jev".into()),
+        _ => {
+            let catalog = discover(change.timeout_secs).map_err(|e| match e {
+                Failure::Credential => "Añade una clave válida de TypeSafe al almacén del sistema y permite su lectura",
+                Failure::Timeout => "TypeSafe no respondió dentro del plazo",
+                Failure::RateLimit => "TypeSafe alcanzó su límite de peticiones",
+                _ => "No se pudo consultar el catálogo de TypeSafe",
+            })?;
+            Some(select_model(&catalog).ok_or("El catálogo de TypeSafe no ofrece un modelo Jev estable")?)
+        }
+    };
+    let light_model = change.light_model.filter(|id| !id.is_empty() && id.len() <= 128);
+    Ok(Settings { mode: change.mode, policy: change.policy, timeout_secs: change.timeout_secs, model, light_model })
+}
+
+#[tauri::command]
+pub async fn jev_configure(app: AppHandle, change: Change) -> CmdResult<Status> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _gate = state.jev_gate.lock().map_err(err)?;
+        let settings = configure(change, |timeout| {
+            let key = credential::read(true).ok_or(Failure::Credential)?;
+            typesafe::models(&key, timeout)
+        })?;
+        db::set_setting(&*state.db.lock().map_err(err)?, SETTING, &serde_json::to_string(&settings).map_err(err)?).map_err(err)?;
+        Ok(Status::new(settings, state.codex.jev_models()?))
+    }).await.map_err(err)?
+}
+
+pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS jev_attempts (at INTEGER NOT NULL DEFAULT (unixepoch()));
+         CREATE INDEX IF NOT EXISTS jev_attempts_at ON jev_attempts(at);
+         CREATE TABLE IF NOT EXISTS jev_ambiguous_runs (
+           run_id INTEGER PRIMARY KEY REFERENCES task_runs(id) ON DELETE CASCADE
+         );
+         CREATE TABLE IF NOT EXISTS jev_codex_baselines (
+           thread TEXT PRIMARY KEY, model TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS jev_routes (
+           run_id INTEGER PRIMARY KEY REFERENCES task_runs(id) ON DELETE CASCADE,
+           data TEXT NOT NULL
+         );",
+    )
+}
+
+fn reserve(db: &Mutex<Connection>) -> CmdResult<bool> {
+    let mut conn = db.lock().map_err(err)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
+    tx.execute("DELETE FROM jev_attempts WHERE at <= unixepoch()-86400", []).map_err(err)?;
+    let count: u32 = tx.query_row("SELECT count(*) FROM jev_attempts", [], |r| r.get(0)).map_err(err)?;
+    let available = count < DAILY_ATTEMPTS;
+    if available {
+        tx.execute("INSERT INTO jev_attempts DEFAULT VALUES", []).map_err(err)?;
+    }
+    tx.commit().map_err(err)?;
+    Ok(available)
+}
+
+struct Signals {
+    risk: &'static str,
+    priority: &'static str,
+    scope: &'static str,
+    history: &'static str,
+    ambiguous_failure: bool,
+}
+
+impl Signals {
+    fn for_run(conn: &Connection, run: i64) -> rusqlite::Result<Self> {
+        // Read categorical signals only. Transmit neither identifiers nor free text.
+        conn.query_row(
+            "SELECT t.risk,t.priority,length(t.goal)+length(t.criteria),previous.outcome,
+             EXISTS(SELECT 1 FROM jev_ambiguous_runs e WHERE e.run_id=previous.id)
+             FROM tasks t JOIN task_runs r ON r.task_id=t.id
+             LEFT JOIN task_runs previous ON previous.id=(
+                 SELECT p.id FROM task_runs p WHERE p.task_id=r.task_id AND p.scope=r.scope AND p.id<r.id
+                 ORDER BY p.id DESC LIMIT 1
+             ) WHERE r.id=?1",
+            [run],
+            |row| {
+                let risk = match row.get::<_, String>(0)?.as_str() {
+                    "low" => "low", "normal" => "normal", "high" => "high", _ => "critical",
+                };
+                let priority = match row.get::<_, String>(1)?.as_str() {
+                    "low" => "low", "high" => "high", "urgent" => "urgent", _ => "normal",
+                };
+                let scope = match row.get::<_, i64>(2)? { 0..=400 => "small", 401..=1500 => "medium", _ => "large" };
+                let history = match row.get::<_, Option<String>>(3)?.as_deref() {
+                    Some("completed") => "completed",
+                    Some("failed" | "interrupted" | "cancelled" | "paused_quota") => "incomplete",
+                    _ => "fresh",
+                };
+                Ok(Self { risk, priority, scope, history, ambiguous_failure: row.get(4)? })
+            },
+        )
+    }
+
+    fn floor(&self, policy: Policy) -> usize {
+        if matches!(self.risk, "high" | "critical") || policy == Policy::Quality {
+            2
+        } else if self.risk == "normal" || matches!(self.priority, "high" | "urgent") {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+pub fn mark_ambiguous(conn: &Connection, run: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO jev_ambiguous_runs(run_id)
+         SELECT id FROM task_runs WHERE id=?1 AND task_id IS NOT NULL AND session_id IS NULL AND outcome='failed'",
+        [run],
+    )?;
+    Ok(())
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Trace {
+    source: String,
+    reason: Option<String>,
+    pub effort: Option<String>,
+    recommended_effort: Option<String>,
+    confidence: Option<f64>,
+    model: Option<String>,
+    input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    cost_estimate_usd: Option<f64>,
+    duration_ms: Option<u64>,
+    complexity: Option<String>,
+    review: Option<String>,
+    context: Option<String>,
+    event_advice: Option<String>,
+    lightweight: bool,
+    pub execution_model: Option<String>,
+}
+
+fn best_effort(available: &[String], target: usize, floor: usize) -> Option<String> {
+    // A missing tier may be replaced by a supported higher effort. When the
+    // model cannot meet the floor, leave the model's native default in charge.
+    (floor..EFFORTS.len()).filter(|&i| available.iter().any(|e| e == EFFORTS[i]))
+        .min_by_key(|&i| (i.abs_diff(target), i < target)).map(|i| EFFORTS[i].into())
+        .or_else(|| available.iter().find(|e| e.as_str() == "xhigh").cloned())
+        .or_else(|| available.iter().find(|e| e.as_str() == "max").cloned())
+}
+
+fn request_body(model: &str, settings: &Settings, signals: &Signals, available: &[String], lightweight: bool) -> Value {
+    let mut body = json!({
+        "model": model,
+        "state": {
+            "risk": signals.risk, "priority": signals.priority, "scope": signals.scope,
+            "policy": settings.policy, "available_efforts": available,
+            "history": signals.history, "ambiguous_failure": signals.ambiguous_failure,
+            "lightweight_available": lightweight
+        },
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": "Choose the lowest available Codex reasoning effort sufficient for this software task. Scope is a rough size bucket. Quality and risk take precedence over economy.",
+                "criteria": {
+                    "low": "Small, low-risk work with a straightforward outcome.",
+                    "medium": "Routine implementation or review with moderate scope or risk.",
+                    "high": "Large, high-risk or critical work, or a quality-first policy."
+                }
+            },
+            "complexity": {
+                "type": "choice",
+                "instructions": "Classify the estimated complexity using risk and scope only.",
+                "criteria": { "simple": "Small and low risk.", "standard": "Routine scope.", "complex": "Large or high risk.", "critical": "Critical risk." }
+            },
+            "review": {
+                "type": "choice",
+                "instructions": "Recommend a review level. Critical or high-risk work requires independent review.",
+                "criteria": { "standard": "Usual local validation.", "independent": "Additional review by a different reviewer." }
+            },
+            "context": {
+                "type": "choice",
+                "instructions": "Recommend the best way for the IDE to prepare context. This is advisory.",
+                "criteria": {
+                    "reuse": "Use the current thread context, including for a first turn if appropriate.",
+                    "recover": "Recover relevant files and previous evidence before continuing.",
+                    "summarize": "Ask the local coordinator to summarize a large, established context.",
+                    "handoff": "Prepare a relay for a complex interrupted task."
+                }
+            },
+        }
+    });
+    if signals.ambiguous_failure {
+        body["questions"]["event"] = json!({
+            "type": "choice",
+            "instructions": "A previous turn failed without an identified cause. Recommend triage without assuming permissions or automatic retries.",
+            "criteria": {
+                "inspect": "The coordinator should inspect local evidence and check the worktree before continuing.",
+                "retry_after_checks": "Consider a retry only after the coordinator establishes it is safe.",
+                "ask_user": "Ask the user for input before proceeding."
+            }
+        });
+    }
+    if lightweight {
+        body["questions"]["model_tier"] = json!({
+            "type": "choice",
+            "instructions": "Choose a model tier within Codex under the economy policy.",
+            "criteria": {
+                "lightweight": "Small, straightforward, low-risk task with no ambiguity.",
+                "standard": "Work needing more reasoning capability, reliable context reuse or independent review."
+            }
+        });
+    }
+    body
+}
+
+fn advice(answer: &Value, name: &str, allowed: &[&str]) -> Option<String> {
+    let answer = &answer["answers"][name];
+    let choice = answer["choice"].as_str()?;
+    let confidence = answer["confidence"].as_f64()?;
+    (answer["type"] == "choice" && (0.65..=1.0).contains(&confidence) && allowed.contains(&choice))
+        .then(|| choice.into())
+}
+
+fn decide(
+    settings: &Settings, signals: &Signals, available: &[String],
+    lightweight_available: bool,
+    evaluate: impl FnOnce(&Value) -> Result<Value, &'static str>,
+) -> Trace {
+    let floor = signals.floor(settings.policy);
+    let target = if settings.policy == Policy::Economy { floor } else { floor.max(1) };
+    let mut trace = Trace {
+        source: "local".into(), effort: best_effort(available, target, floor), ..Trace::default()
+    };
+    let Some(model) = settings.model.as_deref().filter(|m| valid_model(m)) else { return trace };
+    if settings.mode == Mode::Local {
+        return trace;
+    }
+    if !available.iter().any(|e| EFFORTS.contains(&e.as_str())) {
+        trace.reason = Some("capability".into());
+        return trace;
+    }
+    let start = std::time::Instant::now();
+    let lightweight = lightweight_available && settings.policy == Policy::Economy
+        && floor == 0 && signals.scope == "small" && !signals.ambiguous_failure;
+    let result = evaluate(&request_body(model, settings, signals, available, lightweight));
+    trace.duration_ms = Some(start.elapsed().as_millis() as u64);
+    let answer = match result {
+        Ok(value) => value,
+        Err(reason) => {
+            trace.reason = Some(reason.into());
+            return trace;
+        }
+    };
+    trace.model = answer["model"].as_str().filter(|m| valid_model(m)).map(str::to_owned);
+    trace.input_tokens = answer["usage"]["input_tokens"].as_u64();
+    trace.output_tokens = answer["usage"]["output_tokens"].as_u64();
+    trace.cost_estimate_usd = trace.model.as_deref().zip(trace.input_tokens)
+        .and_then(|(model, input)| estimate_usd(model, input));
+    if trace.model.is_some() {
+        trace.complexity = advice(&answer, "complexity", &["simple", "standard", "complex", "critical"]);
+        trace.review = advice(&answer, "review", &["standard", "independent"]);
+        if matches!(signals.risk, "high" | "critical") {
+            trace.review = Some("independent".into());
+        }
+        trace.context = advice(&answer, "context", &["reuse", "recover", "summarize", "handoff"]);
+        if signals.ambiguous_failure {
+            trace.event_advice = advice(&answer, "event", &["inspect", "retry_after_checks", "ask_user"]);
+        }
+    }
+    let route = &answer["answers"]["route"];
+    let confidence = route["confidence"].as_f64().filter(|n| (0.0..=1.0).contains(n));
+    trace.confidence = confidence;
+    let chosen = route["choice"].as_str()
+        .and_then(|chosen| EFFORTS.iter().position(|e| *e == chosen));
+    let Some(chosen) = chosen.filter(|_| trace.model.is_some() && route["type"] == "choice" && confidence.is_some()) else {
+        trace.reason = Some(Failure::InvalidResponse.code().into());
+        return trace;
+    };
+    trace.recommended_effort = Some(EFFORTS[chosen].into());
+    if confidence.unwrap_or_default() < 0.65 {
+        trace.reason = Some("confidence".into());
+    } else if chosen < floor || !available.iter().any(|e| e == EFFORTS[chosen]) {
+        trace.reason = Some("policy".into());
+    } else if settings.mode == Mode::Shadow {
+        trace.source = "shadow".into();
+    } else {
+        trace.source = "jev".into();
+        trace.effort = trace.recommended_effort.clone();
+        trace.lightweight = lightweight && chosen == 0
+            && trace.complexity.as_deref() == Some("simple")
+            && trace.review.as_deref() == Some("standard")
+            && advice(&answer, "model_tier", &["lightweight", "standard"]).as_deref() == Some("lightweight");
+    }
+    trace
+}
+
+fn estimate_usd(model: &str, input: u64) -> Option<f64> {
+    let catalog: Value = serde_json::from_str(include_str!("prices.json")).ok()?;
+    let price = catalog["inputUsdPerMillion"][model].as_f64()?;
+    Some(input as f64 * price / 1_000_000.0)
+}
+
+pub fn route(state: &AppState, run: i64, baseline: Option<&str>, available: &[String]) -> CmdResult<Trace> {
+    // A concurrent route falls back locally. A revocation that has returned
+    // holds the same gate used for network calls, so it cannot race a new send.
+    let gate = state.jev_gate.try_lock();
+    let (settings, signals) = {
+        let conn = state.db.lock().map_err(err)?;
+        (settings(&conn).map_err(err)?, Signals::for_run(&conn, run).map_err(err)?)
+    };
+    let candidates = state.codex.jev_models()?;
+    let light_model = settings.light_model.as_ref().filter(|id| baseline.is_some_and(|b| b != *id) && candidates.contains(id));
+    let mut trace = decide(&settings, &signals, available, light_model.is_some(), |body| {
+        let _gate = gate.map_err(|_| "busy")?;
+        let key = credential::read(false).ok_or("credential")?;
+        if !reserve(&state.db).map_err(|_| "budget")? {
+            return Err("budget");
+        }
+        typesafe::evaluate(&key, settings.timeout_secs, body).map_err(Failure::code)
+    });
+    if trace.lightweight {
+        trace.execution_model = light_model.cloned();
+    }
+    Ok(trace)
+}
+
+pub fn baseline(conn: &Connection, thread: &str) -> rusqlite::Result<Option<String>> {
+    use rusqlite::OptionalExtension;
+    conn.query_row("SELECT model FROM jev_codex_baselines WHERE thread=?1", [thread], |r| r.get(0)).optional()
+}
+
+pub fn preserve_baseline(conn: &Connection, thread: &str, model: &str) -> rusqlite::Result<()> {
+    conn.execute("INSERT OR IGNORE INTO jev_codex_baselines(thread,model) VALUES(?1,?2)", params![thread, model])?;
+    Ok(())
+}
+
+pub fn record(conn: &Connection, run: i64, trace: &Trace) -> CmdResult<()> {
+    let data = serde_json::to_string(trace).map_err(err)?;
+    conn.execute("INSERT INTO jev_routes(run_id,data) VALUES(?1,?2)", params![run, data]).map_err(err)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn change(mode: Mode, consent: bool) -> Change {
+        Change { mode, consent, policy: Policy::Balanced, timeout_secs: 2, light_model: None }
+    }
+
+    fn modes() -> Vec<String> {
+        EFFORTS.map(str::to_owned).to_vec()
+    }
+
+    fn response(choice: &str, confidence: f64) -> Value {
+        json!({"model":"jev-1.14.0","answers":{"route":{"type":"choice","choice":choice,"confidence":confidence}},
+              "usage":{"input_tokens":250,"output_tokens":12}})
+    }
+
+    #[test]
+    fn configuration_activates_real_route_only_with_consent() {
+        assert!(configure(change(Mode::Active, false), |_| panic!("no network without consent")).is_err());
+        let settings = configure(change(Mode::Active, true), |_| Ok(json!({"models":[{"name":"jev-latest"}]}))).unwrap();
+        let signals = Signals { risk: "low", priority: "normal", scope: "small", history: "fresh", ambiguous_failure: false };
+        let trace = decide(&settings, &signals, &modes(), false, |body| {
+            assert_eq!(body["model"], "jev-latest");
+            assert_eq!(body["state"], json!({
+                "risk":"low","priority":"normal","scope":"small","policy":"balanced","available_efforts":modes(),
+                "history":"fresh","ambiguous_failure":false,"lightweight_available":false
+            }));
+            assert_eq!(body["questions"]["route"]["type"], "choice");
+            Ok(response("low", 0.91))
+        });
+        assert_eq!(trace.source, "jev");
+        assert_eq!(trace.effort.as_deref(), Some("low"));
+        assert_eq!(trace.input_tokens, Some(250));
+        assert!((trace.cost_estimate_usd.unwrap() - 0.0000105).abs() < 1e-10);
+    }
+
+    #[test]
+    fn timeout_refusal_shadow_and_high_risk_keep_the_local_route() {
+        let normal = Signals { risk: "low", priority: "normal", scope: "medium", history: "fresh", ambiguous_failure: false };
+        let high = Signals { risk: "high", ..normal };
+        let settings = Settings { mode: Mode::Active, model: Some("jev-latest".into()), ..Settings::default() };
+        for (result, reason) in [(Err("timeout"), "timeout"), (Err("rate_limit"), "rate_limit"),
+            (Err("credential"), "credential"), (Ok(response("invented", 0.91)), "invalid_response"),
+            (Ok(response("low", 0.5)), "confidence")] {
+            let trace = decide(&settings, &normal, &modes(), false, |_| result);
+            assert_eq!((trace.source.as_str(), trace.reason.as_deref(), trace.effort.as_deref()),
+                ("local", Some(reason), Some("medium")));
+        }
+        let trace = decide(&settings, &high, &modes(), false, |_| Ok(response("low", 0.99)));
+        assert_eq!((trace.reason.as_deref(), trace.effort.as_deref()), (Some("policy"), Some("high")));
+        let shadow = Settings { mode: Mode::Shadow, ..settings };
+        let trace = decide(&shadow, &normal, &modes(), false, |_| Ok(response("low", 0.99)));
+        assert_eq!((trace.source.as_str(), trace.effort.as_deref(), trace.recommended_effort.as_deref()),
+            ("shadow", Some("medium"), Some("low")));
+        let local = Settings { mode: Mode::Local, ..shadow };
+        assert_eq!(decide(&local, &normal, &modes(), false, |_| panic!("local connects")).source, "local");
+    }
+
+    #[test]
+    fn chooses_lightweight_only_when_eligible_and_treats_context_and_triage_as_advice() {
+        let settings = Settings { mode: Mode::Active, model: Some("jev-latest".into()),
+            policy: Policy::Economy, ..Settings::default() };
+        let small = Signals { risk: "low", priority: "normal", scope: "small", history: "incomplete", ambiguous_failure: false };
+        let mut answer = response("low", 0.93);
+        for (key, choice) in [("model_tier", "lightweight"), ("complexity", "simple"), ("review", "standard"),
+            ("context", "recover"), ("event", "retry_after_checks")] {
+            answer["answers"][key] = json!({"type":"choice","choice":choice,"confidence":0.9});
+        }
+        let trace = decide(&settings, &small, &modes(), true, |body| {
+            assert_eq!(body["questions"]["model_tier"]["type"], "choice");
+            assert!(body["questions"]["event"].is_null());
+            Ok(answer.clone())
+        });
+        assert!(trace.lightweight);
+        assert_eq!(trace.context.as_deref(), Some("recover"));
+        assert!(trace.event_advice.is_none());
+        let ambiguous = Signals { ambiguous_failure: true, ..small };
+        let trace = decide(&settings, &ambiguous, &modes(), true, |body| {
+            assert_eq!(body["questions"]["event"]["type"], "choice");
+            assert!(body["questions"]["model_tier"].is_null());
+            Ok(answer.clone())
+        });
+        assert!(!trace.lightweight);
+        assert_eq!(trace.event_advice.as_deref(), Some("retry_after_checks"));
+        assert!(!decide(&settings, &small, &modes(), false, |_| Ok(answer)).lightweight);
+    }
+
+    #[test]
+    fn persists_consent_budget_and_trace_without_task_content() {
+        let path = std::env::temp_dir().join(format!("filigranas-jev-{}.db", uuid::Uuid::new_v4()));
+        let settings = configure(change(Mode::Active, true), |_| Ok(json!({"models":[{"name":"jev-latest"}]}))).unwrap();
+        let conn = crate::db::open(&path).unwrap();
+        db::set_setting(&conn, SETTING, &serde_json::to_string(&settings).unwrap()).unwrap();
+        conn.execute(
+            "INSERT INTO tasks(id,project,title,goal,criteria,priority,risk,status)
+             VALUES(1,'/private/repo','Secret title','Secret goal','Secret criteria','normal','low','ready')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO task_runs(id,task_id,scope,project,provider,started_ms,retry)
+             VALUES(1,1,'thread','/private/repo','codex',0,0)", [],
+        ).unwrap();
+        let signals = Signals::for_run(&conn, 1).unwrap();
+        let trace = decide(&settings, &signals, &modes(), false, |body| {
+            assert!(!body.to_string().contains("Secret"));
+            assert!(!body.to_string().contains("/private/repo"));
+            Ok(response("low", 0.9))
+        });
+        record(&conn, 1, &trace).unwrap();
+        preserve_baseline(&conn, "thread", "verified-default").unwrap();
+        preserve_baseline(&conn, "thread", "configured-lightweight").unwrap();
+        crate::runs::finish(&conn, 1, "failed").unwrap();
+        mark_ambiguous(&conn, 1).unwrap();
+        conn.execute(
+            "INSERT INTO task_runs(id,task_id,scope,project,provider,started_ms,retry)
+             VALUES(2,1,'thread','/private/repo','codex',0,1)", [],
+        ).unwrap();
+        assert!(Signals::for_run(&conn, 2).unwrap().ambiguous_failure);
+        let conn = Mutex::new(conn);
+        for _ in 0..DAILY_ATTEMPTS {
+            assert!(reserve(&conn).unwrap());
+        }
+        drop(conn);
+
+        let reopened = Mutex::new(crate::db::open(&path).unwrap());
+        assert!(!reserve(&reopened).unwrap());
+        let conn = reopened.into_inner().unwrap();
+        assert_eq!(super::settings(&conn).unwrap().mode, Mode::Active);
+        assert_eq!(baseline(&conn, "thread").unwrap().as_deref(), Some("verified-default"));
+        let runs = serde_json::to_value(crate::runs::recent(&conn, 1).unwrap()).unwrap();
+        assert_eq!(runs[1]["routing"]["effort"], "low");
+        assert_eq!(runs[1]["routing"]["source"], "jev");
+        drop(conn);
+        std::fs::remove_file(path).unwrap();
+    }
+}

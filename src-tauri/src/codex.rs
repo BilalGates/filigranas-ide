@@ -257,6 +257,9 @@ struct Shared {
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
     models: HashMap<String, String>,
+    model_efforts: HashMap<String, Vec<String>>,
+    default_model: Option<String>,
+    low_text_models: Vec<String>,
     sessions: HashMap<String, i64>,
     quota: runs::Quota,
     usage_baseline: HashMap<String, (String, runs::Usage)>,
@@ -264,7 +267,7 @@ struct Shared {
 
 enum Observation {
     Started(String, String),
-    Completed(String, String, &'static str),
+    Completed(String, String, &'static str, bool),
     Usage(String, String, runs::Usage),
     Phase(String, &'static str),
     Quota(runs::Quota),
@@ -275,9 +278,12 @@ impl Observation {
     fn store(self, conn: &rusqlite::Connection) -> CmdResult<()> {
         match self {
             Self::Started(thread, turn) => runs::bind_turn(conn, &thread, &turn).map_err(err),
-            Self::Completed(thread, turn, outcome) => {
+            Self::Completed(thread, turn, outcome, ambiguous) => {
                 if let Some(run) = runs::for_turn(conn, &thread, &turn).map_err(err)? {
                     runs::finish(conn, run, outcome).map_err(err)?;
+                    if ambiguous {
+                        crate::jev::mark_ambiguous(conn, run).map_err(err)?;
+                    }
                 }
                 Ok(())
             }
@@ -319,7 +325,8 @@ fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
                 _ if crate::handoff::quota_reason(&params["turn"]["error"].to_string()).is_some() => "paused_quota",
                 _ => "failed",
             };
-            Some(Observation::Completed(thread, turn.into(), outcome))
+            let ambiguous = outcome == "failed" && params["turn"]["error"].is_null();
+            Some(Observation::Completed(thread, turn.into(), outcome, ambiguous))
         }
         "thread/tokenUsage/updated" => {
             let turn = params["turnId"].as_str()?;
@@ -359,6 +366,10 @@ struct Event {
 }
 
 impl Codex {
+    pub fn jev_models(&self) -> CmdResult<Vec<String>> {
+        Ok(self.shared.lock().map_err(err)?.low_text_models.clone())
+    }
+
     /// Turno único en un hilo efímero de solo lectura, con salida JSON según
     /// `schema`. Devuelve el texto final del agente. Para tareas internas
     /// del IDE como proponer commits.
@@ -638,6 +649,10 @@ struct ModelOption {
     id: String,
     label: String,
     efforts: Vec<String>,
+    #[serde(skip)]
+    is_default: bool,
+    #[serde(skip)]
+    accepts_text: bool,
 }
 
 /// Abre el coordinador del proyecto: comprueba la sesión de Codex, reanuda
@@ -656,15 +671,31 @@ pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i
         let direct = direct_session(&state, &path, session)?;
         let (rpc, thread_id, res) = codex.thread(&app, &state, &path, direct.as_ref(), true)?;
         let res = res.unwrap_or(Value::Null);
-        let model = res["model"].as_str().map(str::to_string);
         let catalog = rpc.request("model/list", json!({}), SHORT).ok();
         let available = parse_models(catalog.as_ref());
+        let baseline = if direct.is_none() {
+            crate::jev::baseline(&*state.db.lock().map_err(err)?, &thread_id).map_err(err)?
+        } else {
+            None
+        };
+        let model = baseline.and_then(|id| {
+            if catalog.is_none() || available.iter().any(|m| m.id == id) { Some(id) }
+            else { available.iter().find(|m| m.is_default).map(|m| m.id.clone()) }
+        })
+            .or_else(|| res["model"].as_str().map(str::to_string));
         let pinned_model = direct.as_ref().map(|s| pinned(&state, s.id)).transpose()?.flatten();
         let efforts = available.iter().find(|m| Some(m.id.as_str()) == pinned_model.as_deref().or(model.as_deref()))
             .map(|m| m.efforts.clone()).unwrap_or_else(|| EFFORTS[..3].iter().map(|e| e.to_string()).collect());
         let rate_limits = rpc.request("account/rateLimits/read", Value::Null, SHORT).map(|r| r["rateLimits"].clone()).unwrap_or(Value::Null);
         let mut shared = codex.shared.lock().map_err(err)?;
         shared.quota = runs::Quota::codex(&rate_limits);
+        if catalog.is_some() {
+            shared.model_efforts = available.iter().map(|m| (m.id.clone(), m.efforts.clone())).collect();
+            shared.default_model = available.iter().find(|m| m.is_default).map(|m| m.id.clone());
+            shared.low_text_models = available.iter().filter(|m| m.accepts_text && m.efforts.iter().any(|e| e == "low"))
+                .map(|m| m.id.clone()).collect();
+            shared.low_text_models.sort();
+        }
         let active_turn = shared.turns.get(&thread_id).cloned();
         drop(shared);
         let profile = if direct.is_some() { "direct".into() } else {
@@ -697,7 +728,8 @@ fn parse_models(catalog: Option<&Value>) -> Vec<ModelOption> {
         let efforts = model["supportedReasoningEfforts"].as_array().into_iter().flatten()
             .filter_map(|e| e["reasoningEffort"].as_str().or(e.as_str()))
             .filter(|e| EFFORTS.contains(e)).map(str::to_owned).collect();
-        Some(ModelOption { id: id.into(), label: label.into(), efforts })
+        let accepts_text = model["inputModalities"].as_array().is_some_and(|modes| modes.iter().any(|mode| mode == "text"));
+        Some(ModelOption { id: id.into(), label: label.into(), efforts, is_default: model["isDefault"] == true, accepts_text })
     }).collect()
 }
 
@@ -732,10 +764,24 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
     };
     let (rpc, thread_id, _) = state.codex.thread(app, &state, path, direct, false)?;
     let pinned = direct.map(|s| pinned(&state, s.id)).transpose()?.flatten();
-    let (model, quota) = {
-        let shared = state.codex.shared.lock().map_err(err)?;
-        (pinned.clone().or_else(|| shared.models.get(&thread_id).cloned()), shared.quota)
+    let baseline = if direct.is_none() {
+        crate::jev::baseline(&*state.db.lock().map_err(err)?, &thread_id).map_err(err)?
+    } else {
+        None
     };
+    let (model, model_override, available, quota) = {
+        let shared = state.codex.shared.lock().map_err(err)?;
+        // Codex model overrides persist across turns. Restore the baseline on
+        // subsequent PM turns, including when Jev is disabled or unavailable.
+        let model_override = pinned.or_else(|| baseline.and_then(|id| {
+            if shared.model_efforts.is_empty() || shared.model_efforts.contains_key(&id) { Some(id) }
+            else { shared.default_model.clone() }
+        }));
+        let model = model_override.clone().or_else(|| shared.models.get(&thread_id).cloned());
+        let available = model.as_ref().and_then(|id| shared.model_efforts.get(id)).cloned().unwrap_or_default();
+        (model, model_override, available, shared.quota)
+    };
+    let automatic = direct.is_none() && task.is_some() && effort.as_deref() == Some("auto");
     let (run, input) = {
         let mut conn = state.db.lock().map_err(err)?;
         let tx = conn.transaction().map_err(err)?;
@@ -746,7 +792,7 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
         };
         let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
         runs::quota(&tx, run, quota).map_err(err)?;
-        runs::usage(&tx, run, runs::Usage { model, ..Default::default() }).map_err(err)?;
+        runs::usage(&tx, run, runs::Usage { model: model.clone(), ..Default::default() }).map_err(err)?;
         if let Some(session) = direct {
             db::set_session_task(&tx, session.id, &text).map_err(err)?;
             db::set_session_paused(&tx, session.id, None).map_err(err)?;
@@ -755,11 +801,27 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
         (run, input)
     };
     tasks::changed(app);
+    let (effort, model_override) = if automatic {
+        crate::jev::route(&state, run, model.as_deref(), &available).ok().and_then(|trace| {
+            let mut conn = state.db.lock().ok()?;
+            let tx = conn.transaction().ok()?;
+            let override_model = if let Some(execution_model) = &trace.execution_model {
+                crate::jev::preserve_baseline(&tx, &thread_id, model.as_deref()?).ok()?;
+                runs::usage(&tx, run, runs::Usage { model: Some(execution_model.clone()), ..Default::default() }).ok()?;
+                Some(execution_model.clone())
+            } else {
+                model_override.clone()
+            };
+            crate::jev::record(&tx, run, &trace).ok()?;
+            tx.commit().ok()?;
+            Some((trace.effort, override_model))
+        }).unwrap_or((None, model_override))
+    } else { (effort, model_override) };
     let mut params = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": input, "text_elements": [] }] });
     if let Some(e) = effort {
         params["effort"] = json!(e);
     }
-    if let Some(model) = pinned {
+    if let Some(model) = model_override {
         params["model"] = json!(model);
     }
     let result = rpc.request("turn/start", params, LONG);
@@ -775,7 +837,7 @@ pub async fn coordinator_send(app: AppHandle, project: String, text: String, eff
     if text.trim().is_empty() {
         return Err("mensaje vacío".into());
     }
-    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) {
+    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e) && !(e == "auto" && session.is_none() && task.is_some())) {
         return Err("nivel de esfuerzo no válido".into());
     }
     tauri::async_runtime::spawn_blocking(move || {

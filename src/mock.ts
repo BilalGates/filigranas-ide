@@ -101,6 +101,9 @@ const fail = (msg: string) => {
   throw msg;
 };
 
+let mockJevSettings = { mode: 'local', policy: 'balanced', timeoutSecs: 3, model: null, lightModel: null };
+const mockJevStatus = () => ({ settings: mockJevSettings, supported: false, service: 'Filigranas IDE TypeSafe', account: 'jev', codexModels: [] });
+
 mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
@@ -362,6 +365,12 @@ mockIPC(
           checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
       case 'open_pr_url':
         return null;
+      case 'jev_status':
+        return mockJevStatus();
+      case 'jev_configure':
+        if (a.change.mode !== 'local') fail('Jev requiere un almacén de credenciales del sistema');
+        mockJevSettings = { mode: 'local', policy: a.change.policy, timeoutSecs: a.change.timeoutSecs, model: null, lightModel: null };
+        return mockJevStatus();
       case 'tools_status':
         return [
           { id: 'codex', name: 'Codex', role: 'coordinador y Larry', installed: true, loggedIn: true, detail: 'codex-cli 0.169.0', login: 'codex login' },

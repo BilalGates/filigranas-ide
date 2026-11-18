@@ -1,0 +1,8 @@
+{
+  "source": "https://docs.typesafe.ai/models",
+  "checkedOn": "2026-11-18",
+  "inputUsdPerMillion": {
+    "jev-1.13.0": 0.042,
+    "jev-1.14.0": 0.042
+  }
+}

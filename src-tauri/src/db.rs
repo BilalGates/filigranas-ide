@@ -45,6 +45,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     migrate(&conn)?;
     crate::tasks::migrate(&conn)?;
     crate::runs::migrate(&conn)?;
+    crate::jev::migrate(&conn)?;
     crate::github::migrate(&conn)?;
     Ok(conn)
 }

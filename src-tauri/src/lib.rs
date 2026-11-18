@@ -10,6 +10,7 @@ mod git;
 mod github;
 mod handoff;
 mod isolate;
+mod jev;
 mod larry;
 mod paths;
 mod pr;
@@ -42,6 +43,7 @@ pub(crate) struct AppState {
     pub tracker: tracker::Tracker,
     pub publication: Mutex<()>,
     pub approvals: approval::Approvals,
+    pub jev_gate: Mutex<()>,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -72,6 +74,7 @@ pub fn run() {
                 tracker: Default::default(),
                 publication: Default::default(),
                 approvals: Default::default(),
+                jev_gate: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -156,6 +159,8 @@ pub fn run() {
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            jev::jev_status,
+            jev::jev_configure,
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,

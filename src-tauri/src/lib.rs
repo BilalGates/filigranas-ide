@@ -137,6 +137,7 @@ pub fn run() {
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,
+            window::window_backdrop,
         ])
         .run(tauri::generate_context!())
         .expect("error al iniciar Filigranas");

@@ -416,7 +416,6 @@ html[data-browser] .sidebar-top::before {
   box-shadow: 23px 0 0 #febc2e, 46px 0 0 #28c840;
 }
 
-[data-platform='win'] .sidebar-top,
 html:not([data-browser])[data-platform='other'] .sidebar-top {
   height: 10px;
 }
@@ -3772,4 +3771,89 @@ html[data-native][data-platform='mac'] .status {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ── Windows ────────────────────────────────────────────────
+   Mismo diseño que en macOS: sin barra de título nativa, la franja de
+   48 px sirve para arrastrar la ventana y los botones de ventana van a
+   la derecha (46 px cada uno, glifos de Windows 11). La cabecera lateral
+   mantiene sus 48 px aunque no haya semáforo. */
+html[data-native][data-platform='win'] .app.no-side .tabs {
+  padding-left: 8px;
+}
+
+html[data-native][data-platform='win'] .app:not(.has-git) .tabs,
+html[data-native][data-platform='win'] .rh {
+  padding-right: 146px;
+}
+
+/* Con los botones de ventana encima, contenedores queda solo en icono. */
+html[data-native][data-platform='win'] .rh-btn + .rh-btn > span {
+  display: none;
+}
+
+.win-caption {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  height: 48px;
+}
+
+.win-caption button {
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--tx2);
+  font: 10px 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
+  transition:
+    background var(--fast),
+    color var(--fast);
+}
+
+.win-caption.is-blur button {
+  color: var(--tx4);
+}
+
+.win-caption button:hover {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--tx);
+}
+
+.win-caption button:active {
+  background: rgb(255 255 255 / 0.04);
+}
+
+.win-caption .is-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.win-caption .is-close:active {
+  background: #b0281a;
+  color: rgb(255 255 255 / 0.8);
+}
+
+/* Windows 11: Mica oscuro detrás de la barra lateral, como el material
+   de macOS; el resto de la ventana es opaco. */
+html[data-backdrop][data-platform='win'],
+html[data-backdrop][data-platform='win'] body,
+html[data-backdrop][data-platform='win'] #root,
+html[data-backdrop][data-platform='win'] .app {
+  background: transparent;
+}
+
+html[data-backdrop][data-platform='win'] .sidebar {
+  background: rgb(10 10 10 / 0.6);
+}
+
+html[data-backdrop][data-platform='win'] .tabs,
+html[data-backdrop][data-platform='win'] .main,
+html[data-backdrop][data-platform='win'] .git,
+html[data-backdrop][data-platform='win'] .status {
+  background: var(--bg);
 }

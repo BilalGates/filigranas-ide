@@ -27,7 +27,7 @@ fn layout_traffic_lights(window: &WebviewWindow) {
 
 /// macOS: la ventana lleva Liquid Glass oscuro (HudWindow como reserva en
 /// macOS 15 o anterior). La interfaz pinta todo de negro opaco salvo la
-/// barra lateral, que deja ver el material. En Windows, fondo negro.
+/// barra lateral, que deja ver el material.
 pub fn apply_effects(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
@@ -53,6 +53,31 @@ pub fn apply_effects(window: &WebviewWindow) {
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // Windows: la ventana no lleva marco (tauri.windows.conf.json) y la
+    // interfaz dibuja sus botones de ventana. Windows 11 pone Mica oscuro
+    // bajo la barra lateral; en Windows 10 no hay Mica y el fondo es negro.
+    #[cfg(target_os = "windows")]
+    {
+        let mica = window_vibrancy::apply_mica(window, Some(true)).is_ok();
+        let _ = BACKDROP.set(mica);
+        if !mica {
+            let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 255)));
+}
+
+#[cfg(target_os = "windows")]
+static BACKDROP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Si la ventana deja ver un material nativo detrás de la barra lateral.
+#[tauri::command]
+pub fn window_backdrop() -> bool {
+    #[cfg(target_os = "macos")]
+    return true;
+    #[cfg(target_os = "windows")]
+    return BACKDROP.get().copied().unwrap_or(false);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return false;
 }

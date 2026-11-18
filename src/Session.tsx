@@ -189,7 +189,14 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   const refreshChanges = useCallback(() => {
     if (isolated) sessions.changes(session.id).then((st) => setChanges(st.changes), (e) => setError(String(e)));
   }, [isolated, session.id]);
-  useEffect(refreshChanges, [refreshChanges]);
+  useEffect(() => {
+    if (!isolated || hidden) return;
+    const unlisten = listen('project-changed', refreshChanges);
+    refreshChanges();
+    return () => {
+      unlisten.then((off) => off());
+    };
+  }, [hidden, isolated, refreshChanges]);
 
   useEffect(() => {
     // Fragmento de texto en el ítem en curso de ese tipo (o uno nuevo).

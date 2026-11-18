@@ -224,11 +224,20 @@ export default function App() {
     );
   };
 
-  // Observar solo el proyecto abierto.
   useEffect(() => {
     setDiff(null);
-    git.watch(project).catch((e) => setError(String(e)));
   }, [project]);
+
+  // Mantener el observador del proyecto y seguir la copia de trabajo visible.
+  const worktreeId = typeof view === 'number' ? view
+    : view === 'file' ? fileSession
+    : view === 'larry' ? larryFor?.id
+    : view === 'publish' ? publishFor?.id
+    : null;
+  const watchedSession = agentSessions.find((s) => s.id === worktreeId && s.project === project && s.worktree)?.id ?? null;
+  useEffect(() => {
+    git.watch(project, watchedSession).catch((e) => setError(String(e)));
+  }, [project, watchedSession]);
 
   // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
   useEffect(() => {

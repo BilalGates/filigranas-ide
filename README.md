@@ -2,7 +2,7 @@
 
 IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo sobre varias ramas. macOS primero, también Windows.
 
-**Estado:** las cinco entregas del [plan](PLAN.md) están implementadas y pendientes de las pruebas de aceptación en la app (§6 del plan).
+**Estado:** las cinco entregas de V1 tienen implementación. La [aceptación de V1](docs/aceptacion-v1.md) distingue los flujos comprobados y los pendientes por plataforma y proveedor.
 
 - Proyectos, grupos y archivo; editor Monaco, terminales y Git local (estado, diffs, ramas, historial gráfico).
 - Coordinador Codex por proyecto (perfiles Hansi, Pep, Luis Enrique y Cruyff) que delega en sesiones de Claude Code, OpenCode, Antigravity y Devin.
@@ -14,7 +14,7 @@ IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo sob
 
 ## Stack
 
-Tauri 2 · núcleo en Rust (`src-tauri/`) · interfaz en React + TypeScript (`src/`) dentro del WebView del sistema.
+Tauri 2 · Rust y SQLite (`src-tauri/`) · React y TypeScript (`src/`) · Git mediante la CLI del sistema.
 
 ## Requisitos
 
@@ -36,4 +36,4 @@ Las CLI de los agentes (`codex`, `claude`, `opencode`, `agy`, `devin`), `node` y
 
 Los worktrees de las sesiones también viven en el directorio de datos de la app (`worktrees/`), fuera de la carpeta de proyectos.
 
-Los datos locales (ajustes, grupos, proyectos archivados, hilos del coordinador y sesiones) viven en SQLite dentro del directorio de datos de la app: `~/Library/Application Support/com.filigranas.ide` en macOS y `%APPDATA%\com.filigranas.ide` en Windows. La app nunca escribe en los repositorios que detecta.
+Los datos locales (ajustes, grupos, proyectos archivados, hilos del coordinador y sesiones) viven en SQLite dentro del directorio de datos de la app: `~/Library/Application Support/com.filigranas.ide` en macOS y `%APPDATA%\com.filigranas.ide` en Windows. Detectar o abrir un proyecto no escribe en su repositorio. Editar, crear un worktree o ejecutar una operación de Git sí puede modificarlo.

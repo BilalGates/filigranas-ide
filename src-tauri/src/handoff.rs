@@ -65,13 +65,14 @@ pub fn relevo(from: &db::Session, from_engine: &str, stat: &str, log: &str, last
 /// Diff resumido y commits de la sesión desde su punto de partida.
 fn progress(s: &db::Session) -> (String, String) {
     let cwd = Path::new(s.cwd());
-    let Some(base) = &s.base_commit else {
-        let stat = git(cwd, &["diff", "HEAD", "--stat"]).map(|o| String::from_utf8_lossy(&o).into_owned()).unwrap_or_default();
-        return (stat, String::new());
-    };
-    let _ = git(cwd, &["add", "-A", "-N"]);
-    let stat = git(cwd, &["diff", base, "--stat"]).map(|o| String::from_utf8_lossy(&o).into_owned()).unwrap_or_default();
-    let log = git(cwd, &["log", "--oneline", &format!("{base}..HEAD")]).map(|o| String::from_utf8_lossy(&o).into_owned()).unwrap_or_default();
+    let output = |args: &[&str]| git(cwd, args).map(|o| String::from_utf8_lossy(&o).into_owned()).unwrap_or_default();
+    let mut stat = output(&["diff", s.base_commit.as_deref().unwrap_or("HEAD"), "--stat"]);
+    let untracked = output(&["ls-files", "--others", "--exclude-standard"]);
+    if !untracked.is_empty() {
+        stat.push_str("Archivos sin seguimiento:\n");
+        stat.push_str(&untracked);
+    }
+    let log = s.base_commit.as_ref().map(|base| output(&["log", "--oneline", &format!("{base}..HEAD")])).unwrap_or_default();
     (stat, log)
 }
 
@@ -133,10 +134,8 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
         state.acp.close(id)?;
         let provider = if engine == "claude" { uuid::Uuid::new_v4().to_string() } else { String::new() };
         let to = {
-            let conn = state.db.lock().map_err(err)?;
-            let to = db::create_handoff(&conn, &from, &engine, &provider, &NAMES).map_err(err)?;
-            db::close_session(&conn, id).map_err(err)?;
-            to
+            let mut conn = state.db.lock().map_err(err)?;
+            db::create_handoff(&mut conn, id, &engine, &provider, &NAMES).map_err(err)?
         };
         let _ = app.emit("sessions-changed", json!({ "project": from.project, "focus": to.id }));
         send_message(&app, to.id, text, None)?;
@@ -179,5 +178,36 @@ mod tests {
         for part in ["«xavi» (claude code)", "Valida la política", "ide/xavi-3 (parte de main)", "src/a.ts | 3", "1234567 test", "Falta el caso", "cuota agotada", "git status"] {
             assert!(text.contains(part), "falta «{part}» en:\n{text}");
         }
+    }
+
+    #[test]
+    fn progress_reports_untracked_work_without_changing_the_index() {
+        let dir = std::env::temp_dir().join(format!("filigranas-handoff-{}", uuid::Uuid::new_v4()));
+        let project = dir.join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q", "-b", "main"]).unwrap();
+        git(&project, &["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "base"]).unwrap();
+        let mut conn = db::open(&dir.join("test.db")).unwrap();
+        let from = db::create_session(&conn, project.to_str().unwrap(), "claude", "u1", &["xavi"]).unwrap();
+        let iso = crate::isolate::create(&dir, &project, &from.name, from.id).unwrap().unwrap();
+        db::set_session_worktree(&conn, from.id, &iso.worktree, &iso.branch, &iso.base, &iso.base_commit).unwrap();
+        let wt = Path::new(&iso.worktree);
+        std::fs::write(wt.join("nuevo.txt"), "en progreso\n").unwrap();
+        let before = git(wt, &["status", "--porcelain"]).unwrap();
+
+        let from = db::session(&conn, from.id).unwrap().unwrap();
+        let (stat, _) = progress(&from);
+        let to = db::create_handoff(&mut conn, from.id, "opencode", "", &["xavi", "iniesta"]).unwrap();
+        drop(conn);
+
+        let conn = db::open(&dir.join("test.db")).unwrap();
+        assert!(db::session(&conn, from.id).unwrap().is_none());
+        assert_eq!(db::session(&conn, to.id).unwrap().unwrap().cwd(), iso.worktree);
+        assert!(stat.contains("nuevo.txt"));
+        assert_eq!(before, b"?? nuevo.txt\n");
+        assert_eq!(git(wt, &["status", "--porcelain"]).unwrap(), before);
+        assert_eq!(std::fs::read_to_string(wt.join("nuevo.txt")).unwrap(), "en progreso\n");
+        drop(conn);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

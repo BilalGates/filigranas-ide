@@ -35,7 +35,7 @@ export const git = {
   diffTexts: (project: string, path: string, orig: string | null) => invoke<DiffTexts>('git_diff_texts', { project, path, orig }),
   branches: (project: string) => invoke<string[]>('git_branches', { project }),
   switch: (project: string, branch: string) => invoke<void>('git_switch', { project, branch }),
-  watch: (path: string | null) => invoke<void>('watch_project', { path }),
+  watch: (path: string | null, session: number | null) => invoke<void>('watch_project', { path, session }),
 };
 
 // Acciones de git que cambian el repositorio o hablan con el remoto. Cada

@@ -1,11 +1,11 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use notify::{event::ModifyKind, EventKind, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{err, workspace::project_path, AppState, CmdResult};
+use crate::{err, isolate::work_dir, AppState, CmdResult};
 
 /// Observa la carpeta raíz (sin recursión) y avisa a la interfaz cuando
 /// aparece, desaparece o se renombra un hijo. La interfaz vuelve a pedir
@@ -62,15 +62,16 @@ fn coalesce(rx: Receiver<()>, quiet: Duration, max: Duration, mut emit: impl FnM
     }
 }
 
-/// Observa el proyecto abierto, con recursión, y emite `project-changed`
+/// Observa el proyecto abierto y su worktree activo, con recursión, y emite `project-changed`
 /// agrupando las ráfagas. Ignora `.git/objects`, `.git/logs` y las carpetas
 /// de dependencias y compilación. Con `None` deja de observar.
 #[tauri::command]
-pub fn watch_project(app: AppHandle, state: State<AppState>, path: Option<String>) -> CmdResult<()> {
+pub fn watch_project(app: AppHandle, state: State<AppState>, path: Option<String>, session: Option<i64>) -> CmdResult<()> {
     let mut slot = state.project_watcher.lock().map_err(err)?;
     *slot = None;
     let Some(path) = path else { return Ok(()) };
-    let dir = PathBuf::from(project_path(&*state.db.lock().map_err(err)?, &path)?);
+    let dir = work_dir(&state, &path, None)?;
+    let worktree = session.map(|id| work_dir(&state, &path, Some(id))).transpose();
     let (tx, rx) = channel();
     let handle = app.clone();
     std::thread::spawn(move || {
@@ -79,16 +80,23 @@ pub fn watch_project(app: AppHandle, state: State<AppState>, path: Option<String
         })
     });
     let root = dir.clone();
+    let task_root = worktree.as_ref().ok().cloned().flatten();
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
-        if !matches!(event.kind, EventKind::Access(_)) && event.paths.iter().any(|p| !is_noisy(&root, p)) {
+        if !matches!(event.kind, EventKind::Access(_))
+            && event.paths.iter().any(|p| !is_noisy(&root, p) || task_root.as_ref().is_some_and(|w| !is_noisy(w, p)))
+        {
             let _ = tx.send(());
         }
     })
     .map_err(err)?;
     watcher.watch(&dir, RecursiveMode::Recursive).map_err(err)?;
+    let watched = worktree.and_then(|p| match p {
+        Some(w) => watcher.watch(&w, RecursiveMode::Recursive).map_err(err),
+        None => Ok(()),
+    });
     *slot = Some(watcher);
-    Ok(())
+    watched
 }
 
 #[cfg(test)]

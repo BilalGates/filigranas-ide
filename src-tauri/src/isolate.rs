@@ -290,8 +290,6 @@ fn isolated(state: &AppState, id: i64) -> CmdResult<(db::Session, PathBuf, Strin
 #[tauri::command]
 pub fn session_changes(state: State<AppState>, id: i64) -> CmdResult<Status> {
     let (_, wt, base) = isolated(&state, id)?;
-    // Archivos nuevos visibles en el recuento (solo toca el índice del worktree).
-    git(&wt, &["add", "-A", "-N"])?;
     status_since(&wt, &base)
 }
 
@@ -667,11 +665,12 @@ mod tests {
         git(&wt, &["commit", "-qam", "commit de Larry"]).unwrap();
         std::fs::remove_file(wt.join("b.txt")).unwrap();
         std::fs::write(wt.join("c.txt"), "c\n").unwrap();
-        git(&wt, &["add", "-A", "-N"]).unwrap();
+        let before = git(&wt, &["status", "--porcelain"]).unwrap();
         let st = status_since(&wt, &iso.base_commit).unwrap();
         let v = serde_json::to_value(&st).unwrap();
         let got: Vec<String> = v["changes"].as_array().unwrap().iter().map(|c| format!("{} {}", c["status"].as_str().unwrap(), c["path"].as_str().unwrap())).collect();
         assert_eq!(got, vec!["M a.txt", "D b.txt", "A c.txt"]);
+        assert_eq!(git(&wt, &["status", "--porcelain"]).unwrap(), before);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

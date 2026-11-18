@@ -1,6 +1,7 @@
 # Plan de implementación — Filigranas IDE
 
-**Estado:** entrega 1 en curso · **Plataformas:** macOS (prioridad) y Windows, desarrollo en ambas · **Fecha:** 2026-11-16  
+**Estado de V1:** cinco entregas con implementación y [aceptación por escenario](docs/aceptacion-v1.md) · **Plataformas:** macOS (prioridad) y Windows · **Fecha del plan:** 2026-11-16
+
 **Referencia visual:** [mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) (estética de terminal, ultra minimalista). [`docs/mockup.html`](docs/mockup.html) queda como primera versión. Los mockups usan datos de ejemplo y no ejecutan agentes ni comandos.
 
 ## 1. Resultado esperado
@@ -67,6 +68,8 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
    - **Empaquetado:** `npm run tauri build` genera el `.dmg` en macOS; el `.msi` se genera en Windows. Las CLI externas se resuelven en Windows por su `.exe`/`.cmd` en el PATH.
 
 ## 6. Comprobaciones de aceptación
+
+Estos son criterios del plan original. Consulta la [aceptación de V1](docs/aceptacion-v1.md) para saber qué se ejecutó en la base de V2 y dónde difiere el código actual.
 
 - La app detecta los 12 repositorios existentes y uno nuevo sin reiniciar; agrupar, archivar y restaurar no mueve ni borra carpetas.
 - Editor y terminal operan en la ruta que muestra la sesión activa; al cambiar de tarea no se mezclan archivos ni procesos. Se pueden abrir dos terminales del mismo proyecto, ejecutar comandos distintos y alternar entre ellos sin perder la salida ni cerrar el otro proceso.

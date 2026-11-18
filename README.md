@@ -7,7 +7,7 @@ IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo sob
 - Proyectos, grupos y archivo; editor Monaco, terminales y Git local (estado, diffs, ramas, historial gráfico).
 - Coordinador Codex por proyecto (perfiles Hansi, Pep, Luis Enrique y Cruyff) que delega en sesiones de Claude Code, OpenCode, Antigravity y Devin.
 - Cada sesión trabaja en su propia rama y worktree; integración guiada, pausa por cuota, reanudación y relevo entre motores.
-- Larry propone y crea los commits; publicar la rama y abrir la PR en GitHub con `gh`.
+- Larry comprueba el diff y crea commits locales. El tablero vincula ramas, commits y PR. La publicación y el merge en GitHub requieren aprobaciones separadas.
 
 - [Plan de implementación](PLAN.md)
 - [Mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) — datos de ejemplo, sin conexión a agentes ni repositorios.

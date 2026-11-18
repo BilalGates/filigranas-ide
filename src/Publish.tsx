@@ -1,158 +1,160 @@
-import { useCallback, useEffect, useState } from 'react';
-import { pr, type PrDraft, type PrInfo } from './ipc';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { pr, type PrDraft, type PrInfo, type Proof, type Review } from './ipc';
+import ApprovalForm from './ApprovalForm';
 
 type Props = { project: string; session: number | null; hidden: boolean };
 
-function Checks({ info }: { info: PrInfo }) {
-  const [ok, failed, pending] = info.checks;
-  if (!ok && !failed && !pending) return <span className="muted">sin checks</span>;
-  return (
-    <span>
-      {ok > 0 && <span className="add">✓ {ok} </span>}
-      {failed > 0 && <span className="del">✗ {failed} </span>}
-      {pending > 0 && <span className="muted">… {pending}</span>}
-    </span>
-  );
-}
+export const CHECK_STATE = { success: 'correctos', pending: 'pendientes', failure: 'fallidos', unknown: 'desconocidos' };
+const REVIEW: Record<string, string> = { APPROVED: 'aprobada', REVIEW_REQUIRED: 'pendiente', CHANGES_REQUESTED: 'cambios solicitados' };
 
-/**
- * Publicar la rama y abrir la PR en GitHub. Título y descripción salen de
- * los commits y se editan antes; nada se publica sin pulsar el botón.
- */
 export default function Publish({ project, session, hidden }: Props) {
   const [draft, setDraft] = useState<PrDraft | null>(null);
-  const [base, setBase] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [asDraft, setAsDraft] = useState(true);
-  const [confirm, setConfirm] = useState(false);
+  const [method, setMethod] = useState('merge');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [published, setPublished] = useState<PrInfo | null>(null);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [info, setInfo] = useState<PrInfo | null>(null);
+  const [published, setPublished] = useState(false);
+  const [confirm, setConfirm] = useState<{ review: Review; action: string; run: (proof: Proof) => Promise<PrInfo> } | null>(null);
+  const sequence = useRef(0);
 
-  const load = useCallback(
-    (wanted: string | null) => {
-      setError(null);
-      pr.draft(project, session, wanted).then(
-        (d) => {
-          setDraft(d);
-          setBase(d.base);
-          setTitle(d.title);
-          setBody(d.body);
-        },
-        (e) => setError(String(e)),
-      );
-    },
-    [project, session],
-  );
+  const load = useCallback(async (base: string | null) => {
+    const request = ++sequence.current;
+    setError(null);
+    setConfirm(null);
+    setBusy(true);
+    try {
+      const d = await pr.draft(project, session, base);
+      if (request !== sequence.current) return;
+      setDraft(d);
+      setTitle(d.title);
+      setBody(d.body);
+      setInfo(d.existing);
+      setRemoteError(d.remoteError);
+      setPublished(false);
+    } catch (error) {
+      if (request === sequence.current) setError(String(error));
+    } finally {
+      if (request === sequence.current) setBusy(false);
+    }
+  }, [project, session]);
 
-  useEffect(() => load(null), [load]);
+  useEffect(() => { void load(null); return () => { ++sequence.current; }; }, [load]);
 
-  const publish = () => {
-    if (!draft || !base) return;
+  const number = info?.number;
+  const refresh = useCallback(async () => {
+    if (number == null) return;
+    const request = sequence.current;
+    try {
+      const next = await pr.status(project, session, number);
+      if (request !== sequence.current) return;
+      setInfo(next);
+      setRemoteError(null);
+    } catch (error) {
+      if (request === sequence.current) setRemoteError(String(error));
+    }
+  }, [number, project, session]);
+
+  const open = info?.state === 'OPEN';
+  useEffect(() => {
+    if (!open || hidden || busy) return;
+    const timer = window.setInterval(() => void refresh(), 20_000);
+    return () => window.clearInterval(timer);
+  }, [open, hidden, busy, refresh]);
+
+  const prepare = async (action: string, review: Promise<Review>, run: (proof: Proof) => Promise<PrInfo>) => {
     setBusy(true);
     setError(null);
-    pr.publish(project, session, base, title, body, asDraft)
-      .then(setPublished, (e) => setError(String(e)))
-      .finally(() => {
-        setBusy(false);
-        setConfirm(false);
-      });
+    try {
+      setConfirm({ review: await review, action, run });
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // Estado refrescado de la PR (checks), sin cambiar el modo de la vista.
-  const [live, setLive] = useState<PrInfo | null>(null);
-  const info = live ?? published ?? draft?.existing ?? null;
+  const mutate = async (run: () => Promise<PrInfo>) => {
+    ++sequence.current;
+    setConfirm(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await run();
+      setInfo(result);
+      setRemoteError(null);
+      setPublished(true);
+    } catch (error) {
+      const message = String(error);
+      if (!['publicación cancelada', 'merge cancelado'].includes(message)) setError(message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  // Checks pendientes: refrescar mientras la pestaña esté a la vista.
-  const pendingChecks = !!info && info.checks[2] > 0;
-  useEffect(() => {
-    if (!pendingChecks || hidden) return;
-    const timer = window.setInterval(() => {
-      pr.status(project, session).then((now) => now && setLive(now), () => {});
-    }, 20_000);
-    return () => window.clearInterval(timer);
-  }, [pendingChecks, hidden, project, session]);
+  const eligible = !!(info && !remoteError && draft?.head === info.head && info.state === 'OPEN'
+    && !info.isDraft && info.mergeState === 'CLEAN' && (!info.review || info.review === 'APPROVED')
+    && info.checksKnown && !info.checks[1] && !info.checks[2]);
 
   return (
     <section className="coach publish" aria-label="Publicar" hidden={hidden}>
       <div className="co-head">
-        <span>publicar</span>
-        <span className="muted">{draft ? `${draft.branch} → ${base ?? '…'}` : 'cargando…'}</span>
+        <span>publicar{draft?.taskId != null ? ` · tarea #${draft.taskId}` : ''}</span>
+        <span className="muted">{draft ? `${draft.branch} → ${draft.base || '…'}` : 'cargando…'}</span>
       </div>
       <div className="co-log">
-        {info && (
-          <div className="co-msg">
-            <div className="co-by">pull request {info.isDraft ? '(borrador)' : ''} · {info.state.toLowerCase()}</div>
-            <button className="co-link" onClick={() => pr.open(info.url).catch((e) => setError(String(e)))}>
-              {info.url}
-            </button>{' '}
-            <Checks info={info} />
-          </div>
-        )}
-        {draft?.previous && !published && (
-          <div className="co-aside">
-            La PR anterior de esta rama está {draft.previous.state === 'MERGED' ? 'fusionada' : 'cerrada'} (
-            <button className="co-link" onClick={() => pr.open(draft.previous!.url).catch((e) => setError(String(e)))}>
-              {draft.previous.url}
-            </button>
-            ). Publicar abrirá una PR nueva con los commits posteriores.
-          </div>
-        )}
-        {draft && !published && (
-          <>
-            {draft.blocked && <div className="co-error">{draft.blocked}</div>}
-            {draft.dirty && <div className="co-aside">Hay cambios sin commit: no viajan en la PR. Pídele a Larry los commits antes si deben ir.</div>}
+        {remoteError && <div className="co-error" role="status">Estado remoto sin actualizar. {remoteError}</div>}
+        {info && <div className="co-msg">
+          <div className="co-by">PR #{info.number} · {info.state.toLowerCase()}{info.isDraft ? ' · borrador' : ''}</div>
+          <button className="co-link" onClick={() => pr.open(info.url).catch((e) => setError(String(e)))}>{info.url}</button>
+          <div>CI de GitHub · {CHECK_STATE[info.checksState]} · {info.checks.join(' / ')} correctos / fallidos / pendientes</div>
+          <div>Revisión · {info.review ? REVIEW[info.review] ?? info.review : 'sin decisión'} · Merge · {info.mergeState}</div>
+          <button className="co-btn" disabled={busy} onClick={() => void refresh()}>actualizar estado</button>
+        </div>}
+        {draft?.previous && !published && <div className="co-aside">
+          PR anterior · <button className="co-link" onClick={() => pr.open(draft.previous!.url).catch((e) => setError(String(e)))}>
+            #{draft.previous.number}
+          </button> · {draft.previous.state.toLowerCase()}
+        </div>}
+        {draft && <>
+          <div className="muted">Diff local de Larry para {draft.head.slice(0, 12)} · {draft.larryChecked ? 'comprobado' : 'sin registro'}</div>
+          {draft.blocked && <div className="co-error">{draft.blocked}</div>}
+          {draft.dirty && <div className="co-aside">Hay cambios sin commit que quedan fuera de la PR.</div>}
+          {!published && <>
             <label className="pub-field">
               <span className="muted">base</span>
-              <select value={base ?? ''} onChange={(e) => load(e.target.value)}>
-                {draft.bases.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
+              <select value={draft.base} disabled={busy || !!confirm} onChange={(e) => void load(e.target.value)}>
+                {draft.bases.map((base) => <option key={base} value={base}>{base}</option>)}
               </select>
             </label>
             {draft.commits.length > 0 && <pre className="co-code">{draft.commits.join('\n')}</pre>}
-            {!draft.existing && (
-              <>
-                <label className="pub-field">
-                  <span className="muted">título</span>
-                  <input value={title} onChange={(e) => setTitle(e.target.value)} />
-                </label>
-                <label className="pub-field">
-                  <span className="muted">descripción</span>
-                  <textarea value={body} rows={10} onChange={(e) => setBody(e.target.value)} />
-                </label>
-                <label className="pub-check">
-                  <input type="checkbox" checked={asDraft} onChange={(e) => setAsDraft(e.target.checked)} /> abrir como borrador
-                </label>
-              </>
-            )}
-          </>
-        )}
-        {error && <div className="co-error">{error}</div>}
+            {!info && <>
+              <label className="pub-field"><span className="muted">título</span><input value={title} disabled={busy || !!confirm} onChange={(e) => setTitle(e.target.value)} /></label>
+              <label className="pub-field"><span className="muted">descripción</span><textarea value={body} disabled={busy} rows={10} onChange={(e) => setBody(e.target.value)} /></label>
+              <label className="pub-check"><input type="checkbox" checked={asDraft} disabled={busy || !!confirm} onChange={(e) => setAsDraft(e.target.checked)} /> abrir como borrador</label>
+            </>}
+          </>}
+        </>}
+        {error && <div className="co-error" role="alert">{error}</div>}
       </div>
       <div className="co-compose co-compose-bar">
-        <span className="muted">
-          {confirm
-            ? `se hará git push de ${draft?.branch} a origin${draft?.existing ? '' : ` y se abrirá la PR hacia ${base}`}. El merge sigue siendo tuyo.`
-            : 'nada se publica hasta que confirmes'}
-        </span>
-        {published ? null : confirm ? (
-          <span className="co-actions">
-            <button className="co-btn" onClick={() => setConfirm(false)} disabled={busy}>
-              cancelar
-            </button>
-            <button className="co-btn is-primary" onClick={publish} disabled={busy}>
-              {busy ? 'publicando…' : 'confirmar'}
-            </button>
-          </span>
-        ) : (
-          <button className="co-btn is-primary" onClick={() => setConfirm(true)} disabled={!draft || !!draft.blocked || !title.trim()}>
-            {draft?.existing ? 'publicar commits' : 'publicar y abrir PR'}
-          </button>
-        )}
+        {confirm && <ApprovalForm key={confirm.review.id} review={confirm.review} action={confirm.action}
+          onClose={() => setConfirm(null)} onConfirm={(proof) => void mutate(() => confirm.run(proof))} />}
+        {!confirm && !published && draft && <button className="co-btn is-primary" disabled={busy || !!draft.blocked || (!info && !title.trim())}
+          onClick={() => void prepare('confirmar publicación', pr.reviewPublish(project, session, draft, title, body, asDraft),
+            (proof) => pr.publish(project, session, draft, title, body, asDraft, proof))}>
+          {info ? 'publicar commits' : 'publicar y abrir PR'}
+        </button>}
+        {!confirm && info?.state === 'OPEN' && <>
+          <select className="chip-select" aria-label="Método de merge" value={method} disabled={busy || !eligible} onChange={(e) => setMethod(e.target.value)}>
+            <option value="merge">merge</option><option value="squash">squash</option><option value="rebase">rebase</option>
+          </select>
+          <button className="co-btn" disabled={busy || !eligible} onClick={() => void prepare('confirmar merge', pr.reviewMerge(project, session, info, method),
+            (proof) => pr.merge(project, session, info, method, proof))}>fusionar PR</button>
+        </>}
       </div>
     </section>
   );

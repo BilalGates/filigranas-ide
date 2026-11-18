@@ -73,6 +73,7 @@ struct Link {
     worktree: Option<String>,
     base_commit: Option<String>,
     closed: bool,
+    github: Option<crate::github::Branch>,
 }
 
 fn task_in(conn: &Connection, project: &str, id: i64) -> CmdResult<()> {
@@ -111,8 +112,13 @@ pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
         task.waiting_for = waiting_for(conn, task.id).map_err(err)?;
         task.sessions = links.query_map([task.id], |r| Ok(Link {
             id: r.get(0)?, name: r.get(1)?, engine: r.get(2)?, branch: r.get(3)?,
-            worktree: r.get(4)?, base_commit: r.get(5)?, closed: r.get(6)?,
+            worktree: r.get(4)?, base_commit: r.get(5)?, closed: r.get(6)?, github: None,
         })).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
+        for link in &mut task.sessions {
+            if let Some(branch) = &link.branch {
+                link.github = Some(crate::github::branch(conn, project, branch)?);
+            }
+        }
     }
     Ok(tasks)
 }
@@ -251,7 +257,7 @@ fn verify_worktrees(conn: &Connection, task: i64) -> CmdResult<()> {
     ).map_err(err)?;
     for id in query.query_map([task], |r| r.get(0)).map_err(err)? {
         let session = db::session_any(conn, id.map_err(err)?).map_err(err)?.ok_or("falta una sesión vinculada")?;
-        if !crate::isolate::integration_verified(&session)? {
+        if !crate::isolate::integration_verified(&session)? && !crate::pr::merged_worktree(conn, &session)? {
             return Err(format!("integra y verifica los cambios de {} antes de cerrar la tarea", session.name));
         }
     }

@@ -543,7 +543,7 @@ export default function App() {
           {current && <Coordinator key={current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
           {current && <Tasks key={current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions}
             onAuto={(task) => { setCoachTask(task); setView('coach'); }}
-            onDirect={newSession} onSession={setView} />}
+            onDirect={newSession} onSession={setView} onPublish={openPublish} />}
           {current && conflictFiles && (
             <Conflicts
               project={current.path}

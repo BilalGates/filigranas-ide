@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { tasks, type Session, type Task, type TaskEdit, type TaskRun } from './ipc';
+import { pr, tasks, type Session, type Task, type TaskEdit, type TaskRun } from './ipc';
+import { CHECK_STATE } from './Publish';
 
 const STATUS: Record<string, string> = {
   backlog: 'pendiente', ready: 'lista', running: 'en marcha', waiting_approval: 'espera permiso',
@@ -27,9 +28,10 @@ type Props = {
   onAuto: (task: Task) => void;
   onDirect: (engine: string, task: number) => void;
   onSession: (id: number) => void;
+  onPublish: (session: Session) => void;
 };
 
-export default function Tasks({ project, hidden, sessions, onAuto, onDirect, onSession }: Props) {
+export default function Tasks({ project, hidden, sessions, onAuto, onDirect, onSession, onPublish }: Props) {
   const [list, setList] = useState<Task[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [edit, setEdit] = useState<TaskEdit | null>(null);
@@ -203,6 +205,15 @@ export default function Tasks({ project, hidden, sessions, onAuto, onDirect, onS
                   {task.sessions.map((s) => <li key={s.id}>
                     <button className="co-link" disabled={s.closed || !sessions.some((active) => active.id === s.id)} onClick={() => onSession(s.id)}>{s.name}</button>
                     <span className="muted" title={s.worktree ?? undefined}> {s.engine}{s.branch ? ` · ${s.branch}` : ''}{s.closed ? ' · cerrada' : ''}</span>
+                    {s.branch && !s.closed && sessions.some((active) => active.id === s.id) && <button className="co-link"
+                      onClick={() => { const active = sessions.find((item) => item.id === s.id); if (active) onPublish(active); }}> GitHub</button>}
+                    {s.github?.commits.length ? <details><summary>{s.github.commits.length} commits Larry</summary><ul>
+                      {s.github.commits.map((commit) => <li key={commit.oid} title={commit.oid}>{commit.oid.slice(0, 12)} {commit.subject}</li>)}
+                    </ul></details> : null}
+                    {s.github?.pulls.map((pull) => <div key={pull.url}>
+                      <button className="co-link" onClick={() => pr.open(pull.url).catch((e) => setError(String(e)))}>PR #{pull.number}</button>
+                      <span className="muted"> · {pull.state.toLowerCase()} · CI {CHECK_STATE[pull.checksState]} · {new Date(pull.observedAt * 1000).toLocaleString()}</span>
+                    </div>)}
                   </li>)}
                 </ul>
               )}

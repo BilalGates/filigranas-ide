@@ -1,4 +1,5 @@
 mod acp;
+mod approval;
 mod claude;
 mod codex;
 mod containers;
@@ -6,6 +7,7 @@ mod db;
 mod delegate;
 mod files;
 mod git;
+mod github;
 mod handoff;
 mod isolate;
 mod larry;
@@ -38,6 +40,8 @@ pub(crate) struct AppState {
     pub claude: claude::Claude,
     pub acp: acp::Acp,
     pub tracker: tracker::Tracker,
+    pub publication: Mutex<()>,
+    pub approvals: approval::Approvals,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -66,6 +70,8 @@ pub fn run() {
                 claude: Default::default(),
                 acp: Default::default(),
                 tracker: Default::default(),
+                publication: Default::default(),
+                approvals: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -81,6 +87,8 @@ pub fn run() {
             git_ops::git_fetch,
             git_ops::git_pull,
             git_ops::git_push,
+            git_ops::git_review_push,
+            approval::cancel_review,
             git_ops::git_stash,
             git_ops::git_stash_pop,
             git_ops::git_stash_list,
@@ -142,6 +150,9 @@ pub fn run() {
             larry::larry_groups,
             pr::pr_draft,
             pr::pr_publish,
+            pr::pr_review_publish,
+            pr::pr_merge,
+            pr::pr_review_merge,
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,

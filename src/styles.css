@@ -3823,3 +3823,7 @@ html[data-native][data-platform='mac'] .status {
 .task-runs details { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
 .task-runs summary { cursor: pointer; }
 .coach > .coach { flex: 1; min-height: 0; }
+
+.remote-review { padding: 10px; overflow-wrap: anywhere; }
+.remote-review p { margin: 0 0 8px; }
+.remote-review .co-actions { display: flex; gap: 8px; margin-top: 8px; }

@@ -44,7 +44,8 @@ export type Stash = { name: string; subject: string };
 export const gitOps = {
   fetch: (project: string) => invoke<string>('git_fetch', { project }),
   pull: (project: string) => invoke<string>('git_pull', { project }),
-  push: (project: string, setUpstream: boolean) => invoke<string>('git_push', { project, setUpstream }),
+  reviewPush: (project: string, setUpstream: boolean) => invoke<Review>('git_review_push', { project, setUpstream }),
+  push: (project: string, setUpstream: boolean, proof: Proof) => invoke<string>('git_push', { project, setUpstream, proof }),
   stash: (project: string, message: string | null) => invoke<string>('git_stash', { project, message }),
   stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
   stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
@@ -179,7 +180,10 @@ export type Task = Omit<TaskEdit, 'id'> & {
   createdAt: number;
   updatedAt: number;
   waitingFor: number[];
-  sessions: (Pick<Session, 'id' | 'name' | 'engine' | 'branch' | 'worktree' | 'baseCommit'> & { closed: boolean })[];
+  sessions: (Pick<Session, 'id' | 'name' | 'engine' | 'branch' | 'worktree' | 'baseCommit'> & {
+    closed: boolean;
+    github: { commits: { oid: string; subject: string }[]; pulls: PrInfo[] } | null;
+  })[];
 };
 export type TaskRun = {
   id: number;
@@ -218,9 +222,16 @@ export const larry = {
 };
 
 // Publicar la rama y abrir la PR (gh). Siempre por acción explícita.
-export type PrInfo = { url: string; state: string; isDraft: boolean; checks: [number, number, number] };
+export type PrInfo = {
+  number: number; url: string; state: string; isDraft: boolean; branch: string; base: string; head: string;
+  checks: [number, number, number]; checksState: 'success' | 'pending' | 'failure' | 'unknown';
+  checksKnown: boolean;
+  review: string | null; mergeState: string; observedAt: number;
+};
 export type PrDraft = {
   branch: string;
+  head: string;
+  repository: string | null;
   bases: string[];
   base: string;
   title: string;
@@ -230,14 +241,32 @@ export type PrDraft = {
   existing: PrInfo | null;
   previous: PrInfo | null;
   blocked: string | null;
+  remoteError: string | null;
+  taskId: number | null;
+  larryChecked: boolean;
 };
 
+export type Review = { id: string; message: string; code: string };
+export type Proof = { id: string; typed: string };
+export const cancelReview = (id: string) => invoke<void>('cancel_review', { id });
+
+const publicationEdit = (draft: PrDraft, title: string, body: string, draftPr: boolean) => ({
+  expectedBranch: draft.branch, expectedHead: draft.head, expectedRepository: draft.repository, base: draft.base, title, body, draftPr,
+});
+const mergeEdit = (pull: PrInfo, method: string) => ({ number: pull.number, head: pull.head, base: pull.base, method });
+
 export const pr = {
-  draft: (project: string, session: number | null, base: string | null) => invoke<PrDraft>('pr_draft', { project, session, base }),
-  publish: (project: string, session: number | null, base: string, title: string, body: string, draftPr: boolean) =>
-    invoke<PrInfo>('pr_publish', { project, session, base, title, body, draftPr }),
+  draft: (path: string, session: number | null, base: string | null) => invoke<PrDraft>('pr_draft', { path, session, base }),
+  reviewPublish: (path: string, session: number | null, draft: PrDraft, title: string, body: string, draftPr: boolean) =>
+    invoke<Review>('pr_review_publish', { path, session, edit: publicationEdit(draft, title, body, draftPr) }),
+  publish: (path: string, session: number | null, draft: PrDraft, title: string, body: string, draftPr: boolean, proof: Proof) =>
+    invoke<PrInfo>('pr_publish', { path, session, edit: publicationEdit(draft, title, body, draftPr), proof }),
+  reviewMerge: (path: string, session: number | null, pull: PrInfo, method: string) =>
+    invoke<Review>('pr_review_merge', { path, session, edit: mergeEdit(pull, method) }),
+  merge: (path: string, session: number | null, pull: PrInfo, method: string, proof: Proof) =>
+    invoke<PrInfo>('pr_merge', { path, session, edit: mergeEdit(pull, method), proof }),
   open: (url: string) => invoke<void>('open_pr_url', { url }),
-  status: (project: string, session: number | null) => invoke<PrInfo | null>('pr_status', { project, session }),
+  status: (path: string, session: number | null, number: number) => invoke<PrInfo>('pr_status', { path, session, number }),
 };
 
 // Herramientas externas que usa el IDE.

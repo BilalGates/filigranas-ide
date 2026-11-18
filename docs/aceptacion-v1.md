@@ -47,7 +47,7 @@
 - [x] P0 · Aceptación mínima macOS verificada en una copia aislada. Build, Clippy y 60 pruebas locales correctas en el árbol de trabajo, incluidas tres pruebas previas de guardado. Windows, Antigravity, Devin y una nueva publicación en GitHub quedan fuera de este recorrido.
 - [x] P1 · Reglas y skills con precedencia, carga selectiva y rechazo efectivo de permiso verificados.
 - [x] P2 · Tablero, tareas y subtareas, dependencias, sesiones vinculadas y observaciones por turno. Migración y recuperación verificadas en macOS. Véase la [aceptación de P2](#aceptación-de-p2).
-- [ ] P3 · Ampliar el flujo existente de PR con estado, checks y autorizaciones. Conservar la separación entre Larry, publicación y merge.
+- [x] P3 · Trazabilidad de Larry, PR y CI con reconciliación de reintentos y aprobaciones independientes. Véase la [aceptación de P3](#aceptación-de-p3).
 - [ ] P4 · Integrar Jev por API oficial una vez verificadas capacidades y configuración, con política local de respaldo.
 - [ ] P5 · Auditoría y Design Loop con evidencia y la referencia macOS.
 - [ ] P6 · Memoria estructurada y recuperación contextual en SQLite antes del grafo.
@@ -65,3 +65,11 @@ El tablero usa `tasks`, `task_dependencies`, `task_sessions` y `task_runs`. La m
 | Métricas | Se observaron duración, modelo, tokens y cuota en las respuestas de Codex y Claude. Se registró el coste estimado que devolvió Claude y el coste de Codex quedó desconocido. ACP conserva la ocupación de contexto cuando la informa, con consumo API desconocido. |
 
 Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el PM**, **nuevo chat Codex** y **vincular sesión**. En Claude, solicitar una escritura en el worktree de prueba y cerrar la app con la tarjeta de permiso pendiente. Reabrir el proyecto y comprobar el turno interrumpido en **Últimos turnos**. Ejecutar también `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
+
+## Aceptación de P3
+
+- Larry comprueba `git diff --cached --check` antes de cada commit y mantiene los hooks. El tablero relaciona el SHA completo con la rama de la sesión, la tarea y las PR observadas. La comprobación local y el estado de CI remoto se muestran por separado.
+- Las PR se buscan en el repositorio de `origin` por rama y base, incluida la historia de un SHA ya publicado. SQLite conserva la última observación y los intentos de creación ambiguos. Los tests simulan una respuesta perdida, un reinicio y una desconexión. El reintento recupera el mismo número sin otro push ni otra creación. Si GitHub sigue sin confirmar un intento ambiguo, la app conserva la rama y espera a poder reconciliarlo.
+- La revisión en la app muestra el destino y exige escribir el SHA abreviado. Rust comprueba la autorización una sola vez para esa operación. Las pruebas rechazan confirmaciones incorrectas o reutilizadas, cambios durante la revisión, revisiones pendientes y reglas bloqueantes. El merge pide autorización propia y solicita a GitHub validar el SHA de cabecera y las reglas de la rama. [API de pull requests](https://docs.github.com/en/rest/pulls/pulls) · [Campos de GitHub CLI](https://cli.github.com/manual/gh_pr_view)
+- `real_github_pull` consultó la PR #6 de Filigranas en modo lectura y confirmó su estado. `gh pr view 15094 --repo cli/cli --json statusCheckRollup` consultó una PR pública con 18 checks. Los escenarios de creación y merge automatizados usan un servidor simulado.
+- En el bundle macOS corregido, con Git remoto bloqueado, se comprobó que un SHA vacío o incorrecto desactiva la confirmación. Se cancelaron las revisiones de push y apertura de PR. El primer ensayo detectó una publicación prematura con el diálogo nativo y motivó sustituirlo por la revisión vinculada al SHA.

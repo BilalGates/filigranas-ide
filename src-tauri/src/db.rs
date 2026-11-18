@@ -43,6 +43,8 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
          );",
     )?;
     migrate(&conn)?;
+    crate::tasks::migrate(&conn)?;
+    crate::runs::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -195,6 +197,7 @@ pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_ses
         "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5, integrated = ?6, task = ?7, handoff_from = ?8 WHERE id = ?1",
         params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id],
     )?;
+    tx.execute("INSERT INTO task_sessions(session_id,task_id) SELECT ?1,task_id FROM task_sessions WHERE session_id=?2", [new.id,from.id])?;
     let to = session(&tx, new.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     close_session(&tx, from.id)?;
     tx.commit()?;
@@ -266,8 +269,16 @@ pub fn session_options(conn: &Connection, id: i64) -> rusqlite::Result<serde_jso
 }
 
 pub fn set_session_option(conn: &Connection, id: i64, key: &str, value: &str) -> rusqlite::Result<()> {
+    update_session_option(conn, id, key, Some(value))
+}
+
+pub fn update_session_option(conn: &Connection, id: i64, key: &str, value: Option<&str>) -> rusqlite::Result<()> {
     let mut opts = session_options(conn, id)?;
-    opts.insert(key.into(), serde_json::Value::String(value.into()));
+    if let Some(value) = value {
+        opts.insert(key.into(), serde_json::Value::String(value.into()));
+    } else {
+        opts.remove(key);
+    }
     conn.execute("UPDATE sessions SET options = ?2 WHERE id = ?1", params![id, serde_json::Value::Object(opts).to_string()])?;
     Ok(())
 }
@@ -378,15 +389,7 @@ mod tests {
 
     #[test]
     fn session_names_are_unique_among_open_sessions() {
-        let mut conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);").unwrap();
-        // Esquema completo a través de `open` no admite memoria: se repite aquí.
-        conn.execute_batch(
-            "CREATE TABLE sessions (id INTEGER PRIMARY KEY, project TEXT NOT NULL, engine TEXT NOT NULL, name TEXT NOT NULL,
-             provider_session TEXT NOT NULL, effort TEXT, closed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-             worktree TEXT, branch TEXT, base TEXT, base_commit TEXT, integrated TEXT, task TEXT, handoff_from INTEGER, paused TEXT, options TEXT);",
-        )
-        .unwrap();
+        let mut conn = open(Path::new(":memory:")).unwrap();
         let names = ["xavi", "iniesta"];
         let a = create_session(&conn, "/r/p", "claude", "u1", &names).unwrap();
         let b = create_session(&conn, "/r/p", "claude", "u2", &names).unwrap();

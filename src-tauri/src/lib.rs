@@ -12,7 +12,9 @@ mod larry;
 mod paths;
 mod pr;
 mod pty;
+mod runs;
 mod skills;
+mod tasks;
 mod tools;
 mod tracker;
 mod watch;
@@ -53,6 +55,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let conn = db::open(&data_dir.join("filigranas.db"))?;
+            runs::recovery(&conn)?;
             let root = db::get_setting(&conn, "root")?;
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -109,6 +112,12 @@ pub fn run() {
             codex::coordinator_interrupt,
             codex::coordinator_respond,
             codex::coordinator_set_profile,
+            codex::codex_pin_model,
+            tasks::tasks_list,
+            tasks::task_save,
+            tasks::task_link,
+            tasks::task_runs,
+            tasks::task_parallel_limit,
             claude::session_list,
             claude::session_create,
             claude::session_history,
@@ -117,6 +126,7 @@ pub fn run() {
             claude::session_respond,
             claude::session_close,
             claude::session_set_option,
+            claude::claude_chat_options,
             isolate::session_changes,
             isolate::session_diff_texts,
             isolate::session_integrate,

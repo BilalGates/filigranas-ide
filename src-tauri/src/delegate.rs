@@ -112,7 +112,15 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
                 return Err("falta la tarea".into());
             }
             let effort = (engine == "claude").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
-            let created = claude::new_session(app, &project, engine)?;
+            let task_id = {
+                let mut conn = state.db.lock().map_err(err)?;
+                match crate::runs::task_for_thread(&conn, thread).map_err(err)? {
+                    Some(id) => id,
+                    None => crate::tasks::delegated(&mut conn, &project, task)?,
+                }
+            };
+            crate::tasks::changed(app);
+            let created = claude::new_session(app, &project, engine, Some(task_id))?;
             let session = created.session;
             let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
             claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), effort)?;
@@ -122,7 +130,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             };
             let notice = created.notice.map(|n| format!("\nAviso: {n}.")).unwrap_or_default();
             Ok(format!(
-                "Tarea enviada a la sesión «{}» ({}). {place}{notice}\nSigue su avance con estado_sesiones o espera el resultado con esperar_sesion {{\"sesion\": \"{}\"}}. \
+                "Tarea #{task_id} enviada a la sesión «{}» ({}). {place}{notice}\nSigue su avance con estado_sesiones o espera el resultado con esperar_sesion {{\"sesion\": \"{}\"}}. \
 Si el agente pide permisos, el usuario los aprueba en la pestaña de la sesión.",
                 session.name,
                 label(engine),

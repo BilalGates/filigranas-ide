@@ -97,16 +97,19 @@ export type Opened = {
   turns: CTurn[];
   rateLimits: RateLimits | null;
   activeTurn: string | null;
+  models?: { id: string; label: string; efforts: string[] }[];
+  pinnedModel?: string | null;
 };
 export type CoordinatorEvent = { method: string; params: any; requestId: unknown | null };
 export type Decision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
 export const coordinator = {
-  open: (project: string) => invoke<Opened>('coordinator_open', { project }),
-  send: (project: string, text: string, effort: string | null) => invoke<void>('coordinator_send', { project, text, effort }),
-  interrupt: (project: string) => invoke<void>('coordinator_interrupt', { project }),
+  open: (project: string, session: number | null = null) => invoke<Opened>('coordinator_open', { project, session }),
+  send: (project: string, text: string, effort: string | null, session: number | null, task: number | null) => invoke<void>('coordinator_send', { project, text, effort, session, task }),
+  interrupt: (project: string, session: number | null) => invoke<void>('coordinator_interrupt', { project, session }),
   respond: (requestId: unknown, decision: Decision) => invoke<void>('coordinator_respond', { requestId, decision }),
   setProfile: (project: string, profile: string) => invoke<void>('coordinator_set_profile', { project, profile }),
+  pinModel: (project: string, session: number, model: string | null) => invoke<void>('codex_pin_model', { project, session, model }),
 };
 
 // Sesiones de agentes ejecutores (Claude Code en este tramo). Los mensajes
@@ -138,7 +141,7 @@ export type AcpOption = { id: string; name: string; category: string; currentVal
 
 export const sessions = {
   list: (project: string) => invoke<Session[]>('session_list', { project }),
-  create: (project: string, engine: string) => invoke<CreatedSession>('session_create', { project, engine }),
+  create: (project: string, engine: string, task: number | null = null) => invoke<CreatedSession>('session_create', { project, engine, task }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
   send: (id: number, text: string, effort: string | null) => invoke<void>('session_send', { id, text, effort }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
@@ -151,10 +154,56 @@ export const sessions = {
   cleanup: (id: number) => invoke<void>('session_cleanup', { id }),
   pause: (id: number) => invoke<void>('session_pause', { id }),
   setOption: (id: number, key: string, value: string) => invoke<AcpOption[]>('session_set_option', { id, key, value }),
+  claudeOptions: (id: number) => invoke<{ models: { id: string; label: string }[]; pinnedModel: string | null }>('claude_chat_options', { id }),
   orphans: (project: string) => invoke<Session[]>('session_orphans', { project }),
   reopen: (id: number) => invoke<Session>('session_reopen', { id }),
   resume: (id: number) => invoke<void>('session_resume', { id }),
   handoff: (id: number, engine: string) => invoke<Session>('session_handoff', { id, engine }),
+};
+
+export type TaskEdit = {
+  id: number | null;
+  parentId: number | null;
+  title: string;
+  goal: string;
+  criteria: string;
+  priority: string;
+  risk: string;
+  status: string;
+  verification: string;
+  tests: string | null;
+  dependencies: number[];
+};
+export type Task = Omit<TaskEdit, 'id'> & {
+  id: number;
+  createdAt: number;
+  updatedAt: number;
+  waitingFor: number[];
+  sessions: (Pick<Session, 'id' | 'name' | 'engine' | 'branch' | 'worktree' | 'baseCommit'> & { closed: boolean })[];
+};
+export type TaskRun = {
+  id: number;
+  sessionId: number | null;
+  provider: string;
+  model: string | null;
+  startedMs: number;
+  durationMs: number | null;
+  outcome: string;
+  retry: boolean;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  costEstimateUsd: number | null;
+  quotaShort: [number, number] | null;
+  quotaLong: [number, number] | null;
+  contextTokens: number | null;
+};
+export const tasks = {
+  list: (project: string) => invoke<Task[]>('tasks_list', { project }),
+  save: (project: string, input: TaskEdit) => invoke<number>('task_save', { project, input }),
+  link: (project: string, task: number, session: number) => invoke<void>('task_link', { project, task, session }),
+  runs: (project: string, task: number) => invoke<TaskRun[]>('task_runs', { project, task }),
+  parallelLimit: (project: string, limit: number | null = null) => invoke<number>('task_parallel_limit', { project, limit }),
 };
 
 // Larry: propuesta y creación de commits locales.

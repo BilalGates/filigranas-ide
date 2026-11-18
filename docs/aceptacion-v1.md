@@ -46,8 +46,22 @@
 
 - [x] P0 · Aceptación mínima macOS verificada en una copia aislada. Build, Clippy y 60 pruebas locales correctas en el árbol de trabajo, incluidas tres pruebas previas de guardado. Windows, Antigravity, Devin y una nueva publicación en GitHub quedan fuera de este recorrido.
 - [x] P1 · Reglas y skills con precedencia, carga selectiva y rechazo efectivo de permiso verificados.
-- [ ] P2 · Añadir tareas, dependencias y evidencias en nuevas tablas SQLite vinculadas a las sesiones. Conservar identificadores y probar migración y reinicio antes de activar la UI.
+- [x] P2 · Tablero, tareas y subtareas, dependencias, sesiones vinculadas y observaciones por turno. Migración y recuperación verificadas en macOS. Véase la [aceptación de P2](#aceptación-de-p2).
 - [ ] P3 · Ampliar el flujo existente de PR con estado, checks y autorizaciones. Conservar la separación entre Larry, publicación y merge.
 - [ ] P4 · Integrar Jev por API oficial una vez verificadas capacidades y configuración, con política local de respaldo.
 - [ ] P5 · Auditoría y Design Loop con evidencia y la referencia macOS.
 - [ ] P6 · Memoria estructurada y recuperación contextual en SQLite antes del grafo.
+
+## Aceptación de P2
+
+El tablero usa `tasks`, `task_dependencies`, `task_sessions` y `task_runs`. La migración añade tablas a la misma base SQLite. Las sesiones y sus identificadores anteriores se conservan y se pueden vincular desde el tablero. Las delegaciones del PM registran una tarea o se vinculan a la tarea seleccionada. El límite de tareas simultáneas es por proyecto y se puede ajustar desde el tablero.
+
+| Escenario | Evidencia |
+| --- | --- |
+| Conversaciones | Bundle `com.filigranas.ide.p2` con copia de la base de P1. En una tarea nueva respondieron el PM de Codex, un hilo directo de Codex en su worktree y una sesión existente de Claude vinculada desde el tablero. Ambos catálogos se obtuvieron de las CLI. El modelo fijado y el historial de Codex directo volvieron al reabrir la app. |
+| Reinicio durante un turno | Claude esperaba permiso de escritura. Se cerró la app sin concederlo. Tras arrancar, la tarea pasó a lista, el turno quedó interrumpido y se recuperaron las dos sesiones vinculadas con sus ramas, historial y métricas anteriores. El archivo solicitado no se creó. |
+| Dependencias y paralelismo | `graph_rejects_cross_project_links_and_cycles_without_losing_previous_edges` y `legacy_sessions_and_parallel_runs_survive_restart_with_worktrees_and_handoff` comprueban ciclos mixtos, aislamiento por proyecto, bloqueo de ejecución, dos worktrees en paralelo, límite configurable, reintento y conservación tras relevo. |
+| Cierre | `closing_requires_user_evidence_and_current_worktree_integration` comprueba que un turno exitoso deja la tarea en verificación. Para cerrar se registra el resultado de pruebas y evidencia, y se valida la huella de los worktrees con cambios. |
+| Métricas | Se observaron duración, modelo, tokens y cuota en las respuestas de Codex y Claude. Se registró el coste estimado que devolvió Claude y el coste de Codex quedó desconocido. ACP conserva la ocupación de contexto cuando la informa, con consumo API desconocido. |
+
+Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el PM**, **nuevo chat Codex** y **vincular sesión**. En Claude, solicitar una escritura en el worktree de prueba y cerrar la app con la tarjeta de permiso pendiente. Reabrir el proyecto y comprobar el turno interrumpido en **Últimos turnos**. Ejecutar también `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.

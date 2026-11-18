@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{db, err, workspace::project_path, AppState, CmdResult};
+use crate::{db, err, runs, tasks, workspace::project_path, AppState, CmdResult};
 
 // Coordinador: Codex mediante `codex app-server`, JSON-RPC por stdio con un
 // mensaje JSON por línea (sin el campo `jsonrpc`). Un solo proceso para
@@ -170,6 +170,9 @@ fn persona(profile: &str) -> &'static str {
 }
 
 fn instructions(profile: &str, rules: &str) -> String {
+    if profile == "direct" {
+        return format!("Eres un ejecutor Codex en una conversación directa. Trabaja en esta sesión y sigue las instrucciones del proyecto.\n\n{rules}");
+    }
     format!("{}\n\n{rules}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
 }
 
@@ -253,12 +256,98 @@ struct Shared {
     approvals: HashSet<String>,
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
+    models: HashMap<String, String>,
+    sessions: HashMap<String, i64>,
+    quota: runs::Quota,
+    usage_baseline: HashMap<String, (String, runs::Usage)>,
+}
+
+enum Observation {
+    Started(String, String),
+    Completed(String, String, &'static str),
+    Usage(String, String, runs::Usage),
+    Phase(String, &'static str),
+    Quota(runs::Quota),
+    Closed,
+}
+
+impl Observation {
+    fn store(self, conn: &rusqlite::Connection) -> CmdResult<()> {
+        match self {
+            Self::Started(thread, turn) => runs::bind_turn(conn, &thread, &turn).map_err(err),
+            Self::Completed(thread, turn, outcome) => {
+                if let Some(run) = runs::for_turn(conn, &thread, &turn).map_err(err)? {
+                    runs::finish(conn, run, outcome).map_err(err)?;
+                }
+                Ok(())
+            }
+            Self::Usage(thread, turn, usage) => {
+                if let Some(run) = runs::for_turn(conn, &thread, &turn).map_err(err)? {
+                    runs::usage(conn, run, usage).map_err(err)?;
+                }
+                Ok(())
+            }
+            Self::Phase(thread, status) => {
+                if let Some(run) = runs::active(conn, &thread)? {
+                    runs::phase(conn, run, status).map_err(err)?;
+                }
+                Ok(())
+            }
+            Self::Quota(quota) => runs::codex_quota(conn, quota).map_err(err),
+            Self::Closed => runs::provider_closed(conn, "codex"),
+        }
+    }
+}
+
+fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
+    let params = &event.params;
+    if event.method == "server/closed" {
+        return Some(Observation::Closed);
+    }
+    if event.method == "account/rateLimits/updated" {
+        shared.quota = runs::Quota::codex(&params["rateLimits"]);
+        return Some(Observation::Quota(shared.quota));
+    }
+    let thread = params["threadId"].as_str()?.to_string();
+    match event.method.as_str() {
+        "turn/started" => Some(Observation::Started(thread, params.pointer("/turn/id")?.as_str()?.into())),
+        "turn/completed" => {
+            let turn = params.pointer("/turn/id")?.as_str()?;
+            let outcome = match params.pointer("/turn/status")?.as_str()? {
+                "completed" => "completed",
+                "interrupted" => "cancelled",
+                _ if crate::handoff::quota_reason(&params["turn"]["error"].to_string()).is_some() => "paused_quota",
+                _ => "failed",
+            };
+            Some(Observation::Completed(thread, turn.into(), outcome))
+        }
+        "thread/tokenUsage/updated" => {
+            let turn = params["turnId"].as_str()?;
+            let total = runs::Usage::codex(&params["tokenUsage"]["total"]);
+            let last = runs::Usage::codex(&params["tokenUsage"]["last"]);
+            let entry = shared.usage_baseline.entry(thread.clone()).or_default();
+            if entry.0 != turn {
+                *entry = (turn.into(), total.minus(&last));
+            }
+            let usage = total.minus(&entry.1).or(last);
+            Some(Observation::Usage(thread, turn.into(), usage))
+        }
+        "model/rerouted" => {
+            let model = params["toModel"].as_str()?;
+            let turn = params["turnId"].as_str()?;
+            Some(Observation::Usage(thread, turn.into(), runs::Usage { model: Some(model.into()), ..Default::default() }))
+        }
+        "serverRequest/resolved" => Some(Observation::Phase(thread, "running")),
+        method if APPROVALS.contains(&method) => Some(Observation::Phase(thread, "waiting_approval")),
+        _ => None,
+    }
 }
 
 #[derive(Default)]
 pub struct Codex {
     server: Mutex<Option<Server>>,
     shared: Arc<Mutex<Shared>>,
+    thread_gate: Mutex<()>,
 }
 
 #[derive(Serialize, Clone)]
@@ -359,10 +448,23 @@ impl Codex {
                         let _ = tx.send((method.clone(), params.clone()));
                         return; // hilo interno: no va a la interfaz
                     }
+                    if let Some(id) = sh.sessions.get(&thread) {
+                        let state = handle.state::<AppState>();
+                        match method.as_str() {
+                            "turn/started" => state.tracker.started(*id),
+                            "turn/completed" => state.tracker.finished(*id, None),
+                            "item/agentMessage/delta" => {
+                                if let Some(delta) = params["delta"].as_str() {
+                                    state.tracker.chunk(*id, delta);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                     match method.as_str() {
                         "turn/started" => {
                             if let Some(turn) = params.pointer("/turn/id").and_then(Value::as_str) {
-                                sh.turns.insert(thread, turn.into());
+                                sh.turns.insert(thread.clone(), turn.into());
                             }
                         }
                         "turn/completed" => {
@@ -406,11 +508,18 @@ impl Codex {
                     Event { method, params, request_id: Some(id) }
                 }
                 Incoming::Closed => {
+                    for id in sh.sessions.values() {
+                        handle.state::<AppState>().tracker.exited(*id);
+                    }
                     *sh = Shared::default();
                     Event { method: "server/closed".into(), params: Value::Null, request_id: None }
                 }
             };
+            let observation = observation(&mut sh, &event);
             drop(sh);
+            if let Some(observation) = observation {
+                runs::record(&handle, |conn| observation.store(conn));
+            }
             let _ = handle.emit("coordinator", event);
         });
 
@@ -433,32 +542,76 @@ impl Codex {
 
     /// Carga (o crea) el hilo del proyecto. Devuelve el proceso, el id y la
     /// respuesta de `thread/resume` o `thread/start` si hubo que pedirla.
-    fn thread(&self, app: &AppHandle, state: &AppState, path: &str, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
-        let (saved, profile) = db::coordinator(&*state.db.lock().map_err(err)?, path).map_err(err)?;
-        let tools = db::coordinator_tools(&*state.db.lock().map_err(err)?, path).map_err(err)?;
+    fn thread(&self, app: &AppHandle, state: &AppState, path: &str, session: Option<&db::Session>, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
+        let _gate = self.thread_gate.lock().map_err(err)?;
+        let (saved, profile) = match session {
+            Some(s) => {
+                let current = crate::claude::open_session(state, s.id)?;
+                (Some(current.provider_session).filter(|id| !id.is_empty()), "direct".into())
+            }
+            None => {
+                let conn = state.db.lock().map_err(err)?;
+                let (saved, profile) = db::coordinator(&conn, path).map_err(err)?;
+                let tools = db::coordinator_tools(&conn, path).map_err(err)?;
+                (saved.filter(|_| tools == crate::delegate::TOOLS_VERSION), profile)
+            }
+        };
+        let cwd = session.map(db::Session::cwd).unwrap_or(path);
         let rpc = self.rpc(app)?;
-        // Las herramientas solo se fijan al crear el hilo: uno anterior a la
-        // versión actual se sustituye (su conversación sigue en Codex).
-        if let Some(id) = saved.as_ref().filter(|_| tools == crate::delegate::TOOLS_VERSION) {
+        if let Some(id) = &saved {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
-            let mut params = thread_params(path, &profile, &crate::skills::instructions(app));
+            let mut params = thread_params(cwd, &profile, &crate::skills::instructions(app));
             params["threadId"] = json!(id);
-            if let Ok(res) = rpc.request("thread/resume", params, LONG) {
-                self.shared.lock().map_err(err)?.loaded.insert(id.clone());
-                return Ok((rpc, id.clone(), Some(res)));
+            match rpc.request("thread/resume", params, LONG) {
+                Ok(res) => {
+                    self.remember(id, &res, session.map(|s| s.id))?;
+                    return Ok((rpc, id.clone(), Some(res)));
+                }
+                Err(e) => {
+                    let conn = state.db.lock().map_err(err)?;
+                    let has_history: bool = conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM task_runs WHERE scope=?1 AND turn IS NOT NULL)",
+                        [id], |r| r.get(0),
+                    ).map_err(err)?;
+                    // Solo sustituimos un hilo sin historial del que el proveedor ya no tiene registro.
+                    let missing = e.contains("no rollout") || e.contains("thread not found");
+                    if (session.is_some() && (has_history || !missing)) || !rpc.alive() {
+                        return Err(e);
+                    }
+                }
             }
-            // Un hilo sin turnos no llega a guardarse en disco: empezar otro.
         }
-        let mut params = thread_params(path, &profile, &crate::skills::instructions(app));
-        params["dynamicTools"] = crate::delegate::specs();
+        let mut params = thread_params(cwd, &profile, &crate::skills::instructions(app));
+        if session.is_none() {
+            params["dynamicTools"] = crate::delegate::specs();
+        }
         let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
-        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(&id), crate::delegate::TOOLS_VERSION).map_err(err)?;
-        self.shared.lock().map_err(err)?.loaded.insert(id.clone());
+        let conn = state.db.lock().map_err(err)?;
+        if let Some(session) = session {
+            db::set_provider_session(&conn, session.id, &id).map_err(err)?;
+        } else {
+            db::set_coordinator_thread(&conn, path, Some(&id), crate::delegate::TOOLS_VERSION).map_err(err)?;
+        }
+        drop(conn);
+        self.remember(&id, &res, session.map(|s| s.id))?;
         Ok((rpc, id, Some(res)))
     }
+
+    fn remember(&self, id: &str, reply: &Value, session: Option<i64>) -> CmdResult<()> {
+        let mut sh = self.shared.lock().map_err(err)?;
+        sh.loaded.insert(id.into());
+        if let Some(session) = session {
+            sh.sessions.insert(id.into(), session);
+        }
+        if let Some(model) = reply["model"].as_str() {
+            sh.models.insert(id.into(), model.into());
+        }
+        Ok(())
+    }
+
 }
 
 // ── comandos ────────────────────────────────────────────────────────────
@@ -476,12 +629,21 @@ pub struct Opened {
     rate_limits: Value,
     /// Turno en marcha, si lo hay (al volver a un proyecto).
     active_turn: Option<String>,
+    models: Vec<ModelOption>,
+    pinned_model: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ModelOption {
+    id: String,
+    label: String,
+    efforts: Vec<String>,
 }
 
 /// Abre el coordinador del proyecto: comprueba la sesión de Codex, reanuda
 /// o crea el hilo y devuelve el historial.
 #[tauri::command]
-pub async fn coordinator_open(app: AppHandle, project: String) -> CmdResult<Opened> {
+pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Opened> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
@@ -491,20 +653,23 @@ pub async fn coordinator_open(app: AppHandle, project: String) -> CmdResult<Open
         if account.get("account").is_none_or(Value::is_null) && account["requiresOpenaiAuth"] == json!(true) {
             return Err("Codex no tiene sesión iniciada: ejecuta `codex login` en el terminal y vuelve a abrir el coordinador".into());
         }
-        let (rpc, thread_id, res) = codex.thread(&app, &state, &path, true)?;
+        let direct = direct_session(&state, &path, session)?;
+        let (rpc, thread_id, res) = codex.thread(&app, &state, &path, direct.as_ref(), true)?;
         let res = res.unwrap_or(Value::Null);
         let model = res["model"].as_str().map(str::to_string);
-        let efforts: Vec<String> = rpc
-            .request("model/list", json!({}), SHORT)
-            .ok()
-            .and_then(|list| {
-                let m = list["data"].as_array()?.iter().find(|m| m["model"].as_str() == model.as_deref())?.clone();
-                Some(m["supportedReasoningEfforts"].as_array()?.iter().filter_map(|e| e["reasoningEffort"].as_str().or(e.as_str())).map(str::to_string).collect())
-            })
-            .unwrap_or_else(|| EFFORTS[..3].iter().map(|e| e.to_string()).collect());
+        let catalog = rpc.request("model/list", json!({}), SHORT).ok();
+        let available = parse_models(catalog.as_ref());
+        let pinned_model = direct.as_ref().map(|s| pinned(&state, s.id)).transpose()?.flatten();
+        let efforts = available.iter().find(|m| Some(m.id.as_str()) == pinned_model.as_deref().or(model.as_deref()))
+            .map(|m| m.efforts.clone()).unwrap_or_else(|| EFFORTS[..3].iter().map(|e| e.to_string()).collect());
         let rate_limits = rpc.request("account/rateLimits/read", Value::Null, SHORT).map(|r| r["rateLimits"].clone()).unwrap_or(Value::Null);
-        let (_, profile) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
-        let active_turn = codex.shared.lock().map_err(err)?.turns.get(&thread_id).cloned();
+        let mut shared = codex.shared.lock().map_err(err)?;
+        shared.quota = runs::Quota::codex(&rate_limits);
+        let active_turn = shared.turns.get(&thread_id).cloned();
+        drop(shared);
+        let profile = if direct.is_some() { "direct".into() } else {
+            db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?.1
+        };
         Ok(Opened {
             thread_id,
             profile,
@@ -514,15 +679,99 @@ pub async fn coordinator_open(app: AppHandle, project: String) -> CmdResult<Open
             turns: res.pointer("/thread/turns").cloned().unwrap_or(json!([])),
             rate_limits,
             active_turn,
+            models: if direct.is_some() { available } else { Vec::new() },
+            pinned_model,
         })
     })
     .await
     .map_err(err)?
 }
 
-/// Envía un mensaje al coordinador. El turno avanza por eventos.
+fn parse_models(catalog: Option<&Value>) -> Vec<ModelOption> {
+    catalog.and_then(|v| v["data"].as_array()).into_iter().flatten().filter_map(|model| {
+        if model["hidden"] == json!(true) {
+            return None;
+        }
+        let id = model["model"].as_str()?;
+        let label = model["displayName"].as_str().unwrap_or(id);
+        let efforts = model["supportedReasoningEfforts"].as_array().into_iter().flatten()
+            .filter_map(|e| e["reasoningEffort"].as_str().or(e.as_str()))
+            .filter(|e| EFFORTS.contains(e)).map(str::to_owned).collect();
+        Some(ModelOption { id: id.into(), label: label.into(), efforts })
+    }).collect()
+}
+
+fn direct_session(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<Option<db::Session>> {
+    session.map(|id| {
+        let session = crate::claude::open_session(state, id)?;
+        if session.project != project || session.engine != "codex" {
+            return Err("la conversación Codex no pertenece al proyecto".into());
+        }
+        Ok(session)
+    }).transpose()
+}
+
+fn pinned(state: &AppState, id: i64) -> CmdResult<Option<String>> {
+    let conn = state.db.lock().map_err(err)?;
+    Ok(db::session_options(&conn, id).map_err(err)?.get("model").and_then(Value::as_str).map(str::to_string))
+}
+
+/// Usa el mismo app-server para el PM y las conversaciones directas.
+pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>, text: String, effort: Option<String>) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let task = {
+        let conn = state.db.lock().map_err(err)?;
+        let task = match direct {
+            Some(s) => tasks::linked(&conn, s.id).map_err(err)?,
+            None => task,
+        };
+        if let Some(task) = task {
+            tasks::validate_start(&conn, path, task)?;
+        }
+        task
+    };
+    let (rpc, thread_id, _) = state.codex.thread(app, &state, path, direct, false)?;
+    let pinned = direct.map(|s| pinned(&state, s.id)).transpose()?.flatten();
+    let (model, quota) = {
+        let shared = state.codex.shared.lock().map_err(err)?;
+        (pinned.clone().or_else(|| shared.models.get(&thread_id).cloned()), shared.quota)
+    };
+    let (run, input) = {
+        let mut conn = state.db.lock().map_err(err)?;
+        let tx = conn.transaction().map_err(err)?;
+        let task = if let Some(session) = direct { tasks::linked(&tx, session.id).map_err(err)? } else { task };
+        let input = match task {
+            Some(id) if runs::last_task(&tx, &thread_id).map_err(err)? != Some(id) => tasks::context(&tx, id, &text)?,
+            _ => text.clone(),
+        };
+        let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
+        runs::quota(&tx, run, quota).map_err(err)?;
+        runs::usage(&tx, run, runs::Usage { model, ..Default::default() }).map_err(err)?;
+        if let Some(session) = direct {
+            db::set_session_task(&tx, session.id, &text).map_err(err)?;
+            db::set_session_paused(&tx, session.id, None).map_err(err)?;
+        }
+        tx.commit().map_err(err)?;
+        (run, input)
+    };
+    tasks::changed(app);
+    let mut params = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": input, "text_elements": [] }] });
+    if let Some(e) = effort {
+        params["effort"] = json!(e);
+    }
+    if let Some(model) = pinned {
+        params["model"] = json!(model);
+    }
+    let result = rpc.request("turn/start", params, LONG);
+    if result.is_err() {
+        let outcome = if rpc.alive() { "failed" } else { "interrupted" };
+        runs::record(app, |conn| runs::finish(conn, run, outcome).map_err(err));
+    }
+    result.map(|_| ())
+}
+
 #[tauri::command]
-pub async fn coordinator_send(app: AppHandle, project: String, text: String, effort: Option<String>) -> CmdResult<()> {
+pub async fn coordinator_send(app: AppHandle, project: String, text: String, effort: Option<String>, session: Option<i64>, task: Option<i64>) -> CmdResult<()> {
     if text.trim().is_empty() {
         return Err("mensaje vacío".into());
     }
@@ -532,32 +781,53 @@ pub async fn coordinator_send(app: AppHandle, project: String, text: String, eff
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
-        let (rpc, thread_id, _) = state.codex.thread(&app, &state, &path, false)?;
-        let mut params = json!({
-            "threadId": thread_id,
-            "input": [{ "type": "text", "text": text, "text_elements": [] }],
-        });
-        if let Some(e) = effort {
-            params["effort"] = json!(e);
-        }
-        rpc.request("turn/start", params, LONG).map(|_| ())
+        let direct = direct_session(&state, &path, session)?;
+        send_turn(&app, &path, direct.as_ref(), task, text, effort)
+    })
+    .await
+    .map_err(err)?
+}
+
+pub fn interrupt(app: &AppHandle, thread: &str) -> CmdResult<()> {
+    let state = app.state::<AppState>();
+    let turn = state.codex.shared.lock().map_err(err)?.turns.get(thread).cloned().ok_or("no hay ningún turno en marcha")?;
+    state.codex.rpc(app)?.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), SHORT).map(|_| ())
+}
+
+#[tauri::command]
+pub async fn coordinator_interrupt(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let thread = match direct_session(&state, &path, session)? {
+            Some(s) => s.provider_session,
+            None => db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?.0.ok_or("no hay conversación")?,
+        };
+        interrupt(&app, &thread)
     })
     .await
     .map_err(err)?
 }
 
 #[tauri::command]
-pub async fn coordinator_interrupt(app: AppHandle, project: String) -> CmdResult<()> {
+pub async fn codex_pin_model(app: AppHandle, project: String, session: i64, model: Option<String>) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
-        let (thread, _) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
-        let thread = thread.ok_or("no hay conversación")?;
-        let turn = state.codex.shared.lock().map_err(err)?.turns.get(&thread).cloned().ok_or("no hay ningún turno en marcha")?;
-        state.codex.rpc(&app)?.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), SHORT).map(|_| ())
-    })
-    .await
-    .map_err(err)?
+        direct_session(&state, &path, Some(session))?;
+        if let Some(model) = &model {
+            let rpc = state.codex.rpc(&app)?;
+            let catalog = rpc.request("model/list", json!({}), SHORT)?;
+            if !parse_models(Some(&catalog)).iter().any(|m| &m.id == model) {
+                return Err("el modelo no está disponible".into());
+            }
+        }
+        let conn = state.db.lock().map_err(err)?;
+        if runs::session_active(&conn, session).map_err(err)? {
+            return Err("espera a que termine el turno".into());
+        }
+        db::update_session_option(&conn, session, "model", model.as_deref()).map_err(err)
+    }).await.map_err(err)?
 }
 
 /// Responde a una petición de aprobación pendiente.
@@ -588,7 +858,7 @@ pub async fn coordinator_set_profile(app: AppHandle, project: String, profile: S
         }
         db::set_coordinator_profile(&*state.db.lock().map_err(err)?, &path, &profile).map_err(err)?;
         if thread.is_some() {
-            let (rpc, id, _) = state.codex.thread(&app, &state, &path, false)?;
+            let (rpc, id, _) = state.codex.thread(&app, &state, &path, None, false)?;
             rpc.request("thread/inject_items", json!({ "threadId": id, "items": [profile_switch(&profile)] }), SHORT)?;
         }
         Ok(())

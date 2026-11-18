@@ -9,6 +9,7 @@ import GitPanel, { Icon, RightHeader } from './GitPanel';
 import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
+import Tasks from './Tasks';
 import Larry from './Larry';
 import Publish from './Publish';
 import Pending from './Pending';
@@ -22,7 +23,8 @@ import Splitter, { SIZES } from './Splitter';
 
 // Motores de sesión. Uno no disponible se muestra desactivado con el motivo.
 const ENGINES: [string, string, string | null][] = [
-  ['claude', 'claude code', null],
+  ['codex', 'chat directo · codex', null],
+  ['claude', 'chat directo · claude code', null],
   ['opencode', 'opencode', null],
   ['agy', 'antigravity', null],
   ['devin', 'devin', null],
@@ -46,7 +48,8 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   // Pestaña activa: el coordinador o el archivo/diff abierto.
   // Un número es el id de una sesión de agente.
-  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | number>('coach');
+  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | number>('coach');
+  const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
   const [publishKey, setPublishKey] = useState<number | null>(null);
   // Larry y Publicar trabajan en el proyecto o en la rama de una sesión.
   const [publishFor, setPublishFor] = useState<Session | null>(null);
@@ -181,10 +184,10 @@ export default function App() {
     };
   }, [project]);
 
-  const newSession = (engine: string) => {
+  const newSession = (engine: string, task: number | null = null) => {
     setEngineMenu(false);
     if (!project) return;
-    sessions.create(project, engine).then(
+    sessions.create(project, engine, task).then(
       ({ notice, ...s }) => {
         setAgentSessions((list) => [...list, s]);
         setView(s.id);
@@ -390,6 +393,7 @@ export default function App() {
         file={file}
         onProject={(p) => {
           setProject(p);
+          setCoachTask(null);
           setFile(null);
           setView('coach');
           setLarryKey(null);
@@ -411,13 +415,16 @@ export default function App() {
         {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
         {current && (
           <div className={`tab${view === 'coach' ? ' is-active' : ''}${activity.coach ? ` is-${activity.coach}` : ''}`}>
-            <button onClick={() => setView('coach')} title="project manager · ⌘1">
+            <button onClick={() => setView('coach')} title="modo automático · project manager · ⌘1">
               {coach.replace('-', ' ')}
             </button>
             <span className="tag">pm</span>
             {activity.coach === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
           </div>
         )}
+        {current && <div className={`tab${view === 'tasks' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('tasks')}>tareas</button>
+        </div>}
         {current &&
           agentSessions.map((s) => (
             <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
@@ -533,7 +540,10 @@ export default function App() {
       </div>
       <main className="main">
         <div className="main-view">
-          {current && <Coordinator key={current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} />}
+          {current && <Coordinator key={current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
+          {current && <Tasks key={current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions}
+            onAuto={(task) => { setCoachTask(task); setView('coach'); }}
+            onDirect={newSession} onSession={setView} />}
           {current && conflictFiles && (
             <Conflicts
               project={current.path}

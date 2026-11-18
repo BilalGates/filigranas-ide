@@ -89,6 +89,20 @@ fn fingerprint(patch: &[u8]) -> String {
     format!("{:016x}", h.finish())
 }
 
+/// Comprueba la huella guardada sin preparar archivos ni modificar el índice.
+pub fn integration_verified(s: &db::Session) -> CmdResult<bool> {
+    let (Some(worktree), Some(base)) = (&s.worktree, &s.base_commit) else { return Ok(true) };
+    let worktree = Path::new(worktree);
+    if !worktree.is_dir() {
+        return Ok(s.integrated.as_deref().is_some_and(|value| !value.starts_with("conflicts:")));
+    }
+    if !git(worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?.is_empty() {
+        return Ok(false);
+    }
+    let patch = git(worktree, &["diff", "--binary", base])?;
+    Ok(patch.is_empty() || s.integrated.as_deref() == Some(fingerprint(&patch).as_str()))
+}
+
 /// Aplica el trabajo de la sesión al checkout principal. Devuelve los
 /// archivos afectados y la huella del diff integrado.
 pub fn integrate(session: &db::Session) -> CmdResult<(Vec<String>, String)> {
@@ -323,12 +337,21 @@ pub fn session_integrate_merging(app: AppHandle, state: State<AppState>, id: i64
 #[tauri::command]
 pub fn session_cleanup(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
     let session = any_session(&state, id)?;
+    if crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+        return Err("espera a que termine el turno antes de limpiar la rama".into());
+    }
     cleanup(&session)?;
     state.claude.forget(id);
     state.acp.close(id)?;
-    db::close_session(&*state.db.lock().map_err(err)?, id).map_err(err)?;
+    let conn = state.db.lock().map_err(err)?;
+    if session.integrated.is_none() {
+        db::set_session_integrated(&conn, id, Some("cleaned")).map_err(err)?;
+    }
+    db::close_session(&conn, id).map_err(err)?;
+    drop(conn);
     let _ = app.emit("sessions-changed", serde_json::json!({ "project": session.project }));
     let _ = app.emit("project-changed", ());
+    crate::tasks::changed(&app);
     Ok(())
 }
 

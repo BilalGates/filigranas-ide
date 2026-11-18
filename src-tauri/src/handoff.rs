@@ -85,27 +85,36 @@ fn engine_label(engine: &str) -> &str {
 }
 
 /// Detiene el turno (si lo hay) y deja la sesión en pausa.
-fn stop(state: &AppState, s: &db::Session) {
-    let _ = if s.engine == "claude" { state.claude.interrupt(s.id) } else { state.acp.interrupt(s.id) };
+fn stop(app: &AppHandle, state: &AppState, s: &db::Session) -> CmdResult<()> {
+    match s.engine.as_str() {
+        "codex" => {
+            if crate::runs::session_active(&*state.db.lock().map_err(err)?, s.id).map_err(err)? {
+                crate::codex::interrupt(app, &s.provider_session)?;
+            }
+        }
+        "claude" => { let _ = state.claude.interrupt(s.id); }
+        _ => { let _ = state.acp.interrupt(s.id); }
+    }
+    Ok(())
 }
 
 // ── comandos ────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn session_pause(app: AppHandle, id: i64) -> CmdResult<()> {
-    let state = app.state::<AppState>();
-    let s = open_session(&state, id)?;
-    stop(&state, &s);
-    pause(&app, id, "pausa manual");
-    Ok(())
+pub async fn session_pause(app: AppHandle, id: i64) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let s = open_session(&state, id)?;
+        stop(&app, &state, &s)?;
+        pause(&app, id, "pausa manual");
+        Ok(())
+    }).await.map_err(err)?
 }
 
 /// Reanuda la sesión nativa y le pide continuar.
 #[tauri::command]
 pub async fn session_resume(app: AppHandle, id: i64) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        db::set_session_paused(&*state.db.lock().map_err(err)?, id, None).map_err(err)?;
         send_message(
             &app,
             id,
@@ -123,13 +132,13 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let from = open_session(&state, id)?;
-        if engine != "claude" && !crate::acp::ENGINES.contains(&engine.as_str()) {
+        if engine != "claude" && engine != "codex" && !crate::acp::ENGINES.contains(&engine.as_str()) {
             return Err(format!("motor desconocido: {engine}"));
         }
         let (stat, log) = progress(&from);
         let text = relevo(&from, engine_label(&from.engine), &stat, &log, &state.tracker.get(id).last);
         // Un solo agente por carpeta: el anterior termina antes de empezar.
-        stop(&state, &from);
+        stop(&app, &state, &from)?;
         state.claude.forget(id);
         state.acp.close(id)?;
         let provider = if engine == "claude" { uuid::Uuid::new_v4().to_string() } else { String::new() };
@@ -138,6 +147,7 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
             db::create_handoff(&mut conn, id, &engine, &provider, &NAMES).map_err(err)?
         };
         let _ = app.emit("sessions-changed", json!({ "project": from.project, "focus": to.id }));
+        crate::tasks::changed(&app);
         send_message(&app, to.id, text, None)?;
         Ok(to)
     })

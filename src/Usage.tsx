@@ -124,7 +124,7 @@ export default function UsagePanel({ tools, checking, onRefresh, onLogin, onClos
           </button>
         </div>
         <div className="uso-tools">
-          {tools?.map((t) => {
+          {tools?.filter((t) => !/opencode|antigravity|agy/i.test(`${t.id} ${t.name}`)).map((t) => {
             const st = toolState(t);
             const bad = st === 'falta' || st === 'sin sesión';
             return bad && t.installed && t.login && onLogin ? (

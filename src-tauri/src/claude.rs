@@ -22,11 +22,9 @@ pub const NAMES: [&str; 20] = [
     "kubala", "samitier", "cruyff", "neeskens", "migueli", "zubizarreta", "koeman", "stoichkov", "romario", "rivaldo", "basora", "cesar",
     "rexach", "laudrup", "sotil", "alexanco", "amor", "nadal", "guardiola", "ronaldinho",
 ];
-/// Las leyendas en orden aleatorio: cada sesión nueva toma una libre al azar.
-pub fn shuffled_names() -> Vec<&'static str> {
-    let mut names = NAMES.to_vec();
-    names.sort_by_cached_key(|_| uuid::Uuid::new_v4().as_u128());
-    names
+/// Nombres de sesión: «sesión 1», «sesión 2»… la primera libre.
+fn numbered() -> Vec<String> {
+    (1..=99).map(|i| format!("sesión {i}")).collect()
 }
 
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -330,6 +328,8 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
         e if crate::acp::ENGINES.contains(&e) => String::new(),
         _ => return Err(format!("motor desconocido: {engine}")),
     };
+    let names = numbered();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let session = {
         let mut conn = state.db.lock().map_err(err)?;
@@ -337,7 +337,7 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
         if let Some(task) = task {
             tasks::validate_start(&tx, project, task)?;
         }
-        let s = db::create_session(&tx, project, engine, &provider, &shuffled_names()).map_err(err)?;
+        let s = db::create_session(&tx, project, engine, &provider, &names).map_err(err)?;
         if let Some(task) = task {
             tasks::link(&tx, project, task, s.id)?;
         }

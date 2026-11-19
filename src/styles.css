@@ -74,10 +74,10 @@
   --add: #7cc99a;
   --del: #ff7f8a;
 
-  --r-s: 6px;
-  --r-m: 8px;
-  --r-l: 10px;
-  --r-xl: 12px;
+  --r-s: 4px;
+  --r-m: 5px;
+  --r-l: 6px;
+  --r-xl: 7px;
 
   --pop: 0 16px 48px rgb(0 0 0 / 0.5), 0 0 0 1px var(--line-2);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -364,7 +364,7 @@ html:not([data-browser])[data-platform='other'] .titlebar {
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--tx3);
 }
 .tb-btn:hover {
@@ -384,7 +384,7 @@ html:not([data-browser])[data-platform='other'] .titlebar {
   width: min(520px, 42vw);
   height: 28px;
   padding: 0 10px;
-  border-radius: 8px;
+  border-radius: 5px;
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--line);
   font-size: 12.5px;
@@ -537,7 +537,7 @@ html[data-resizing] .right {
   height: 32px;
   margin: 2px 0 6px;
   padding: 0 8px 0 10px;
-  border-radius: 7px;
+  border-radius: 4px;
   font-weight: 500;
   color: var(--tx);
 }
@@ -574,7 +574,7 @@ html[data-resizing] .right {
   width: 104px;
   height: 24px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx4);
   transition: width var(--mid) var(--ease), background-color var(--fast) ease;
 }
@@ -662,7 +662,7 @@ html[data-resizing] .right {
 .project-row {
   height: 28px;
   padding: 0 2px 0 4px;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--tx2);
 }
 .project-row:hover {
@@ -730,7 +730,7 @@ html[data-resizing] .right {
   position: relative;
   display: flex;
   align-items: center;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--tx2);
 }
 .srow:hover {
@@ -796,7 +796,7 @@ html[data-resizing] .right {
   gap: 7px;
   height: 30px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: 4px;
   font-size: 11.5px;
   color: var(--tx3);
   white-space: nowrap;
@@ -842,7 +842,7 @@ html[data-resizing] .right {
 .small {
   height: 24px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 12px;
   color: var(--tx3);
 }
@@ -855,7 +855,7 @@ html[data-resizing] .right {
   height: 26px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   outline: none;
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--blau);
@@ -890,7 +890,7 @@ html[data-resizing] .right {
   width: 100%;
   height: 30px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx2);
   white-space: nowrap;
 }
@@ -1009,7 +1009,7 @@ html[data-resizing] .right {
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 5px;
   color: var(--tx3);
 }
 .rail-btn:hover {
@@ -1099,7 +1099,7 @@ html[data-resizing] .right {
   align-self: flex-end;
   max-width: 82%;
   padding: 9px 14px;
-  border-radius: 14px;
+  border-radius: 7px;
   background: var(--raised);
 }
 .co-msg.is-user .co-by {
@@ -1195,7 +1195,7 @@ html[data-resizing] .right {
   width: 100%;
   min-height: 26px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--tx2);
@@ -1236,7 +1236,7 @@ button.co-file:hover {
 .primary {
   height: 28px;
   padding: 0 12px;
-  border-radius: 7px;
+  border-radius: 4px;
   box-shadow: inset 0 0 0 1px var(--line-2);
   font-size: 12.5px;
   color: var(--tx2);
@@ -1313,7 +1313,7 @@ button.co-file:hover {
   gap: 8px;
   min-height: 26px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 .co-change-row:hover {
   background: var(--hover);
@@ -1329,7 +1329,7 @@ button.co-file:hover {
   height: 26px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   outline: none;
   background: transparent;
   font-size: 12.5px;
@@ -1400,7 +1400,7 @@ button.co-file:hover {
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 12.5px;
   color: var(--tx3);
   white-space: nowrap;
@@ -1627,7 +1627,7 @@ html[data-resizing] .splitter:active::after {
   display: flex;
   align-items: center;
   height: 26px;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx3);
   white-space: nowrap;
 }
@@ -1670,7 +1670,7 @@ html[data-resizing] .splitter:active::after {
   height: 26px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx3);
 }
 .terminal-new:hover {
@@ -1713,7 +1713,7 @@ html[data-resizing] .splitter:active::after {
   gap: 6px;
   height: 28px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: 4px;
   font-size: 12px;
   color: var(--tx3);
   white-space: nowrap;
@@ -1793,7 +1793,7 @@ html[data-resizing] .splitter:active::after {
   max-width: 55%;
   height: 28px;
   padding: 0 7px;
-  border-radius: 7px;
+  border-radius: 4px;
   font-weight: 500;
   color: var(--tx);
   white-space: nowrap;
@@ -1829,7 +1829,7 @@ html[data-resizing] .splitter:active::after {
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--tx3);
 }
 .ic:hover:not(:disabled),
@@ -1934,7 +1934,7 @@ html[data-resizing] .splitter:active::after {
   align-items: center;
   gap: 8px;
   padding: 6px 8px 6px 11px;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 .mc:hover {
   background: var(--hover);
@@ -1960,7 +1960,7 @@ html[data-resizing] .splitter:active::after {
 }
 .act {
   height: 30px;
-  border-radius: 7px;
+  border-radius: 4px;
   background: var(--grana);
   font-size: 12.5px;
   font-weight: 500;
@@ -2014,7 +2014,7 @@ html[data-resizing] .splitter:active::after {
   width: 100%;
   height: 26px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx2);
 }
 .git-change:hover {
@@ -2068,61 +2068,115 @@ html[data-resizing] .splitter:active::after {
   border-top: 1px solid var(--line);
 }
 .git-log-body {
+  --git-surface: var(--panel);
+  --git-selected: #253d66;
+  --git-amber: #efad60;
+  --git-mint: #6cccb3;
+  --git-coral: #fa8b85;
+  --git-violet: #c4a4f8;
+  --git-sky: #7ab5f2;
+  --git-rose: #eb9dc5;
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 0 6px 8px;
+  container-type: inline-size;
+  background: var(--git-surface);
+}
+html.is-light .git-log-body {
+  --git-selected: #d9e6fb;
+  --git-amber: #8a510e;
+  --git-mint: #117560;
+  --git-coral: #b6444b;
+  --git-violet: #7250ad;
+  --git-sky: #266ba5;
+  --git-rose: #a43d78;
 }
 .git-graph-svg {
   position: absolute;
   top: 0;
-  left: 14px;
+  left: 6px;
+  z-index: 1;
   pointer-events: none;
 }
 .git-row {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
-  white-space: pre;
+  column-gap: 10px;
+  height: var(--git-row-height);
+  padding: 0 8px 0 min(var(--git-inset), 55%);
+  border-radius: 5px;
+  color: var(--tx2);
+  font-size: 12px;
 }
 .git-row.is-commit {
   cursor: pointer;
 }
-.git-row.is-commit:hover,
-.git-row.is-open {
+.git-row.is-commit:hover {
   background: var(--hover);
+  color: var(--tx);
 }
-.git-graph {
-  flex: none;
+.git-row.is-open {
+  background: var(--git-selected);
+  color: var(--tx);
 }
-.git-subject {
+.git-subject,
+.git-meta {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--tx2);
+  white-space: nowrap;
 }
-.git-row.is-commit:hover .git-subject,
 .git-row.is-open .git-subject {
-  color: var(--tx);
+  font-weight: 600;
 }
 .git-ref {
   display: inline-block;
-  margin-right: 6px;
-  padding: 0 5px;
+  max-width: 80%;
+  margin-right: 4px;
+  padding: 0 4px;
+  overflow: hidden;
   border-radius: 4px;
-  box-shadow: inset 0 0 0 1px var(--line-2);
-  font-size: 10.5px;
+  background: color-mix(in srgb, var(--git-lane) 13%, var(--git-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--git-lane) 60%, transparent);
+  color: var(--git-lane);
+  font-size: 11px;
+  font-weight: 500;
   line-height: 16px;
-  color: var(--tx3);
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.git-ref.is-remote,
+.git-ref.is-tag {
+  background: var(--git-surface);
 }
 .git-ref.is-head {
-  box-shadow: inset 0 0 0 1px rgb(111 156 255 / 0.45);
-  color: var(--blau);
+  font-weight: 650;
+}
+.git-meta {
+  display: none;
+  font-size: 11px;
+}
+.git-hash {
+  font-family: var(--mono);
+}
+.git-date {
+  font-variant-numeric: tabular-nums;
+}
+@container (min-width: 390px) {
+  .git-row { grid-template-columns: minmax(0, 1fr) 68px; }
+  .git-hash { display: block; }
+}
+@container (min-width: 480px) {
+  .git-row { grid-template-columns: minmax(0, 1fr) 82px 68px; }
+  .git-author { display: block; }
+}
+@container (min-width: 590px) {
+  .git-row { grid-template-columns: minmax(0, 1fr) 92px 68px 112px; }
+  .git-date { display: block; }
 }
 .git-detail {
   position: absolute;
@@ -2179,7 +2233,7 @@ html[data-resizing] .splitter:active::after {
   height: 26px;
   padding-right: 8px;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--tx2);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2214,7 +2268,7 @@ html[data-resizing] .splitter:active::after {
   gap: 10px;
   min-height: 40px;
   padding: 4px 8px;
-  border-radius: 7px;
+  border-radius: 4px;
 }
 .ctr-row:hover {
   background: var(--hover);
@@ -2332,7 +2386,7 @@ html[data-resizing] .splitter:active::after {
   display: inline-flex;
   align-items: center;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--hover);
   font-size: 12px;
   color: var(--tx2);
@@ -2429,7 +2483,7 @@ html[data-resizing] .splitter:active::after {
   width: 100%;
   height: 32px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--tx2);
 }
 .pal-item.is-sel {
@@ -2557,6 +2611,7 @@ html[data-resizing] .splitter:active::after {
     animation: none !important;
     transition: none !important;
   }
+}
 
 /* Tablero de tareas */
 .task-body {
@@ -2671,3 +2726,51 @@ html[data-resizing] .splitter:active::after {
 .brain-graph-node span { color: var(--tx3); font-size: 10px; }
 .brain-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .brain-graph-details li { margin-block: 4px; overflow-wrap: anywhere; }
+
+/* Uso: mini desplegable al pie de la lateral. */
+.side-uso {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 0 0 4px;
+  border-radius: var(--r-l);
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+  animation: rise var(--mid) var(--ease);
+}
+.side-uso .uso {
+  gap: 12px;
+  padding: 10px 12px 12px;
+  font-size: 12px;
+}
+.side-uso .uso-row {
+  grid-template-columns: 48px minmax(0, 1fr) 34px;
+}
+.side-chev {
+  margin-left: auto;
+  display: grid;
+  color: var(--tx4);
+  transform: rotate(180deg);
+  transition: transform var(--mid) var(--ease);
+}
+.side-chev.is-open {
+  transform: none;
+}
+
+.welcome-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.side-head .inline-input {
+  flex: 1;
+  min-width: 0;
+}
+.side-head .icon {
+  width: 22px;
+  height: 22px;
+}
+.menu-item > svg {
+  flex: none;
+  color: var(--tx3);
+}

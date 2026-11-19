@@ -12,6 +12,7 @@ export const api = {
   workspace: () => invoke<Workspace>('get_workspace'),
   defaultRoot: () => invoke<string>('default_root'),
   setRoot: (path: string) => invoke<Workspace>('set_root', { path }),
+  createProject: (name: string) => invoke<Workspace>('create_project', { name }),
   createGroup: (name: string) => invoke<Workspace>('create_group', { name }),
   renameGroup: (id: number, name: string) => invoke<Workspace>('rename_group', { id, name }),
   deleteGroup: (id: number) => invoke<Workspace>('delete_group', { id }),
@@ -26,7 +27,7 @@ export const api = {
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
 export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
-export type LogRow = { hash: string; parents: string[]; refs: string; subject: string };
+export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
 export type DiffTexts = { old: string; new: string };
 
 export const git = {

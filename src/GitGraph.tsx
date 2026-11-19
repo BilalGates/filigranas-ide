@@ -1,17 +1,16 @@
 import type { LogRow } from './ipc';
 
-const ROW = 24;
-const LANE = 14;
-const ORIGIN = 8;
-// Carriles en escala de grises: la forma del grafo ya los distingue.
-const COLORS = ['var(--tx)', 'var(--tx3)', 'var(--tx2)', 'var(--tx4)'];
+export const GIT_ROW_HEIGHT = 22;
+const LANE = 12;
+const ORIGIN = 7;
+const COLORS = ['amber', 'mint', 'coral', 'violet', 'sky', 'rose'].map((hue) => `var(--git-${hue})`);
 
 const x = (lane: number) => ORIGIN + lane * LANE;
 const curve = (x1: number, y1: number, x2: number, y2: number) =>
   x1 === x2 ? `M ${x1} ${y1} V ${y2}` : `M ${x1} ${y1} C ${x1} ${(y1 + y2) / 2}, ${x2} ${(y1 + y2) / 2}, ${x2} ${y2}`;
 
 type Segment = { d: string; color: string };
-type Dot = { x: number; y: number; color: string; head: boolean };
+type Dot = { x: number; y: number; color: string; kind: 'head' | 'merge' | 'commit'; inset: number };
 export type Graph = { lines: Segment[]; dots: Dot[]; width: number };
 
 /** Un carril espera a un commit; `from` es la columna de la que sale su tramo hacia la fila siguiente. */
@@ -36,15 +35,15 @@ export function layoutGraph(rows: LogRow[]): Graph {
   };
 
   rows.forEach((row, index) => {
-    const mid = index * ROW + ROW / 2;
+    const mid = index * GIT_ROW_HEIGHT + GIT_ROW_HEIGHT / 2;
     const known = lanes.findIndex((lane) => lane?.hash === row.hash);
     const col = known < 0 ? free() : known;
     const color = lanes[col]?.color ?? fresh();
     const target = (lane: number) => (lanes[lane]?.hash === row.hash ? col : lane);
 
-    lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), mid - ROW, x(target(j)), mid), color: lane.color }));
-    merges.forEach((m) => lines.push({ d: curve(x(m.from), mid - ROW, x(target(m.lane)), mid), color: m.color }));
-    dots.push({ x: x(col), y: mid, color, head: /(^|, )HEAD\b/.test(row.refs) });
+    lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), mid - GIT_ROW_HEIGHT, x(target(j)), mid), color: lane.color }));
+    merges.forEach((m) => lines.push({ d: curve(x(m.from), mid - GIT_ROW_HEIGHT, x(target(m.lane)), mid), color: m.color }));
+    const incoming = lanes.length;
 
     lanes = lanes.map((lane, j) => (lane && lane.hash !== row.hash ? { ...lane, from: j } : null));
     merges = [];
@@ -56,32 +55,39 @@ export function layoutGraph(rows: LogRow[]): Graph {
       else lanes[free()] = { hash: parent, color: fresh(), from: col };
     }
     while (lanes.length && !lanes[lanes.length - 1]) lanes.pop();
-    width = Math.max(width, lanes.length, col + 1);
+    const columns = Math.max(incoming, lanes.length, col + 1);
+    width = Math.max(width, columns);
+    const kind = row.parents.length > 1 ? 'merge' : /(^|, )HEAD(?: -> |, |$)/.test(row.refs) ? 'head' : 'commit';
+    dots.push({ x: x(col), y: mid, color, kind, inset: x(columns - 1) + ORIGIN + 3 });
   });
 
   // Padres que quedan fuera del límite del historial: la línea sigue hasta el borde.
-  const end = rows.length * ROW;
-  lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), end - ROW / 2, x(j), end), color: lane.color }));
-  merges.forEach((m) => lines.push({ d: curve(x(m.from), end - ROW / 2, x(m.lane), end), color: m.color }));
+  const end = rows.length * GIT_ROW_HEIGHT;
+  const last = end - GIT_ROW_HEIGHT / 2;
+  lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), last, x(j), end), color: lane.color }));
+  merges.forEach((m) => lines.push({ d: curve(x(m.from), last, x(m.lane), end), color: m.color }));
 
   return { lines, dots, width: ORIGIN * 2 + (width - 1) * LANE };
 }
 
-/** Dibuja todo el historial en un único SVG, detrás de las filas. */
-export default function GitGraph({ graph, rows }: { graph: Graph; rows: number }) {
+/** Dibuja todo el historial en un único SVG sobre el fondo de las filas. */
+export default function GitGraph({ graph, selected }: { graph: Graph; selected: number }) {
   return (
-    <svg className="git-graph-svg" width={graph.width} height={rows * ROW} fill="none" aria-hidden="true">
+    <svg className="git-graph-svg" width={graph.width} height={graph.dots.length * GIT_ROW_HEIGHT} fill="none" aria-hidden="true">
       {graph.lines.map((line, index) => (
         <path key={index} d={line.d} stroke={line.color} strokeWidth="1.5" strokeLinecap="round" />
       ))}
-      {graph.dots.map((dot, index) =>
-        dot.head ? (
-          // HEAD: anillo hueco, para encontrarlo de un vistazo.
-          <circle key={index} cx={dot.x} cy={dot.y} r="4" fill="var(--bg)" stroke={dot.color} strokeWidth="1.8" />
-        ) : (
-          <circle key={index} cx={dot.x} cy={dot.y} r="3.5" fill={dot.color} />
-        ),
-      )}
+      {graph.dots.map((dot, index) => {
+        const fill = index === selected ? 'var(--git-selected)' : 'var(--git-surface)';
+        if (dot.kind === 'merge') {
+          return <rect key={index} x={dot.x - 3.5} y={dot.y - 3.5} width="7" height="7" rx="1.4"
+            transform={`rotate(45 ${dot.x} ${dot.y})`} fill={fill} stroke={dot.color} strokeWidth="1.6" />;
+        }
+        if (dot.kind === 'head') {
+          return <circle key={index} cx={dot.x} cy={dot.y} r="4" fill={fill} stroke={dot.color} strokeWidth="1.6" />;
+        }
+        return <circle key={index} cx={dot.x} cy={dot.y} r="2.4" fill={dot.color} />;
+      })}
     </svg>
   );
 }

@@ -131,6 +131,7 @@ pub fn run() {
             workspace::delete_group,
             workspace::move_project,
             workspace::set_archived,
+            workspace::create_project,
             files::list_dir,
             files::read_text,
             files::write_text,

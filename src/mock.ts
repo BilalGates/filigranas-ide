@@ -115,6 +115,13 @@ mockIPC(
       case 'set_root':
         root = ROOT;
         return workspace();
+      case 'create_project': {
+        const name = String(a.name).trim();
+        if (!name || name.includes('/')) fail(`«${name}» no vale como nombre de carpeta`);
+        if (projectNames().includes(name)) fail(`ya existe ${ROOT}/${name}`);
+        files[`${name}/README.md`] = `# ${name}\n`;
+        return workspace();
+      }
       case 'create_group':
         if (groups.some((g) => g.name === a.name.trim())) fail(`ya existe el grupo «${a.name}»`);
         groups.push({ id: nextGroup++, name: a.name.trim() });
@@ -153,9 +160,9 @@ mockIPC(
         };
       case 'git_log':
         return [
-          { hash: '9af2c5a', parents: ['6c4e902'], refs: 'HEAD -> main, origin/main', subject: 'valida antes de encolar' },
-          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'tests de la cola' },
-          { hash: '6c4e902', parents: [], refs: '', subject: 'cola con reintentos' },
+          { hash: '9af2c5a', parents: ['6c4e902', '3b96e51'], refs: 'HEAD -> main, origin/main', subject: 'integra las pruebas de la cola', author: 'Bilal', date: '2026-11-19T22:14:00+01:00' },
+          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'prueba los reintentos', author: 'Bilal', date: '2026-11-19T21:45:00+01:00' },
+          { hash: '6c4e902', parents: [], refs: '', subject: 'valida antes de encolar', author: 'Bilal', date: '2026-11-18T17:40:00+01:00' },
         ];
       case 'git_diff_texts': {
         const now = files[`${rel(a.project)}/${a.path}`] ?? '';
@@ -219,7 +226,7 @@ mockIPC(
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
         const used = mockSessions.filter((x) => x.project === a.project).map((x) => x.name);
-        const name = ['cruyff', 'kubala', 'stoichkov', 'neeskens'].sort(() => Math.random() - 0.5).find((n) => !used.includes(n)) ?? 'samitier';
+        const name = Array.from({ length: 99 }, (_, i) => `sesión ${i + 1}`).find((n) => !used.includes(n))!;
         const id = nextSession++;
         const created = {
           id,

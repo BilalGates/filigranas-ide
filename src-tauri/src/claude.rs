@@ -408,8 +408,19 @@ pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<
 /// Envía un mensaje a la sesión, arrancando su proceso si hace falta.
 /// Bloquea mientras arranca: llamar fuera del hilo principal.
 pub fn send_message(app: &AppHandle, id: i64, text: String, effort: Option<String>) -> CmdResult<()> {
+    send_content(app, id, text, effort, Vec::new())
+}
+
+pub(crate) fn send_with_images(app: &AppHandle, id: i64, text: &str, images: Vec<Value>) -> CmdResult<()> {
+    send_content(app, id, text.into(), None, images)
+}
+
+fn send_content(app: &AppHandle, id: i64, text: String, effort: Option<String>, mut images: Vec<Value>) -> CmdResult<()> {
     let state = app.state::<AppState>();
     let session = open_session(&state, id)?;
+    if !images.is_empty() && session.engine != "claude" {
+        return Err("la sesión no admite capturas de diseño".into());
+    }
     if session.engine == "codex" {
         return crate::codex::send_turn(app, &session.project, Some(&session), None, text, effort);
     }
@@ -441,7 +452,11 @@ pub fn send_message(app: &AppHandle, id: i64, text: String, effort: Option<Strin
         let input = state.claude.proc(app, &session, effort.as_deref())?;
         *input.run.lock().map_err(err)? = Some(run);
         state.tracker.started(id);
-        let sent = write_line(&input.stdin, &json!({ "type": "user", "message": { "role": "user", "content": input_text }, "parent_tool_use_id": null, "session_id": "" }));
+        let content = if images.is_empty() { json!(input_text) } else {
+            images.insert(0, json!({ "type": "text", "text": input_text }));
+            json!(images)
+        };
+        let sent = write_line(&input.stdin, &json!({ "type": "user", "message": { "role": "user", "content": content }, "parent_tool_use_id": null, "session_id": "" }));
         if sent.is_err() {
             *input.run.lock().map_err(err)? = None;
             state.tracker.exited(id);

@@ -5,13 +5,16 @@ mod codex;
 mod containers;
 mod db;
 mod delegate;
+mod design;
 mod files;
 mod git;
 mod github;
 mod handoff;
+mod health;
 mod isolate;
 mod jev;
 mod larry;
+mod p5_process;
 mod paths;
 mod pr;
 mod pty;
@@ -87,6 +90,21 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            health::health_list,
+            health::health_file,
+            health::health_import,
+            health::health_run,
+            health::health_resolve,
+            health::health_ci,
+            design::design_list,
+            design::design_save,
+            design::design_shots,
+            design::design_image,
+            design::design_import,
+            design::design_preview,
+            design::design_capture,
+            design::design_review,
+            design::design_send,
             git_ops::git_fetch,
             git_ops::git_pull,
             git_ops::git_push,

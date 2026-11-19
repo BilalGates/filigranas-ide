@@ -612,13 +612,17 @@ pub fn open_pr_url(url: String) -> CmdResult<()> {
     if !url.starts_with("https://github.com/") || url.chars().any(|c| c.is_whitespace() || c == '"') {
         return Err("solo se abren enlaces de GitHub".into());
     }
+    open_browser(&url)
+}
+
+pub(crate) fn open_browser(url: &str) -> CmdResult<()> {
     #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(&url).status();
+    let status = Command::new("open").arg(url).status();
     #[cfg(windows)]
-    let status = Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).status();
+    let status = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).status();
     #[cfg(not(any(target_os = "macos", windows)))]
-    let status = Command::new("xdg-open").arg(&url).status();
-    status.map(|_| ()).map_err(|e| format!("no se pudo abrir el navegador: {e}"))
+    let status = Command::new("xdg-open").arg(url).status();
+    if status.map_err(err)?.success() { Ok(()) } else { Err("no se pudo abrir el navegador".into()) }
 }
 
 #[cfg(test)]

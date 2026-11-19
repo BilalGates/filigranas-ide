@@ -316,3 +316,40 @@ export const containers = {
   link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
   unlink: (id: string) => invoke<void>('container_unlink', { id }),
 };
+
+export type HealthFinding = {
+  fingerprint: string; path: string | null; line: number | null; rule: string; severity: string;
+  previous: boolean; status: string; resolution: string;
+};
+export type HealthRun = {
+  id: number; task: number | null; tool: string; version: string | null; source: string; revision: string | null;
+  digest: string | null; outcome: string; observed: number; findings: HealthFinding[];
+};
+export type HealthCheck = 'diff' | 'build' | 'typecheck' | 'lint' | 'test' | 'cargo_check' | 'cargo_test' | 'cargo_clippy';
+export const health = {
+  list: (project: string, session: number | null) => invoke<HealthRun[]>('health_list', { project, session }),
+  file: (project: string, session: number | null, path: string) => invoke<string>('health_file', { project, session, path }),
+  ci: (project: string, session: number | null) => invoke<PrInfo[]>('health_ci', { project, session }),
+  run: (project: string, session: number | null, check: HealthCheck) => invoke<void>('health_run', { project, session, check }),
+  import: (project: string, session: number | null, report: string) => invoke<void>('health_import', { project, session, report }),
+  resolve: (project: string, session: number | null, run: number, fingerprint: string, status: string, resolution: string) =>
+    invoke<void>('health_resolve', { project, session, run, fingerprint, status, resolution }),
+};
+
+export type DesignScreen = { id: number | null; name: string; url: string; constraints: string; revision: number | null; approved: number | null };
+export type DesignShot = { id: number; width: number; height: number; source: string; url: string | null; note: string; status: string; observed: number };
+export type DesignRegion = { x: number; y: number; width: number; height: number };
+export const design = {
+  list: (project: string) => invoke<DesignScreen[]>('design_list', { project }),
+  save: (project: string, screen: DesignScreen) => invoke<number>('design_save', { project, screen }),
+  shots: (project: string, screen: number) => invoke<DesignShot[]>('design_shots', { project, screen }),
+  image: (project: string, screen: number, shot: number) => invoke<string>('design_image', { project, screen, shot }),
+  preview: (project: string, screen: number) => invoke<void>('design_preview', { project, screen }),
+  capture: (project: string, screen: number, width: number, height: number, note: string) =>
+    invoke<number>('design_capture', { project, screen, width, height, note }),
+  import: (project: string, screen: number, png: string, note: string) => invoke<number>('design_import', { project, screen, png, note }),
+  review: (project: string, screen: number, review: { shot: number; baseline: number | null; revision: number; approve: boolean; confirmed: boolean }) =>
+    invoke<void>('design_review', { project, screen, review }),
+  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean }) =>
+    invoke<void>('design_send', { project, brief }),
+};

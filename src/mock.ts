@@ -365,6 +365,14 @@ mockIPC(
           checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
       case 'open_pr_url':
         return null;
+      case 'health_list':
+      case 'health_ci':
+      case 'design_list':
+        return [];
+      case 'health_run':
+      case 'health_import':
+      case 'design_save':
+        return fail('Este flujo necesita la app de escritorio de Filigranas');
       case 'jev_status':
         return mockJevStatus();
       case 'jev_configure':

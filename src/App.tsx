@@ -10,6 +10,8 @@ import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks from './Tasks';
+import CodeHealth from './CodeHealth';
+import DesignLoop from './DesignLoop';
 import Larry from './Larry';
 import Publish from './Publish';
 import Pending from './Pending';
@@ -48,7 +50,7 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   // Pestaña activa: el coordinador o el archivo/diff abierto.
   // Un número es el id de una sesión de agente.
-  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | number>('coach');
+  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | number>('coach');
   const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
   const [publishKey, setPublishKey] = useState<number | null>(null);
   // Larry y Publicar trabajan en el proyecto o en la rama de una sesión.
@@ -425,6 +427,12 @@ export default function App() {
         {current && <div className={`tab${view === 'tasks' ? ' is-active' : ''}`}>
           <button onClick={() => setView('tasks')}>tareas</button>
         </div>}
+        {current && <div className={`tab${view === 'health' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('health')}>Code Health</button>
+        </div>}
+        {current && <div className={`tab${view === 'design' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('design')}>Design Loop</button>
+        </div>}
         {current &&
           agentSessions.map((s) => (
             <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
@@ -544,6 +552,15 @@ export default function App() {
           {current && <Tasks key={current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions}
             onAuto={(task) => { setCoachTask(task); setView('coach'); }}
             onDirect={newSession} onSession={setView} onPublish={openPublish} />}
+          {current && view === 'health' && <CodeHealth key={current.path} project={current.path} sessions={agentSessions}
+            onFile={(path, id) => {
+              setFile(path);
+              setFileSession(id);
+              setDiff(null);
+              setView('file');
+            }} />}
+          {current && <DesignLoop key={current.path} project={current.path} sessions={agentSessions} hidden={view !== 'design'}
+            onNew={() => newSession('claude')} onSession={setView} />}
           {current && conflictFiles && (
             <Conflicts
               project={current.path}

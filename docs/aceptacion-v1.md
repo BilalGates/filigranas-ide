@@ -49,7 +49,7 @@
 - [x] P2 · Tablero, tareas y subtareas, dependencias, sesiones vinculadas y observaciones por turno. Migración y recuperación verificadas en macOS. Véase la [aceptación de P2](#aceptación-de-p2).
 - [x] P3 · Trazabilidad de Larry, PR y CI con reconciliación de reintentos y aprobaciones independientes. Véase la [aceptación de P3](#aceptación-de-p3).
 - [ ] P4 · Integración y enrutamiento verificados con un servidor de prueba. Falta el recorrido autenticado con TypeSafe. Véase la [aceptación de P4](#aceptación-de-p4).
-- [ ] P5 · Auditoría y Design Loop con evidencia y la referencia macOS.
+- [x] P5 · Code Health y Design Loop verificados en macOS con un repositorio y un servidor locales. Véase la [aceptación de P5](#aceptación-de-p5).
 - [ ] P6 · Memoria estructurada y recuperación contextual en SQLite antes del grafo.
 
 ## Aceptación de P2
@@ -82,3 +82,11 @@ Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el 
 - [ ] Recorrido autenticado con una cuenta de TypeSafe y comprobación nativa en Windows. En macOS, guardar una contraseña genérica en el llavero de inicio de sesión con nombre `Filigranas IDE TypeSafe` y cuenta `jev`. En **Herramientas → Enrutamiento con Jev**, autorizar los metadatos y activar. Desde una tarea de prueba lista, abrir el PM con esfuerzo **automático** y comprobar **Últimos turnos**. Desactivar Jev y repetir para comprobar la ruta local.
 
 Validación local con `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`. Para repetir el recorrido HTTP, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml configures_and_applies_choice_over_the_wire -- --ignored` en un entorno que permita abrir un puerto de loopback.
+
+## Aceptación de P5
+
+- **Code Health.** En un repositorio temporal, `git diff --check` detectó espacios sobrantes en `style.txt:2`. El panel mostró la regla, la versión de Git y el SHA base, y guardó una resolución explícita. La importación SARIF 2.1.0 conserva regla, severidad, ubicación y huella de informe. Los tests comprueban la deduplicación y el descarte de mensajes y fragmentos que podrían contener secretos. El CI usa las observaciones de P3 por rama, SHA y fecha. Las comprobaciones locales de npm y Cargo son de ejecución explícita.
+- **Design Loop.** En el bundle aislado se capturaron dos versiones reales de una página local a 1280 × 800, se verificó la superposición con el deslizador y se aprobó la candidata tras confirmar las restricciones. La comparación de los PNG persistidos confirmó que la cabecera bloqueada seguía idéntica píxel a píxel y el panel había cambiado. Para repetir, guardar una pantalla, abrir su URL local y capturar en Chrome o importar un PNG de una app nativa. Aprobar la referencia, capturar con el mismo tamaño y seleccionar una región. SQLite conserva versiones aprobadas y descartadas. [Capturas de Chrome](https://developer.chrome.com/docs/chromium/headless)
+- **Semáforo.** En el bundle aislado se midieron los marcos de los tres controles nativos en AppKit. Los bordes izquierdos quedaron a 16, 39 y 62 puntos, con margen superior de 16 puntos y botones de 14 × 14. La cabecera lateral reserva 48 puntos.
+- **Verificación.** Ejecutar `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y Clippy con `--all-targets -- -D warnings`. Para comprobar la captura real, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml captures_real_local_page_at_the_requested_size -- --ignored` con Chrome instalado y acceso a loopback.
+- **Pendiente.** Recorrido autenticado de encargo y comparación visual con Claude, y verificación nativa de P5 en Windows.

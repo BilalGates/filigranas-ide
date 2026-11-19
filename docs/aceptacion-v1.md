@@ -81,11 +81,20 @@ Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el 
 - [x] El tablero muestra complejidad, revisión y preparación de contexto recomendadas. En el siguiente turno automático, Control Tower puede orientar sobre un fallo previo de Codex sin causa informada. El historial SQLite conserva las decisiones, los tokens reportados y el coste estimado para revisiones con precio publicado. La cuota de TypeSafe figura como desconocida. [Precios por revisión](https://docs.typesafe.ai/models)
 - [x] **Enrutamiento autenticado en macOS (2026-11-19).** En un bundle aislado de `codex/v2-p0` sobre `1dc0696`, Filigranas leyó la clave del llavero tras la autorización en el aviso de macOS y activó `jev-latest` desde el catálogo real. En una tarea sintética, `jev-1.14.0` recomendó esfuerzo bajo con un 94 % de confianza. La traza SQLite registró el origen `jev` y 738 tokens de entrada y 157 de salida. La petición de inicio del turno envió esfuerzo bajo a Codex y el turno terminó.
 - [x] **Fallback local en macOS (2026-11-19).** Con Jev todavía activo, el bundle instrumentado dirigió solo la conexión a TypeSafe a un puerto cerrado de loopback. La traza registró origen `local` y causa `unavailable`. Codex recibió esfuerzo medio y terminó el turno.
-- [ ] Comprobación nativa en Windows.
+- [ ] **Comprobación nativa en Windows.** Pendiente de ejecutar en un equipo o VM Windows con una sesión de escritorio y acceso a TypeSafe y Codex.
 
 Para reproducir el recorrido autenticado en macOS, guardar una contraseña genérica en el llavero de inicio de sesión con nombre `Filigranas IDE TypeSafe` y cuenta `jev`. En **Herramientas → Enrutamiento con Jev**, autorizar el envío de metadatos y activar Jev. Desde una tarea de prueba lista, abrir el PM con esfuerzo **automático** y comprobar el origen, el esfuerzo y los tokens en **Últimos turnos**.
 
 Validación local con `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`. Para repetir el recorrido HTTP, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml configures_and_applies_choice_over_the_wire -- --ignored` en un entorno que permita abrir un puerto de loopback.
+
+### Recorrido de aceptación en Windows
+
+En el repaso previo (2026-11-19, `b8c49a0`) se ejecutaron en macOS cuatro pruebas de Jev y la prueba HTTP local con una credencial ficticia. Las cinco pasaron. La lectura del almacén de Windows, la autenticación con TypeSafe y el fallback en Windows requieren la ejecución nativa descrita a continuación.
+
+1. Con la misma cuenta de Windows que ejecuta Filigranas, abrir **Administrador de credenciales → Credenciales de Windows → Agregar una credencial genérica**. Escribir `Filigranas IDE TypeSafe` como dirección, `jev` como usuario y la clave de TypeSafe como contraseña en el cuadro del sistema. La lectura con `CredReadW` usa el nombre de destino y la sesión de Windows. [Administrador de credenciales](https://support.microsoft.com/en-us/windows/security/credential-manager-in-windows) · [CredReadW](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credreadw)
+2. Iniciar Filigranas, autorizar el envío de metadatos y activar Jev desde **Herramientas → Enrutamiento con Jev**. Confirmar que el catálogo autenticado selecciona `jev-latest`. Abrir el PM con esfuerzo **automático** desde una tarea sintética de bajo riesgo. En **Últimos turnos**, registrar el origen `jev`, la revisión, el esfuerzo aplicado y los tokens que informe TypeSafe. Confirmar que el turno de Codex termina con el esfuerzo registrado.
+3. Mantener Jev activo y provocar un fallo de conexión inmediato solo a `api.typesafe.ai` en el entorno de prueba. Repetir desde una tarea equivalente y confirmar que aparece origen `local`, causa `unavailable` y el esfuerzo de la política local. Confirmar que Codex termina el turno y restaurar la conexión a TypeSafe.
+4. Registrar la versión de Windows, el SHA probado y los resultados de ambas rutas. Excluir la clave y las cabeceras de autorización de toda evidencia.
 
 ## Aceptación de P5
 

@@ -1,6 +1,7 @@
 mod acp;
 mod approval;
 mod brain;
+mod brain_graph;
 mod claude;
 mod codex;
 mod containers;
@@ -92,6 +93,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             brain::brain_search,
+            brain::brain_entry,
+            brain_graph::brain_graph,
             brain::brain_preview,
             brain::brain_save,
             brain::brain_forget,

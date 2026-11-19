@@ -36,13 +36,14 @@ type Props = {
   project: string;
   hidden: boolean;
   sessions: Session[];
+  focus: { id: number } | null;
   onAuto: (task: Task) => void;
   onDirect: (engine: string, task: number) => void;
   onSession: (id: number) => void;
   onPublish: (session: Session) => void;
 };
 
-export default function Tasks({ project, hidden, sessions, onAuto, onDirect, onSession, onPublish }: Props) {
+export default function Tasks({ project, hidden, sessions, focus, onAuto, onDirect, onSession, onPublish }: Props) {
   const [list, setList] = useState<Task[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [edit, setEdit] = useState<TaskEdit | null>(null);
@@ -53,6 +54,14 @@ export default function Tasks({ project, hidden, sessions, onAuto, onDirect, onS
   const [limit, setLimit] = useState<number | null>(null);
   const task = list.find((item) => item.id === selected);
   const runs = history.task === selected ? history.runs : [];
+
+  useEffect(() => {
+    if (!focus) return;
+    setSelected(focus.id);
+    setFilter('');
+    setEdit(null);
+    setError(null);
+  }, [focus]);
 
   const refresh = useCallback(async () => {
     const items = await tasks.list(project);

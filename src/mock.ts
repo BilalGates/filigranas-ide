@@ -366,6 +366,8 @@ mockIPC(
       case 'open_pr_url':
         return null;
       case 'tasks_list':
+      case 'brain_graph':
+        return { nodes: [], edges: [], limited: false };
       case 'brain_search':
       case 'brain_preview':
       case 'health_list':

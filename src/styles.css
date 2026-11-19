@@ -3859,3 +3859,37 @@ html[data-native][data-platform='mac'] .status {
 .design-crop { position: relative; overflow: hidden; }
 .design-crop img { position: absolute; height: auto; display: block; }
 .design-crop-layer { position: absolute; inset: 0; overflow: hidden; }
+
+.brain-graph-caption { margin: 14px 0 8px; }
+.brain-graph-scroll {
+  flex: none;
+  max-height: min(54vh, 520px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.brain-graph-map { position: relative; }
+.brain-graph-map canvas { position: absolute; inset: 0; pointer-events: none; }
+.brain-graph-column { position: absolute; top: 10px; color: var(--tx3); font-size: 12px; }
+.brain-graph-node {
+  position: absolute;
+  height: 48px;
+  padding: 4px 8px;
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-left: 3px solid #84bbff;
+  border-radius: 5px;
+  background: var(--s1);
+  color: inherit;
+}
+.brain-graph-node[data-kind="task"] { border-left-color: #8dceac; }
+.brain-graph-node[data-kind="pr"] { border-left-color: #cfaae8; }
+.brain-graph-node[data-related="true"] { border-top-style: dashed; border-bottom-style: dashed; }
+.brain-graph-node[aria-pressed="true"] { border-color: #84bbff; background: var(--s2); }
+.brain-graph-node span { color: var(--tx3); font-size: 10px; }
+.brain-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.brain-graph-details li { margin-block: 4px; overflow-wrap: anywhere; }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use rusqlite::{params, Connection, Row};
+use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -287,6 +287,14 @@ pub fn augment(tx: &rusqlite::Transaction<'_>, run: i64, project: &str, task: i6
 pub fn brain_search(state: State<AppState>, project: String, query: String, kind: Option<String>) -> CmdResult<Vec<Entry>> {
     let conn = state.db.lock().map_err(err)?;
     search(&conn, &project_path(&conn,&project)?, &query, kind.as_deref())
+}
+
+#[tauri::command]
+pub fn brain_entry(state: State<AppState>, project: String, id: i64) -> CmdResult<Entry> {
+    let conn = state.db.lock().map_err(err)?;
+    let project = project_path(&conn,&project)?;
+    conn.query_row(&format!("SELECT {FIELDS} FROM brain_entries b WHERE b.id=?1 AND (b.project=?2 OR b.project IS NULL)"),
+        params![id,project],entry).optional().map_err(err)?.ok_or_else(|| "el recuerdo ya no está disponible en este proyecto".into())
 }
 
 #[tauri::command]

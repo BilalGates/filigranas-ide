@@ -12,6 +12,7 @@ import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks from './Tasks';
 import CodeHealth from './CodeHealth';
 import Brain from './Brain';
+import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
 import Larry from './Larry';
 import Publish from './Publish';
@@ -51,7 +52,9 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   // Pestaña activa: el coordinador o el archivo/diff abierto.
   // Un número es el id de una sesión de agente.
-  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | 'brain' | number>('coach');
+  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | 'brain' | 'brain-graph' | number>('coach');
+  const [brainTarget, setBrainTarget] = useState<number | null>(null);
+  const [taskTarget, setTaskTarget] = useState<{ project: string; id: number } | null>(null);
   const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
   const [publishKey, setPublishKey] = useState<number | null>(null);
   // Larry y Publicar trabajan en el proyecto o en la rama de una sesión.
@@ -318,6 +321,29 @@ export default function App() {
   if (!ws.root) return <Onboarding onDone={setWs} />;
 
   const current = ws.projects.find((p) => p.path === project);
+  const selectProject = (path: string | null) => {
+    setProject(path);
+    setCoachTask(null);
+    setBrainTarget(null);
+    setTaskTarget(null);
+    setFile(null);
+    setLarryKey(null);
+    setPublishKey(null);
+    setPendingKey(null);
+    setConflictFiles(null);
+    setContainerCount(null);
+    setView('coach');
+  };
+  const graphTask = (path: string, id: number) => {
+    if (path !== project) selectProject(path);
+    setTaskTarget({ project: path, id });
+    setView('tasks');
+  };
+  const graphMemory = (path: string | null, id: number) => {
+    if (path && path !== project) selectProject(path);
+    setBrainTarget(id);
+    setView('brain');
+  };
   const projectTerms = terms.filter((t) => t.project === project);
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
   const toggleTerminal = () => {
@@ -394,17 +420,7 @@ export default function App() {
         ws={ws}
         project={project}
         file={file}
-        onProject={(p) => {
-          setProject(p);
-          setCoachTask(null);
-          setFile(null);
-          setView('coach');
-          setLarryKey(null);
-          setPublishKey(null);
-          setPendingKey(null);
-          setConflictFiles(null);
-          setContainerCount(null);
-        }}
+        onProject={selectProject}
         onFile={(f) => {
           setFile(f);
           setFileSession(null);
@@ -434,8 +450,8 @@ export default function App() {
         {current && <div className={`tab${view === 'design' ? ' is-active' : ''}`}>
           <button onClick={() => setView('design')}>Design Loop</button>
         </div>}
-        {current && <div className={`tab${view === 'brain' ? ' is-active' : ''}`}>
-          <button onClick={() => setView('brain')}>Brain</button>
+        {current && <div className={`tab${view === 'brain' || view === 'brain-graph' ? ' is-active' : ''}`}>
+          <button onClick={() => { setBrainTarget(null); setView('brain'); }}>Brain</button>
         </div>}
         {current &&
           agentSessions.map((s) => (
@@ -552,19 +568,22 @@ export default function App() {
       </div>
       <main className="main">
         <div className="main-view">
-          {current && <Coordinator key={current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
-          {current && <Tasks key={current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions}
+          {current && <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
+          {current && <Tasks key={'tasks:' + current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions} focus={taskTarget?.project === current.path ? taskTarget : null}
             onAuto={(task) => { setCoachTask(task); setView('coach'); }}
             onDirect={newSession} onSession={setView} onPublish={openPublish} />}
-          {current && view === 'brain' && <Brain key={current.path} project={current.path} />}
-          {current && view === 'health' && <CodeHealth key={current.path} project={current.path} sessions={agentSessions}
+          {current && view === 'brain' && <Brain key={'brain:' + current.path} project={current.path} target={brainTarget}
+            onClearTarget={() => setBrainTarget(null)} onGraph={() => setView('brain-graph')} />}
+          {current && <BrainGraph key={'graph:' + current.path} project={current.path} projects={ws.projects} hidden={view !== 'brain-graph'}
+            onMemories={() => { setBrainTarget(null); setView('brain'); }} onTask={graphTask} onMemory={graphMemory} />}
+          {current && view === 'health' && <CodeHealth key={'health:' + current.path} project={current.path} sessions={agentSessions}
             onFile={(path, id) => {
               setFile(path);
               setFileSession(id);
               setDiff(null);
               setView('file');
             }} />}
-          {current && <DesignLoop key={current.path} project={current.path} sessions={agentSessions} hidden={view !== 'design'}
+          {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={view !== 'design'}
             onNew={() => newSession('claude')} onSession={setView} />}
           {current && conflictFiles && (
             <Conflicts

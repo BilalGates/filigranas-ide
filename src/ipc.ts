@@ -362,8 +362,15 @@ export type BrainDraft = {
   share: boolean; validUntil: number | null;
 };
 export type BrainEntry = BrainDraft & { created: number; updated: number };
+export type BrainNodeKind = BrainKind | 'task' | 'pr';
+export type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean };
+export type BrainEdge = { from: string; to: string; kind: 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
+export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
+export type BrainGraphFilter = { project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
 export type BrainReference = { id: number; version: number; source: string };
 export const brain = {
+  graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
+  entry: (project: string, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
   search: (project: string, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
   preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
   save: (project: string, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),

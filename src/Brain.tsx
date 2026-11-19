@@ -23,7 +23,9 @@ function Source({ entry }: { entry: BrainEntry }) {
   </span>;
 }
 
-export default function Brain({ project }: { project: string }) {
+export default function Brain({ project, target, onClearTarget, onGraph }: {
+  project: string; target: number | null; onClearTarget: () => void; onGraph: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<BrainKind | null>(null);
   const [list, setList] = useState<BrainEntry[]>([]);
@@ -48,10 +50,11 @@ export default function Brain({ project }: { project: string }) {
   useEffect(() => {
     let current = true;
     const timer = window.setTimeout(() => {
-      brain.search(project, query, kind).then((items) => { if (current) setList(items); }, (e) => { if (current) setError(String(e)); });
+      const request = target == null ? brain.search(project, query, kind) : brain.entry(project, target).then((item) => [item]);
+      request.then((items) => { if (current) setList(items); }, (e) => { if (current) setError(String(e)); });
     }, 120);
     return () => { current = false; window.clearTimeout(timer); };
-  }, [project, query, kind, revision]);
+  }, [project, query, kind, revision, target]);
 
   const act = async (run: () => Promise<void>) => {
     setBusy(true);
@@ -74,20 +77,24 @@ export default function Brain({ project }: { project: string }) {
     setDraft(null);
     setForget(null);
     setPreview(null);
+    onClearTarget();
     setRevision((value) => value + 1);
     setStatus(message);
   };
 
   return <section className="coach" aria-label="Filigranas Brain">
-    <header className="co-head"><span>Filigranas Brain</span></header>
+    <header className="co-head"><span>Filigranas Brain</span><span className="push" />
+      <button className="co-link" onClick={onGraph}>Grafo</button>
+    </header>
     <div className="co-log p5-panel">
       <div className="p5-actions task-form">
-        <label>Buscar recuerdos<input type="search" value={query} maxLength={300} onChange={(e) => setQuery(e.target.value)} /></label>
-        <label>Tipo<select value={kind ?? ''} onChange={(e) => setKind((e.target.value || null) as BrainKind | null)}>
+        <label>Buscar recuerdos<input type="search" value={query} maxLength={300} onChange={(e) => { onClearTarget(); setQuery(e.target.value); }} /></label>
+        <label>Tipo<select value={kind ?? ''} onChange={(e) => { onClearTarget(); setKind((e.target.value || null) as BrainKind | null); }}>
           <option value="">Todos</option>
           {Object.entries(KINDS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
         <button className="co-btn" disabled={busy} onClick={() => edit(EMPTY)}>Nuevo recuerdo</button>
+        {target != null && <button className="co-btn" onClick={() => { setError(''); onClearTarget(); }}>Mostrar todos</button>}
       </div>
       {!!error && <p className="co-error" role="alert">{error}</p>}
       {!!status && <p role="status">{status}</p>}
@@ -153,7 +160,7 @@ export default function Brain({ project }: { project: string }) {
 
       <section className="p5-section" aria-label="Recuerdos">
         {list.length === 0 && <p className="muted">Sin recuerdos para esta búsqueda.</p>}
-        {list.map((item) => <details className="p5-record" key={item.id}>
+        {list.map((item) => <details className="p5-record" key={item.id} open={target != null && item.id === target ? true : undefined}>
           <summary>{item.title} · {KINDS[item.kind]} · {item.global ? 'Global' : item.task == null ? 'Proyecto' : `Tarea #${item.task}`}</summary>
           <p className="task-text">{item.body}</p>
           <dl className="task-facts">

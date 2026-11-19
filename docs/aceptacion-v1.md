@@ -42,15 +42,20 @@
 - En una sesión Claude aislada, pedir que cree un archivo con `Write` y pulsar Rechazar. La tarjeta se cerró, Claude indicó el rechazo y el archivo no existía en disco. La política se verifica por las acciones del proveedor y por el worktree.
 - La captura del bundle confirmó el arranque, pero el indicador de compartir ventana tapó los botones en esa toma. El cambio de configuración Tauri añadió recursos de skills y la captura de referencia. La configuración de ventana y `window.rs` conservan las medidas ya aprobadas.
 
-## Puertas
+## Resumen final de aceptación de Filigranas V2
 
-- [x] P0 · Aceptación mínima macOS verificada en una copia aislada. Build, Clippy y 60 pruebas locales correctas en el árbol de trabajo, incluidas tres pruebas previas de guardado. Windows, Antigravity, Devin y una nueva publicación en GitHub quedan fuera de este recorrido.
-- [x] P1 · Reglas y skills con precedencia, carga selectiva y rechazo efectivo de permiso verificados.
-- [x] P2 · Tablero, tareas y subtareas, dependencias, sesiones vinculadas y observaciones por turno. Migración y recuperación verificadas en macOS. Véase la [aceptación de P2](#aceptación-de-p2).
-- [x] P3 · Trazabilidad de Larry, PR y CI con reconciliación de reintentos y aprobaciones independientes. Véase la [aceptación de P3](#aceptación-de-p3).
-- [x] P4 · Enrutamiento autenticado con TypeSafe y fallback local verificados en macOS. Véase la [aceptación de P4](#aceptación-de-p4).
-- [x] P5 · Code Health y Design Loop verificados en macOS con un repositorio y un servidor locales. Véase la [aceptación de P5](#aceptación-de-p5).
-- [x] P6 · Memoria estructurada, búsqueda y recuperación con fuentes verificadas tras reiniciar. Véase la [aceptación de P6](#aceptación-de-p6).
+19 de noviembre de 2026 · macOS arm64 · `codex/v2-p0` · código probado en `1dc0696`. Pasaron `npm run build`, Clippy con `-D warnings`, 82 pruebas Rust de la suite ordinaria y 16 comprobaciones en un bundle aislado. Las pruebas dirigidas de Codex, Claude, OpenCode, consulta de GitHub, captura en Chrome y HTTP de Jev también pasaron. Un arranque sin instrumentación migró una copia de la base de P5 y conservó sus registros.
+
+| Fase | Verificado en macOS | Pendiente |
+| --- | --- | --- |
+| [P0 · Regresión de la base](#escenarios-de-regresión) | Relevo Claude → OpenCode en la misma rama y worktree, rechazo de escritura, refresco de cambios externos y commit local de Larry. | Recorrido nativo en Windows y turnos autenticados con Antigravity y Devin. |
+| [P1 · Reglas y skills](#aceptación-de-p1) | Catálogo de seis skills, precedencia del `AGENTS.md` del proyecto y carga selectiva en Codex. Claude respetó el rechazo de escritura. | Validación nativa en Windows. |
+| [P2 · Task Manager](#aceptación-de-p2) | Tareas, subtareas y dependencias en SQLite. PM, chat directo de Codex y sesión de Claude vinculada. Tras un cierre forzado, la tarea volvió a lista, el turno quedó interrumpido y se conservaron el worktree, los vínculos y las métricas previas. | Validación nativa en Windows. |
+| [P3 · Larry, PR y checks](#aceptación-de-p3) | Vínculos entre tarea, rama, commit y PR. Consultas reales de PR y checks en modo lectura. La simulación confirmó que el reintento recupera la misma PR y que push, apertura y merge exigen aprobaciones independientes. El borrador local pasó al repetir la prueba sobre `codex/v2-p0` (`c4e2df7`). | Publicación, reintento y merge de extremo a extremo en GitHub con la revisión por SHA. Validación nativa en Windows. |
+| [P4 · Jev](#aceptación-de-p4) | Consentimiento, lectura del llavero y catálogo autenticado de TypeSafe. `jev-1.14.0` recomendó esfuerzo bajo y Codex lo aplicó. Al cortar solo la conexión a TypeSafe con Jev activo, Codex terminó con esfuerzo medio y la traza registró `local` / `unavailable`. | **Windows pendiente.** Falta verificar la lectura desde el Administrador de credenciales, el enrutamiento autenticado y el fallback local. [Recorrido de Windows](#recorrido-de-aceptación-en-windows). |
+| [P5 · Code Health y Design Loop](#aceptación-de-p5) | Hallazgo Git trazable, resolución e importación SARIF. Capturas, deslizador y aprobación de la candidata. Claude comparó dos PNG sintéticos mediante el comando de Design Loop. La cabecera bloqueada coincidió píxel a píxel y los botones nativos conservaron el margen de 16 puntos y la separación de 23 puntos entre centros. | Recorrido manual de envío de la comparación a Claude desde la interfaz y validación nativa en Windows. |
+| [P6 · Filigranas Brain](#aceptación-de-p6) | Memoria en SQLite, búsqueda FTS5 y recuperación contextual con la misma fuente tras reiniciar. | Validación nativa en Windows. |
+| [P6 · Grafo de Brain](#grafo-de-brain) | Relaciones de SQLite y filtros por proyecto, tipo y fecha. Navegación a la decisión con su fuente y a la tarea exacta incluso al cambiar de proyecto. El lanzador instrumentado recibió la URL exacta de la PR guardada. | Apertura de la PR con el navegador predeterminado en el recorrido nativo y validación del grafo en Windows. |
 
 ## Aceptación de P2
 
@@ -102,7 +107,7 @@ En el repaso previo (2026-11-19, `b8c49a0`) se ejecutaron en macOS cuatro prueba
 - **Design Loop.** En el bundle aislado se capturaron dos versiones reales de una página local a 1280 × 800, se verificó la superposición con el deslizador y se aprobó la candidata tras confirmar las restricciones. La comparación de los PNG persistidos confirmó que la cabecera bloqueada seguía idéntica píxel a píxel y el panel había cambiado. Para repetir, guardar una pantalla, abrir su URL local y capturar en Chrome o importar un PNG de una app nativa. Aprobar la referencia, capturar con el mismo tamaño y seleccionar una región. SQLite conserva versiones aprobadas y descartadas. [Capturas de Chrome](https://developer.chrome.com/docs/chromium/headless)
 - **Semáforo.** En el bundle aislado se midieron los marcos de los tres controles nativos en AppKit. Los bordes izquierdos quedaron a 16, 39 y 62 puntos, con margen superior de 16 puntos y botones de 14 × 14. La cabecera lateral reserva 48 puntos.
 - **Verificación.** Ejecutar `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y Clippy con `--all-targets -- -D warnings`. Para comprobar la captura real, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml captures_real_local_page_at_the_requested_size -- --ignored` con Chrome instalado y acceso a loopback.
-- **Pendiente.** Recorrido autenticado de encargo y comparación visual con Claude, y verificación nativa de P5 en Windows.
+- **Comparación con Claude.** En el recorrido final de V2, el comando `design_send` envió las dos capturas sintéticas a una sesión de Claude. El turno terminó e identificó el cambio del panel y que la cabecera se conservaba. Quedan pendientes el envío manual desde la interfaz y la verificación nativa en Windows.
 
 
 ## Aceptación de P6

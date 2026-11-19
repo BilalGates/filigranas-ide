@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, git, sessions, tools as toolsApi, type DiffTarget, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
-import GitPanel, { Icon, RightHeader } from './GitPanel';
+import GitPanel, { Icon } from './GitPanel';
+import Right, { RIGHT_TABS, type RightTab } from './Right';
+import FileTree from './FileTree';
 import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
@@ -69,9 +71,10 @@ export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   // Archivos con marcas de conflicto tras una integración.
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
-  // Columna derecha: Git o contenedores Docker del proyecto.
-  const [rightView, setRightView] = useState<'git' | 'containers'>('git');
-  const [, setContainerCount] = useState<number | null>(null);
+  // Columna derecha: git, pull requests, contenedores o uso.
+  const [rightView, setRightView] = useState<RightTab>('git');
+  const [containerCount, setContainerCount] = useState<number | null>(null);
+  const [dirty, setDirty] = useState(false);
   // Larry abierto (su pestaña) y una clave para relanzarlo.
   const [larryKey, setLarryKey] = useState<number | null>(null);
   const [coach, setCoach] = useState('hansi');
@@ -81,7 +84,6 @@ export default function App() {
   const [engineMenu, setEngineMenu] = useState(false);
   // Rama del proyecto abierto (la informa el panel Git) y capas flotantes.
   const [branch, setBranch] = useState<string | null>(null);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
   const [noRight, setNoRight] = useState(false);
@@ -277,9 +279,19 @@ export default function App() {
     setView((v) => (v === 'larry' ? 'coach' : v));
   };
 
-  const containersHeader = (
-    <RightHeader view="containers" branch={branch} onBranch={() => setRightView('git')} onContainers={() => setRightView('containers')} />
-  );
+  // El archivo o diff abierto es una pestaña más del panel derecho.
+  const openEditor = () => {
+    setRightView('editor');
+    setNoRight(false);
+  };
+  // Desde el riel: abre ese panel, o lo oculta si ya estaba a la vista.
+  const showRight = (tab: RightTab) => {
+    if (tab === rightView && !noRight) setNoRight(true);
+    else {
+      setRightView(tab);
+      setNoRight(false);
+    }
+  };
 
   const showConflicts = (files: string[]) => {
     setConflictFiles(files);
@@ -288,7 +300,7 @@ export default function App() {
 
   const showDiff = (c: DiffTarget) => {
     setDiff(c);
-    setView('file');
+    openEditor();
   };
 
   const update = (p: Promise<Workspace>) => p.then(setWs, (e) => setError(String(e)));
@@ -301,20 +313,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', on);
   }, []);
 
-  // Indicador azul de la pestaña activa, que se desliza entre pestañas.
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const [ind, setInd] = useState<{ x: number; w: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = tabsRef.current?.querySelector<HTMLElement>('.tab.is-active');
-    const next = el ? { x: el.offsetLeft, w: el.offsetWidth } : null;
-    setInd((prev) => (prev?.x === next?.x && prev?.w === next?.w ? prev : next));
-  });
-
   const closeFile = () => {
     setFile(null);
     setDiff(null);
     setFileSession(null);
-    setView((v) => (v === 'file' ? 'coach' : v));
+    setRightView((v) => (v === 'editor' ? 'git' : v));
   };
 
   if (!ws) return <div className="app" />;
@@ -352,8 +355,9 @@ export default function App() {
     else openTerminal(current.path);
   };
   const toolsBad = (toolList ?? []).filter((t) => ['falta', 'sin sesión'].includes(toolState(t))).length;
+  const editorOpen = !!(current && (diff || file));
   const closeActive = () => {
-    if (view === 'file') closeFile();
+    if (editorOpen && rightView === 'editor' && !noRight) closeFile();
     else if (typeof view === 'number') closeSession(view);
     else if (view === 'larry') closeLarry();
     else if (view === 'publish') {
@@ -375,11 +379,14 @@ export default function App() {
     { id: 'close', label: 'cerrar pestaña', keys: '⌘W', run: closeActive },
     { id: 'pm', label: 'project manager', keys: '⌘1', run: () => current && setView('coach') },
     ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => setView(s.id) })),
+    { id: 'editor', label: 'editor', keys: '⌘E', run: () => editorOpen && (rightView === 'editor' ? setRightView('git') : openEditor()) },
+    { id: 'files', label: 'archivos', keys: '⌘P', run: () => showRight('files') },
     { id: 'term', label: termOpen ? 'ocultar terminal' : 'abrir terminal', keys: '⌘J', run: toggleTerminal },
     { id: 'side', label: noSide ? 'mostrar barra lateral' : 'ocultar barra lateral', keys: '⌘B', run: () => setNoSide((v) => !v) },
     { id: 'right', label: noRight ? 'mostrar columna derecha' : 'ocultar columna derecha', keys: '⌘I', run: () => setNoRight((v) => !v) },
-    { id: 'git', label: 'git', keys: '⌘G', run: () => (setNoRight(false), setRightView('git')) },
-    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => (setNoRight(false), setRightView('containers')) },
+    { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
+    { id: 'pr', label: 'pull request', run: () => openPublish() },
+    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
     { id: 'larry', label: 'larry propone de nuevo', keys: '⌘⇧G', run: () => emit('larry') },
@@ -389,7 +396,7 @@ export default function App() {
     { id: 'effort', label: 'esfuerzo', keys: '⌘⇧E', run: () => {} },
     { id: 'allow', label: 'aprobar permiso', keys: '⌘Y', run: () => {} },
     { id: 'deny', label: 'rechazar permiso', keys: '⌘N', run: () => {} },
-    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => setUsageOpen((v) => !v) },
+    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => showRight('uso') },
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
     { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
   ];
@@ -414,11 +421,129 @@ export default function App() {
     c.run();
   };
 
+  const sessionState = (key: string) => activity[key] ?? null;
+  const centerTitle = (() => {
+    if (!current) return null;
+    if (view === 'coach') return { name: coach.replace('-', ' '), meta: 'project manager', tag: 'pm', state: sessionState('coach') };
+    if (typeof view === 'number') {
+      const s = agentSessions.find((x) => x.id === view);
+      return s ? { name: s.name, meta: ENGINE_LABEL[s.engine] ?? s.engine, tag: null, state: sessionState(String(s.id)) } : null;
+    }
+    const names: Record<string, string> = { larry: larryFor ? `larry · ${larryFor.name}` : 'larry', publish: publishFor ? `publicar · ${publishFor.name}` : 'publicar', pending: 'ramas sin integrar', conflicts: 'conflictos', tools: 'herramientas' };
+    return { name: names[view] ?? '', meta: view === 'larry' ? 'commits' : null, tag: null, state: null };
+  })();
+  const transient = view === 'larry' || view === 'publish' || view === 'pending' || view === 'conflicts' || view === 'tools' || typeof view === 'number';
+
+  const row = (key: string, active: boolean, name: string, meta: string | null, state: string | null, onClick: () => void, onClose?: () => void, tag?: string) => (
+    <div key={key} className={`srow${active ? ' is-on' : ''}`}>
+      <button className="srow-main" onClick={onClick}>
+        <span className={`dot${state ? ` is-${state}` : ''}`} aria-label={state ?? undefined} />
+        <span className="srow-name">{name}</span>
+        {tag && <span className="tag">{tag}</span>}
+        {meta && <span className="srow-meta">{meta}</span>}
+      </button>
+      {onClose && (
+        <button className="srow-x" aria-label={`Cerrar ${name}`} title="cerrar" onClick={onClose}>
+          <Icon name="close" size={9} />
+        </button>
+      )}
+    </div>
+  );
+
+  const sessionList = current && (
+    <div className="sessions" role="list">
+      {row('coach', view === 'coach', coach.replace('-', ' '), null, sessionState('coach'), () => setView('coach'), undefined, 'pm')}
+      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => setView(s.id), () => closeSession(s.id)))}
+      {larryKey != null && row('larry', view === 'larry', larryFor ? `larry · ${larryFor.name}` : 'larry', 'commits', null, () => setView('larry'), closeLarry)}
+      {publishKey != null &&
+        row('publish', view === 'publish', 'publicar', publishFor?.name ?? null, null, () => setView('publish'), () => {
+          setPublishKey(null);
+          setView((v) => (v === 'publish' ? 'coach' : v));
+        })}
+      {pendingKey != null &&
+        row('pending', view === 'pending', 'ramas sin integrar', null, null, () => setView('pending'), () => {
+          setPendingKey(null);
+          setView((v) => (v === 'pending' ? 'coach' : v));
+        })}
+      {conflictFiles &&
+        row('conflicts', view === 'conflicts', 'conflictos', String(conflictFiles.length), null, () => setView('conflicts'), () => {
+          setConflictFiles(null);
+          setView((v) => (v === 'conflicts' ? 'coach' : v));
+        })}
+    </div>
+  );
+
+  const sideFooter = (
+    <>
+      {toolsOpen && row('tools', view === 'tools', 'herramientas', null, null, () => setView('tools'), () => {
+        setToolsOpen(false);
+        setView((v) => (v === 'tools' ? 'coach' : v));
+      })}
+      <button className={`side-usage${current && !noRight && rightView === 'uso' ? ' is-on' : ''}`} onClick={() => (current ? showRight('uso') : (setToolsOpen(true), setView('tools')))} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso de los modelos · ⌘U'}>
+        <Icon name="gauge" size={13} />
+        <UsageSummary />
+        {toolsBad > 0 && <span className="dot is-permiso" aria-hidden="true" />}
+      </button>
+      {muted && (
+        <button className="side-usage" onClick={() => toggleMute()} title="silenciado · ⌘⇧M">
+          <Icon name="mute" size={13} />
+          <span>silenciado</span>
+        </button>
+      )}
+    </>
+  );
+
+  const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
+  const panelOpen = !!current && !noRight;
+
   return (
-    <div className={`app${current && !noRight ? ' has-git' : ''}${noSide ? ' no-side' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && rightView === 'editor' ? ' is-wide' : ''}`}>
+      <header className="titlebar" data-tauri-drag-region>
+        <div className="tb-left" data-tauri-drag-region>
+          <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={() => setNoSide((v) => !v)} aria-label="Barra lateral" title="barra lateral · ⌘B">
+            <Icon name="sidebar" size={15} />
+          </button>
+        </div>
+        <button className="tb-pill" onClick={() => setOverlay('palette')} title="órdenes, sesiones y vistas · ⌘K">
+          <Icon name="folder" size={13} />
+          <span className="tb-name">{current?.name ?? 'filigranas'}</span>
+          {current && branch && (
+            <>
+              <span className="tb-sep" />
+              <Icon name="branch" size={12} />
+              <span>{branch}</span>
+              {dirty && <span className="dot is-dirty" aria-label="cambios sin commit" />}
+            </>
+          )}
+          <span className="grow" />
+          <kbd>⌘K</kbd>
+        </button>
+        <div className="tb-right" data-tauri-drag-region>
+          {current && (
+            <button className={`tb-btn${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label="Terminal" title="terminal · ⌘J">
+              <Icon name="terminal" size={15} />
+            </button>
+          )}
+          {current && (
+            <button className={`tb-btn${noRight ? '' : ' is-on'}`} onClick={() => setNoRight((v) => !v)} aria-label="Panel derecho" title="panel derecho · ⌘I">
+              <Icon name="panel" size={15} />
+            </button>
+          )}
+        </div>
+      </header>
+
       <Sidebar
         ws={ws}
         project={project}
+        onProject={(p) => {
+          setProject(p);
+          setFile(null);
+          setView('coach');
+          setLarryKey(null);
+          setPublishKey(null);
+          setPendingKey(null);
+          setConflictFiles(null);
+          setContainerCount(null);
         file={file}
         onProject={selectProject}
         onFile={(f) => {
@@ -428,7 +553,18 @@ export default function App() {
           setView('file');
         }}
         onUpdate={update}
+        onNewSession={() => current && setEngineMenu((v) => !v)}
+        sessions={sessionList}
+        footer={sideFooter}
       />
+      {engineMenu && current && (
+        <div className="menu engine-menu" role="menu" onMouseLeave={() => setEngineMenu(false)}>
+          <div className="menu-label">nueva sesión con</div>
+          {ENGINES.map(([id, label, reason]) => (
+            <button key={id} role="menuitem" className="menu-item" disabled={!!reason} title={reason ?? undefined} onClick={() => newSession(id)}>
+              {label}
+              {reason && <span className="muted"> · {reason}</span>}
+            </button>
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
       <div className="tabs" data-tauri-drag-region ref={tabsRef}>
         {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
@@ -465,108 +601,26 @@ export default function App() {
               </button>
             </div>
           ))}
-        {current && (
-          <div className="tab-new">
-            <button aria-label="Nueva sesión de agente" aria-expanded={engineMenu} title="nueva sesión · ⌘T" onClick={() => setEngineMenu((o) => !o)}>
-              <Icon name="plus" size={12} />
-            </button>
-            {engineMenu && (
-              <div className="menu engine-menu" role="menu" onMouseLeave={() => setEngineMenu(false)}>
-                {ENGINES.map(([id, label, reason]) => (
-                  <button key={id} role="menuitem" disabled={!!reason} title={reason ?? undefined} onClick={() => newSession(id)}>
-                    {label}
-                    {reason && <span className="muted"> · {reason}</span>}
-                  </button>
-                ))}
-              </div>
+        </div>
+      )}
+      <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
+
+      <main className="panel center">
+        {centerTitle && (
+          <div className="center-head">
+            <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
+            <span className="ch-name">{centerTitle.name}</span>
+            {centerTitle.tag && <span className="tag">{centerTitle.tag}</span>}
+            {centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
+            {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
+            <span className="grow" />
+            {transient && (
+              <button className="tb-btn" onClick={closeActive} aria-label="Cerrar" title={typeof view === 'number' ? 'cerrar sesión · ⌘W' : 'cerrar · ⌘W'}>
+                <Icon name="close" size={11} />
+              </button>
             )}
           </div>
         )}
-        {current && larryKey != null && (
-          <div className={`tab${view === 'larry' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('larry')}>larry{larryFor ? ` · ${larryFor.name}` : ''}</button>
-            <button className="tab-close" aria-label="Cerrar Larry" title="cerrar" onClick={() => closeLarry()}>
-              ×
-            </button>
-          </div>
-        )}
-        {current && conflictFiles && (
-          <div className={`tab${view === 'conflicts' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('conflicts')}>conflictos</button>
-            <button
-              className="tab-close"
-              aria-label="Cerrar conflictos"
-              title="cerrar"
-              onClick={() => {
-                setConflictFiles(null);
-                setView((v) => (v === 'conflicts' ? 'coach' : v));
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {toolsOpen && (
-          <div className={`tab${view === 'tools' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('tools')}>herramientas</button>
-            <button
-              className="tab-close"
-              aria-label="Cerrar herramientas"
-              title="cerrar"
-              onClick={() => {
-                setToolsOpen(false);
-                setView((v) => (v === 'tools' ? 'coach' : v));
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {current && pendingKey != null && (
-          <div className={`tab${view === 'pending' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('pending')}>ramas sin integrar</button>
-            <button
-              className="tab-close"
-              aria-label="Cerrar ramas sin integrar"
-              title="cerrar"
-              onClick={() => {
-                setPendingKey(null);
-                setView((v) => (v === 'pending' ? 'coach' : v));
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {current && publishKey != null && (
-          <div className={`tab${view === 'publish' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('publish')}>publicar{publishFor ? ` · ${publishFor.name}` : ''}</button>
-            <button
-              className="tab-close"
-              aria-label="Cerrar publicar"
-              title="cerrar"
-              onClick={() => {
-                setPublishKey(null);
-                setView((v) => (v === 'publish' ? 'coach' : v));
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {current && (diff || file) && (
-          <div className={`tab${view === 'file' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('file')} title={diff?.path ?? file ?? ''}>
-              {(diff?.path ?? file ?? '').split(/[\\/]/).pop()}
-              {diff && <span className="muted">diff</span>}
-            </button>
-            <button className="tab-close" aria-label="Cerrar el archivo" title="cerrar · ⌘W" onClick={closeFile}>
-              ×
-            </button>
-          </div>
-        )}
-      </div>
-      <main className="main">
         <div className="main-view">
           {current && <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
           {current && <Tasks key={'tasks:' + current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions} focus={taskTarget?.project === current.path ? taskTarget : null}
@@ -594,7 +648,7 @@ export default function App() {
                 setFile(path);
                 setFileSession(null);
                 setDiff(null);
-                setView('file');
+                openEditor();
               }}
             />
           )}
@@ -616,47 +670,53 @@ export default function App() {
           )}
           {current &&
             agentSessions.map((s) => (
-              <SessionView key={s.id} session={s} project={current.path} hidden={view !== s.id} onDiff={showDiff} onTerminal={() => openSessionTerminal(s)} onCommits={() => openLarry(s)} onPublish={() => openPublish(s)} onOpenFile={(path) => {
-                setFile(path);
-                setFileSession(s.id);
-                setDiff(null);
-                setView('file');
-              }} onConflicts={showConflicts} />
+              <SessionView
+                key={s.id}
+                session={s}
+                project={current.path}
+                hidden={view !== s.id}
+                onDiff={showDiff}
+                onTerminal={() => openSessionTerminal(s)}
+                onCommits={() => openLarry(s)}
+                onPublish={() => openPublish(s)}
+                onOpenFile={(path) => {
+                  setFile(path);
+                  setFileSession(s.id);
+                  setDiff(null);
+                  openEditor();
+                }}
+                onConflicts={showConflicts}
+              />
             ))}
-          {view === 'file' && current && diff ? (
-            <Diff project={current.path} change={diff} />
-          ) : view === 'file' && file ? (
-            <Editor
-              path={file}
-              root={agentSessions.find((s) => s.id === fileSession)?.worktree ?? current?.path ?? ''}
-              session={fileSession}
-              onError={setError}
-            />
-          ) : (
-            !current && !(toolsOpen && view === 'tools') && <div className="empty" />
+          {!current && !(toolsOpen && view === 'tools') && (
+            <div className="welcome">
+              <h1>¿Qué hacemos hoy?</h1>
+              <p>Elige un proyecto a la izquierda.</p>
+            </div>
           )}
         </div>
         <section className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
           <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
           <div className="terminal-head">
-            <span>terminal</span>
             <div className="terminal-tabs" role="tablist" aria-label="Terminales del proyecto">
               {projectTerms.map((tab) => (
                 <div className={`terminal-tab${tab.id === activeTerm ? ' is-active' : ''}`} key={tab.id}>
-                  <button
-                    role="tab"
-                    aria-selected={tab.id === activeTerm}
-                    onClick={() => setSelectedTerm((s) => ({ ...s, [tab.project]: tab.id }))}
-                  >
-                    {tab.label ?? tab.number}
+                  <button role="tab" aria-selected={tab.id === activeTerm} onClick={() => setSelectedTerm((s) => ({ ...s, [tab.project]: tab.id }))}>
+                    <Icon name="terminal" size={12} />
+                    {tab.label ?? `zsh ${tab.number}`}
                   </button>
-                  <button className="terminal-close" aria-label={`Cerrar terminal ${tab.label ?? tab.number}`} title="cerrar terminal" onClick={() => closeTerminal(tab.id)}>×</button>
+                  <button className="terminal-close" aria-label={`Cerrar terminal ${tab.label ?? tab.number}`} title="cerrar terminal" onClick={() => closeTerminal(tab.id)}>
+                    <Icon name="close" size={8} />
+                  </button>
                 </div>
               ))}
-              <button className="terminal-new" aria-label="Nuevo terminal" title="nuevo terminal" onClick={() => current && openTerminal(current.path, true)}>+</button>
+              <button className="terminal-new" aria-label="Nuevo terminal" title="nuevo terminal" onClick={() => current && openTerminal(current.path, true)}>
+                <Icon name="plus" size={11} />
+              </button>
             </div>
-            <button className="push status-ic" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title="ocultar · ⌘J">
-              <Icon name="close" size={12} />
+            <span className="grow" />
+            <button className="tb-btn" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title="ocultar · ⌘J">
+              <Icon name="down" size={12} />
             </button>
           </div>
           {terms
@@ -665,62 +725,69 @@ export default function App() {
               <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
             ))}
         </section>
-      </main>
-      {current &&
-        !noRight &&
-        (rightView === 'git' ? (
-          <GitPanel onContainers={() => setRightView('containers')} onBranch={setBranch} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
-            setPendingKey(Date.now());
-            setView('pending');
-          }} onPublish={() => openPublish()} />
-        ) : (
-          <Containers key={current.path} project={current.path} header={containersHeader} onCount={setContainerCount} />
-        ))}
-      <footer className="status">
-        <span className="status-path" title={current?.path ?? ws.root}>
-          {(() => {
-            const full = (current?.path ?? ws.root).replace(/^\/Users\/[^/]+/, '~');
-            const cut = full.lastIndexOf('/');
-            return current ? (
-              <>
-                <span>{full.slice(0, cut + 1)}</span>
-                <b>{full.slice(cut + 1)}</b>
-              </>
-            ) : (
-              full
-            );
-          })()}
-        </span>
-        {current && (
-          <button className={`status-ic${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label={termOpen ? 'Ocultar el terminal' : 'Abrir el terminal'} title={`${termOpen ? 'ocultar' : 'abrir'} terminal · ⌘J`}>
-            <Icon name="terminal" size={13} />
-          </button>
-        )}
         {error && (
-          <button className="status-error" onClick={() => setError(null)} title="cerrar">
-            {error}
+          <button className="toast" onClick={() => setError(null)} title="cerrar">
+            <Icon name="warn" size={13} />
+            <span>{error}</span>
           </button>
         )}
-        <span className="push" />
-        {muted && (
-          <button className="status-ic" onClick={() => toggleMute()} aria-label="Activar el sonido" title="silenciado · ⌘⇧M">
-            <Icon name="mute" size={13} />
+      </main>
+
+      {current && (
+        <nav className="rail" aria-label="Paneles">
+          {RIGHT_TABS.map(([id, label, icon, keys]) => (
+            <button key={id} className={`rail-btn${panelOpen && rightView === id ? ' is-on' : ''}`} onClick={() => showRight(id)} aria-label={label} title={`${label.toLowerCase()} · ${keys}`}>
+              <Icon name={icon} size={15} />
+              {id === 'git' && dirty && <span className="dot is-dirty" />}
+            </button>
+          ))}
+          <span className="rail-sep" />
+          <button className={`rail-btn${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label="Terminal" title="terminal · ⌘J">
+            <Icon name="terminal" size={15} />
           </button>
-        )}
-        <button className={`status-usage${usageOpen ? ' is-on' : ''}${toolsBad ? ' is-warn' : ''}`} onClick={() => setUsageOpen((v) => !v)} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso · ⌘U'}>
-          <UsageSummary />
-          {toolsBad > 0 && <span className="ask-dot" aria-hidden="true" />}
-        </button>
-        {usageOpen && (
-          <UsagePanel
-            tools={toolList}
-            checking={checkingTools}
-            onRefresh={checkTools}
-            onLogin={current ? (command) => (setUsageOpen(false), openTerminal(current.path, true, command)) : null}
-            onClose={() => setUsageOpen(false)}
-          />
-        )}
-      </footer>
+        </nav>
+      )}
+
+      {panelOpen && current && (
+        <Right tab={rightView} onTab={(t) => setRightView(t)} dirty={dirty} containers={containerCount} editor={editorTab} onCloseEditor={closeFile}>
+          {rightView === 'git' && (
+            <GitPanel
+              project={current.path}
+              selected={diff?.session == null ? diff : null}
+              onDiff={showDiff}
+              onBranch={setBranch}
+              onDirty={setDirty}
+              pending={pendingCount}
+              onPending={() => {
+                setPendingKey(Date.now());
+                setView('pending');
+              }}
+              onPublish={() => openPublish()}
+            />
+          )}
+          {rightView === 'files' && (
+            <FileTree
+              root={current.path}
+              selected={file}
+              onOpen={(f) => {
+                setFile(f);
+                setFileSession(null);
+                setDiff(null);
+                openEditor();
+              }}
+            />
+          )}
+          {rightView === 'containers' && <Containers key={current.path} project={current.path} onCount={setContainerCount} />}
+          {rightView === 'uso' && <UsagePanel tools={toolList} checking={checkingTools} onRefresh={checkTools} onLogin={(command) => openTerminal(current.path, true, command)} />}
+          {rightView === 'editor' &&
+            editorTab &&
+            (diff ? (
+              <Diff project={current.path} change={diff} />
+            ) : (
+              <Editor path={file ?? ''} root={agentSessions.find((s) => s.id === fileSession)?.worktree ?? current.path} session={fileSession} onError={setError} />
+            ))}
+        </Right>
+      )}
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}
     </div>

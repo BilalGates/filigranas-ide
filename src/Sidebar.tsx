@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type Project, type Workspace } from './ipc';
-import FileTree from './FileTree';
+import type { ReactNode } from 'react';
+import { Icon } from './GitPanel';
 
 type Props = {
   ws: Workspace;
   project: string | null;
-  file: string | null;
   onProject: (path: string | null) => void;
-  onFile: (path: string) => void;
   onUpdate: (p: Promise<Workspace>) => void;
+  onNewSession: () => void;
+  /** Sesiones del proyecto abierto, bajo su nombre. */
+  sessions: ReactNode;
+  /** Uso y estado, al pie. */
+  footer: ReactNode;
 };
 
 const COLLAPSED_KEY = 'filigranas.collapsed';
@@ -21,14 +25,14 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
-export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate }: Props) {
+export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession, sessions, footer }: Props) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  // Proyectos desplegados con el chevrón; seleccionar no abre la carpeta.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // Proyectos desplegados: abrir un proyecto lo despliega; el chevrón pliega.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(project ? [project] : []));
   const expand = (path: string) =>
     setExpanded((cur) => {
       const next = new Set(cur);
@@ -60,11 +64,19 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
 
   return (
     <aside className="sidebar" aria-label="Proyectos">
-      <div className="sidebar-top" data-tauri-drag-region />
-      <label className="search">
-        <span aria-hidden="true">/</span>
-        <input aria-label="Buscar proyecto" placeholder="buscar" value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
-      </label>
+      <button className="side-new" onClick={onNewSession} disabled={!project} title="nueva sesión de agente · ⌘T">
+        <Icon name="plus" size={14} />
+        <span className="grow">Nueva sesión</span>
+        <kbd>⌘</kbd>
+        <kbd>T</kbd>
+      </button>
+      <div className="side-head">
+        <span className="grow">Proyectos</span>
+        <label className="search">
+          <Icon name="search" size={12} />
+          <input aria-label="Buscar proyecto" placeholder="buscar" value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
+        </label>
+      </div>
 
       <div className="sidebar-scroll">
         {sections.map((s) => (
@@ -107,19 +119,13 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
                   onExpand={() => expand(p.path)}
                   menuOpen={menu === p.path}
                   onMenu={(open) => setMenu(open ? p.path : null)}
-                  onSelect={() => p.path !== project && onProject(p.path)}
+                  onSelect={() => {
+                    if (p.path !== project) onProject(p.path);
+                    setExpanded((cur) => new Set(cur).add(p.path));
+                  }}
                   onUpdate={onUpdate}
                 >
-                  {expanded.has(p.path) && (
-                    <FileTree
-                      root={p.path}
-                      selected={p.path === project ? file : null}
-                      onOpen={(f) => {
-                        if (p.path !== project) onProject(p.path);
-                        onFile(f);
-                      }}
-                    />
-                  )}
+                  {p.path === project && expanded.has(p.path) && sessions}
                 </ProjectRow>
               ))}
           </section>
@@ -127,6 +133,7 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
       </div>
 
       <div className="sidebar-foot">
+        {footer}
         {archived.length > 0 && (
           <>
             <button className="group-name" onClick={() => setShowArchived((v) => !v)} aria-expanded={showArchived}>
@@ -188,13 +195,14 @@ function ProjectRow(props: {
   return (
     <div ref={ref} className="project">
       <div className={`row project-row${open ? ' is-open' : ''}${expanded ? ' is-expanded' : ''}`}>
-        <button className="row-main" onClick={onSelect} aria-current={open ? 'true' : undefined}>
-          <span className="grow">{p.name}</span>
-        </button>
-        <button className={`ex${expanded ? ' is-open' : ''}`} onClick={onExpand} aria-label={`${expanded ? 'Plegar' : 'Ver archivos de'} ${p.name}`} aria-expanded={expanded}>
+        <button className={`ex${expanded && open ? ' is-open' : ''}`} onClick={open ? onExpand : onSelect} aria-label={`${expanded && open ? 'Plegar' : 'Desplegar'} ${p.name}`} aria-expanded={expanded && open}>
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
             <path d="M3.5 2 6.5 5 3.5 8" />
           </svg>
+        </button>
+        <button className="row-main" onClick={onSelect} aria-current={open ? 'true' : undefined}>
+          <Icon name="folder" size={14} />
+          <span className="grow">{p.name}</span>
         </button>
         <button className="icon more" onClick={() => onMenu(!menuOpen)} aria-label={`Opciones de ${p.name}`} aria-haspopup="menu" aria-expanded={menuOpen}>
           ⋯

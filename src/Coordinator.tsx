@@ -231,9 +231,9 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   return (
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
 
-      <ConversationLog items={items} asks={asks} agent={directName ?? 'coordinador'} project={session?.worktree ?? project} onDiff={onDiff}>
-        {opening && <div className="muted">{session ? 'abriendo Codex…' : 'abriendo el coordinador…'}</div>}
-        {!opening && info && items.length === 0 && <div className="co-empty">sin encargos</div>}
+      <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
+        {opening && <div className="muted">abriendo el coordinador…</div>}
+        {!opening && info && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {error && (
           <div className="co-error">
             {error}

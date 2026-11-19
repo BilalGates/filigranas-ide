@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Review, type Stash } from './ipc';
 import ApprovalForm from './ApprovalForm';
@@ -29,6 +29,18 @@ const ICON: Record<string, JSX.Element> = {
   mute: <><path d="M2 6h3l4-3v10l-4-3H2z" /><path d="M11 6l4 4M15 6l-4 4" /></>,
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   plus: <path d="M8 3v10M3 8h10" />,
+  folder: <path d="M1.5 4h4.5l1.5 1.5h7V13h-13z" />,
+  file: <><path d="M4 1.5h5.5L13 5v9.5H4z" /><path d="M9.5 1.5V5H13" /></>,
+  changes: <><path d="M8 2v6M5 5h6" /><path d="M5 12h6" /></>,
+  sidebar: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></>,
+  panel: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></>,
+  gauge: <><path d="M2.5 11a5.5 5.5 0 1 1 11 0" /><path d="M8 11l2.5-3" /></>,
+  search: <><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></>,
+  chat: <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />,
+  pm: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 2.7-4 5-4s4.2 1.4 5 4" /></>,
+  wand: <><path d="M3 13 11 5" /><path d="M11 2v2M13 4h-2M12.5 7.5l1 1M7.5 2.5l1 1" /></>,
+  merge: <><circle cx="4" cy="3.5" r="1.7" /><circle cx="4" cy="12.5" r="1.7" /><circle cx="12" cy="12.5" r="1.7" /><path d="M4 5.2v5.6M4 6c0 4 8 2 8 4.8" /></>,
+  warn: <><path d="M8 2 14.5 13.5h-13z" /><path d="M8 6.5v3M8 11.5v.2" /></>,
 };
 
 export function Icon({ name, size = 14 }: { name: string; size?: number }) {
@@ -39,32 +51,6 @@ export function Icon({ name, size = 14 }: { name: string; size?: number }) {
   );
 }
 
-/**
- * Cabecera de la columna derecha: rama y contenedores, a la derecha.
- * En git, la rama abre el selector; en contenedores, vuelve a git.
- */
-export function RightHeader({ view, branch, onBranch, onContainers, children }: {
-  view: 'git' | 'containers';
-  branch: string | null;
-  onBranch: () => void;
-  onContainers: () => void;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="rh" data-tauri-drag-region>
-      <button className={`rh-btn${view === 'git' ? ' is-on' : ''}`} onClick={onBranch} title={view === 'git' ? 'cambiar de rama' : 'volver a git · ⌘G'}>
-        <Icon name="branch" size={13} />
-        <span className="rh-name">{branch ?? 'git'}</span>
-      </button>
-      <button className={`rh-btn${view === 'containers' ? ' is-on' : ''}`} onClick={onContainers} title="contenedores · ⌘⇧O">
-        <Icon name="box" size={13} />
-        <span>contenedores</span>
-      </button>
-      {children}
-    </div>
-  );
-}
-
 type Props = {
   project: string;
   selected: Change | null;
@@ -72,8 +58,8 @@ type Props = {
   onPublish: () => void;
   pending: number;
   onPending: () => void;
-  onContainers: () => void;
   onBranch: (branch: string | null) => void;
+  onDirty?: (dirty: boolean) => void;
 };
 
 // Propuesta de Larry: `touched` cuando el usuario ya ha editado algún mensaje
@@ -82,7 +68,7 @@ type Draft = { commits: LarryCommit[]; touched: boolean; loading: boolean };
 const EMPTY: Draft = { commits: [], touched: false, loading: false };
 
 /** Control de versiones del proyecto abierto, al estilo de Cursor. */
-export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, onContainers, onBranch }: Props) {
+export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, onBranch, onDirty }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -143,6 +129,10 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   }, [refresh]);
 
   useEffect(() => onBranch(status?.branch ?? null), [status?.branch, onBranch]);
+  const hasChanges = !!status?.changes.length;
+  useEffect(() => {
+    if (status) onDirty?.(hasChanges);
+  }, [status, hasChanges, onDirty]);
 
   const changes = status?.changes ?? [];
   const graph = useMemo(() => layoutGraph(log), [log]);
@@ -296,22 +286,59 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   ];
 
   return (
-    <aside className="git" aria-label="Control de versiones">
-      <Splitter size={SIZES.git} axis="x" invert label="Ancho del panel de Git" className="is-edge-left" />
-      <RightHeader view="git" branch={status?.branch ?? null} onBranch={() => setMenu((m) => (m === 'branch' ? null : 'branch'))} onContainers={onContainers}>
-        {menu === 'branch' && (
-          <div className="menu rh-menu" role="menu">
-            {branches.map((b) => (
-              <button key={b} role="menuitemradio" aria-checked={b === status?.branch} className="menu-item" onClick={() => switchTo(b)}>
-                <span className="grow">{b}</span>
-                {b === status?.branch && <span className="mark">✓</span>}
+    <>
+      {error && <div className="git-error">{error}</div>}
+      {status && (
+      <div className="sync git-head">
+        <button className="brbtn" aria-expanded={menu === 'branch'} onClick={() => setMenu((m) => (m === 'branch' ? null : 'branch'))} title="cambiar de rama">
+        <Icon name="branch" size={13} />
+        <span className="rh-name">{status.branch ?? 'sin rama'}</span>
+        <Icon name="down" size={10} />
+      </button>
+      {menu === 'branch' && (
+        <div className="menu branch-menu" role="menu">
+          {branches.map((b) => (
+            <button key={b} role="menuitemradio" aria-checked={b === status.branch} className="menu-item" onClick={() => switchTo(b)}>
+              <span className="grow">{b}</span>
+              {b === status.branch && <span className="mark">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      <span className="sync-n" title={status.upstream ? `→ ${status.upstream}` : 'sin rama remota'}>
+          ↑{ahead} ↓{behind}
+        </span>
+        <button className={`ic${op === 'pull' ? ' is-busy' : ''}`} aria-label="Pull" title={behind ? `pull · ${behind}` : 'pull'} disabled={!status.upstream || !!op} onClick={() => run('pull', () => gitOps.pull(project))}>
+          <Icon name="pull" />
+        </button>
+        <button className={`ic${op === 'push' ? ' is-busy' : ''}`} aria-label="Push" title={status.upstream ? 'push' : 'push · crea la rama en origin'} disabled={!status.branch || !!op} onClick={() => run('push', () => gitOps.push(project, !status.upstream))}>
+          <Icon name="push" />
+        </button>
+        <button className="ic" aria-label="Más acciones de git" aria-expanded={menu === 'more'} onClick={() => setMenu((m) => (m === 'more' ? null : 'more'))}>
+          <Icon name="more" />
+        </button>
+        {menu === 'more' && (
+          <div className="menu sync-menu" role="menu">
+            {more.map(([id, label, act]) => (
+              <button key={id} role="menuitem" className="menu-item" disabled={!act || !!op} onClick={() => act?.()}>
+                {label}
               </button>
             ))}
+            <div className="menu-sep" />
+            <button
+              role="menuitem"
+              className="menu-item"
+              onClick={() => {
+                setMenu(null);
+                onPublish();
+              }}
+            >
+              pull request…
+            </button>
           </div>
         )}
-      </RightHeader>
-
-      {error && <div className="git-error">{error}</div>}
+      </div>
+      )}
       {status && (
         <>
           <section className="git-commit-box" aria-label="Commit">
@@ -514,6 +541,6 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
           </section>
         </>
       )}
-    </aside>
+    </>
   );
 }

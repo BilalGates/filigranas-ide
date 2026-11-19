@@ -2107,7 +2107,8 @@ html.is-light .git-log-body {
   align-items: center;
   column-gap: 10px;
   height: var(--git-row-height);
-  padding: 0 8px 0 min(var(--git-inset), 55%);
+  min-width: calc(var(--git-graph-width) + 112px + var(--git-meta-width, 0px));
+  padding: 0 8px 0 var(--git-inset);
   border-radius: 5px;
   color: var(--tx2);
   font-size: 12px;
@@ -2119,7 +2120,8 @@ html.is-light .git-log-body {
   background: var(--hover);
   color: var(--tx);
 }
-.git-row.is-open {
+.git-row.is-open,
+.git-row.is-open:hover {
   background: var(--git-selected);
   color: var(--tx);
 }
@@ -2167,15 +2169,24 @@ html.is-light .git-log-body {
   font-variant-numeric: tabular-nums;
 }
 @container (min-width: 390px) {
-  .git-row { grid-template-columns: minmax(0, 1fr) 68px; }
+  .git-row {
+    --git-meta-width: 78px;
+    grid-template-columns: minmax(0, 1fr) 68px;
+  }
   .git-hash { display: block; }
 }
 @container (min-width: 480px) {
-  .git-row { grid-template-columns: minmax(0, 1fr) 82px 68px; }
+  .git-row {
+    --git-meta-width: 170px;
+    grid-template-columns: minmax(0, 1fr) 82px 68px;
+  }
   .git-author { display: block; }
 }
 @container (min-width: 590px) {
-  .git-row { grid-template-columns: minmax(0, 1fr) 92px 68px 112px; }
+  .git-row {
+    --git-meta-width: 302px;
+    grid-template-columns: minmax(0, 1fr) 92px 68px 112px;
+  }
   .git-date { display: block; }
 }
 .git-detail {

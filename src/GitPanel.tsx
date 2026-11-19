@@ -447,7 +447,10 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             <div className="git-label">
               <span>historial</span>
             </div>
-            <div className="git-log-body" style={{ '--git-row-height': `${GIT_ROW_HEIGHT}px` } as CSSProperties}>
+            <div className="git-log-body" style={{
+              '--git-row-height': `${GIT_ROW_HEIGHT}px`,
+              '--git-graph-width': `${graph.width}px`,
+            } as CSSProperties}>
               <GitGraph graph={graph} selected={detailIndex} />
               {log.map((r, i) => {
                 const dot = graph.dots[i];

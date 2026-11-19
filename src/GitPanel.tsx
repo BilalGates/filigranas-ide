@@ -453,40 +453,40 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
                 const dot = graph.dots[i];
                 const timestamp = Date.parse(r.date);
                 return (
-                <div
-                  className={`git-row${detailIndex === i ? ' is-open' : ''}${r.hash ? ' is-commit' : ''}`}
-                  key={r.hash}
-                  style={{ '--git-lane': dot.color, '--git-inset': `${dot.inset}px` } as CSSProperties}
-                  onClick={() => r.hash && openDetail(r.hash)}
-                  role={r.hash ? 'button' : undefined}
-                  tabIndex={r.hash ? 0 : undefined}
-                  aria-expanded={r.hash ? detailIndex === i : undefined}
-                  onKeyDown={(e) => {
-                    if (r.hash && (e.key === 'Enter' || e.key === ' ')) {
-                      e.preventDefault();
-                      openDetail(r.hash);
-                    }
-                  }}
-                >
-                  {r.hash && (
-                    <>
-                      <span className="git-subject" title={r.subject}>
-                        {parseRefs(r.refs).map((ref) => (
-                          <span key={ref.name} className={`git-ref is-${ref.kind}`} title={ref.name}>
-                            {ref.kind === 'head' && <span aria-hidden="true">✓ </span>}
-                            {ref.name}
-                          </span>
-                        ))}
-                        {r.subject}
-                      </span>
-                      <span className="git-meta git-author" title={r.author}>{r.author}</span>
-                      <span className="git-meta git-hash" title={r.hash}>{r.hash}</span>
-                      <time className="git-meta git-date" title={r.date} dateTime={r.date}>
-                        {Number.isFinite(timestamp) ? LOG_DATE.format(timestamp) : ''}
-                      </time>
-                    </>
-                  )}
-                </div>
+                  <div
+                    className={`git-row${detailIndex === i ? ' is-open' : ''}${r.hash ? ' is-commit' : ''}`}
+                    key={r.hash}
+                    style={{ '--git-lane': dot.color, '--git-inset': `${dot.inset}px` } as CSSProperties}
+                    onClick={() => r.hash && openDetail(r.hash)}
+                    role={r.hash ? 'button' : undefined}
+                    tabIndex={r.hash ? 0 : undefined}
+                    aria-expanded={r.hash ? detailIndex === i : undefined}
+                    onKeyDown={(e) => {
+                      if (r.hash && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        openDetail(r.hash);
+                      }
+                    }}
+                  >
+                    {r.hash && (
+                      <>
+                        <span className="git-subject" title={r.subject}>
+                          {parseRefs(r.refs).map((ref) => (
+                            <span key={ref.name} className={`git-ref is-${ref.kind}`} title={ref.name}>
+                              {ref.kind === 'head' && <span aria-hidden="true">✓ </span>}
+                              {ref.name}
+                            </span>
+                          ))}
+                          {r.subject}
+                        </span>
+                        <span className="git-meta git-author" title={r.author}>{r.author}</span>
+                        <span className="git-meta git-hash" title={r.hash}>{r.hash}</span>
+                        <time className="git-meta git-date" title={r.date} dateTime={r.date}>
+                          {Number.isFinite(timestamp) ? LOG_DATE.format(timestamp) : ''}
+                        </time>
+                      </>
+                    )}
+                  </div>
                 );
               })}
               {detail && detailIndex >= 0 && (

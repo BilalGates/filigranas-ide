@@ -31,8 +31,6 @@ import Splitter, { SIZES } from './Splitter';
 const ENGINES: [string, string, string | null][] = [
   ['codex', 'chat directo · codex', null],
   ['claude', 'chat directo · claude code', null],
-  ['opencode', 'opencode', null],
-  ['agy', 'antigravity', null],
   ['devin', 'devin', null],
 ];
 
@@ -355,7 +353,7 @@ export default function App() {
     if (termOpen) setTermOpen(false);
     else openTerminal(current.path);
   };
-  const toolsBad = (toolList ?? []).filter((t) => ['falta', 'sin sesión'].includes(toolState(t))).length;
+  const toolsBad = (toolList ?? []).filter((t) => !/opencode|antigravity|agy/i.test(`${t.id} ${t.name}`) && ['falta', 'sin sesión'].includes(toolState(t))).length;
   const editorOpen = !!(current && (diff || file));
   const closeActive = () => {
     if (editorOpen && rightView === 'editor' && !noRight) closeFile();

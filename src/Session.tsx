@@ -523,7 +523,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           title="pasa la tarea a otro motor en la misma rama"
         >
           <option value="">relevar a…</option>
-          {Object.entries(ENGINE_LABEL).map(([id, label]) => (
+          {Object.entries(ENGINE_LABEL).filter(([id]) => id === 'claude' || id === 'devin').map(([id, label]) => (
             <option key={id} value={id}>
               {label}
               {id === session.engine ? ' (sesión nueva)' : ''}

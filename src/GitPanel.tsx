@@ -311,7 +311,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
         <button className={`ic${op === 'pull' ? ' is-busy' : ''}`} aria-label="Pull" title={behind ? `pull · ${behind}` : 'pull'} disabled={!status.upstream || !!op} onClick={() => run('pull', () => gitOps.pull(project))}>
           <Icon name="pull" />
         </button>
-        <button className={`ic${op === 'push' ? ' is-busy' : ''}`} aria-label="Push" title={status.upstream ? 'push' : 'push · crea la rama en origin'} disabled={!status.branch || !!op} onClick={() => run('push', () => gitOps.push(project, !status.upstream))}>
+        <button className={`ic${op === 'push' ? ' is-busy' : ''}`} aria-label="Push" title={status.upstream ? 'push' : 'push · crea la rama en origin'} disabled={!status.branch || !!op || !!pushReview} onClick={() => reviewPush(!status.upstream)}>
           <Icon name="push" />
         </button>
         <button className="ic" aria-label="Más acciones de git" aria-expanded={menu === 'more'} onClick={() => setMenu((m) => (m === 'more' ? null : 'more'))}>
@@ -400,40 +400,6 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             </div>
           </section>
 
-          <div className="sync">
-            <span className="sync-n" title={status.upstream ? `→ ${status.upstream}` : 'sin rama remota'}>
-              ↑{ahead} ↓{behind}
-            </span>
-            <button className={`ic${op === 'pull' ? ' is-busy' : ''}`} aria-label="Pull" title={behind ? `pull · ${behind}` : 'pull'} disabled={!status.upstream || !!op} onClick={() => run('pull', () => gitOps.pull(project))}>
-              <Icon name="pull" />
-            </button>
-            <button className={`ic${op === 'push' ? ' is-busy' : ''}`} aria-label="Push" title={status.upstream ? 'push' : 'push · crea la rama en origin'} disabled={!status.branch || !!op || !!pushReview} onClick={() => reviewPush(!status.upstream)}>
-              <Icon name="push" />
-            </button>
-            <button className="ic" aria-label="Más acciones de git" aria-expanded={menu === 'more'} onClick={() => setMenu((m) => (m === 'more' ? null : 'more'))}>
-              <Icon name="more" />
-            </button>
-            {menu === 'more' && (
-              <div className="menu sync-menu" role="menu">
-                {more.map(([id, label, act]) => (
-                  <button key={id} role="menuitem" className="menu-item" disabled={!act || !!op} onClick={() => act?.()}>
-                    {label}
-                  </button>
-                ))}
-                <div className="menu-sep" />
-                <button
-                  role="menuitem"
-                  className="menu-item"
-                  onClick={() => {
-                    setMenu(null);
-                    onPublish();
-                  }}
-                >
-                  pull request…
-                </button>
-              </div>
-            )}
-          </div>
           {pushReview && <ApprovalForm key={pushReview.review.id} review={pushReview.review} action="confirmar push"
             onClose={() => setPushReview(null)} onConfirm={(proof) => {
               setPushReview(null);

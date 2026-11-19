@@ -75,6 +75,7 @@ export default function App() {
   const [rightView, setRightView] = useState<RightTab>('git');
   const [containerCount, setContainerCount] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [usoOpen, setUsoOpen] = useState(false);
   // Larry abierto (su pestaña) y una clave para relanzarlo.
   const [larryKey, setLarryKey] = useState<number | null>(null);
   const [coach, setCoach] = useState('hansi');
@@ -396,7 +397,8 @@ export default function App() {
     { id: 'effort', label: 'esfuerzo', keys: '⌘⇧E', run: () => {} },
     { id: 'allow', label: 'aprobar permiso', keys: '⌘Y', run: () => {} },
     { id: 'deny', label: 'rechazar permiso', keys: '⌘N', run: () => {} },
-    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => showRight('uso') },
+    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => setUsoOpen((v) => !v) },
+    { id: 'tools', label: 'herramientas y enrutamiento con Jev', run: () => { setToolsOpen(true); setView('tools'); } },
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
     { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
   ];
@@ -429,7 +431,7 @@ export default function App() {
       const s = agentSessions.find((x) => x.id === view);
       return s ? { name: s.name, meta: ENGINE_LABEL[s.engine] ?? s.engine, tag: null, state: sessionState(String(s.id)) } : null;
     }
-    const names: Record<string, string> = { larry: larryFor ? `larry · ${larryFor.name}` : 'larry', publish: publishFor ? `publicar · ${publishFor.name}` : 'publicar', pending: 'ramas sin integrar', conflicts: 'conflictos', tools: 'herramientas' };
+    const names: Record<string, string> = { larry: larryFor ? `larry · ${larryFor.name}` : 'larry', publish: publishFor ? `publicar · ${publishFor.name}` : 'publicar', pending: 'ramas sin integrar', conflicts: 'conflictos', tools: 'herramientas', tasks: 'Tareas', health: 'Code Health', design: 'Design Loop', brain: 'Brain', 'brain-graph': 'Grafo de Brain' };
     return { name: names[view] ?? '', meta: view === 'larry' ? 'commits' : null, tag: null, state: null };
   })();
   const transient = view === 'larry' || view === 'publish' || view === 'pending' || view === 'conflicts' || view === 'tools' || typeof view === 'number';
@@ -453,6 +455,13 @@ export default function App() {
   const sessionList = current && (
     <div className="sessions" role="list">
       {row('coach', view === 'coach', coach.replace('-', ' '), null, sessionState('coach'), () => setView('coach'), undefined, 'pm')}
+      {row('tasks', view === 'tasks', 'Tareas', null, null, () => setView('tasks'))}
+      {row('health', view === 'health', 'Code Health', null, null, () => setView('health'))}
+      {row('design', view === 'design', 'Design Loop', null, null, () => setView('design'))}
+      {row('brain', view === 'brain' || view === 'brain-graph', 'Brain', null, null, () => {
+        setBrainTarget(null);
+        setView('brain');
+      })}
       {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => setView(s.id), () => closeSession(s.id)))}
       {larryKey != null && row('larry', view === 'larry', larryFor ? `larry · ${larryFor.name}` : 'larry', 'commits', null, () => setView('larry'), closeLarry)}
       {publishKey != null &&
@@ -479,10 +488,16 @@ export default function App() {
         setToolsOpen(false);
         setView((v) => (v === 'tools' ? 'coach' : v));
       })}
-      <button className={`side-usage${current && !noRight && rightView === 'uso' ? ' is-on' : ''}`} onClick={() => (current ? showRight('uso') : (setToolsOpen(true), setView('tools')))} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso de los modelos · ⌘U'}>
+      {usoOpen && (
+        <div className="side-uso">
+          <UsagePanel tools={toolList} checking={checkingTools} onRefresh={checkTools} onLogin={current ? (command) => openTerminal(current.path, true, command) : null} />
+        </div>
+      )}
+      <button className={`side-usage${usoOpen ? ' is-on' : ''}`} aria-expanded={usoOpen} onClick={() => setUsoOpen((v) => !v)} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso de los modelos · ⌘U'}>
         <Icon name="gauge" size={13} />
         <UsageSummary />
         {toolsBad > 0 && <span className="dot is-permiso" aria-hidden="true" />}
+        <span className={`side-chev${usoOpen ? ' is-open' : ''}`}><Icon name="down" size={10} /></span>
       </button>
       {muted && (
         <button className="side-usage" onClick={() => toggleMute()} title="silenciado · ⌘⇧M">
@@ -535,23 +550,7 @@ export default function App() {
       <Sidebar
         ws={ws}
         project={project}
-        onProject={(p) => {
-          setProject(p);
-          setFile(null);
-          setView('coach');
-          setLarryKey(null);
-          setPublishKey(null);
-          setPendingKey(null);
-          setConflictFiles(null);
-          setContainerCount(null);
-        file={file}
         onProject={selectProject}
-        onFile={(f) => {
-          setFile(f);
-          setFileSession(null);
-          setDiff(null);
-          setView('file');
-        }}
         onUpdate={update}
         onNewSession={() => current && setEngineMenu((v) => !v)}
         sessions={sessionList}
@@ -565,41 +564,6 @@ export default function App() {
               {label}
               {reason && <span className="muted"> · {reason}</span>}
             </button>
-      <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
-      <div className="tabs" data-tauri-drag-region ref={tabsRef}>
-        {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
-        {current && (
-          <div className={`tab${view === 'coach' ? ' is-active' : ''}${activity.coach ? ` is-${activity.coach}` : ''}`}>
-            <button onClick={() => setView('coach')} title="modo automático · project manager · ⌘1">
-              {coach.replace('-', ' ')}
-            </button>
-            <span className="tag">pm</span>
-            {activity.coach === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
-          </div>
-        )}
-        {current && <div className={`tab${view === 'tasks' ? ' is-active' : ''}`}>
-          <button onClick={() => setView('tasks')}>tareas</button>
-        </div>}
-        {current && <div className={`tab${view === 'health' ? ' is-active' : ''}`}>
-          <button onClick={() => setView('health')}>Code Health</button>
-        </div>}
-        {current && <div className={`tab${view === 'design' ? ' is-active' : ''}`}>
-          <button onClick={() => setView('design')}>Design Loop</button>
-        </div>}
-        {current && <div className={`tab${view === 'brain' || view === 'brain-graph' ? ' is-active' : ''}`}>
-          <button onClick={() => { setBrainTarget(null); setView('brain'); }}>Brain</button>
-        </div>}
-        {current &&
-          agentSessions.map((s) => (
-            <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
-              <button onClick={() => setView(s.id)} title={`${ENGINE_LABEL[s.engine] ?? s.engine}`}>
-                {s.name}
-              </button>
-              {activity[String(s.id)] === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
-              <button className="tab-close" aria-label={`Cerrar la sesión ${s.name}`} title="cerrar sesión" onClick={() => closeSession(s.id)}>
-                ×
-              </button>
-            </div>
           ))}
         </div>
       )}
@@ -635,7 +599,7 @@ export default function App() {
               setFile(path);
               setFileSession(id);
               setDiff(null);
-              setView('file');
+              openEditor();
             }} />}
           {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={view !== 'design'}
             onNew={() => newSession('claude')} onSession={setView} />}
@@ -778,7 +742,6 @@ export default function App() {
             />
           )}
           {rightView === 'containers' && <Containers key={current.path} project={current.path} onCount={setContainerCount} />}
-          {rightView === 'uso' && <UsagePanel tools={toolList} checking={checkingTools} onRefresh={checkTools} onLogin={(command) => openTerminal(current.path, true, command)} />}
           {rightView === 'editor' &&
             editorTab &&
             (diff ? (

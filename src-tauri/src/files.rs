@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use serde::Serialize;
@@ -46,16 +46,35 @@ pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
 pub fn write_text(state: State<AppState>, path: String, content: String, session: Option<i64>) -> CmdResult<()> {
     let root = root_for(&state, session)?;
     let file = paths::inside(&root, Path::new(&path))?;
-    if !file.is_file() {
+    write_file(&file, &content)
+}
+
+/// Sustituye un archivo completo sin compartir temporales entre guardados.
+fn write_file(file: &Path, content: &str) -> CmdResult<()> {
+    if content.len() as u64 > MAX_TEXT {
+        return Err(format!("archivo demasiado grande ({} KB)", content.len() / 1024));
+    }
+    let meta = std::fs::metadata(file).map_err(err)?;
+    if !meta.is_file() {
         return Err("solo se pueden guardar archivos existentes".into());
     }
     let name = file.file_name().ok_or("ruta sin nombre")?.to_string_lossy();
-    let tmp = file.with_file_name(format!(".{name}.filigranas-tmp"));
-    std::fs::write(&tmp, content.as_bytes()).map_err(err)?;
-    std::fs::rename(&tmp, &file).map_err(|e| {
+    let tmp = file.with_file_name(format!(".{name}.filigranas-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> CmdResult<()> {
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(err)?;
+        output.write_all(content.as_bytes()).map_err(err)?;
+        output.set_permissions(meta.permissions()).map_err(err)?;
+        drop(output);
+        std::fs::rename(&tmp, file).map_err(err)
+    })();
+    if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
-        err(e)
-    })
+    }
+    result
 }
 
 /// Lee un archivo de texto dentro de la raíz. Rechaza binarios y archivos grandes.
@@ -97,4 +116,56 @@ pub(crate) fn text(bytes: Vec<u8>) -> CmdResult<String> {
         return Err("archivo binario".into());
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("filigranas-files-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn rejects_a_save_that_cannot_be_read_back() {
+        let dir = temp_dir();
+        let file = dir.join("note.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        assert!(write_file(&file, &"x".repeat(MAX_TEXT as usize + 1)).unwrap_err().contains("demasiado grande"));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn uses_a_private_temporary_file() {
+        let dir = temp_dir();
+        let file = dir.join("note.txt");
+        let old_temp = dir.join(".note.txt.filigranas-tmp");
+        std::fs::write(&file, "original").unwrap();
+        std::fs::write(&old_temp, "unrelated").unwrap();
+
+        write_file(&file, "saved").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "saved");
+        assert_eq!(std::fs::read_to_string(&old_temp).unwrap(), "unrelated");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_executable_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir();
+        let file = dir.join("run.sh");
+        std::fs::write(&file, "old").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        write_file(&file, "new").unwrap();
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o755);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

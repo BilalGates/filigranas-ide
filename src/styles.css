@@ -416,7 +416,6 @@ html[data-browser] .sidebar-top::before {
   box-shadow: 23px 0 0 #febc2e, 46px 0 0 #28c840;
 }
 
-[data-platform='win'] .sidebar-top,
 html:not([data-browser])[data-platform='other'] .sidebar-top {
   height: 10px;
 }

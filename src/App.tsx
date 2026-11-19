@@ -5,7 +5,8 @@ import Onboarding from './Onboarding';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
-import GitPanel, { Icon, RightHeader } from './GitPanel';
+import GitPanel, { Icon } from './GitPanel';
+import Right, { PullRequests, type RightTab } from './Right';
 import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
@@ -60,9 +61,12 @@ export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   // Archivos con marcas de conflicto tras una integración.
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
-  // Columna derecha: Git o contenedores Docker del proyecto.
-  const [rightView, setRightView] = useState<'git' | 'containers'>('git');
-  const [, setContainerCount] = useState<number | null>(null);
+  // Columna derecha: git, pull requests, contenedores o uso.
+  const [rightView, setRightView] = useState<RightTab>('git');
+  const [containerCount, setContainerCount] = useState<number | null>(null);
+  // El editor se abre encima de la columna derecha; minimizado, queda en el borde.
+  const [edMin, setEdMin] = useState(false);
+  const [dirty, setDirty] = useState(false);
   // Larry abierto (su pestaña) y una clave para relanzarlo.
   const [larryKey, setLarryKey] = useState<number | null>(null);
   const [coach, setCoach] = useState('hansi');
@@ -72,7 +76,6 @@ export default function App() {
   const [engineMenu, setEngineMenu] = useState(false);
   // Rama del proyecto abierto (la informa el panel Git) y capas flotantes.
   const [branch, setBranch] = useState<string | null>(null);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
   const [noRight, setNoRight] = useState(false);
@@ -259,9 +262,16 @@ export default function App() {
     setView((v) => (v === 'larry' ? 'coach' : v));
   };
 
-  const containersHeader = (
-    <RightHeader view="containers" branch={branch} onBranch={() => setRightView('git')} onContainers={() => setRightView('containers')} />
-  );
+  const openEditor = () => {
+    setEdMin(false);
+    setNoRight(false);
+  };
+  // Cambiar de panel a la derecha minimiza el editor para dejarlo ver.
+  const showRight = (tab: RightTab) => {
+    setRightView(tab);
+    setNoRight(false);
+    setEdMin(true);
+  };
 
   const showConflicts = (files: string[]) => {
     setConflictFiles(files);
@@ -270,7 +280,7 @@ export default function App() {
 
   const showDiff = (c: DiffTarget) => {
     setDiff(c);
-    setView('file');
+    openEditor();
   };
 
   const update = (p: Promise<Workspace>) => p.then(setWs, (e) => setError(String(e)));
@@ -296,7 +306,7 @@ export default function App() {
     setFile(null);
     setDiff(null);
     setFileSession(null);
-    setView((v) => (v === 'file' ? 'coach' : v));
+    setEdMin(false);
   };
 
   if (!ws) return <div className="app" />;
@@ -311,8 +321,9 @@ export default function App() {
     else openTerminal(current.path);
   };
   const toolsBad = (toolList ?? []).filter((t) => ['falta', 'sin sesión'].includes(toolState(t))).length;
+  const editorOpen = !!(current && (diff || file));
   const closeActive = () => {
-    if (view === 'file') closeFile();
+    if (editorOpen && !edMin) closeFile();
     else if (typeof view === 'number') closeSession(view);
     else if (view === 'larry') closeLarry();
     else if (view === 'publish') {
@@ -334,11 +345,13 @@ export default function App() {
     { id: 'close', label: 'cerrar pestaña', keys: '⌘W', run: closeActive },
     { id: 'pm', label: 'project manager', keys: '⌘1', run: () => current && setView('coach') },
     ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => setView(s.id) })),
+    { id: 'editor', label: edMin ? 'mostrar el editor' : 'minimizar el editor', keys: '⌘E', run: () => editorOpen && (edMin ? openEditor() : setEdMin(true)) },
     { id: 'term', label: termOpen ? 'ocultar terminal' : 'abrir terminal', keys: '⌘J', run: toggleTerminal },
     { id: 'side', label: noSide ? 'mostrar barra lateral' : 'ocultar barra lateral', keys: '⌘B', run: () => setNoSide((v) => !v) },
     { id: 'right', label: noRight ? 'mostrar columna derecha' : 'ocultar columna derecha', keys: '⌘I', run: () => setNoRight((v) => !v) },
-    { id: 'git', label: 'git', keys: '⌘G', run: () => (setNoRight(false), setRightView('git')) },
-    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => (setNoRight(false), setRightView('containers')) },
+    { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
+    { id: 'pr', label: 'pull requests', run: () => showRight('pr') },
+    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
     { id: 'larry', label: 'larry propone de nuevo', keys: '⌘⇧G', run: () => emit('larry') },
@@ -348,7 +361,7 @@ export default function App() {
     { id: 'effort', label: 'esfuerzo', keys: '⌘⇧E', run: () => {} },
     { id: 'allow', label: 'aprobar permiso', keys: '⌘Y', run: () => {} },
     { id: 'deny', label: 'rechazar permiso', keys: '⌘N', run: () => {} },
-    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => setUsageOpen((v) => !v) },
+    { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: () => showRight('uso') },
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
     { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
   ];
@@ -374,7 +387,7 @@ export default function App() {
   };
 
   return (
-    <div className={`app${current && !noRight ? ' has-git' : ''}${noSide ? ' no-side' : ''}`}>
+    <div className={`app${current && !noRight ? ' has-git' : ''}${noSide ? ' no-side' : ''}${editorOpen && !edMin && !noRight ? ' is-editing' : ''}`}>
       <Sidebar
         ws={ws}
         project={project}
@@ -393,29 +406,30 @@ export default function App() {
           setFile(f);
           setFileSession(null);
           setDiff(null);
-          setView('file');
+          openEditor();
         }}
         onUpdate={update}
+        onNewSession={() => current && setEngineMenu(true)}
       />
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
       <div className="tabs" data-tauri-drag-region ref={tabsRef}>
         {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
         {current && (
-          <div className={`tab${view === 'coach' ? ' is-active' : ''}${activity.coach ? ` is-${activity.coach}` : ''}`}>
+          <div className={`tab${view === 'coach' ? ' is-active' : ''}`}>
+            <span className={`tab-dot${activity.coach ? ` is-${activity.coach}` : ''}`} aria-label={activity.coach ?? undefined} />
             <button onClick={() => setView('coach')} title="project manager · ⌘1">
               {coach.replace('-', ' ')}
             </button>
             <span className="tag">pm</span>
-            {activity.coach === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
           </div>
         )}
         {current &&
           agentSessions.map((s) => (
-            <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
+            <div className={`tab${view === s.id ? ' is-active' : ''}`} key={s.id}>
+              <span className={`tab-dot${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} aria-label={activity[String(s.id)] ?? undefined} />
               <button onClick={() => setView(s.id)} title={`${ENGINE_LABEL[s.engine] ?? s.engine}`}>
                 {s.name}
               </button>
-              {activity[String(s.id)] === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
               <button className="tab-close" aria-label={`Cerrar la sesión ${s.name}`} title="cerrar sesión" onClick={() => closeSession(s.id)}>
                 ×
               </button>
@@ -510,17 +524,6 @@ export default function App() {
             </button>
           </div>
         )}
-        {current && (diff || file) && (
-          <div className={`tab${view === 'file' ? ' is-active' : ''}`}>
-            <button onClick={() => setView('file')} title={diff?.path ?? file ?? ''}>
-              {(diff?.path ?? file ?? '').split(/[\\/]/).pop()}
-              {diff && <span className="muted">diff</span>}
-            </button>
-            <button className="tab-close" aria-label="Cerrar el archivo" title="cerrar · ⌘W" onClick={closeFile}>
-              ×
-            </button>
-          </div>
-        )}
       </div>
       <main className="main">
         <div className="main-view">
@@ -534,7 +537,7 @@ export default function App() {
                 setFile(path);
                 setFileSession(null);
                 setDiff(null);
-                setView('file');
+                openEditor();
               }}
             />
           )}
@@ -560,21 +563,10 @@ export default function App() {
                 setFile(path);
                 setFileSession(s.id);
                 setDiff(null);
-                setView('file');
+                openEditor();
               }} onConflicts={showConflicts} />
             ))}
-          {view === 'file' && current && diff ? (
-            <Diff project={current.path} change={diff} />
-          ) : view === 'file' && file ? (
-            <Editor
-              path={file}
-              root={agentSessions.find((s) => s.id === fileSession)?.worktree ?? current?.path ?? ''}
-              session={fileSession}
-              onError={setError}
-            />
-          ) : (
-            !current && !(toolsOpen && view === 'tools') && <div className="empty" />
-          )}
+          {!current && !(toolsOpen && view === 'tools') && <div className="empty" />}
         </div>
         <section className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
           <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
@@ -606,17 +598,76 @@ export default function App() {
             ))}
         </section>
       </main>
-      {current &&
-        !noRight &&
-        (rightView === 'git' ? (
-          <GitPanel onContainers={() => setRightView('containers')} onBranch={setBranch} project={current.path} selected={diff?.session == null ? diff : null} onDiff={showDiff} pending={pendingCount} onPending={() => {
-            setPendingKey(Date.now());
-            setView('pending');
-          }} onPublish={() => openPublish()} />
-        ) : (
-          <Containers key={current.path} project={current.path} header={containersHeader} onCount={setContainerCount} />
-        ))}
+      {current && !noRight && (
+        <Right
+          tab={rightView}
+          onTab={showRight}
+          dirty={dirty}
+          containers={containerCount}
+          editor={
+            diff || file
+              ? {
+                  name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '',
+                  path: diff?.path ?? file ?? '',
+                  diff: !!diff,
+                  minimized: edMin,
+                  onMinimize: () => setEdMin(true),
+                  onRestore: openEditor,
+                  onClose: closeFile,
+                  body: diff ? (
+                    <Diff project={current.path} change={diff} />
+                  ) : (
+                    <Editor
+                      path={file ?? ''}
+                      root={agentSessions.find((s) => s.id === fileSession)?.worktree ?? current.path}
+                      session={fileSession}
+                      onError={setError}
+                    />
+                  ),
+                }
+              : null
+          }
+        >
+          {rightView === 'git' && (
+            <GitPanel
+              project={current.path}
+              selected={diff?.session == null ? diff : null}
+              onDiff={showDiff}
+              onBranch={setBranch}
+              onDirty={setDirty}
+              pending={pendingCount}
+              onPending={() => {
+                setPendingKey(Date.now());
+                setView('pending');
+              }}
+              onPublish={() => openPublish()}
+            />
+          )}
+          {rightView === 'pr' && (
+            <PullRequests
+              branch={branch}
+              pending={pendingCount}
+              onPublish={() => openPublish()}
+              onPending={() => {
+                setPendingKey(Date.now());
+                setView('pending');
+              }}
+            />
+          )}
+          {rightView === 'containers' && <Containers key={current.path} project={current.path} onCount={setContainerCount} />}
+          {rightView === 'uso' && (
+            <UsagePanel tools={toolList} checking={checkingTools} onRefresh={checkTools} onLogin={(command) => openTerminal(current.path, true, command)} />
+          )}
+        </Right>
+      )}
       <footer className="status">
+        {current && branch && (
+          <button className="status-branch" onClick={() => showRight('git')} title={dirty ? 'cambios sin commit · ⌘G' : 'rama · ⌘G'}>
+            <Icon name="branch" size={12} />
+            <span>{branch}</span>
+            {dirty && <span className="status-dirty" aria-label="cambios sin commit" />}
+          </button>
+        )}
         <span className="status-path" title={current?.path ?? ws.root}>
           {(() => {
             const full = (current?.path ?? ws.root).replace(/^\/Users\/[^/]+/, '~');
@@ -647,19 +698,10 @@ export default function App() {
             <Icon name="mute" size={13} />
           </button>
         )}
-        <button className={`status-usage${usageOpen ? ' is-on' : ''}${toolsBad ? ' is-warn' : ''}`} onClick={() => setUsageOpen((v) => !v)} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso · ⌘U'}>
+        <button className={`status-usage${current && !noRight && rightView === 'uso' ? ' is-on' : ''}`} onClick={() => current && showRight('uso')} title={toolsBad ? `${toolsBad} herramienta${toolsBad === 1 ? '' : 's'} por revisar · ⌘U` : 'uso · ⌘U'}>
           <UsageSummary />
-          {toolsBad > 0 && <span className="ask-dot" aria-hidden="true" />}
+          {toolsBad > 0 && <span className="status-warn" aria-hidden="true" />}
         </button>
-        {usageOpen && (
-          <UsagePanel
-            tools={toolList}
-            checking={checkingTools}
-            onRefresh={checkTools}
-            onLogin={current ? (command) => (setUsageOpen(false), openTerminal(current.path, true, command)) : null}
-            onClose={() => setUsageOpen(false)}
-          />
-        )}
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}

@@ -46,7 +46,7 @@ type Props = {
   checking: boolean;
   onRefresh: () => void;
   onLogin: ((command: string) => void) | null;
-  onClose: () => void;
+  onClose?: () => void;
 };
 
 /**
@@ -60,7 +60,9 @@ export default function UsagePanel({ tools, checking, onRefresh, onLogin, onClos
   const ranked = [...models].sort((a, b) => totalOf(b) - totalOf(a));
   const top = ranked[0] ? totalOf(ranked[0]) : 0;
 
+  // Como capa flotante se cierra al pulsar fuera; dentro de la columna derecha, no.
   useEffect(() => {
+    if (!onClose) return;
     const close = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
       if (!ref.current?.contains(t) && !t.closest('.status-usage')) onClose();
@@ -70,7 +72,7 @@ export default function UsagePanel({ tools, checking, onRefresh, onLogin, onClos
   }, [onClose]);
 
   return (
-    <div className="uso" role="dialog" aria-label="Uso de los modelos" ref={ref}>
+    <div className={`uso${onClose ? '' : ' is-inline'}`} role={onClose ? 'dialog' : 'region'} aria-label="Uso de los modelos" ref={ref}>
       {engines.map((e) => (
         <div className="uso-sec" key={e.engine}>
           <div className="uso-h">

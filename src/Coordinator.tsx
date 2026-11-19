@@ -202,7 +202,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile }: Prop
 
       <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
         {opening && <div className="muted">abriendo el coordinador…</div>}
-        {!opening && info && items.length === 0 && <div className="co-empty">sin encargos</div>}
+        {!opening && info && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {error && (
           <div className="co-error">
             {error}

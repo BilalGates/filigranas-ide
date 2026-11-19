@@ -6,7 +6,7 @@ export type Size = { name: string; def: number; min: number; max: number };
 
 export const SIZES = {
   side: { name: '--side-w', def: 232, min: 180, max: 420 },
-  git: { name: '--git-w', def: 300, min: 240, max: 560 },
+  git: { name: '--git-w', def: 340, min: 280, max: 620 },
   term: { name: '--term-h', def: 240, min: 120, max: 720 },
   log: { name: '--log-h', def: 280, min: 96, max: 900 },
   compose: { name: '--compose-h', def: 76, min: 44, max: 420 },

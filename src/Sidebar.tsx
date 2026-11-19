@@ -9,6 +9,7 @@ type Props = {
   onProject: (path: string | null) => void;
   onFile: (path: string) => void;
   onUpdate: (p: Promise<Workspace>) => void;
+  onNewSession: () => void;
 };
 
 const COLLAPSED_KEY = 'filigranas.collapsed';
@@ -21,14 +22,14 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
-export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate }: Props) {
+export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate, onNewSession }: Props) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  // Proyectos desplegados con el chevrón; seleccionar no abre la carpeta.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // Proyectos desplegados: abrir un proyecto lo despliega; el chevrón pliega.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(project ? [project] : []));
   const expand = (path: string) =>
     setExpanded((cur) => {
       const next = new Set(cur);
@@ -61,6 +62,14 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
   return (
     <aside className="sidebar" aria-label="Proyectos">
       <div className="sidebar-top" data-tauri-drag-region />
+      <button className="side-new" onClick={onNewSession} disabled={!project} title="nueva sesión de agente · ⌘T">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <path d="M8 3v10M3 8h10" />
+        </svg>
+        <span className="grow">Nueva sesión</span>
+        <kbd>⌘</kbd>
+        <kbd>T</kbd>
+      </button>
       <label className="search">
         <span aria-hidden="true">/</span>
         <input aria-label="Buscar proyecto" placeholder="buscar" value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />
@@ -107,7 +116,10 @@ export default function Sidebar({ ws, project, file, onProject, onFile, onUpdate
                   onExpand={() => expand(p.path)}
                   menuOpen={menu === p.path}
                   onMenu={(open) => setMenu(open ? p.path : null)}
-                  onSelect={() => p.path !== project && onProject(p.path)}
+                  onSelect={() => {
+                    if (p.path !== project) onProject(p.path);
+                    setExpanded((cur) => new Set(cur).add(p.path));
+                  }}
                   onUpdate={onUpdate}
                 >
                   {expanded.has(p.path) && (

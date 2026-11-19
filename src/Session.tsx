@@ -564,7 +564,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         </div>
       )}
       <ConversationLog items={items} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
-        {items.length === 0 && !error && !starting && <div className="co-empty">sin encargos</div>}
+        {items.length === 0 && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
         {error && <div className="co-error">{error}</div>}

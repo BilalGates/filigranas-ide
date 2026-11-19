@@ -4,8 +4,9 @@ import { sessions, type AcpOption, type Change, type CItem, type Decision, type 
 import { Composer, ConversationLog, type Ask } from './Conversation';
 import { addTokens, reportLimits } from './usageStore';
 import { useReportActivity } from './ui';
+import Coordinator from './Coordinator';
 
-export const ENGINE_LABEL: Record<string, string> = { claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
+export const ENGINE_LABEL: Record<string, string> = { codex: 'codex', claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const EDIT_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'];
 
@@ -157,11 +158,16 @@ type Props = { session: SessionInfo; project: string; hidden: boolean; onDiff: (
 /** Conversación con una sesión de agente ejecutor del proyecto. */
 export default function Session({ session, project, hidden, onDiff, onTerminal, onCommits, onPublish, onOpenFile, onConflicts }: Props) {
   const isClaude = session.engine === 'claude';
+  const isCodex = session.engine === 'codex';
   const [items, setItems] = useState<CItem[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
-  const [running, setRunning] = useState(false);
+  const [providerRunning, setRunning] = useState(false);
+  const [directState, setDirectState] = useState('inactiva');
+  const running = isCodex ? ['en marcha', 'esperando permiso'].includes(directState) : providerRunning;
   const [starting, setStarting] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [claudeModels, setClaudeModels] = useState<{ id: string; label: string }[]>([]);
+  const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [effort, setEffort] = useState(session.effort ?? 'medium');
   const declined = useRef(new Set<string>());
@@ -179,6 +185,9 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
+  useEffect(() => {
+    if (isCodex && directState === 'en marcha') setPaused(null);
+  }, [directState, isCodex]);
   // Modelo y razonamiento elegibles en los agentes ACP.
   const [acpOptions, setAcpOptions] = useState<AcpOption[]>([]);
   // La integración directa chocó: se ofrece fusionar con marcas.
@@ -189,7 +198,14 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   const refreshChanges = useCallback(() => {
     if (isolated) sessions.changes(session.id).then((st) => setChanges(st.changes), (e) => setError(String(e)));
   }, [isolated, session.id]);
-  useEffect(refreshChanges, [refreshChanges]);
+  useEffect(() => {
+    if (!isolated || hidden) return;
+    const unlisten = listen('project-changed', refreshChanges);
+    refreshChanges();
+    return () => {
+      unlisten.then((off) => off());
+    };
+  }, [hidden, isolated, refreshChanges]);
 
   useEffect(() => {
     // Fragmento de texto en el ítem en curso de ese tipo (o uno nuevo).
@@ -248,6 +264,9 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           break;
         case 'system':
           if (msg.model) setModel(msg.model);
+          break;
+        case 'model_catalog':
+          if (Array.isArray(msg.models)) setClaudeModels(msg.models);
           break;
 
         // ACP
@@ -352,6 +371,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
 
   // Después de escuchar: la carga de una sesión ACP llega como eventos.
   useEffect(() => {
+    if (isCodex) return;
     if (!isClaude && session.providerSession) setStarting(true);
     sessions.history(session.id).then(
       (h) => {
@@ -362,7 +382,15 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         setError(String(e));
       },
     );
-  }, [session.id, isClaude, session.providerSession]);
+  }, [session.id, isClaude, isCodex, session.providerSession]);
+
+  useEffect(() => {
+    if (!isClaude || hidden) return;
+    sessions.claudeOptions(session.id).then(({ models, pinnedModel }) => {
+      if (models.length) setClaudeModels(models);
+      setPinned(pinnedModel);
+    }, () => {}); // El envío sigue mostrando errores del proveedor.
+  }, [hidden, isClaude, session.id]);
 
   const send = (text: string) => {
     setError(null);
@@ -473,7 +501,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   };
 
   const asks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
-  const state = pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
+  const state = isCodex ? directState : pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
   useReportActivity(String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;
 
@@ -563,6 +591,11 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           ))}
         </div>
       )}
+      {isCodex ? <>
+        {notice && <div className="co-notice">{notice}</div>}
+        {error && <div className="co-error">{error}</div>}
+        <Coordinator project={project} session={session} hidden={hidden} onDiff={openDiff} onActivity={setDirectState} />
+      </> : <>
       <ConversationLog items={items} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
         {items.length === 0 && !error && !starting && <div className="co-empty">sin encargos</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
@@ -577,10 +610,18 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         onEffort={setEffort}
         model={
           <>
-            <span>
+            {isClaude && claudeModels.length ? <select className="chip-select" aria-label="Fijar modelo Claude" value={pinned ?? ''} disabled={running}
+              onChange={(e) => {
+                const value = e.target.value;
+                sessions.setOption(session.id, 'model', value).then(() => setPinned(value || null), (error) => setError(String(error)));
+              }}>
+              <option value="">{model ?? 'modelo de la sesión'}</option>
+              {pinned && !claudeModels.some((item) => item.id === pinned) && <option value={pinned}>{pinned} · no disponible</option>}
+              {claudeModels.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select> : <span>
               {engine}
               {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
-            </span>
+            </span>}
             {acpOptions.map((o) => (
               <select
                 key={o.id}
@@ -604,6 +645,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
         placeholder={`encargo para ${session.name}`}
       />
+      </>}
     </section>
   );
 }

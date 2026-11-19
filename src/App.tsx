@@ -9,6 +9,11 @@ import GitPanel, { Icon, RightHeader } from './GitPanel';
 import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
+import Tasks from './Tasks';
+import CodeHealth from './CodeHealth';
+import Brain from './Brain';
+import BrainGraph from './BrainGraph';
+import DesignLoop from './DesignLoop';
 import Larry from './Larry';
 import Publish from './Publish';
 import Pending from './Pending';
@@ -22,7 +27,8 @@ import Splitter, { SIZES } from './Splitter';
 
 // Motores de sesión. Uno no disponible se muestra desactivado con el motivo.
 const ENGINES: [string, string, string | null][] = [
-  ['claude', 'claude code', null],
+  ['codex', 'chat directo · codex', null],
+  ['claude', 'chat directo · claude code', null],
   ['opencode', 'opencode', null],
   ['agy', 'antigravity', null],
   ['devin', 'devin', null],
@@ -46,7 +52,10 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   // Pestaña activa: el coordinador o el archivo/diff abierto.
   // Un número es el id de una sesión de agente.
-  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | number>('coach');
+  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | 'brain' | 'brain-graph' | number>('coach');
+  const [brainTarget, setBrainTarget] = useState<number | null>(null);
+  const [taskTarget, setTaskTarget] = useState<{ project: string; id: number } | null>(null);
+  const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
   const [publishKey, setPublishKey] = useState<number | null>(null);
   // Larry y Publicar trabajan en el proyecto o en la rama de una sesión.
   const [publishFor, setPublishFor] = useState<Session | null>(null);
@@ -181,10 +190,10 @@ export default function App() {
     };
   }, [project]);
 
-  const newSession = (engine: string) => {
+  const newSession = (engine: string, task: number | null = null) => {
     setEngineMenu(false);
     if (!project) return;
-    sessions.create(project, engine).then(
+    sessions.create(project, engine, task).then(
       ({ notice, ...s }) => {
         setAgentSessions((list) => [...list, s]);
         setView(s.id);
@@ -224,11 +233,20 @@ export default function App() {
     );
   };
 
-  // Observar solo el proyecto abierto.
   useEffect(() => {
     setDiff(null);
-    git.watch(project).catch((e) => setError(String(e)));
   }, [project]);
+
+  // Mantener el observador del proyecto y seguir la copia de trabajo visible.
+  const worktreeId = typeof view === 'number' ? view
+    : view === 'file' ? fileSession
+    : view === 'larry' ? larryFor?.id
+    : view === 'publish' ? publishFor?.id
+    : null;
+  const watchedSession = agentSessions.find((s) => s.id === worktreeId && s.project === project && s.worktree)?.id ?? null;
+  useEffect(() => {
+    git.watch(project, watchedSession).catch((e) => setError(String(e)));
+  }, [project, watchedSession]);
 
   // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
   useEffect(() => {
@@ -303,6 +321,29 @@ export default function App() {
   if (!ws.root) return <Onboarding onDone={setWs} />;
 
   const current = ws.projects.find((p) => p.path === project);
+  const selectProject = (path: string | null) => {
+    setProject(path);
+    setCoachTask(null);
+    setBrainTarget(null);
+    setTaskTarget(null);
+    setFile(null);
+    setLarryKey(null);
+    setPublishKey(null);
+    setPendingKey(null);
+    setConflictFiles(null);
+    setContainerCount(null);
+    setView('coach');
+  };
+  const graphTask = (path: string, id: number) => {
+    if (path !== project) selectProject(path);
+    setTaskTarget({ project: path, id });
+    setView('tasks');
+  };
+  const graphMemory = (path: string | null, id: number) => {
+    if (path && path !== project) selectProject(path);
+    setBrainTarget(id);
+    setView('brain');
+  };
   const projectTerms = terms.filter((t) => t.project === project);
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
   const toggleTerminal = () => {
@@ -379,16 +420,7 @@ export default function App() {
         ws={ws}
         project={project}
         file={file}
-        onProject={(p) => {
-          setProject(p);
-          setFile(null);
-          setView('coach');
-          setLarryKey(null);
-          setPublishKey(null);
-          setPendingKey(null);
-          setConflictFiles(null);
-          setContainerCount(null);
-        }}
+        onProject={selectProject}
         onFile={(f) => {
           setFile(f);
           setFileSession(null);
@@ -402,13 +434,25 @@ export default function App() {
         {ind && <span className="tab-ind" style={{ transform: `translateX(${ind.x}px)`, width: ind.w }} aria-hidden="true" />}
         {current && (
           <div className={`tab${view === 'coach' ? ' is-active' : ''}${activity.coach ? ` is-${activity.coach}` : ''}`}>
-            <button onClick={() => setView('coach')} title="project manager · ⌘1">
+            <button onClick={() => setView('coach')} title="modo automático · project manager · ⌘1">
               {coach.replace('-', ' ')}
             </button>
             <span className="tag">pm</span>
             {activity.coach === 'permiso' && <span className="ask-dot" aria-label="pide permiso" />}
           </div>
         )}
+        {current && <div className={`tab${view === 'tasks' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('tasks')}>tareas</button>
+        </div>}
+        {current && <div className={`tab${view === 'health' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('health')}>Code Health</button>
+        </div>}
+        {current && <div className={`tab${view === 'design' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('design')}>Design Loop</button>
+        </div>}
+        {current && <div className={`tab${view === 'brain' || view === 'brain-graph' ? ' is-active' : ''}`}>
+          <button onClick={() => { setBrainTarget(null); setView('brain'); }}>Brain</button>
+        </div>}
         {current &&
           agentSessions.map((s) => (
             <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
@@ -524,7 +568,23 @@ export default function App() {
       </div>
       <main className="main">
         <div className="main-view">
-          {current && <Coordinator key={current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} />}
+          {current && <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
+          {current && <Tasks key={'tasks:' + current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions} focus={taskTarget?.project === current.path ? taskTarget : null}
+            onAuto={(task) => { setCoachTask(task); setView('coach'); }}
+            onDirect={newSession} onSession={setView} onPublish={openPublish} />}
+          {current && view === 'brain' && <Brain key={'brain:' + current.path} project={current.path} target={brainTarget}
+            onClearTarget={() => setBrainTarget(null)} onGraph={() => setView('brain-graph')} />}
+          {current && <BrainGraph key={'graph:' + current.path} project={current.path} projects={ws.projects} hidden={view !== 'brain-graph'}
+            onMemories={() => { setBrainTarget(null); setView('brain'); }} onTask={graphTask} onMemory={graphMemory} />}
+          {current && view === 'health' && <CodeHealth key={'health:' + current.path} project={current.path} sessions={agentSessions}
+            onFile={(path, id) => {
+              setFile(path);
+              setFileSession(id);
+              setDiff(null);
+              setView('file');
+            }} />}
+          {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={view !== 'design'}
+            onNew={() => newSession('claude')} onSession={setView} />}
           {current && conflictFiles && (
             <Conflicts
               project={current.path}

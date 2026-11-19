@@ -35,7 +35,7 @@ export const git = {
   diffTexts: (project: string, path: string, orig: string | null) => invoke<DiffTexts>('git_diff_texts', { project, path, orig }),
   branches: (project: string) => invoke<string[]>('git_branches', { project }),
   switch: (project: string, branch: string) => invoke<void>('git_switch', { project, branch }),
-  watch: (path: string | null) => invoke<void>('watch_project', { path }),
+  watch: (path: string | null, session: number | null) => invoke<void>('watch_project', { path, session }),
 };
 
 // Acciones de git que cambian el repositorio o hablan con el remoto. Cada
@@ -44,7 +44,8 @@ export type Stash = { name: string; subject: string };
 export const gitOps = {
   fetch: (project: string) => invoke<string>('git_fetch', { project }),
   pull: (project: string) => invoke<string>('git_pull', { project }),
-  push: (project: string, setUpstream: boolean) => invoke<string>('git_push', { project, setUpstream }),
+  reviewPush: (project: string, setUpstream: boolean) => invoke<Review>('git_review_push', { project, setUpstream }),
+  push: (project: string, setUpstream: boolean, proof: Proof) => invoke<string>('git_push', { project, setUpstream, proof }),
   stash: (project: string, message: string | null) => invoke<string>('git_stash', { project, message }),
   stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
   stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
@@ -97,16 +98,19 @@ export type Opened = {
   turns: CTurn[];
   rateLimits: RateLimits | null;
   activeTurn: string | null;
+  models?: { id: string; label: string; efforts: string[] }[];
+  pinnedModel?: string | null;
 };
 export type CoordinatorEvent = { method: string; params: any; requestId: unknown | null };
 export type Decision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
 export const coordinator = {
-  open: (project: string) => invoke<Opened>('coordinator_open', { project }),
-  send: (project: string, text: string, effort: string | null) => invoke<void>('coordinator_send', { project, text, effort }),
-  interrupt: (project: string) => invoke<void>('coordinator_interrupt', { project }),
+  open: (project: string, session: number | null = null) => invoke<Opened>('coordinator_open', { project, session }),
+  send: (project: string, text: string, effort: string | null, session: number | null, task: number | null) => invoke<void>('coordinator_send', { project, text, effort, session, task }),
+  interrupt: (project: string, session: number | null) => invoke<void>('coordinator_interrupt', { project, session }),
   respond: (requestId: unknown, decision: Decision) => invoke<void>('coordinator_respond', { requestId, decision }),
   setProfile: (project: string, profile: string) => invoke<void>('coordinator_set_profile', { project, profile }),
+  pinModel: (project: string, session: number, model: string | null) => invoke<void>('codex_pin_model', { project, session, model }),
 };
 
 // Sesiones de agentes ejecutores (Claude Code en este tramo). Los mensajes
@@ -138,7 +142,7 @@ export type AcpOption = { id: string; name: string; category: string; currentVal
 
 export const sessions = {
   list: (project: string) => invoke<Session[]>('session_list', { project }),
-  create: (project: string, engine: string) => invoke<CreatedSession>('session_create', { project, engine }),
+  create: (project: string, engine: string, task: number | null = null) => invoke<CreatedSession>('session_create', { project, engine, task }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
   send: (id: number, text: string, effort: string | null) => invoke<void>('session_send', { id, text, effort }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
@@ -151,10 +155,89 @@ export const sessions = {
   cleanup: (id: number) => invoke<void>('session_cleanup', { id }),
   pause: (id: number) => invoke<void>('session_pause', { id }),
   setOption: (id: number, key: string, value: string) => invoke<AcpOption[]>('session_set_option', { id, key, value }),
+  claudeOptions: (id: number) => invoke<{ models: { id: string; label: string }[]; pinnedModel: string | null }>('claude_chat_options', { id }),
   orphans: (project: string) => invoke<Session[]>('session_orphans', { project }),
   reopen: (id: number) => invoke<Session>('session_reopen', { id }),
   resume: (id: number) => invoke<void>('session_resume', { id }),
   handoff: (id: number, engine: string) => invoke<Session>('session_handoff', { id, engine }),
+};
+
+export type TaskEdit = {
+  id: number | null;
+  parentId: number | null;
+  title: string;
+  goal: string;
+  criteria: string;
+  priority: string;
+  risk: string;
+  status: string;
+  verification: string;
+  tests: string | null;
+  dependencies: number[];
+};
+export type Task = Omit<TaskEdit, 'id'> & {
+  id: number;
+  createdAt: number;
+  updatedAt: number;
+  waitingFor: number[];
+  sessions: (Pick<Session, 'id' | 'name' | 'engine' | 'branch' | 'worktree' | 'baseCommit'> & {
+    closed: boolean;
+    github: { commits: { oid: string; subject: string }[]; pulls: PrInfo[] } | null;
+  })[];
+};
+export type TaskRun = {
+  id: number;
+  sessionId: number | null;
+  provider: string;
+  model: string | null;
+  startedMs: number;
+  durationMs: number | null;
+  outcome: string;
+  retry: boolean;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  costEstimateUsd: number | null;
+  quotaShort: [number, number] | null;
+  quotaLong: [number, number] | null;
+  contextTokens: number | null;
+  memory: BrainReference[];
+  routing: {
+    source: 'local' | 'shadow' | 'jev';
+    reason: string | null;
+    effort: string | null;
+    recommendedEffort: string | null;
+    confidence: number | null;
+    model: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    costEstimateUsd: number | null;
+    durationMs: number | null;
+    complexity: string | null;
+    review: string | null;
+    context: string | null;
+    eventAdvice: string | null;
+    executionModel: string | null;
+  } | null;
+};
+export type JevSettings = {
+  mode: 'local' | 'active' | 'shadow';
+  policy: 'economy' | 'balanced' | 'quality';
+  timeoutSecs: number;
+  model: string | null;
+  lightModel: string | null;
+};
+export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export const jev = {
+  status: () => invoke<JevStatus>('jev_status'),
+  configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
+};
+export const tasks = {
+  list: (project: string) => invoke<Task[]>('tasks_list', { project }),
+  save: (project: string, input: TaskEdit) => invoke<number>('task_save', { project, input }),
+  link: (project: string, task: number, session: number) => invoke<void>('task_link', { project, task, session }),
+  runs: (project: string, task: number) => invoke<TaskRun[]>('task_runs', { project, task }),
+  parallelLimit: (project: string, limit: number | null = null) => invoke<number>('task_parallel_limit', { project, limit }),
 };
 
 // Larry: propuesta y creación de commits locales.
@@ -169,9 +252,16 @@ export const larry = {
 };
 
 // Publicar la rama y abrir la PR (gh). Siempre por acción explícita.
-export type PrInfo = { url: string; state: string; isDraft: boolean; checks: [number, number, number] };
+export type PrInfo = {
+  number: number; url: string; state: string; isDraft: boolean; branch: string; base: string; head: string;
+  checks: [number, number, number]; checksState: 'success' | 'pending' | 'failure' | 'unknown';
+  checksKnown: boolean;
+  review: string | null; mergeState: string; observedAt: number;
+};
 export type PrDraft = {
   branch: string;
+  head: string;
+  repository: string | null;
   bases: string[];
   base: string;
   title: string;
@@ -181,14 +271,32 @@ export type PrDraft = {
   existing: PrInfo | null;
   previous: PrInfo | null;
   blocked: string | null;
+  remoteError: string | null;
+  taskId: number | null;
+  larryChecked: boolean;
 };
 
+export type Review = { id: string; message: string; code: string };
+export type Proof = { id: string; typed: string };
+export const cancelReview = (id: string) => invoke<void>('cancel_review', { id });
+
+const publicationEdit = (draft: PrDraft, title: string, body: string, draftPr: boolean) => ({
+  expectedBranch: draft.branch, expectedHead: draft.head, expectedRepository: draft.repository, base: draft.base, title, body, draftPr,
+});
+const mergeEdit = (pull: PrInfo, method: string) => ({ number: pull.number, head: pull.head, base: pull.base, method });
+
 export const pr = {
-  draft: (project: string, session: number | null, base: string | null) => invoke<PrDraft>('pr_draft', { project, session, base }),
-  publish: (project: string, session: number | null, base: string, title: string, body: string, draftPr: boolean) =>
-    invoke<PrInfo>('pr_publish', { project, session, base, title, body, draftPr }),
+  draft: (path: string, session: number | null, base: string | null) => invoke<PrDraft>('pr_draft', { path, session, base }),
+  reviewPublish: (path: string, session: number | null, draft: PrDraft, title: string, body: string, draftPr: boolean) =>
+    invoke<Review>('pr_review_publish', { path, session, edit: publicationEdit(draft, title, body, draftPr) }),
+  publish: (path: string, session: number | null, draft: PrDraft, title: string, body: string, draftPr: boolean, proof: Proof) =>
+    invoke<PrInfo>('pr_publish', { path, session, edit: publicationEdit(draft, title, body, draftPr), proof }),
+  reviewMerge: (path: string, session: number | null, pull: PrInfo, method: string) =>
+    invoke<Review>('pr_review_merge', { path, session, edit: mergeEdit(pull, method) }),
+  merge: (path: string, session: number | null, pull: PrInfo, method: string, proof: Proof) =>
+    invoke<PrInfo>('pr_merge', { path, session, edit: mergeEdit(pull, method), proof }),
   open: (url: string) => invoke<void>('open_pr_url', { url }),
-  status: (project: string, session: number | null) => invoke<PrInfo | null>('pr_status', { project, session }),
+  status: (path: string, session: number | null, number: number) => invoke<PrInfo>('pr_status', { path, session, number }),
 };
 
 // Herramientas externas que usa el IDE.
@@ -208,4 +316,63 @@ export const containers = {
   list: (project: string) => invoke<ContainersView>('containers_list', { project }),
   link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
   unlink: (id: string) => invoke<void>('container_unlink', { id }),
+};
+
+export type HealthFinding = {
+  fingerprint: string; path: string | null; line: number | null; rule: string; severity: string;
+  previous: boolean; status: string; resolution: string;
+};
+export type HealthRun = {
+  id: number; task: number | null; tool: string; version: string | null; source: string; revision: string | null;
+  digest: string | null; outcome: string; observed: number; findings: HealthFinding[];
+};
+export type HealthCheck = 'diff' | 'build' | 'typecheck' | 'lint' | 'test' | 'cargo_check' | 'cargo_test' | 'cargo_clippy';
+export const health = {
+  list: (project: string, session: number | null) => invoke<HealthRun[]>('health_list', { project, session }),
+  file: (project: string, session: number | null, path: string) => invoke<string>('health_file', { project, session, path }),
+  ci: (project: string, session: number | null) => invoke<PrInfo[]>('health_ci', { project, session }),
+  run: (project: string, session: number | null, check: HealthCheck) => invoke<void>('health_run', { project, session, check }),
+  import: (project: string, session: number | null, report: string) => invoke<void>('health_import', { project, session, report }),
+  resolve: (project: string, session: number | null, run: number, fingerprint: string, status: string, resolution: string) =>
+    invoke<void>('health_resolve', { project, session, run, fingerprint, status, resolution }),
+};
+
+export type DesignScreen = { id: number | null; name: string; url: string; constraints: string; revision: number | null; approved: number | null };
+export type DesignShot = { id: number; width: number; height: number; source: string; url: string | null; note: string; status: string; observed: number };
+export type DesignRegion = { x: number; y: number; width: number; height: number };
+export const design = {
+  list: (project: string) => invoke<DesignScreen[]>('design_list', { project }),
+  save: (project: string, screen: DesignScreen) => invoke<number>('design_save', { project, screen }),
+  shots: (project: string, screen: number) => invoke<DesignShot[]>('design_shots', { project, screen }),
+  image: (project: string, screen: number, shot: number) => invoke<string>('design_image', { project, screen, shot }),
+  preview: (project: string, screen: number) => invoke<void>('design_preview', { project, screen }),
+  capture: (project: string, screen: number, width: number, height: number, note: string) =>
+    invoke<number>('design_capture', { project, screen, width, height, note }),
+  import: (project: string, screen: number, png: string, note: string) => invoke<number>('design_import', { project, screen, png, note }),
+  review: (project: string, screen: number, review: { shot: number; baseline: number | null; revision: number; approve: boolean; confirmed: boolean }) =>
+    invoke<void>('design_review', { project, screen, review }),
+  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean }) =>
+    invoke<void>('design_send', { project, brief }),
+};
+
+export type BrainKind = 'fact' | 'decision' | 'preference' | 'constraint' | 'evidence' | 'outcome';
+export type BrainDraft = {
+  id: number | null; version: number | null; global: boolean; task: number | null; kind: BrainKind;
+  title: string; body: string; source: string; sourceTask: number | null; sourceRun: number | null;
+  share: boolean; validUntil: number | null;
+};
+export type BrainEntry = BrainDraft & { created: number; updated: number };
+export type BrainNodeKind = BrainKind | 'task' | 'pr';
+export type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean };
+export type BrainEdge = { from: string; to: string; kind: 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
+export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
+export type BrainGraphFilter = { project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
+export type BrainReference = { id: number; version: number; source: string };
+export const brain = {
+  graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
+  entry: (project: string, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
+  search: (project: string, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
+  preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
+  save: (project: string, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
+  forget: (project: string, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
 };

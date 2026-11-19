@@ -17,7 +17,7 @@ use crate::{err, AppState, CmdResult};
 // mensajes. Nunca hace push, amend, rebase ni `--no-verify`.
 
 const SCRIPT: &str = include_str!("../resources/larry/agrupar-commits.mjs");
-const SKILL: &str = include_str!("../resources/larry/SKILL.md");
+const COMMIT_RULES: &str = include_str!("../resources/skills/github-flow/references/larry.md");
 /// Límite de diff que se le enseña al modelo (caracteres).
 const DIFF_BUDGET: usize = 24_000;
 
@@ -219,7 +219,7 @@ Toda la información necesaria está en este mensaje: no leas archivos, no ejecu
         serde_json::to_string_pretty(&summary).map_err(err)?,
         doubtful_diffs(repo, &groups)
     );
-    let instructions = format!("Eres Larry, el responsable de los commits. Solo propones; el usuario revisa y el IDE crea los commits.\n\n{SKILL}");
+    let instructions = format!("Eres Larry, el responsable de los commits. Solo propones; el usuario revisa y el IDE crea los commits.\n\n{COMMIT_RULES}");
     let state = app.state::<AppState>();
     let answer = state.codex.run_structured(app, &repo.to_string_lossy(), &instructions, &prompt, schema(), "low", PROPOSE_LIMIT);
     let parsed = answer.and_then(|text| {
@@ -266,7 +266,7 @@ fn git_env(repo: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Crea los commits en orden. Se detiene en el primer problema y deja el
 /// repositorio en un estado visible: nunca deshace ni fuerza nada.
-pub fn commit(repo: &Path, commits: &[Commit]) -> CmdResult<Outcome> {
+fn commit_recording(repo: &Path, commits: &[Commit], mut record: impl FnMut(&str, &str) -> CmdResult<()>) -> CmdResult<Outcome> {
     ensure_index_empty(repo)?;
     let changed = changed_files(&parse_script(&run_script(repo)?)?);
     validate(commits, &changed).map_err(|e| format!("el plan ya no coincide con los cambios ({e}): vuelve a pedirle a Larry"))?;
@@ -283,11 +283,18 @@ pub fn commit(repo: &Path, commits: &[Commit]) -> CmdResult<Outcome> {
         if staged != wanted {
             return Ok(Outcome { created, stopped: Some(format!("lo preparado para «{subject}» no coincide con el plan; revisa el índice antes de seguir")) });
         }
+        if let Err(e) = git_env(repo, &["diff", "--cached", "--check"]) {
+            return Ok(Outcome { created, stopped: Some(format!("falló la comprobación local de «{subject}»: {e}")) });
+        }
         if let Err(e) = git_env(repo, &["commit", "-m", &c.message]) {
             return Ok(Outcome { created, stopped: Some(format!("el commit «{subject}» no se creó (¿un hook?): {e}")) });
         }
         let hash = git(repo, &["rev-parse", "--short", "HEAD"]).map(|h| String::from_utf8_lossy(&h).trim().to_string()).unwrap_or_default();
         created.push(format!("{hash} {subject}"));
+        let oid = crate::pr::value(repo, &["rev-parse", "HEAD"]);
+        if let Err(e) = oid.and_then(|oid| record(&oid, &subject)) {
+            return Ok(Outcome { created, stopped: Some(format!("el commit quedó en Git, pero no se pudo registrar en el tablero: {e}")) });
+        }
         // Un hook que reescribe archivos del commit los deja cambiados.
         let mut status = vec!["status", "--porcelain", "-z", "--"];
         status.extend(c.files.iter().map(String::as_str));
@@ -298,6 +305,11 @@ pub fn commit(repo: &Path, commits: &[Commit]) -> CmdResult<Outcome> {
         }
     }
     Ok(Outcome { created, stopped: None })
+}
+
+#[cfg(test)]
+fn commit(repo: &Path, commits: &[Commit]) -> CmdResult<Outcome> {
+    commit_recording(repo, commits, |_, _| Ok(()))
 }
 
 // ── comandos ────────────────────────────────────────────────────────────
@@ -321,9 +333,16 @@ pub async fn larry_groups(app: AppHandle, project: String, session: Option<i64>)
 #[tauri::command]
 pub async fn larry_commit(app: AppHandle, project: String, session: Option<i64>, commits: Vec<Commit>) -> CmdResult<Outcome> {
     tauri::async_runtime::spawn_blocking(move || {
-        let dir = crate::isolate::work_dir(&app.state::<AppState>(), &project, session)?;
-        let outcome = commit(&dir, &commits);
+        let state = app.state::<AppState>();
+        let project = crate::workspace::project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let dir = crate::isolate::work_dir(&state, &project, session)?;
+        let outcome = commit_recording(&dir, &commits, |oid, subject| {
+            let branch = crate::pr::value(&dir, &["branch", "--show-current"])?;
+            let conn = state.db.lock().map_err(err)?;
+            crate::github::record_commit(&conn, &project, &branch, oid, subject)
+        });
         let _ = app.emit("project-changed", ());
+        crate::tasks::changed(&app);
         outcome
     })
     .await
@@ -380,11 +399,29 @@ mod tests {
         assert!(err.contains("ajeno.txt"), "{err}");
         std::fs::remove_file(dir.join("ajeno.txt")).unwrap();
 
-        let out = commit(&dir, &[c("fix: corrige a", &["a.rs"]), c("docs: añade notas", &["notas.md"])]).unwrap();
+        let conn = crate::db::open(Path::new(":memory:")).unwrap();
+        let out = commit_recording(&dir, &[c("fix: corrige a", &["a.rs"]), c("docs: añade notas", &["notas.md"])], |oid, subject| {
+            crate::github::record_commit(&conn, "proyecto", "main", oid, subject)
+        }).unwrap();
         assert_eq!(out.stopped, None);
+        let links = crate::github::branch(&conn, "proyecto", "main").unwrap();
+        assert_eq!(links.commits.len(), 2);
+        assert_eq!(links.commits[0].oid, crate::pr::value(&dir, &["rev-parse", "HEAD"]).unwrap());
         let log = String::from_utf8(git(&dir, &["log", "--format=%s", "-3"]).unwrap()).unwrap();
         assert_eq!(log, "docs: añade notas\nfix: corrige a\ninicio\n");
         assert!(git(&dir, &["status", "--porcelain"]).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn stops_before_commit_when_the_local_diff_check_fails() {
+        let dir = repo("diff-check");
+        std::fs::write(dir.join("a.rs"), "a\nb \n").unwrap();
+        let out = commit(&dir, &[c("fix: corrige a", &["a.rs"])]).unwrap();
+        assert!(out.created.is_empty());
+        assert!(out.stopped.unwrap().contains("comprobación local"));
+        assert_eq!(git(&dir, &["log", "-1", "--format=%s"]).unwrap(), b"inicio\n");
+        assert_eq!(git(&dir, &["diff", "--cached", "--name-only"]).unwrap(), b"a.rs\n");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

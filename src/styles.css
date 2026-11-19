@@ -2019,6 +2019,12 @@ button.co-file:hover {
   background: var(--tx4);
 }
 
+.jev-settings { max-width: 72ch; margin-top: 18px; }
+.jev-settings h2 { margin: 0; font-size: inherit; }
+.jev-options { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
+.jev-options input[type="number"] { width: 7ch; }
+.jev-settings .jev-check { grid-template-columns: auto 1fr; align-items: start; }
+
 .tool-dot.is-ok {
   background: var(--ok);
 }
@@ -3773,87 +3779,116 @@ html[data-native][data-platform='mac'] .status {
   }
 }
 
-/* ── Windows ────────────────────────────────────────────────
-   Mismo diseño que en macOS: sin barra de título nativa, la franja de
-   48 px sirve para arrastrar la ventana y los botones de ventana van a
-   la derecha (46 px cada uno, glifos de Windows 11). La cabecera lateral
-   mantiene sus 48 px aunque no haya semáforo. */
-html[data-native][data-platform='win'] .app.no-side .tabs {
-  padding-left: 8px;
+/* Tablero de tareas */
+.task-body {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr);
+  min-height: 0;
+  flex: 1;
 }
-
-html[data-native][data-platform='win'] .app:not(.has-git) .tabs,
-html[data-native][data-platform='win'] .rh {
-  padding-right: 146px;
+.task-list, .task-detail { overflow: auto; padding: 12px; }
+.task-list { border-right: 1px solid var(--line); }
+.task-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
-
-/* Con los botones de ventana encima, contenedores queda solo en icono. */
-html[data-native][data-platform='win'] .rh-btn + .rh-btn > span {
-  display: none;
-}
-
-.win-caption {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 1000;
+.task-row:hover, .task-row[aria-current="true"] { background: var(--line); }
+.task-title, .task-actions, .task-options {
   display: flex;
-  height: 48px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-
-.win-caption button {
-  width: 46px;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--tx2);
-  font: 10px 'Segoe Fluent Icons', 'Segoe MDL2 Assets';
-  transition:
-    background var(--fast),
-    color var(--fast);
+.task-title { justify-content: space-between; }
+.task-title h2, .task-runs h3 { font-size: inherit; margin: 0; }
+.task-limit-control { white-space: nowrap; color: var(--mute); }
+.task-limit { width: 4.5ch; color: inherit; font: inherit; background: var(--bg); border: 1px solid var(--line); }
+.task-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-form, .task-form label { display: grid; gap: 6px; }
+.task-form { gap: 12px; }
+.task-form input:not([type="checkbox"]), .task-form textarea, .task-form select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px;
 }
+.task-form textarea { min-height: 48px; resize: vertical; }
+.task-deps { border: 1px solid var(--line); }
+.task-deps label { display: block; }
+.task-facts { display: grid; grid-template-columns: minmax(80px, max-content) minmax(0, 1fr); gap: 4px 10px; }
+.task-facts dt { color: var(--mute); }
+.task-facts dd { margin: 0; overflow-wrap: anywhere; }
+.task-sessions { padding-inline-start: 16px; }
+.task-runs details { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+.task-runs summary { cursor: pointer; }
+.coach > .coach { flex: 1; min-height: 0; }
 
-.win-caption.is-blur button {
-  color: var(--tx4);
-}
+.remote-review { padding: 10px; overflow-wrap: anywhere; }
+.remote-review p { margin: 0 0 8px; }
+.remote-review .co-actions { display: flex; gap: 8px; margin-top: 8px; }
 
-.win-caption button:hover {
-  background: rgb(255 255 255 / 0.06);
-  color: var(--tx);
-}
+.p5-panel { width: 100%; }
+.p5-panel h2 { margin: 0 0 8px; font-size: inherit; }
+.p5-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.p5-actions > label { min-width: 0; }
+.p5-actions input[type="number"] { width: 8ch; }
+.p5-panel label.p5-check { display: flex; align-items: center; gap: 6px; }
+.p5-section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
+.p5-panel .p5-upload { position: relative; cursor: pointer; }
+.p5-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.p5-upload:focus-within { outline: 2px solid currentColor; outline-offset: 2px; }
+.p5-record { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.p5-record summary { cursor: pointer; overflow-wrap: anywhere; }
+.p5-finding { padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.p5-finding p { margin: 0 0 4px; }
+.design-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-items: start; gap: 12px; margin: 12px 0; }
+.design-comparison figure { min-width: 0; margin: 0; }
+.design-comparison figcaption { margin-bottom: 4px; color: var(--tx3); }
+.design-comparison img { display: block; width: 100%; height: auto; }
+.design-region { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
+.design-region-outline { position: absolute; pointer-events: none; border: 2px solid white; box-shadow: 0 0 0 1px #121212; }
+.design-wipe { margin: 14px 0; max-width: 740px; }
+.design-wipe label { display: grid; gap: 6px; }
+.design-crop { position: relative; overflow: hidden; }
+.design-crop img { position: absolute; height: auto; display: block; }
+.design-crop-layer { position: absolute; inset: 0; overflow: hidden; }
 
-.win-caption button:active {
-  background: rgb(255 255 255 / 0.04);
-}
-
-.win-caption .is-close:hover {
-  background: #c42b1c;
-  color: #fff;
-}
-
-.win-caption .is-close:active {
-  background: #b0281a;
-  color: rgb(255 255 255 / 0.8);
-}
-
-/* Windows 11: Mica oscuro detrás de la barra lateral, como el material
-   de macOS; el resto de la ventana es opaco. */
-html[data-backdrop][data-platform='win'],
-html[data-backdrop][data-platform='win'] body,
-html[data-backdrop][data-platform='win'] #root,
-html[data-backdrop][data-platform='win'] .app {
-  background: transparent;
-}
-
-html[data-backdrop][data-platform='win'] .sidebar {
-  background: rgb(10 10 10 / 0.6);
-}
-
-html[data-backdrop][data-platform='win'] .tabs,
-html[data-backdrop][data-platform='win'] .main,
-html[data-backdrop][data-platform='win'] .git,
-html[data-backdrop][data-platform='win'] .status {
+.brain-graph-caption { margin: 14px 0 8px; }
+.brain-graph-scroll {
+  flex: none;
+  max-height: min(54vh, 520px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background: var(--bg);
 }
+.brain-graph-map { position: relative; }
+.brain-graph-map canvas { position: absolute; inset: 0; pointer-events: none; }
+.brain-graph-column { position: absolute; top: 10px; color: var(--tx3); font-size: 12px; }
+.brain-graph-node {
+  position: absolute;
+  height: 48px;
+  padding: 4px 8px;
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-left: 3px solid #84bbff;
+  border-radius: 5px;
+  background: var(--s1);
+  color: inherit;
+}
+.brain-graph-node[data-kind="task"] { border-left-color: #8dceac; }
+.brain-graph-node[data-kind="pr"] { border-left-color: #cfaae8; }
+.brain-graph-node[data-related="true"] { border-top-style: dashed; border-bottom-style: dashed; }
+.brain-graph-node[aria-pressed="true"] { border-color: #84bbff; background: var(--s2); }
+.brain-graph-node span { color: var(--tx3); font-size: 10px; }
+.brain-graph-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.brain-graph-details li { margin-block: 4px; overflow-wrap: anywhere; }

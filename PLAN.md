@@ -1,6 +1,7 @@
 # Plan de implementación — Filigranas IDE
 
-**Estado:** entrega 1 en curso · **Plataformas:** macOS (prioridad) y Windows, desarrollo en ambas · **Fecha:** 2026-11-16  
+**Estado de V1:** cinco entregas con implementación y [aceptación por escenario](docs/aceptacion-v1.md) · **Plataformas:** macOS (prioridad) y Windows · **Fecha del plan:** 2026-11-16
+
 **Referencia visual:** [mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) (estética de terminal, ultra minimalista). [`docs/mockup.html`](docs/mockup.html) queda como primera versión. Los mockups usan datos de ejemplo y no ejecutan agentes ni comandos.
 
 ## 1. Resultado esperado
@@ -18,7 +19,7 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
 - **Persistencia:** tras reiniciar, recuperar grupos, proyectos archivados, tareas, relación con sesiones de proveedor y ramas. No importar las sesiones antiguas de MonoCode u otras aplicaciones en la primera versión.
 - **Estados visibles:** inactiva, en marcha, esperando permiso, pausada por cuota, fallida, lista para revisar, integrada. Las acciones que no estén disponibles para un proveedor se muestran desactivadas con su motivo.
 - **Identidad (Barça):** paleta blaugrana: negro azulado de base, rojo como acento, azul para estados y dorado para «esperando permiso». Tipografía monoespaciada Iosevka, incluida con licencia SIL OFL, en toda la interfaz, el editor y los terminales. Algunos textos de orientación y acciones principales usan negrita para dar jerarquía. Sin textos ni elementos superfluos. En macOS, paneles con vibrancy nativa; en Windows, Mica/Acrylic.
-- **Norma obligatoria · semáforo macOS (2026-11-17):** respetar el espaciado de [la captura aprobada](docs/referencias/semaforo-macos.png): 16 puntos lógicos de margen superior e izquierdo, botones de aproximadamente 14 puntos y 23 puntos entre centros (9 puntos libres). Reservar 48 puntos de cabecera lateral. Mantener los controles nativos en la app y reproducir esas medidas en el mock del navegador; no compactarlos ni moverlos en futuros rediseños sin petición expresa del usuario. Referencia: el semáforo de ChatGPT. Configuración: `trafficLightPosition: { x: 16, y: 16 }` más colocación explícita de los controles nativos en `window.rs`, porque Tauri solo mueve el grupo. Verificar visualmente tras cambios de ventana o Tauri.
+- **Norma obligatoria · semáforo macOS (2026-11-17):** aplicar la [referencia aprobada y sus medidas](src-tauri/resources/skills/design-loop/references/semaforo-macos.md).
 - **Coordinadores:** Codex es el motor principal de coordinación en la primera versión, mediante `app-server`, y también puede ejecutar tareas cuando sea la mejor opción. Si agota su cuota, otro motor puede asumir temporalmente la coordinación con un relevo verificable; solo uno coordina cada proyecto a la vez. El usuario elige el perfil Hansi Flick (directo y eficaz, por defecto), Pep Guardiola (perfeccionista y controlador), Luis Enrique (innovador, identidad propia) o Johan Cruyff (completo, el mejor en todos los terrenos). Los perfiles cambian el tono, el nivel de control y el criterio de delegación, no las capacidades. Los otros cuatro agentes siguen disponibles para ejecutar tareas y recibir relevos.
 - **Agentes:** cada sesión nueva recibe el nombre de un futbolista histórico del Barça (xavi, iniesta, puyol, messi, ronaldinho, kubala, koeman, stoichkov, laudrup, rivaldo, busquets…), sin repetir entre las sesiones activas de un proyecto. El nombre identifica la sesión en pestañas, conversación y relevos; el motor se muestra aparte.
 
@@ -67,6 +68,8 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
    - **Empaquetado:** `npm run tauri build` genera el `.dmg` en macOS; el `.msi` se genera en Windows. Las CLI externas se resuelven en Windows por su `.exe`/`.cmd` en el PATH.
 
 ## 6. Comprobaciones de aceptación
+
+Estos son criterios del plan original. Consulta la [aceptación de V1](docs/aceptacion-v1.md) para saber qué se ejecutó en la base de V2 y dónde difiere el código actual.
 
 - La app detecta los 12 repositorios existentes y uno nuevo sin reiniciar; agrupar, archivar y restaurar no mueve ni borra carpetas.
 - Editor y terminal operan en la ruta que muestra la sesión activa; al cambiar de tarea no se mezclan archivos ni procesos. Se pueden abrir dos terminales del mismo proyecto, ejecutar comandos distintos y alternar entre ellos sin perder la salida ni cerrar el otro proceso.

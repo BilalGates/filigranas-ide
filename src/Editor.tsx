@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './ipc';
-import { darkQuery, loadMonaco, themeName } from './monacoLoader';
+import { loadMonaco, themeName } from './monacoLoader';
+
+// Los modelos de Monaco sobreviven al componente para conservar el historial
+// de deshacer. La versión guardada también debe pertenecer a cada modelo.
+const savedVersions = new WeakMap<Monaco.editor.ITextModel, number>();
 
 /**
  * Editor del archivo seleccionado. Guarda con ⌘S / Ctrl+S y marca con un
@@ -12,7 +16,7 @@ import { darkQuery, loadMonaco, themeName } from './monacoLoader';
 export default function Editor({ path, root, session = null, onError }: { path: string; root: string; session?: number | null; onError: (msg: string) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-  const saved = useRef<number>(0);
+  const [ready, setReady] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onErrorRef = useRef(onError);
@@ -24,12 +28,13 @@ export default function Editor({ path, root, session = null, onError }: { path: 
     loadMonaco().then(({ monaco, baseOptions }) => {
       if (disposed || !host.current) return;
       editor.current = monaco.editor.create(host.current, { ...baseOptions(), model: null });
-    });
+      setReady(true);
+    }, (e) => !disposed && setError(String(e)));
     const onScheme = () => loadMonaco().then(({ monaco }) => monaco.editor.setTheme(themeName()));
-    darkQuery.addEventListener('change', onScheme);
+    window.addEventListener('filigranas-theme-changed', onScheme);
     return () => {
       disposed = true;
-      darkQuery.removeEventListener('change', onScheme);
+      window.removeEventListener('filigranas-theme-changed', onScheme);
       editor.current?.dispose();
       editor.current = null;
     };
@@ -37,6 +42,7 @@ export default function Editor({ path, root, session = null, onError }: { path: 
 
   // Cargar el archivo al cambiar de ruta.
   useEffect(() => {
+    if (!ready) return;
     let alive = true;
     setError(null);
     Promise.all([loadMonaco(), api.readText(path, session)]).then(
@@ -46,17 +52,18 @@ export default function Editor({ path, root, session = null, onError }: { path: 
         let model = monaco.editor.getModel(uri);
         if (!model) {
           model = monaco.editor.createModel(text, languageFor(path), uri);
-          saved.current = model.getAlternativeVersionId();
-        } else if (model.getAlternativeVersionId() === saved.current && model.getValue() !== text) {
+          savedVersions.set(model, model.getAlternativeVersionId());
+        } else if (model.getAlternativeVersionId() === savedVersions.get(model) && model.getValue() !== text) {
           // Sin cambios locales: tomar la versión del disco.
           model.setValue(text);
-          saved.current = model.getAlternativeVersionId();
+          savedVersions.set(model, model.getAlternativeVersionId());
         }
         const ed = editor.current;
         if (!ed) return;
+        if (!savedVersions.has(model)) savedVersions.set(model, model.getAlternativeVersionId());
         ed.setModel(model);
-        setDirty(model.getAlternativeVersionId() !== saved.current);
-        const sub = model.onDidChangeContent(() => setDirty(model!.getAlternativeVersionId() !== saved.current));
+        setDirty(model.getAlternativeVersionId() !== savedVersions.get(model));
+        const sub = model.onDidChangeContent(() => setDirty(model!.getAlternativeVersionId() !== savedVersions.get(model!)));
         const save = ed.addAction({
           id: 'filigranas.save',
           label: 'guardar',
@@ -65,10 +72,15 @@ export default function Editor({ path, root, session = null, onError }: { path: 
             const version = model!.getAlternativeVersionId();
             const content = model!.getValue();
             try {
+              const currentDisk = await api.readText(path, session);
+              if (currentDisk !== disk) {
+                onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; vuelve a abrirlo antes de guardar`);
+                return;
+              }
               await api.writeText(path, content, session);
               disk = content;
-              saved.current = version;
-              setDirty(model!.getAlternativeVersionId() !== version);
+              savedVersions.set(model!, version);
+              if (alive) setDirty(model!.getAlternativeVersionId() !== version);
             } catch (e) {
               onErrorRef.current(String(e));
             }
@@ -80,6 +92,9 @@ export default function Editor({ path, root, session = null, onError }: { path: 
         // locales se toma la versión del disco; con ellos no se toca nada y
         // se avisa, porque guardar sobrescribiría lo que hay en disco.
         let disk = text;
+        if (model.getValue() !== text && model.getAlternativeVersionId() !== savedVersions.get(model)) {
+          onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; vuelve a abrirlo antes de guardar`);
+        }
         let timer: number | undefined;
         const reload = () =>
           api.readText(path, session).then(
@@ -88,10 +103,10 @@ export default function Editor({ path, root, session = null, onError }: { path: 
               disk = now;
               // Lo guardado desde aquí también llega por el observador.
               if (now === model!.getValue()) return;
-              if (model!.getAlternativeVersionId() === saved.current) {
+              if (model!.getAlternativeVersionId() === savedVersions.get(model!)) {
                 const view = ed.saveViewState();
                 model!.setValue(now);
-                saved.current = model!.getAlternativeVersionId();
+                savedVersions.set(model!, model!.getAlternativeVersionId());
                 if (view) ed.restoreViewState(view);
               } else {
                 onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; guardar sobrescribirá esa versión`);
@@ -125,7 +140,7 @@ export default function Editor({ path, root, session = null, onError }: { path: 
       alive = false;
       cleanup();
     };
-  }, [path, session]);
+  }, [path, session, ready]);
 
   const rel = root && path.startsWith(root) ? path.slice(root.length + 1) : path;
   const sep = rel.search(/[^\\/]*$/);

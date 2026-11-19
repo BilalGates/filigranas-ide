@@ -1,9 +1,4 @@
----
-name: commits
-description: Agrupar cambios en commits atómicos por unidad funcional y redactar mensajes Conventional Commits. La usa Larry; cárgala también para revisar si un historial es revisable.
----
-
-# commits
+# Commits con Larry
 
 ## Agrupar por unidad funcional
 

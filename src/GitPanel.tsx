@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Stash } from './ipc';
+import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Review, type Stash } from './ipc';
+import ApprovalForm from './ApprovalForm';
 import Splitter, { SIZES } from './Splitter';
 import GitGraph, { layoutGraph, parseRefs } from './GitGraph';
 import { beep, useCommand } from './ui';
@@ -75,6 +76,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   const [error, setError] = useState<string | null>(null);
   const request = useRef(0);
   const [op, setOp] = useState<string | null>(null);
+  const [pushReview, setPushReview] = useState<{ review: Review; upstream: boolean } | null>(null);
   const [output, setOutput] = useState<{ text: string; ok: boolean; key: number } | null>(null);
   const [menu, setMenu] = useState<'branch' | 'commit' | 'more' | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
@@ -110,6 +112,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
     setDraft(EMPTY);
     setMessage('');
     setOutput(null);
+    setPushReview(null);
     setDetail(null);
     refresh();
     let timer: number | undefined;
@@ -195,6 +198,12 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
       : [];
   const ready = commits.length > 0 && commits.every((c) => c.message.trim()) && !draft.loading;
 
+  const reviewPush = (upstream: boolean) => {
+    setOp('push');
+    gitOps.reviewPush(project, upstream).then((review) => setPushReview({ review, upstream }), (error) => say(String(error), false))
+      .finally(() => setOp(null));
+  };
+
   const commit = (andPush: boolean) => {
     if (!ready || op) return;
     setMenu(null);
@@ -211,11 +220,9 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
         }
         beep('done');
         const n = outcome.created.length;
-        if (andPush) run('push', () => gitOps.push(project, !status?.upstream).then((t) => `${n} commit${n === 1 ? '' : 's'} · ${t}`));
-        else {
-          say(`${n} commit${n === 1 ? '' : 's'} creado${n === 1 ? '' : 's'}`);
-          refresh();
-        }
+        say(`${n} commit${n === 1 ? '' : 's'} creado${n === 1 ? '' : 's'}`);
+        refresh();
+        if (andPush) reviewPush(!status?.upstream);
       },
       (e) => {
         setOp(null);
@@ -393,6 +400,45 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             </div>
           </section>
 
+          <div className="sync">
+            <span className="sync-n" title={status.upstream ? `→ ${status.upstream}` : 'sin rama remota'}>
+              ↑{ahead} ↓{behind}
+            </span>
+            <button className={`ic${op === 'pull' ? ' is-busy' : ''}`} aria-label="Pull" title={behind ? `pull · ${behind}` : 'pull'} disabled={!status.upstream || !!op} onClick={() => run('pull', () => gitOps.pull(project))}>
+              <Icon name="pull" />
+            </button>
+            <button className={`ic${op === 'push' ? ' is-busy' : ''}`} aria-label="Push" title={status.upstream ? 'push' : 'push · crea la rama en origin'} disabled={!status.branch || !!op || !!pushReview} onClick={() => reviewPush(!status.upstream)}>
+              <Icon name="push" />
+            </button>
+            <button className="ic" aria-label="Más acciones de git" aria-expanded={menu === 'more'} onClick={() => setMenu((m) => (m === 'more' ? null : 'more'))}>
+              <Icon name="more" />
+            </button>
+            {menu === 'more' && (
+              <div className="menu sync-menu" role="menu">
+                {more.map(([id, label, act]) => (
+                  <button key={id} role="menuitem" className="menu-item" disabled={!act || !!op} onClick={() => act?.()}>
+                    {label}
+                  </button>
+                ))}
+                <div className="menu-sep" />
+                <button
+                  role="menuitem"
+                  className="menu-item"
+                  onClick={() => {
+                    setMenu(null);
+                    onPublish();
+                  }}
+                >
+                  pull request…
+                </button>
+              </div>
+            )}
+          </div>
+          {pushReview && <ApprovalForm key={pushReview.review.id} review={pushReview.review} action="confirmar push"
+            onClose={() => setPushReview(null)} onConfirm={(proof) => {
+              setPushReview(null);
+              run('push', () => gitOps.push(project, pushReview.upstream, proof));
+            }} />}
           {output && (
             <button key={output.key} className={`git-out${output.ok ? '' : ' is-error'}`} onClick={() => setOutput(null)} title="cerrar">
               {output.text}

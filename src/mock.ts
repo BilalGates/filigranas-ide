@@ -101,6 +101,9 @@ const fail = (msg: string) => {
   throw msg;
 };
 
+let mockJevSettings = { mode: 'local', policy: 'balanced', timeoutSecs: 3, model: null, lightModel: null };
+const mockJevStatus = () => ({ settings: mockJevSettings, supported: false, service: 'Filigranas IDE TypeSafe', account: 'jev', codexModels: [] });
+
 mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
@@ -170,6 +173,12 @@ mockIPC(
         return 'Already up to date.';
       case 'git_push':
         return 'To github.com:demo/bitacola.git\n   84ab176..9af2c5a  main -> main';
+      case 'git_review_push':
+      case 'pr_review_publish':
+      case 'pr_review_merge':
+        return { id: 'revision-demo', message: 'Revisión de la operación de ejemplo', code: '9af2c5a462f7' };
+      case 'cancel_review':
+        return null;
       case 'git_stash':
         mockStashes.unshift({ name: `stash@{${mockStashes.length}}`, subject: `On main: ${a.message ?? 'cambios guardados'}` });
         return 'Saved working directory and index state WIP on main';
@@ -334,6 +343,8 @@ mockIPC(
       case 'pr_draft':
         return {
           branch: 'feat/autonomia',
+          head: '9af2c5a462f7618732f102a1f12442411c737cb3',
+          repository: 'demo/bitacola',
           bases: ['main', 'develop'],
           base: a.base ?? 'main',
           title: 'fix(lib): valida la política antes de encolar',
@@ -343,11 +354,38 @@ mockIPC(
           existing: null,
           previous: null,
           blocked: null,
+          remoteError: null,
+          taskId: null,
+          larryChecked: true,
         };
       case 'pr_publish':
-        return { url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.draftPr, checks: [2, 0, 1] };
+      case 'pr_status':
+        return { number: 7, url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.edit?.draftPr ?? true,
+          branch: 'feat/autonomia', base: a.edit?.base ?? 'main', head: '9af2c5a462f7618732f102a1f12442411c737cb3',
+          checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
       case 'open_pr_url':
         return null;
+      case 'tasks_list':
+      case 'brain_graph':
+        return { nodes: [], edges: [], limited: false };
+      case 'brain_search':
+      case 'brain_preview':
+      case 'health_list':
+      case 'health_ci':
+      case 'design_list':
+        return [];
+      case 'brain_save':
+      case 'brain_forget':
+      case 'health_run':
+      case 'health_import':
+      case 'design_save':
+        return fail('Este flujo necesita la app de escritorio de Filigranas');
+      case 'jev_status':
+        return mockJevStatus();
+      case 'jev_configure':
+        if (a.change.mode !== 'local') fail('Jev requiere un almacén de credenciales del sistema');
+        mockJevSettings = { mode: 'local', policy: a.change.policy, timeoutSecs: a.change.timeoutSecs, model: null, lightModel: null };
+        return mockJevStatus();
       case 'tools_status':
         return [
           { id: 'codex', name: 'Codex', role: 'coordinador y Larry', installed: true, loggedIn: true, detail: 'codex-cli 0.169.0', login: 'codex login' },

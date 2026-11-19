@@ -8,6 +8,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA foreign_keys = ON;
+         PRAGMA secure_delete = ON;
          CREATE TABLE IF NOT EXISTS settings (
              key   TEXT PRIMARY KEY,
              value TEXT NOT NULL
@@ -43,6 +44,13 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
          );",
     )?;
     migrate(&conn)?;
+    crate::tasks::migrate(&conn)?;
+    crate::runs::migrate(&conn)?;
+    crate::brain::migrate(&conn)?;
+    crate::jev::migrate(&conn)?;
+    crate::health::migrate(&conn)?;
+    crate::design::migrate(&conn)?;
+    crate::github::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -186,14 +194,20 @@ pub fn set_session_paused(conn: &Connection, id: i64, reason: Option<&str>) -> r
     Ok(())
 }
 
-/// Crea la sesión que recibe un relevo: misma rama y worktree que `from`.
-pub fn create_handoff(conn: &Connection, from: &Session, engine: &str, provider_session: &str, names: &[&str]) -> rusqlite::Result<Session> {
-    let new = create_session(conn, &from.project, engine, provider_session, names)?;
-    conn.execute(
+/// Transfiere la rama y el worktree a una única sesión abierta.
+pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_session: &str, names: &[&str]) -> rusqlite::Result<Session> {
+    let tx = conn.transaction()?;
+    let from = session(&tx, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    let new = create_session(&tx, &from.project, engine, provider_session, names)?;
+    tx.execute(
         "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5, integrated = ?6, task = ?7, handoff_from = ?8 WHERE id = ?1",
         params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id],
     )?;
-    Ok(session(conn, new.id)?.expect("recién creada"))
+    tx.execute("INSERT INTO task_sessions(session_id,task_id) SELECT ?1,task_id FROM task_sessions WHERE session_id=?2", [new.id,from.id])?;
+    let to = session(&tx, new.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    close_session(&tx, from.id)?;
+    tx.commit()?;
+    Ok(to)
 }
 
 /// Rama y worktree de una sesión aislada.
@@ -261,8 +275,16 @@ pub fn session_options(conn: &Connection, id: i64) -> rusqlite::Result<serde_jso
 }
 
 pub fn set_session_option(conn: &Connection, id: i64, key: &str, value: &str) -> rusqlite::Result<()> {
+    update_session_option(conn, id, key, Some(value))
+}
+
+pub fn update_session_option(conn: &Connection, id: i64, key: &str, value: Option<&str>) -> rusqlite::Result<()> {
     let mut opts = session_options(conn, id)?;
-    opts.insert(key.into(), serde_json::Value::String(value.into()));
+    if let Some(value) = value {
+        opts.insert(key.into(), serde_json::Value::String(value.into()));
+    } else {
+        opts.remove(key);
+    }
     conn.execute("UPDATE sessions SET options = ?2 WHERE id = ?1", params![id, serde_json::Value::Object(opts).to_string()])?;
     Ok(())
 }
@@ -373,15 +395,7 @@ mod tests {
 
     #[test]
     fn session_names_are_unique_among_open_sessions() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);").unwrap();
-        // Esquema completo a través de `open` no admite memoria: se repite aquí.
-        conn.execute_batch(
-            "CREATE TABLE sessions (id INTEGER PRIMARY KEY, project TEXT NOT NULL, engine TEXT NOT NULL, name TEXT NOT NULL,
-             provider_session TEXT NOT NULL, effort TEXT, closed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-             worktree TEXT, branch TEXT, base TEXT, base_commit TEXT, integrated TEXT, task TEXT, handoff_from INTEGER, paused TEXT, options TEXT);",
-        )
-        .unwrap();
+        let mut conn = open(Path::new(":memory:")).unwrap();
         let names = ["xavi", "iniesta"];
         let a = create_session(&conn, "/r/p", "claude", "u1", &names).unwrap();
         let b = create_session(&conn, "/r/p", "claude", "u2", &names).unwrap();
@@ -404,14 +418,21 @@ mod tests {
         conn.execute("UPDATE sessions SET worktree = '/w', branch = 'ide/iniesta-2' WHERE id = ?1", [b.id]).unwrap();
         set_session_task(&conn, b.id, "arregla la cola").unwrap();
         set_session_task(&conn, b.id, "otra cosa").unwrap();
-        let from = session(&conn, b.id).unwrap().unwrap();
-        let to = create_handoff(&conn, &from, "opencode", "", &names).unwrap();
+        conn.execute_batch("CREATE TEMP TRIGGER reject_close BEFORE UPDATE OF closed ON sessions
+            BEGIN SELECT RAISE(ABORT, 'fallo al cerrar'); END;").unwrap();
+        let open_before = sessions(&conn, "/r/p").unwrap().len();
+        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names).is_err());
+        assert_eq!(sessions(&conn, "/r/p").unwrap().len(), open_before);
+        assert!(session(&conn, b.id).unwrap().is_some());
+        conn.execute_batch("DROP TRIGGER reject_close").unwrap();
+        let to = create_handoff(&mut conn, b.id, "opencode", "", &names).unwrap();
         assert_eq!((to.worktree.as_deref(), to.branch.as_deref(), to.task.as_deref(), to.handoff_from), (Some("/w"), Some("ide/iniesta-2"), Some("arregla la cola"), Some(b.id)));
+        assert!(session(&conn, b.id).unwrap().is_none());
+        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names).is_err());
         set_session_paused(&conn, to.id, Some("cuota")).unwrap();
 
         // Pendientes: la sesión relevada no cuenta mientras la nueva siga
         // abierta en su worktree; al cerrar la nueva, aparece solo ella.
-        close_session(&conn, b.id).unwrap();
         assert!(orphans(&conn, "/r/p").unwrap().is_empty());
         close_session(&conn, to.id).unwrap();
         let pending: Vec<i64> = orphans(&conn, "/r/p").unwrap().iter().map(|s| s.id).collect();

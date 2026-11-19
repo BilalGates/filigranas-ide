@@ -89,6 +89,20 @@ fn fingerprint(patch: &[u8]) -> String {
     format!("{:016x}", h.finish())
 }
 
+/// Comprueba la huella guardada sin preparar archivos ni modificar el índice.
+pub fn integration_verified(s: &db::Session) -> CmdResult<bool> {
+    let (Some(worktree), Some(base)) = (&s.worktree, &s.base_commit) else { return Ok(true) };
+    let worktree = Path::new(worktree);
+    if !worktree.is_dir() {
+        return Ok(s.integrated.as_deref().is_some_and(|value| !value.starts_with("conflicts:")));
+    }
+    if !git(worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?.is_empty() {
+        return Ok(false);
+    }
+    let patch = git(worktree, &["diff", "--binary", base])?;
+    Ok(patch.is_empty() || s.integrated.as_deref() == Some(fingerprint(&patch).as_str()))
+}
+
 /// Aplica el trabajo de la sesión al checkout principal. Devuelve los
 /// archivos afectados y la huella del diff integrado.
 pub fn integrate(session: &db::Session) -> CmdResult<(Vec<String>, String)> {
@@ -290,8 +304,6 @@ fn isolated(state: &AppState, id: i64) -> CmdResult<(db::Session, PathBuf, Strin
 #[tauri::command]
 pub fn session_changes(state: State<AppState>, id: i64) -> CmdResult<Status> {
     let (_, wt, base) = isolated(&state, id)?;
-    // Archivos nuevos visibles en el recuento (solo toca el índice del worktree).
-    git(&wt, &["add", "-A", "-N"])?;
     status_since(&wt, &base)
 }
 
@@ -325,12 +337,21 @@ pub fn session_integrate_merging(app: AppHandle, state: State<AppState>, id: i64
 #[tauri::command]
 pub fn session_cleanup(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
     let session = any_session(&state, id)?;
+    if crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+        return Err("espera a que termine el turno antes de limpiar la rama".into());
+    }
     cleanup(&session)?;
     state.claude.forget(id);
     state.acp.close(id)?;
-    db::close_session(&*state.db.lock().map_err(err)?, id).map_err(err)?;
+    let conn = state.db.lock().map_err(err)?;
+    if session.integrated.is_none() {
+        db::set_session_integrated(&conn, id, Some("cleaned")).map_err(err)?;
+    }
+    db::close_session(&conn, id).map_err(err)?;
+    drop(conn);
     let _ = app.emit("sessions-changed", serde_json::json!({ "project": session.project }));
     let _ = app.emit("project-changed", ());
+    crate::tasks::changed(&app);
     Ok(())
 }
 
@@ -667,11 +688,12 @@ mod tests {
         git(&wt, &["commit", "-qam", "commit de Larry"]).unwrap();
         std::fs::remove_file(wt.join("b.txt")).unwrap();
         std::fs::write(wt.join("c.txt"), "c\n").unwrap();
-        git(&wt, &["add", "-A", "-N"]).unwrap();
+        let before = git(&wt, &["status", "--porcelain"]).unwrap();
         let st = status_since(&wt, &iso.base_commit).unwrap();
         let v = serde_json::to_value(&st).unwrap();
         let got: Vec<String> = v["changes"].as_array().unwrap().iter().map(|c| format!("{} {}", c["status"].as_str().unwrap(), c["path"].as_str().unwrap())).collect();
         assert_eq!(got, vec!["M a.txt", "D b.txt", "A c.txt"]);
+        assert_eq!(git(&wt, &["status", "--porcelain"]).unwrap(), before);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

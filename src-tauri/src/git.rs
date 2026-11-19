@@ -141,9 +141,10 @@ pub fn git_status(state: State<AppState>, project: String) -> CmdResult<Status> 
 
 /// Estado de una rama de sesión: archivos que difieren del commit del que
 /// partió, estén o no en commits (`git diff <base>` sobre el árbol de
-/// trabajo). Los archivos nuevos deben estar marcados con intent-to-add.
+/// trabajo). Añade los archivos sin seguimiento del estado de Git.
 pub(crate) fn status_since(repo: &Path, base: &str) -> CmdResult<Status> {
-    let mut status = status_at(repo, base)?;
+    let out = git(repo, &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"])?;
+    let mut status = parse_status(&String::from_utf8_lossy(&out));
     let out = git(repo, &["diff", "--name-status", "--no-renames", "-z", base])?;
     let out = String::from_utf8_lossy(&out).into_owned();
     let mut parts = out.split('\0').filter(|p| !p.is_empty());
@@ -159,6 +160,12 @@ pub(crate) fn status_since(repo: &Path, base: &str) -> CmdResult<Status> {
     }
     let out = git(repo, &["diff", base, "--numstat", "-z"])?;
     apply_numstat(&mut changes, &String::from_utf8_lossy(&out));
+    for mut untracked in status.changes.into_iter().filter(|c| c.status == 'U') {
+        if !changes.iter().any(|c| c.path == untracked.path) {
+            untracked.status = 'A';
+            changes.push(untracked);
+        }
+    }
     status.changes = changes;
     Ok(status)
 }

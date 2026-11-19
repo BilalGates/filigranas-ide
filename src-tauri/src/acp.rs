@@ -155,6 +155,9 @@ impl Acp {
                                 tracker_handle.state::<AppState>().tracker.chunk(id, text);
                             }
                         }
+                        if update["sessionUpdate"] == "usage_update" {
+                            crate::runs::on_active(&tracker_handle, id, |conn, run| crate::runs::usage(conn, run, crate::runs::Usage::acp(update)));
+                        }
                         on_emit(json!({ "type": "update", "update": update }));
                     }
                 }
@@ -167,6 +170,7 @@ impl Acp {
                     if let Ok(mut p) = pending.lock() {
                         p.insert(key.clone(), (id, rid, params["options"].clone()));
                     }
+                    crate::runs::on_active(&tracker_handle, id, |conn, run| crate::runs::phase(conn, run, "waiting_approval"));
                     on_emit(json!({ "type": "permission", "requestId": key, "toolCall": params["toolCall"], "options": params["options"] }));
                 }
                 Incoming::Closed => {
@@ -258,21 +262,35 @@ impl Acp {
     }
 
     /// Envía el mensaje. El turno termina cuando responde `session/prompt`.
-    pub fn send(&self, app: &AppHandle, state: &AppState, session: &db::Session, text: String) -> CmdResult<()> {
+    pub fn send(&self, app: &AppHandle, state: &AppState, session: &db::Session, text: String, run: i64) -> CmdResult<()> {
         let (rpc, sid) = self.ensure(app, state, session)?;
         let (id, handle, engine) = (session.id, app.clone(), session.engine.clone());
+        let slot = self.slot(id)?;
+        let model = slot.lock().map_err(err)?.as_ref().and_then(|p| {
+            p.config.as_array()?.iter().find(|o| o["category"] == "model")?["currentValue"].as_str().map(str::to_owned)
+        });
+        crate::runs::record(app, |conn| crate::runs::usage(conn, run, crate::runs::Usage { model, ..Default::default() }).map_err(err));
         state.tracker.started(id);
         std::thread::spawn(move || {
             let tracker = &handle.state::<AppState>().tracker;
             let msg = match rpc.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), TURN) {
                 Ok(res) => {
+                    let outcome = match res["stopReason"].as_str() {
+                        Some("end_turn") => "completed",
+                        Some("cancelled") => "cancelled",
+                        _ => "failed",
+                    };
+                    crate::runs::record(&handle, |conn| crate::runs::finish(conn, run, outcome).map_err(err));
                     tracker.finished(id, None);
                     json!({ "type": "turn_end", "stopReason": res["stopReason"] })
                 }
                 Err(e) => {
                     let message = explain(&engine, e);
                     tracker.finished(id, Some(&format!("error: {message}")));
-                    if let Some(reason) = crate::handoff::quota_reason(&message) {
+                    let quota = crate::handoff::quota_reason(&message);
+                    let outcome = if quota.is_some() { "paused_quota" } else if !rpc.alive() { "interrupted" } else { "failed" };
+                    crate::runs::record(&handle, |conn| crate::runs::finish(conn, run, outcome).map_err(err));
+                    if let Some(reason) = quota {
                         crate::handoff::pause(&handle, id, &reason);
                     }
                     json!({ "type": "error", "message": message })
@@ -301,7 +319,7 @@ impl Acp {
     }
 
     /// `Ok(false)` si la petición no es de ACP.
-    pub fn respond(&self, request_id: &str, decision: &str) -> CmdResult<bool> {
+    pub fn respond(&self, app: &AppHandle, request_id: &str, decision: &str) -> CmdResult<bool> {
         let Some((id, rid, options)) = self.pending.lock().map_err(err)?.remove(request_id) else { return Ok(false) };
         let slot = self.slot(id)?;
         let guard = slot.lock().map_err(err)?;
@@ -311,6 +329,10 @@ impl Acp {
             None => json!({ "outcome": "cancelled" }),
         };
         p.rpc.respond(rid, json!({ "outcome": outcome }))?;
+        drop(guard);
+        if self.pending_for(id) == 0 {
+            crate::runs::on_active(app, id, |conn, run| crate::runs::phase(conn, run, "running"));
+        }
         Ok(true)
     }
 

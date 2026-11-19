@@ -7,6 +7,11 @@ use std::path::Path;
 use std::process::Command;
 
 use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
+
+use crate::approval::{Proof, Review};
+
+use crate::{err, pr, AppState};
 
 fn run(project: &str, args: &[&str]) -> Result<String, String> {
     if !Path::new(project).join(".git").exists() {
@@ -60,10 +65,59 @@ pub async fn git_pull(project: String) -> Result<String, String> {
     spawn(project, args(&["pull", "--ff-only"])).await
 }
 
+#[derive(Serialize)]
+struct PushPlan {
+    branch: String,
+    head: String,
+    remote: String,
+    dest: String,
+    url: String,
+    set_upstream: bool,
+}
+
+impl PushPlan {
+    fn read(path: &Path, set_upstream: bool) -> Result<Self, String> {
+        let branch = pr::value(path, &["branch", "--show-current"])?;
+        if branch.is_empty() { return Err("cambia a una rama antes de publicar".into()); }
+        let head = pr::value(path, &["rev-parse", "HEAD"])?;
+        let (remote, dest) = if set_upstream { ("origin".to_string(), branch.clone()) } else {
+            let tracking = pr::value(path, &["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", &format!("refs/heads/{branch}")])?;
+            let (remote, reference) = tracking.split_once('\0').ok_or("la rama carece de remoto de seguimiento")?;
+            let dest = reference.strip_prefix("refs/heads/").filter(|s| !s.is_empty()).ok_or("la rama carece de destino de seguimiento")?;
+            (remote.to_string(), dest.to_string())
+        };
+        let url = pr::push_url(path, &remote)?;
+        Ok(Self { branch, head, remote, dest, url, set_upstream })
+    }
+
+    fn label(&self) -> String {
+        pr::repository(&self.url).unwrap_or_else(|| self.remote.clone())
+    }
+}
+
 #[tauri::command]
-pub async fn git_push(project: String, set_upstream: bool) -> Result<String, String> {
-    let list: &[&str] = if set_upstream { &["push", "--set-upstream", "origin", "HEAD"] } else { &["push"] };
-    spawn(project, args(list)).await
+pub fn git_review_push(state: State<AppState>, project: String, set_upstream: bool) -> Result<Review, String> {
+    let path = crate::isolate::work_dir(&state, &project, None)?;
+    let plan = PushPlan::read(&path, set_upstream)?;
+    state.approvals.prepare(("git_push", &path, &plan),
+        format!("Publicar {} → {}/{} · {}", plan.branch, plan.label(), plan.dest, plan.head), &plan.head)
+}
+
+#[tauri::command]
+pub async fn git_push(app: AppHandle, project: String, set_upstream: bool, proof: Proof) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _gate = state.publication.try_lock().map_err(|_| "ya hay una operación de publicación en curso")?;
+        let path = crate::isolate::work_dir(&state, &project, None)?;
+        let plan = PushPlan::read(&path, set_upstream)?;
+        state.approvals.consume(("git_push", &path, &plan), &proof)?;
+        let exec = |program: &str, args: &[&str]| pr::run(&path, program, args);
+        pr::push_exact(&exec, &plan.url, &plan.head, &plan.dest)?;
+        if set_upstream {
+            pr::configure_tracking(&path, &plan.branch, &plan.remote, &plan.dest, &plan.head)?;
+        }
+        Ok(format!("rama publicada en {}/{}", plan.label(), plan.dest))
+    }).await.map_err(err)?
 }
 
 #[tauri::command]

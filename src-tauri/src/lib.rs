@@ -1,17 +1,28 @@
 mod acp;
+mod approval;
+mod brain;
+mod brain_graph;
 mod claude;
 mod codex;
 mod containers;
 mod db;
 mod delegate;
+mod design;
 mod files;
 mod git;
+mod github;
 mod handoff;
+mod health;
 mod isolate;
+mod jev;
 mod larry;
+mod p5_process;
 mod paths;
 mod pr;
 mod pty;
+mod runs;
+mod skills;
+mod tasks;
 mod tools;
 mod tracker;
 mod watch;
@@ -35,6 +46,9 @@ pub(crate) struct AppState {
     pub claude: claude::Claude,
     pub acp: acp::Acp,
     pub tracker: tracker::Tracker,
+    pub publication: Mutex<()>,
+    pub approvals: approval::Approvals,
+    pub jev_gate: Mutex<()>,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -52,6 +66,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let conn = db::open(&data_dir.join("filigranas.db"))?;
+            runs::recovery(&conn)?;
             let root = db::get_setting(&conn, "root")?;
             app.manage(AppState {
                 db: Mutex::new(conn),
@@ -62,6 +77,9 @@ pub fn run() {
                 claude: Default::default(),
                 acp: Default::default(),
                 tracker: Default::default(),
+                publication: Default::default(),
+                approvals: Default::default(),
+                jev_gate: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -74,9 +92,32 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            brain::brain_search,
+            brain::brain_entry,
+            brain_graph::brain_graph,
+            brain::brain_preview,
+            brain::brain_save,
+            brain::brain_forget,
+            health::health_list,
+            health::health_file,
+            health::health_import,
+            health::health_run,
+            health::health_resolve,
+            health::health_ci,
+            design::design_list,
+            design::design_save,
+            design::design_shots,
+            design::design_image,
+            design::design_import,
+            design::design_preview,
+            design::design_capture,
+            design::design_review,
+            design::design_send,
             git_ops::git_fetch,
             git_ops::git_pull,
             git_ops::git_push,
+            git_ops::git_review_push,
+            approval::cancel_review,
             git_ops::git_stash,
             git_ops::git_stash_pop,
             git_ops::git_stash_list,
@@ -108,6 +149,12 @@ pub fn run() {
             codex::coordinator_interrupt,
             codex::coordinator_respond,
             codex::coordinator_set_profile,
+            codex::codex_pin_model,
+            tasks::tasks_list,
+            tasks::task_save,
+            tasks::task_link,
+            tasks::task_runs,
+            tasks::task_parallel_limit,
             claude::session_list,
             claude::session_create,
             claude::session_history,
@@ -116,6 +163,7 @@ pub fn run() {
             claude::session_respond,
             claude::session_close,
             claude::session_set_option,
+            claude::claude_chat_options,
             isolate::session_changes,
             isolate::session_diff_texts,
             isolate::session_integrate,
@@ -131,9 +179,14 @@ pub fn run() {
             larry::larry_groups,
             pr::pr_draft,
             pr::pr_publish,
+            pr::pr_review_publish,
+            pr::pr_merge,
+            pr::pr_review_merge,
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            jev::jev_status,
+            jev::jev_configure,
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,

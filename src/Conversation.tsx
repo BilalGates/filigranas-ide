@@ -11,7 +11,7 @@ import { beep } from './ui';
 const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
-export const EFFORT_LABEL: Record<string, string> = { low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
+export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
 export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', update: 'M' };
 
 /** Petición de permiso ya traducida, con la decisión a la que llama. */

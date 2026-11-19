@@ -92,11 +92,11 @@ export function useUi() {
 }
 
 /** Traduce el estado textual de una vista al de su pestaña. */
-export function useReportActivity(key: string, state: string) {
+export function useReportActivity(key: string | null, state: string) {
   useEffect(() => {
-    reportActivity(key, state === 'esperando permiso' ? 'permiso' : state === 'en marcha' ? 'trabajando' : null);
+    if (key) reportActivity(key, state === 'esperando permiso' ? 'permiso' : state === 'en marcha' ? 'trabajando' : null);
   }, [key, state]);
-  useEffect(() => () => reportActivity(key, null), [key]);
+  useEffect(() => () => { if (key) reportActivity(key, null); }, [key]);
 }
 
 // ── órdenes ────────────────────────────────────────────────

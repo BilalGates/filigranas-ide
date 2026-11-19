@@ -199,6 +199,27 @@ pub fn set_archived(state: State<AppState>, path: String, archived: bool) -> Cmd
     load(&conn)
 }
 
+/// Crea un proyecto nuevo en la raíz: carpeta vacía con `git init`.
+#[tauri::command]
+pub fn create_project(state: State<AppState>, name: String) -> CmdResult<Workspace> {
+    let name = name.trim();
+    if name.is_empty() || name.starts_with('.') || name.contains(['/', '\\']) || !matches!(Path::new(name).components().next(), Some(std::path::Component::Normal(_))) {
+        return Err(format!("«{name}» no vale como nombre de carpeta"));
+    }
+    let conn = state.db.lock().map_err(err)?;
+    let root = root_of(&conn)?;
+    let dir = root.join(name);
+    if dir.exists() {
+        return Err(format!("ya existe {}", paths::to_string(&dir)));
+    }
+    std::fs::create_dir(&dir).map_err(|e| format!("no se puede crear {name}: {e}"))?;
+    let out = std::process::Command::new("git").arg("init").arg("-q").current_dir(&dir).output().map_err(|e| format!("git init: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git init: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    load(&conn)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

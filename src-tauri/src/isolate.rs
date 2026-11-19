@@ -41,7 +41,21 @@ pub fn create(data_dir: &Path, project: &Path, name: &str, id: i64) -> CmdResult
         return Err(format!("ya existe la carpeta {}", dir.display()));
     }
     std::fs::create_dir_all(dir.parent().ok_or("ruta de worktree no válida")?).map_err(|e| e.to_string())?;
-    let branch = format!("ide/{name}-{id}");
+    // Nombres como «sesión 1»: la rama solo lleva letras ASCII, números y guiones.
+    let slug: String = name
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' => 'a',
+            'é' | 'è' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ú' | 'ü' => 'u',
+            'ñ' => 'n',
+            c if c.is_ascii_alphanumeric() => c.to_ascii_lowercase(),
+            _ => '-',
+        })
+        .collect();
+    let branch = format!("ide/{slug}-{id}");
     let dir_str = dir.to_string_lossy().into_owned();
     git(project, &["worktree", "add", "-b", &branch, &dir_str, &base_commit])?;
     Ok(Some(Isolation { worktree: dir_str, branch, base, base_commit, main_dirty }))
@@ -428,9 +442,9 @@ mod tests {
         // Cambio sin commit en el principal: no viaja a la sesión.
         std::fs::write(project.join("b.txt"), "b local\n").unwrap();
 
-        let iso = create(&data, &project, "xavi", 7).unwrap().unwrap();
+        let iso = create(&data, &project, "sesión 1", 7).unwrap().unwrap();
         assert!(iso.main_dirty);
-        assert_eq!((iso.branch.as_str(), iso.base.as_str()), ("ide/xavi-7", "main"));
+        assert_eq!((iso.branch.as_str(), iso.base.as_str()), ("ide/sesion-1-7", "main"));
         let wt = PathBuf::from(&iso.worktree);
         assert!(wt.starts_with(&data) && wt.join("a.txt").exists());
         assert_eq!(std::fs::read_to_string(wt.join("b.txt")).unwrap(), "b\n");
@@ -456,7 +470,7 @@ mod tests {
         std::fs::write(wt.join("nuevo.txt"), "nuevo\n").unwrap();
         cleanup(&s).unwrap();
         assert!(!wt.exists());
-        assert!(git(&project, &["rev-parse", "--verify", "--quiet", "ide/xavi-7"]).is_err());
+        assert!(git(&project, &["rev-parse", "--verify", "--quiet", &iso.branch]).is_err());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

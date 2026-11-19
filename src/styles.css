@@ -2701,3 +2701,22 @@ html[data-resizing] .splitter:active::after {
 .side-chev.is-open {
   transform: none;
 }
+
+.welcome-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.side-head .inline-input {
+  flex: 1;
+  min-width: 0;
+}
+.side-head .icon {
+  width: 22px;
+  height: 22px;
+}
+.menu-item > svg {
+  flex: none;
+  color: var(--tx3);
+}

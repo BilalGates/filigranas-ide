@@ -115,6 +115,13 @@ mockIPC(
       case 'set_root':
         root = ROOT;
         return workspace();
+      case 'create_project': {
+        const name = String(a.name).trim();
+        if (!name || name.includes('/')) fail(`«${name}» no vale como nombre de carpeta`);
+        if (projectNames().includes(name)) fail(`ya existe ${ROOT}/${name}`);
+        files[`${name}/README.md`] = `# ${name}\n`;
+        return workspace();
+      }
       case 'create_group':
         if (groups.some((g) => g.name === a.name.trim())) fail(`ya existe el grupo «${a.name}»`);
         groups.push({ id: nextGroup++, name: a.name.trim() });
@@ -219,7 +226,7 @@ mockIPC(
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
         const used = mockSessions.filter((x) => x.project === a.project).map((x) => x.name);
-        const name = ['cruyff', 'kubala', 'stoichkov', 'neeskens'].sort(() => Math.random() - 0.5).find((n) => !used.includes(n)) ?? 'samitier';
+        const name = Array.from({ length: 99 }, (_, i) => `sesión ${i + 1}`).find((n) => !used.includes(n))!;
         const id = nextSession++;
         const created = {
           id,

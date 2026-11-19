@@ -27,12 +27,15 @@ import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Splitter, { SIZES } from './Splitter';
 
-// Motores de sesión. Uno no disponible se muestra desactivado con el motivo.
-const ENGINES: [string, string, string | null][] = [
-  ['codex', 'chat directo · codex', null],
-  ['claude', 'chat directo · claude code', null],
-  ['devin', 'devin', null],
-];
+// Proyectos con project manager: solo los que lo piden, no todos.
+const PM_KEY = 'filigranas.pm';
+const loadPm = (): Set<string> => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PM_KEY) ?? '[]'));
+  } catch {
+    return new Set();
+  }
+};
 
 // `session`: terminal en el worktree de una sesión aislada (su nombre como etiqueta).
 type TerminalTab = { id: number; project: string; number: number; session?: number; label?: string; initial?: string };
@@ -81,6 +84,19 @@ export default function App() {
   // Proyecto cuya lista de sesiones ya está cargada (mientras carga, vacía).
   const [sessionsOf, setSessionsOf] = useState<string | null>(null);
   const [engineMenu, setEngineMenu] = useState(false);
+  const [pmProjects, setPmProjects] = useState(loadPm);
+  const setPm = (path: string, on: boolean) =>
+    setPmProjects((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(path);
+      else next.delete(path);
+      try {
+        localStorage.setItem(PM_KEY, JSON.stringify([...next]));
+      } catch {
+        /* sin almacenamiento */
+      }
+      return next;
+    });
   // Rama del proyecto abierto (la informa el panel Git) y capas flotantes.
   const [branch, setBranch] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
@@ -263,6 +279,11 @@ export default function App() {
     });
   }, [agentSessions, project, sessionsOf]);
 
+  // Sin project manager, abrir el proyecto lleva a su primera sesión.
+  useEffect(() => {
+    if (project && sessionsOf === project && view === 'coach' && !pmProjects.has(project) && agentSessions.length) setView(agentSessions[0].id);
+  }, [project, sessionsOf, view, pmProjects, agentSessions]);
+
   const openLarry = (s: Session | null = null) => {
     setLarryFor(s);
     setLarryKey(Date.now()); // cada apertura propone de nuevo
@@ -346,6 +367,13 @@ export default function App() {
     setBrainTarget(id);
     setView('brain');
   };
+  const hasPm = !!current && pmProjects.has(current.path);
+  const startPm = () => {
+    if (!current) return;
+    setEngineMenu(false);
+    setPm(current.path, true);
+    setView('coach');
+  };
   const projectTerms = terms.filter((t) => t.project === project);
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
   const toggleTerminal = () => {
@@ -376,7 +404,7 @@ export default function App() {
     { id: 'cheat', label: 'atajos de teclado', keys: '⌘/', run: () => setOverlay('cheat') },
     { id: 'new', label: 'nueva sesión', keys: '⌘T', run: () => current && setEngineMenu(true) },
     { id: 'close', label: 'cerrar pestaña', keys: '⌘W', run: closeActive },
-    { id: 'pm', label: 'project manager', keys: '⌘1', run: () => current && setView('coach') },
+    { id: 'pm', label: hasPm ? 'project manager' : 'sesión con project manager', keys: '⌘1', run: () => (hasPm ? setView('coach') : startPm()) },
     ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => setView(s.id) })),
     { id: 'editor', label: 'editor', keys: '⌘E', run: () => editorOpen && (rightView === 'editor' ? setRightView('git') : openEditor()) },
     { id: 'files', label: 'archivos', keys: '⌘P', run: () => showRight('files') },
@@ -424,7 +452,7 @@ export default function App() {
   const sessionState = (key: string) => activity[key] ?? null;
   const centerTitle = (() => {
     if (!current) return null;
-    if (view === 'coach') return { name: coach.replace('-', ' '), meta: 'project manager', tag: 'pm', state: sessionState('coach') };
+    if (view === 'coach') return hasPm ? { name: coach.replace('-', ' '), meta: 'project manager', tag: 'pm', state: sessionState('coach') } : null;
     if (typeof view === 'number') {
       const s = agentSessions.find((x) => x.id === view);
       return s ? { name: s.name, meta: ENGINE_LABEL[s.engine] ?? s.engine, tag: null, state: sessionState(String(s.id)) } : null;
@@ -452,7 +480,11 @@ export default function App() {
 
   const sessionList = current && (
     <div className="sessions" role="list">
-      {row('coach', view === 'coach', coach.replace('-', ' '), null, sessionState('coach'), () => setView('coach'), undefined, 'pm')}
+      {hasPm &&
+        row('coach', view === 'coach', coach.replace('-', ' '), null, sessionState('coach'), () => setView('coach'), () => {
+          setPm(current.path, false);
+          setView(agentSessions[0]?.id ?? 'coach');
+        }, 'pm')}
       {row('tasks', view === 'tasks', 'Tareas', null, null, () => setView('tasks'))}
       {row('health', view === 'health', 'Code Health', null, null, () => setView('health'))}
       {row('design', view === 'design', 'Design Loop', null, null, () => setView('design'))}
@@ -556,13 +588,16 @@ export default function App() {
       />
       {engineMenu && current && (
         <div className="menu engine-menu" role="menu" onMouseLeave={() => setEngineMenu(false)}>
-          <div className="menu-label">nueva sesión con</div>
-          {ENGINES.map(([id, label, reason]) => (
-            <button key={id} role="menuitem" className="menu-item" disabled={!!reason} title={reason ?? undefined} onClick={() => newSession(id)}>
-              {label}
-              {reason && <span className="muted"> · {reason}</span>}
-            </button>
-          ))}
+          <button role="menuitem" className="menu-item" onClick={() => newSession('claude')}>
+            <Icon name="chat" size={13} />
+            <span className="grow">Sesión normal</span>
+            <span className="kbd">claude code</span>
+          </button>
+          <button role="menuitem" className="menu-item" disabled={hasPm} onClick={startPm} title={hasPm ? 'este proyecto ya tiene project manager' : 'un coordinador con codex que reparte el trabajo en sesiones'}>
+            <Icon name="pm" size={13} />
+            <span className="grow">Con project manager</span>
+            <span className="kbd">{hasPm ? 'ya activo' : 'codex'}</span>
+          </button>
         </div>
       )}
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
@@ -584,9 +619,9 @@ export default function App() {
           </div>
         )}
         <div className="main-view">
-          {current && <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
+          {current && hasPm && <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} onProfile={setCoach} hidden={view !== 'coach'} task={coachTask} onClearTask={() => setCoachTask(null)} />}
           {current && <Tasks key={'tasks:' + current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions} focus={taskTarget?.project === current.path ? taskTarget : null}
-            onAuto={(task) => { setCoachTask(task); setView('coach'); }}
+            onAuto={(task) => { setPm(current.path, true); setCoachTask(task); setView('coach'); }}
             onDirect={newSession} onSession={setView} onPublish={openPublish} />}
           {current && view === 'brain' && <Brain key={'brain:' + current.path} project={current.path} target={brainTarget}
             onClearTarget={() => setBrainTarget(null)} onGraph={() => setView('brain-graph')} />}
@@ -650,6 +685,20 @@ export default function App() {
                 onConflicts={showConflicts}
               />
             ))}
+          {current && !hasPm && view === 'coach' && (
+            <div className="welcome">
+              <h1>¿Qué hacemos?</h1>
+              <p>Empieza una sesión en {current.name}.</p>
+              <div className="welcome-actions">
+                <button className="co-btn is-primary" onClick={() => newSession('claude')}>
+                  Sesión normal
+                </button>
+                <button className="co-btn" onClick={startPm}>
+                  Con project manager
+                </button>
+              </div>
+            </div>
+          )}
           {!current && !(toolsOpen && view === 'tools') && (
             <div className="welcome">
               <h1>¿Qué hacemos hoy?</h1>

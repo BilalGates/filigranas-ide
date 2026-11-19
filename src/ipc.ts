@@ -12,6 +12,7 @@ export const api = {
   workspace: () => invoke<Workspace>('get_workspace'),
   defaultRoot: () => invoke<string>('default_root'),
   setRoot: (path: string) => invoke<Workspace>('set_root', { path }),
+  createProject: (name: string) => invoke<Workspace>('create_project', { name }),
   createGroup: (name: string) => invoke<Workspace>('create_group', { name }),
   renameGroup: (id: number, name: string) => invoke<Workspace>('rename_group', { id, name }),
   deleteGroup: (id: number) => invoke<Workspace>('delete_group', { id }),

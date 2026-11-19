@@ -31,6 +31,7 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [newProject, setNewProject] = useState(false);
   // Proyectos desplegados: abrir un proyecto lo despliega; el chevrón pliega.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(project ? [project] : []));
   const expand = (path: string) =>
@@ -71,7 +72,22 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
         <kbd>T</kbd>
       </button>
       <div className="side-head">
-        <span className="grow">Proyectos</span>
+        {newProject ? (
+          <InlineInput
+            label="Nombre del proyecto nuevo"
+            initial=""
+            onCancel={() => setNewProject(false)}
+            onSubmit={(name) => {
+              setNewProject(false);
+              onUpdate(api.createProject(name));
+            }}
+          />
+        ) : (
+          <span className="grow">Proyectos</span>
+        )}
+        <button className="icon" onClick={() => setNewProject(true)} aria-label="Nuevo proyecto" title="nuevo proyecto (carpeta con git init)">
+          <Icon name="plus" size={12} />
+        </button>
         <label className="search">
           <Icon name="search" size={12} />
           <input aria-label="Buscar proyecto" placeholder="buscar" value={query} onChange={(e) => setQuery(e.target.value)} spellCheck={false} />

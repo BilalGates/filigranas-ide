@@ -429,11 +429,9 @@ fn send_content(app: &AppHandle, id: i64, text: String, effort: Option<String>, 
         let tx = conn.transaction().map_err(err)?;
         let task = tasks::linked(&tx, id).map_err(err)?;
         let scope = runs::session_scope(id);
-        let input = match task {
-            Some(task) if runs::last_task(&tx, &scope).map_err(err)? != Some(task) => tasks::context(&tx, task, &text)?,
-            _ => text.clone(),
-        };
+        let previous = runs::last_task(&tx, &scope).map_err(err)?;
         let run = runs::begin(&tx, &session.project, &scope, &session.engine, Some(id), task)?;
+        let input = runs::task_input(&tx, run, &session.project, task, previous, &text)?;
         db::set_session_task(&tx, id, &text).map_err(err)?;
         if session.paused.is_some() {
             db::set_session_paused(&tx, id, None).map_err(err)?;

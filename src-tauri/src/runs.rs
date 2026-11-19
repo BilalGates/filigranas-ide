@@ -82,6 +82,16 @@ pub fn last_task(conn: &Connection, scope: &str) -> rusqlite::Result<Option<i64>
     conn.query_row("SELECT CASE WHEN outcome='completed' THEN task_id END FROM task_runs WHERE scope=?1 ORDER BY id DESC LIMIT 1", [scope], |r| r.get(0)).optional().map(Option::flatten)
 }
 
+pub fn task_input(tx: &rusqlite::Transaction<'_>, run: i64, project: &str, task: Option<i64>, previous: Option<i64>, text: &str) -> CmdResult<String> {
+    match task.filter(|id| Some(*id) != previous) {
+        Some(id) => {
+            let input = tasks::context(tx, id, text)?;
+            crate::brain::augment(tx, run, project, id, text, input)
+        }
+        None => Ok(text.into()),
+    }
+}
+
 pub fn bind_turn(conn: &Connection, scope: &str, turn: &str) -> rusqlite::Result<()> {
     conn.execute("UPDATE task_runs SET turn=?2 WHERE scope=?1 AND ended_ms IS NULL AND turn IS NULL", [scope,turn])?;
     Ok(())
@@ -277,6 +287,7 @@ pub struct Run {
     quota_long: Option<(f64, i64)>,
     context_tokens: Option<i64>,
     routing: Option<crate::jev::Trace>,
+    memory: Vec<crate::brain::Reference>,
 }
 
 pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
@@ -294,8 +305,13 @@ pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
         cost_estimate_usd: r.get(11)?, quota_short: r.get::<_, Option<f64>>(12)?.zip(r.get(13)?),
         quota_long: r.get::<_, Option<f64>>(14)?.zip(r.get(15)?), context_tokens: r.get(16)?,
         routing: r.get::<_, Option<String>>(17)?.and_then(|data| serde_json::from_str(&data).ok()),
+        memory: Vec::new(),
     }))?;
-    rows.collect()
+    rows.map(|row| {
+        let mut run = row?;
+        run.memory = crate::brain::references(conn, run.id)?;
+        Ok(run)
+    }).collect()
 }
 
 #[cfg(test)]

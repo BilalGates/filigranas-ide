@@ -8,6 +8,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA foreign_keys = ON;
+         PRAGMA secure_delete = ON;
          CREATE TABLE IF NOT EXISTS settings (
              key   TEXT PRIMARY KEY,
              value TEXT NOT NULL
@@ -45,6 +46,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     migrate(&conn)?;
     crate::tasks::migrate(&conn)?;
     crate::runs::migrate(&conn)?;
+    crate::brain::migrate(&conn)?;
     crate::jev::migrate(&conn)?;
     crate::health::migrate(&conn)?;
     crate::design::migrate(&conn)?;

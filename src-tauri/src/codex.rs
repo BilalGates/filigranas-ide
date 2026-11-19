@@ -786,11 +786,9 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
         let mut conn = state.db.lock().map_err(err)?;
         let tx = conn.transaction().map_err(err)?;
         let task = if let Some(session) = direct { tasks::linked(&tx, session.id).map_err(err)? } else { task };
-        let input = match task {
-            Some(id) if runs::last_task(&tx, &thread_id).map_err(err)? != Some(id) => tasks::context(&tx, id, &text)?,
-            _ => text.clone(),
-        };
+        let previous = runs::last_task(&tx, &thread_id).map_err(err)?;
         let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
+        let input = runs::task_input(&tx, run, path, task, previous, &text)?;
         runs::quota(&tx, run, quota).map_err(err)?;
         runs::usage(&tx, run, runs::Usage { model: model.clone(), ..Default::default() }).map_err(err)?;
         if let Some(session) = direct {

@@ -246,7 +246,7 @@ function ObservedRun({ run }: { run: TaskRun }) {
   const start = new Date(run.startedMs).toLocaleString();
   return (
     <details>
-      <summary>{run.sessionId == null ? 'PM · ' : ''}{run.provider} · {run.model ?? 'modelo desconocido'} · {OUTCOME[run.outcome]}{run.retry ? ' · reintento' : ''} · {start}</summary>
+      <summary>Turno #{run.id} · {run.sessionId == null ? 'PM · ' : ''}{run.provider} · {run.model ?? 'modelo desconocido'} · {OUTCOME[run.outcome]}{run.retry ? ' · reintento' : ''} · {start}</summary>
       <dl className="task-facts">
         <dt>Duración</dt><dd>{run.durationMs == null ? 'en curso' : `${(run.durationMs / 1000).toLocaleString()} s`}</dd>
         <dt>Tokens API entrada / caché / salida</dt><dd>{number(run.inputTokens)} / {number(run.cachedInputTokens)} / {number(run.outputTokens)}</dd>
@@ -254,6 +254,9 @@ function ObservedRun({ run }: { run: TaskRun }) {
         <dt>Coste estimado por el proveedor</dt><dd>{run.costEstimateUsd == null ? 'desconocido' : `${run.costEstimateUsd.toLocaleString(undefined, { maximumFractionDigits: 6 })} USD`}</dd>
         <dt>Cuota de cuenta usada</dt><dd>{windows.join(' · ') || 'desconocido'}</dd>
       </dl>
+      {!!run.memory?.length && <ul aria-label="Referencias de Brain preparadas">
+        {run.memory.map((entry) => <li key={entry.id}>Brain #{entry.id} · revisión {entry.version} · {entry.source}</li>)}
+      </ul>}
       {run.routing && <ObservedRouting route={run.routing} />}
     </details>
   );

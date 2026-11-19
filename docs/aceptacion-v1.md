@@ -50,7 +50,7 @@
 - [x] P3 · Trazabilidad de Larry, PR y CI con reconciliación de reintentos y aprobaciones independientes. Véase la [aceptación de P3](#aceptación-de-p3).
 - [ ] P4 · Integración y enrutamiento verificados con un servidor de prueba. Falta el recorrido autenticado con TypeSafe. Véase la [aceptación de P4](#aceptación-de-p4).
 - [x] P5 · Code Health y Design Loop verificados en macOS con un repositorio y un servidor locales. Véase la [aceptación de P5](#aceptación-de-p5).
-- [ ] P6 · Memoria estructurada y recuperación contextual en SQLite antes del grafo.
+- [x] P6 · Memoria estructurada, búsqueda y recuperación con fuentes verificadas tras reiniciar. Véase la [aceptación de P6](#aceptación-de-p6).
 
 ## Aceptación de P2
 
@@ -90,3 +90,11 @@ Validación local con `npm run build`, `cargo test --locked --offline --manifest
 - **Semáforo.** En el bundle aislado se midieron los marcos de los tres controles nativos en AppKit. Los bordes izquierdos quedaron a 16, 39 y 62 puntos, con margen superior de 16 puntos y botones de 14 × 14. La cabecera lateral reserva 48 puntos.
 - **Verificación.** Ejecutar `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y Clippy con `--all-targets -- -D warnings`. Para comprobar la captura real, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml captures_real_local_page_at_the_requested_size -- --ignored` con Chrome instalado y acceso a loopback.
 - **Pendiente.** Recorrido autenticado de encargo y comparación visual con Claude, y verificación nativa de P5 en Windows.
+
+
+## Aceptación de P6
+
+- **Memoria.** Brain permite confirmar, buscar, editar y olvidar hechos, decisiones, preferencias, restricciones, evidencias y resultados. Cada recuerdo tiene fuente, fecha y ámbito global, de proyecto o de tarea. Las referencias a una tarea o turno terminado se validan por proyecto. La búsqueda de texto usa el índice SQLite FTS5 y admite palabras sin tilde. [SQLite FTS5](https://www.sqlite.org/fts5.html)
+- **Contexto.** Al empezar una tarea, Codex, Claude y ACP usan el mismo preparador. Selecciona hasta seis notas vigentes autorizadas para agentes, con prioridad al ámbito de tarea y a las coincidencias textuales del proyecto. El historial del turno muestra identificador, revisión y fuente de cada referencia. Editar actualiza el índice. Olvidar elimina el recuerdo, sus resultados de búsqueda y sus referencias locales. Los mensajes que un proveedor ya recibió tienen su propio historial.
+- **Reinicio.** En un bundle macOS aislado sobre una copia sintética de la base de P5, se guardó «Decisión de catálogo» con fuente «ADR-6 catálogo» y vínculo a la tarea #1. Tras cerrar y arrancar el bundle, la búsqueda `catalogo` recuperó el recuerdo y la vista previa de la tarea mostró la misma cita. Los registros previos de Code Health y Design Loop siguieron presentes.
+- **Pruebas.** La prueba de reapertura comprueba el índice, las fuentes por turno y la exclusión de recuerdos caducados, locales, ajenos o irrelevantes. Otra prueba verifica edición, olvido y rechazo de fuentes inválidas y formatos habituales de credenciales. Comandos: `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.

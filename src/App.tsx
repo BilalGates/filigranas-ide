@@ -11,6 +11,7 @@ import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks from './Tasks';
 import CodeHealth from './CodeHealth';
+import Brain from './Brain';
 import DesignLoop from './DesignLoop';
 import Larry from './Larry';
 import Publish from './Publish';
@@ -50,7 +51,7 @@ export default function App() {
   const [termOpen, setTermOpen] = useState(false);
   // Pestaña activa: el coordinador o el archivo/diff abierto.
   // Un número es el id de una sesión de agente.
-  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | number>('coach');
+  const [view, setView] = useState<'coach' | 'file' | 'larry' | 'publish' | 'pending' | 'tools' | 'conflicts' | 'tasks' | 'health' | 'design' | 'brain' | number>('coach');
   const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
   const [publishKey, setPublishKey] = useState<number | null>(null);
   // Larry y Publicar trabajan en el proyecto o en la rama de una sesión.
@@ -433,6 +434,9 @@ export default function App() {
         {current && <div className={`tab${view === 'design' ? ' is-active' : ''}`}>
           <button onClick={() => setView('design')}>Design Loop</button>
         </div>}
+        {current && <div className={`tab${view === 'brain' ? ' is-active' : ''}`}>
+          <button onClick={() => setView('brain')}>Brain</button>
+        </div>}
         {current &&
           agentSessions.map((s) => (
             <div className={`tab${view === s.id ? ' is-active' : ''}${activity[String(s.id)] ? ` is-${activity[String(s.id)]}` : ''}`} key={s.id}>
@@ -552,6 +556,7 @@ export default function App() {
           {current && <Tasks key={current.path} project={current.path} hidden={view !== 'tasks'} sessions={agentSessions}
             onAuto={(task) => { setCoachTask(task); setView('coach'); }}
             onDirect={newSession} onSession={setView} onPublish={openPublish} />}
+          {current && view === 'brain' && <Brain key={current.path} project={current.path} />}
           {current && view === 'health' && <CodeHealth key={current.path} project={current.path} sessions={agentSessions}
             onFile={(path, id) => {
               setFile(path);

@@ -365,10 +365,15 @@ mockIPC(
           checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
       case 'open_pr_url':
         return null;
+      case 'tasks_list':
+      case 'brain_search':
+      case 'brain_preview':
       case 'health_list':
       case 'health_ci':
       case 'design_list':
         return [];
+      case 'brain_save':
+      case 'brain_forget':
       case 'health_run':
       case 'health_import':
       case 'design_save':

@@ -1,5 +1,6 @@
 mod acp;
 mod approval;
+mod brain;
 mod claude;
 mod codex;
 mod containers;
@@ -90,6 +91,10 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            brain::brain_search,
+            brain::brain_preview,
+            brain::brain_save,
+            brain::brain_forget,
             health::health_list,
             health::health_file,
             health::health_import,

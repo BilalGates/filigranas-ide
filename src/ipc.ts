@@ -201,6 +201,7 @@ export type TaskRun = {
   quotaShort: [number, number] | null;
   quotaLong: [number, number] | null;
   contextTokens: number | null;
+  memory: BrainReference[];
   routing: {
     source: 'local' | 'shadow' | 'jev';
     reason: string | null;
@@ -352,4 +353,19 @@ export const design = {
     invoke<void>('design_review', { project, screen, review }),
   send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean }) =>
     invoke<void>('design_send', { project, brief }),
+};
+
+export type BrainKind = 'fact' | 'decision' | 'preference' | 'constraint' | 'evidence' | 'outcome';
+export type BrainDraft = {
+  id: number | null; version: number | null; global: boolean; task: number | null; kind: BrainKind;
+  title: string; body: string; source: string; sourceTask: number | null; sourceRun: number | null;
+  share: boolean; validUntil: number | null;
+};
+export type BrainEntry = BrainDraft & { created: number; updated: number };
+export type BrainReference = { id: number; version: number; source: string };
+export const brain = {
+  search: (project: string, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
+  preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
+  save: (project: string, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
+  forget: (project: string, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
 };

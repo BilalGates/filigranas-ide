@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Review, type Stash } from './ipc';
 import ApprovalForm from './ApprovalForm';
 import Splitter, { SIZES } from './Splitter';
-import GitGraph, { layoutGraph, parseRefs } from './GitGraph';
+import GitGraph, { GIT_ROW_HEIGHT, layoutGraph, parseRefs } from './GitGraph';
 import { beep, useCommand } from './ui';
 
 const STATUS_COLOR: Record<string, string> = { A: 'var(--ok)', U: 'var(--ok)', D: 'var(--err)', '!': 'var(--err)' };
+const LOG_DATE = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const STATUS_LABEL: Record<string, string> = {
   M: 'modificado',
   A: 'añadido',
@@ -82,7 +83,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [message, setMessage] = useState('');
   const draftReq = useRef(0);
-  const [detail, setDetail] = useState<{ index: number; data: CommitDetail | null } | null>(null);
+  const [detail, setDetail] = useState<{ hash: string; data: CommitDetail | null } | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
   // La tarjeta del commit siempre a la vista dentro del historial.
   useEffect(() => {
@@ -136,6 +137,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
 
   const changes = status?.changes ?? [];
   const graph = useMemo(() => layoutGraph(log), [log]);
+  const detailIndex = log.findIndex((r) => r.hash === detail?.hash);
   const changeKey = changes.map((c) => c.path).join('\n');
 
   // Larry redacta en cuanto hay cambios (agrupación rápida, sin modelo).
@@ -240,14 +242,15 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   const editMore = (i: number, text: string) =>
     setDraft((d) => ({ ...d, touched: true, commits: d.commits.map((c, j) => (j === i ? { ...c, message: text } : c)) }));
 
-  const openDetail = (index: number, hash: string) => {
-    if (detail?.index === index) return setDetail(null);
+  const openDetail = (hash: string) => {
+    if (detail?.hash === hash) return setDetail(null);
     beep('tick');
-    setDetail({ index, data: null });
+    const selection = { hash, data: null };
+    setDetail(selection);
     gitOps.detail(project, hash).then(
-      (data) => setDetail((d) => (d?.index === index ? { index, data } : d)),
+      (data) => setDetail((d) => (d === selection ? { hash, data } : d)),
       (e) => {
-        setDetail(null);
+        setDetail((d) => (d === selection ? null : d));
         say(String(e), false);
       },
     );
@@ -444,38 +447,50 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             <div className="git-label">
               <span>historial</span>
             </div>
-            <div className="git-log-body">
-              <GitGraph graph={graph} rows={log.length} />
-              {log.map((r, i) => (
+            <div className="git-log-body" style={{ '--git-row-height': `${GIT_ROW_HEIGHT}px` } as CSSProperties}>
+              <GitGraph graph={graph} selected={detailIndex} />
+              {log.map((r, i) => {
+                const dot = graph.dots[i];
+                const timestamp = Date.parse(r.date);
+                return (
                 <div
-                  className={`git-row${detail?.index === i ? ' is-open' : ''}${r.hash ? ' is-commit' : ''}`}
-                  key={i}
-                  onClick={() => r.hash && openDetail(i, r.hash)}
+                  className={`git-row${detailIndex === i ? ' is-open' : ''}${r.hash ? ' is-commit' : ''}`}
+                  key={r.hash}
+                  style={{ '--git-lane': dot.color, '--git-inset': `${dot.inset}px` } as CSSProperties}
+                  onClick={() => r.hash && openDetail(r.hash)}
                   role={r.hash ? 'button' : undefined}
                   tabIndex={r.hash ? 0 : undefined}
-                  aria-expanded={r.hash ? detail?.index === i : undefined}
+                  aria-expanded={r.hash ? detailIndex === i : undefined}
                   onKeyDown={(e) => {
                     if (r.hash && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
-                      openDetail(i, r.hash);
+                      openDetail(r.hash);
                     }
                   }}
                 >
-                  <span className="git-graph" style={{ width: graph.width }} aria-hidden="true" />
                   {r.hash && (
-                    <span className="git-subject" title={r.hash}>
-                      {parseRefs(r.refs).map((ref) => (
-                        <span key={ref.name} className={`git-ref is-${ref.kind}`}>
-                          {ref.name}
-                        </span>
-                      ))}
-                      {r.subject}
-                    </span>
+                    <>
+                      <span className="git-subject" title={r.subject}>
+                        {parseRefs(r.refs).map((ref) => (
+                          <span key={ref.name} className={`git-ref is-${ref.kind}`} title={ref.name}>
+                            {ref.kind === 'head' && <span aria-hidden="true">✓ </span>}
+                            {ref.name}
+                          </span>
+                        ))}
+                        {r.subject}
+                      </span>
+                      <span className="git-meta git-author" title={r.author}>{r.author}</span>
+                      <span className="git-meta git-hash" title={r.hash}>{r.hash}</span>
+                      <time className="git-meta git-date" title={r.date} dateTime={r.date}>
+                        {Number.isFinite(timestamp) ? LOG_DATE.format(timestamp) : ''}
+                      </time>
+                    </>
                   )}
                 </div>
-              ))}
-              {detail && (
-                <div ref={detailRef} className="git-detail" role="dialog" aria-label="Detalle del commit" style={{ top: (detail.index + 1) * 24 + 4 }}>
+                );
+              })}
+              {detail && detailIndex >= 0 && (
+                <div ref={detailRef} className="git-detail" role="dialog" aria-label="Detalle del commit" style={{ top: (detailIndex + 1) * GIT_ROW_HEIGHT + 4 }}>
                   {!detail.data ? (
                     <div className="muted">cargando…</div>
                   ) : (

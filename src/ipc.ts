@@ -27,7 +27,7 @@ export const api = {
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
 export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
-export type LogRow = { hash: string; parents: string[]; refs: string; subject: string };
+export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
 export type DiffTexts = { old: string; new: string };
 
 export const git = {

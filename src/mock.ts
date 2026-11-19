@@ -160,9 +160,9 @@ mockIPC(
         };
       case 'git_log':
         return [
-          { hash: '9af2c5a', parents: ['6c4e902'], refs: 'HEAD -> main, origin/main', subject: 'valida antes de encolar' },
-          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'tests de la cola' },
-          { hash: '6c4e902', parents: [], refs: '', subject: 'cola con reintentos' },
+          { hash: '9af2c5a', parents: ['6c4e902', '3b96e51'], refs: 'HEAD -> main, origin/main', subject: 'integra las pruebas de la cola', author: 'Bilal', date: '2026-11-19T22:14:00+01:00' },
+          { hash: '3b96e51', parents: ['6c4e902'], refs: 'ide/tests-e27', subject: 'prueba los reintentos', author: 'Bilal', date: '2026-11-19T21:45:00+01:00' },
+          { hash: '6c4e902', parents: [], refs: '', subject: 'valida antes de encolar', author: 'Bilal', date: '2026-11-18T17:40:00+01:00' },
         ];
       case 'git_diff_texts': {
         const now = files[`${rel(a.project)}/${a.path}`] ?? '';

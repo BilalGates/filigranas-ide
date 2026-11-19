@@ -215,6 +215,8 @@ pub struct LogRow {
     /// Padres abreviados; el primero es la línea principal.
     parents: Vec<String>,
     refs: String,
+    author: String,
+    date: String,
     subject: String,
 }
 
@@ -223,11 +225,11 @@ const LOG_LIMIT: &str = "-n200";
 fn parse_log(out: &str) -> Vec<LogRow> {
     out.lines()
         .map(|line| {
-            let mut cols = line.split('\x1f');
+            let mut cols = line.splitn(6, '\x1f');
             let mut col = || cols.next().unwrap_or("").to_string();
             let hash = col();
             let parents = col().split_whitespace().map(str::to_string).collect();
-            LogRow { hash, parents, refs: col(), subject: col() }
+            LogRow { hash, parents, refs: col(), author: col(), date: col(), subject: col() }
         })
         .collect()
 }
@@ -237,7 +239,7 @@ fn parse_log(out: &str) -> Vec<LogRow> {
 #[tauri::command]
 pub fn git_log(state: State<AppState>, project: String) -> CmdResult<Vec<LogRow>> {
     let repo = repo(&state, &project)?;
-    let out = git(&repo, &["log", "--branches", "--remotes", "--tags", "HEAD", "--topo-order", LOG_LIMIT, "--format=%h%x1f%p%x1f%D%x1f%s"])?;
+    let out = git(&repo, &["log", "--branches", "--remotes", "--tags", "HEAD", "--topo-order", LOG_LIMIT, "--format=%h%x1f%p%x1f%D%x1f%aN%x1f%aI%x1f%s"])?;
     Ok(parse_log(&String::from_utf8_lossy(&out)))
 }
 
@@ -300,9 +302,12 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc c.txt\0\
 
     #[test]
     fn log_reads_parents() {
-        let rows = parse_log("1b5e8ac\x1f76aece4 2c496de\x1fHEAD -> main\x1fMerge\n76aece4\x1f\x1f\x1fplan\n");
+        let rows = parse_log("1b5e8ac\x1f76aece4 2c496de\x1fHEAD -> main\x1fBilal\x1f2026-11-19T22:14:00+01:00\x1fMerge\n76aece4\x1f\x1f\x1fBilal\x1f2026-11-18T12:30:00+01:00\x1fplan\n");
         assert_eq!((rows[0].hash.as_str(), rows[0].refs.as_str()), ("1b5e8ac", "HEAD -> main"));
         assert_eq!(rows[0].parents, vec!["76aece4", "2c496de"]);
+        assert_eq!(rows[0].author, "Bilal");
+        assert_eq!(rows[0].date, "2026-11-19T22:14:00+01:00");
+        assert_eq!(rows[0].subject, "Merge");
         assert_eq!((rows[1].parents.len(), rows[1].subject.as_str()), (0, "plan"));
     }
 

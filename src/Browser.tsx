@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { browser, type BrowserBounds } from './ipc';
+import { browser, type BrowserBounds, type BrowserEntry } from './ipc';
 
 type Props = { visible: boolean; covered: boolean; target: { url: string } | null };
 type Action = 'back' | 'forward' | 'reload';
+type Library = 'bookmarks' | 'history';
 
 function webAddress(address: string) {
   const value = address.trim();
@@ -27,11 +28,26 @@ export default function Browser({ visible, covered, target }: Props) {
   const queue = useRef<Promise<void>>(Promise.resolve());
   const nav = useRef({ entries: [] as string[], index: -1 });
   const consumedTarget = useRef<Props['target']>(null);
+  const lastLocation = useRef('');
   const [url, setUrl] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [bookmarks, setBookmarks] = useState<BrowserEntry[]>([]);
+  const [history, setHistory] = useState<BrowserEntry[]>([]);
+  const [library, setLibrary] = useState<Library | null>(null);
   const active = visible && !covered;
+
+  const refreshLibrary = useCallback(async () => {
+    if (!native) return;
+    try {
+      const [savedBookmarks, visitedPages] = await Promise.all([browser.bookmarks(), browser.history()]);
+      setBookmarks(savedBookmarks);
+      setHistory(visitedPages);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [native]);
 
   const send = useCallback((operation: () => Promise<void>) => {
     queue.current = queue.current.then(operation).catch((e) => setError(String(e)));
@@ -47,6 +63,8 @@ export default function Browser({ visible, covered, target }: Props) {
         send(async () => {
           await browser.open(next, rect);
           setUrl(next);
+          lastLocation.current = next;
+          await refreshLibrary();
         });
       } else {
         const entries = [...nav.current.entries.slice(0, nav.current.index + 1), next];
@@ -57,7 +75,7 @@ export default function Browser({ visible, covered, target }: Props) {
     } catch {
       setError('Introduce una dirección HTTP o HTTPS válida.');
     }
-  }, [native, send]);
+  }, [native, refreshLibrary, send]);
 
   useEffect(() => {
     if (active && target && target !== consumedTarget.current) {
@@ -65,6 +83,10 @@ export default function Browser({ visible, covered, target }: Props) {
       open(target.url);
     }
   }, [active, target, open]);
+
+  useEffect(() => {
+    if (active) void refreshLibrary();
+  }, [active, refreshLibrary]);
 
   useEffect(() => {
     const el = surface.current;
@@ -89,11 +111,45 @@ export default function Browser({ visible, covered, target }: Props) {
     let mounted = true;
     const timer = window.setInterval(() => {
       void browser.location().then((next) => {
-        if (mounted && next && next !== 'about:blank') setUrl(next);
+        if (mounted && next && next !== 'about:blank' && next !== lastLocation.current) {
+          lastLocation.current = next;
+          setUrl(next);
+          void refreshLibrary();
+        }
       }, () => {});
     }, 700);
     return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, native]);
+  }, [active, native, refreshLibrary]);
+
+  const saveBookmark = async () => {
+    if (!url || !native) return;
+    try {
+      await browser.bookmark(url, new URL(url).hostname);
+      await refreshLibrary();
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const removeBookmark = async (address: string) => {
+    try {
+      await browser.removeBookmark(address);
+      await refreshLibrary();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const clearHistory = async () => {
+    try {
+      await browser.clearHistory();
+      await refreshLibrary();
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   const act = (action: Action) => {
     setDraft(null);
@@ -120,6 +176,37 @@ export default function Browser({ visible, covered, target }: Props) {
           onFocus={(e) => e.currentTarget.select()} onKeyDown={(e) => { if (e.key === 'Escape') setDraft(null); }} />
         <button className="co-btn" type="submit">Ir</button>
       </form>
+      <div className="browser-tools">
+        <button type="button" className={`co-btn${library === 'bookmarks' ? ' is-on' : ''}`}
+          onClick={() => setLibrary((current) => current === 'bookmarks' ? null : 'bookmarks')}>Marcadores</button>
+        <button type="button" className={`co-btn${library === 'history' ? ' is-on' : ''}`}
+          onClick={() => setLibrary((current) => current === 'history' ? null : 'history')}>Historial</button>
+        <span className="grow" />
+        <button type="button" className="co-btn" disabled={!url || !native} onClick={() => void saveBookmark()}
+          aria-label="Guardar marcador" title="Guardar marcador">☆</button>
+      </div>
+      {library && (
+        <div className="browser-library">
+          <div className="browser-library-head">
+            <strong>{library === 'bookmarks' ? 'Marcadores' : 'Historial'}</strong>
+            {library === 'history' && <button type="button" className="co-btn" onClick={() => void clearHistory()}>Borrar historial</button>}
+            <button type="button" className="co-btn" onClick={() => setLibrary(null)} aria-label="Cerrar lista">×</button>
+          </div>
+          <div className="browser-library-list">
+            {(library === 'bookmarks' ? bookmarks : history).map((entry) => (
+              <div className="browser-entry-row" key={`${library}:${entry.url}`}>
+                <button type="button" className="browser-entry" onClick={() => open(entry.url)} title={entry.url}>
+                  <strong>{entry.title}</strong><span>{entry.url}</span>
+                </button>
+                {library === 'bookmarks' && <button type="button" className="co-btn" aria-label={`Quitar marcador ${entry.title}`}
+                  onClick={() => void removeBookmark(entry.url)}>×</button>}
+              </div>
+            ))}
+            {(library === 'bookmarks' ? bookmarks : history).length === 0 &&
+              <p className="muted">{library === 'bookmarks' ? 'Aún no hay marcadores.' : 'El historial está vacío.'}</p>}
+          </div>
+        </div>
+      )}
       {error && <p className="co-error" role="alert">{error}</p>}
       <div className="browser-surface" ref={surface}>
         {!url && <p className="muted">Introduce una dirección para abrir una página.</p>}

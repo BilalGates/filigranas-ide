@@ -94,6 +94,11 @@ fn load(conn: &Connection) -> CmdResult<Workspace> {
     Ok(Workspace { root, groups, projects })
 }
 
+pub(crate) fn project_names(conn: &Connection) -> CmdResult<std::collections::BTreeMap<String, String>> {
+    let workspace = load(conn)?;
+    Ok(workspace.projects.into_iter().map(|project| (project.path, project.name)).collect())
+}
+
 /// Valida que `path` sea un proyecto de la raíz y devuelve su ruta canónica.
 pub(crate) fn project_path(conn: &Connection, path: &str) -> CmdResult<String> {
     let root = root_of(conn)?;

@@ -15,6 +15,7 @@ import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
 import Brain from './Brain';
 import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
+import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
 import UsagePanel from './Usage';
 import { percentLabel, useProviderQuota, useQuotaEvents } from './usageStore';
@@ -24,6 +25,7 @@ import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Browser from './Browser';
 import Splitter, { SIZES } from './Splitter';
+import GithubProfile from './GithubProfile';
 import Sharing, { type ShareTarget } from './Sharing';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -57,6 +59,7 @@ export default function App() {
   const nextTermId = useRef(1);
   const [termOpen, setTermOpen] = useState(false);
   const [view, setView] = useState<'coach' | 'work' | number>('coach');
+  const [brainProject, setBrainProject] = useState<string | null>(null);
   const [brainTarget, setBrainTarget] = useState<number | null>(null);
   const [workTarget, setWorkTarget] = useState<WorkTarget | null>(null);
   const [worktree, setWorktree] = useState<{ project: string; id: number } | null>(null);
@@ -74,6 +77,7 @@ export default function App() {
   const [sessionsOf, setSessionsOf] = useState<string | null>(null);
   const [pmChat, setPmChat] = useState<{ project: string; session: Session | null } | null>(null);
   const [switching, setSwitching] = useState<number | string | null>(null);
+  const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTools, setUsageTools] = useState(false);
   // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
@@ -85,6 +89,7 @@ export default function App() {
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
   const usageButton = useRef<HTMLButtonElement>(null);
   const usagePopup = useRef<HTMLElement>(null);
+  const centerPanel = useRef<HTMLElement>(null);
   const [pmProjects, setPmProjects] = useState(loadPm);
   const setPm = (path: string, on: boolean) =>
     setPmProjects((cur) => {
@@ -111,7 +116,7 @@ export default function App() {
   const pmReady = !!project && pmChat?.project === project;
   const pmSession = pmReady ? pmChat.session : null;
   const pmEngine = pmSession?.engine ?? 'codex';
-  const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : null);
+  const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
   const quota = useProviderQuota(usageEngine, usageModel);
   const sessionWorktree = activeSession?.worktree ? activeSession : null;
@@ -288,6 +293,14 @@ export default function App() {
     );
   };
 
+  const focusConversation = () => {
+    const panel = centerPanel.current;
+    if (!panel) return;
+    const composer = [...panel.querySelectorAll<HTMLTextAreaElement>('.co-compose textarea:not(:disabled)')]
+      .find((textarea) => !textarea.closest('[hidden]'));
+    (composer ?? panel).focus();
+  };
+
   const checkTools = useCallback(() => {
     setCheckingTools(true);
     toolsApi
@@ -423,7 +436,6 @@ export default function App() {
     currentProject.current = path;
     setProject(path);
     setCoachTask(null);
-    setBrainTarget(null);
     setWorkTarget(null);
     setWorktree(null);
     closeFile();
@@ -435,9 +447,10 @@ export default function App() {
     if (path !== project) selectProject(path);
     setWorkTarget({ project: path, task: id, section: 'summary' });
     setView('work');
+    setNoRight(true);
   };
   const graphMemory = (path: string | null, id: number) => {
-    if (path && path !== project) selectProject(path);
+    setBrainProject(path);
     setBrainTarget(id);
     revealRight('brain');
   };
@@ -506,13 +519,12 @@ export default function App() {
       { id: 'tasks', label: 'Trabajo · tareas', run: () => openWork() },
       { id: 'health', label: 'Code Health', run: () => openWork('health', view === 'work' ? undefined : activeSession ?? null) },
       { id: 'pending', label: 'Ramas sin integrar', run: openPending },
-      ...(['design', 'brain', 'brain-graph'] as const).map((tab) => ({
-        id: tab, label: RIGHT_PANELS[tab].title, run: () => showRight(tab),
-      })),
+      { id: 'design', label: RIGHT_PANELS.design.title, run: () => showRight('design') },
     ] : []),
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openWork('pulls', view === 'work' ? undefined : activeSession ?? null) },
     { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
+    { id: 'brain', label: 'Filigranas Brain', run: () => showRight('brain-graph') },
     { id: 'browser', label: 'navegador', run: () => showRight('browser') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
@@ -612,15 +624,27 @@ export default function App() {
   );
 
   const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
-  const panelOpen = !noRight && (!!current || rightView === 'browser');
+  const isBrain = rightView === 'brain' || rightView === 'brain-graph';
+  const panelOpen = !noRight && (!!current || rightView === 'browser' || isBrain);
+  const brainOpen = panelOpen && isBrain;
+  const browserOpen = panelOpen && rightView === 'browser';
+  const designOpen = !!current && panelOpen && rightView === 'design';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
+    if (tab === 'brain' || tab === 'brain-graph') return false;
+    if (tab === 'browser') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
-    return !!current || tab === 'browser';
+    return true;
   });
+  const errorToast = error && (
+    <button className="toast" onClick={() => setError(null)} title="cerrar">
+      <Icon name="warn" size={13} />
+      <span>{error}</span>
+    </button>
+  );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}`}>
+    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}`}>
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
           <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title={shortcut('barra lateral · ⌘B')}>
@@ -633,7 +657,21 @@ export default function App() {
           <span className="grow" />
           <kbd>{shortcut('⌘K')}</kbd>
         </button>
-        <div className="tb-right" data-tauri-drag-region />
+        <div className="tb-right" data-tauri-drag-region>
+          <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
+            onClick={() => showRight('browser')}
+            aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
+            title="Navegador">
+            <Icon name="globe" size={15} />
+          </button>
+          <button className={`tb-brain${brainOpen ? ' is-on' : ''}`}
+            onClick={() => showRight(panelOpen && rightView === 'brain' ? 'brain' : 'brain-graph')}
+            aria-label="Filigranas Brain" title="Filigranas Brain" aria-controls="workspace-right-panel" aria-expanded={brainOpen}>
+            <Icon name="brain" size={15} />
+          </button>
+          <GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
+            onOpenChange={open => { setGithubOpen(open); if (open) setUsageOpen(false); }} />
+        </div>
       </header>
 
       <Sidebar
@@ -684,7 +722,7 @@ export default function App() {
       )}
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
 
-      <main className="panel center">
+      <main className="panel center" ref={centerPanel} tabIndex={-1}>
         {centerTitle && (
           <div className="center-head">
             <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
@@ -794,12 +832,7 @@ export default function App() {
               <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
             ))}
         </section>
-        {error && (
-          <button className="toast" onClick={() => setError(null)} title="cerrar">
-            <Icon name="warn" size={13} />
-            <span>{error}</span>
-          </button>
-        )}
+        {errorToast}
         {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
           onOpen={() => { setCliNotice(null); setUsageTools(true); setUsageOpen(true); }} />}
       </main>
@@ -823,13 +856,23 @@ export default function App() {
       </nav>
 
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
-        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen} target={browserTarget} />
-        {current && panelOpen && rightView === 'brain' && <Brain key={'brain:' + current.path} project={current.path} target={brainTarget}
-          onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />}
-        {current && <BrainGraph key={'graph:' + current.path} project={current.path} projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
-          onMemories={() => { setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />}
-        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!panelOpen || rightView !== 'design'}
-          onNew={() => newSession('claude')} onSession={setView} />}
+        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen} target={browserTarget} />
+        {panelOpen && rightView === 'brain' && <>
+          <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>
+            <option value="">Memoria global</option>
+            {ws.projects.map(p => <option key={p.path} value={p.path}>{p.name}</option>)}
+          </select></label></div>
+          <Brain key={brainProject ?? 'global'} project={brainProject} target={brainTarget}
+            onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />
+        </>}
+        <BrainGraph projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
+          onMemories={path => { setBrainProject(path); setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />
+        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
+          reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
+          archived={ws.projects.filter((item) => item.archived).length}
+          onConversation={focusConversation}
+          onNew={() => newSession('claude')}
+          onSession={setView} />}
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -880,7 +923,7 @@ export default function App() {
       </Right>
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-actions">
-          <button ref={usageButton} className={`status-action${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
+          <button ref={usageButton} className={`status-action status-usage${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
             aria-expanded={usageOpen} onClick={toggleUsage} title={shortcut('uso de los modelos · ⌘U')}>
             <Icon name="gauge" size={13} />
             <span>{usageEngine === 'claude' ? 'Uso · Claude' : usageLabel ? `Uso · ${usageLabel}` : 'Uso'}</span>
@@ -891,13 +934,13 @@ export default function App() {
               </span>
             )}
           </button>
-          {current && (
-            <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
-              aria-expanded={termOpen} title={shortcut('Terminal · ⌘J')}>
-              <Icon name="terminal" size={13} /> Terminal
-            </button>
-          )}
         </div>
+        {current && (
+          <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
+            aria-expanded={termOpen} title={shortcut('Terminal · ⌘J')}>
+            <Icon name="terminal" size={13} /> Terminal
+          </button>
+        )}
         <button className="status-branch" disabled={!current} title={current ? `Rama del proyecto · ${branchLabel}` : 'Abre un proyecto para ver su rama'}
           aria-label={current ? `Rama del proyecto: ${branchLabel}` : 'Sin proyecto'} onClick={() => { revealRight('git'); setChooseBranch(true); }}>
           <Icon name="branch" size={13} />

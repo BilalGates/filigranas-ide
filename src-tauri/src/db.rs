@@ -44,8 +44,10 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
          );",
     )?;
     migrate(&conn)?;
+    crate::browser::migrate(&conn)?;
     crate::tasks::migrate(&conn)?;
     crate::runs::migrate(&conn)?;
+    crate::work::migrate(&conn)?;
     crate::chat::migrate(&conn)?;
     crate::brain::migrate(&conn)?;
     crate::jev::migrate(&conn)?;
@@ -199,6 +201,7 @@ pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_ses
         params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id],
     )?;
     tx.execute("INSERT INTO task_sessions(session_id,task_id) SELECT ?1,task_id FROM task_sessions WHERE session_id=?2", [new.id,from.id])?;
+    tx.execute("INSERT INTO work_agents(session_id,work_id,paths) SELECT ?1,work_id,paths FROM work_agents WHERE session_id=?2", [new.id,from.id])?;
     let to = session(&tx, new.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     close_session(&tx, from.id)?;
     tx.commit()?;
@@ -206,6 +209,7 @@ pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_ses
 }
 
 /// Rama y worktree de una sesión aislada.
+#[cfg(test)]
 pub fn set_session_worktree(conn: &Connection, id: i64, worktree: &str, branch: &str, base: &str, base_commit: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5 WHERE id = ?1",

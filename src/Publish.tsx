@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { cancelReview, pr, type PrDraft, type PrInfo, type Proof, type Review } from './ipc';
 import ApprovalForm from './ApprovalForm';
 
-type Props = { project: string; session: number | null; hidden: boolean };
+type Props = { project: string; session: number | null; hidden: boolean; workClosure?: boolean };
 
 export const CHECK_STATE = { success: 'correctos', pending: 'pendientes', failure: 'fallidos', unknown: 'desconocidos' };
 const REVIEW: Record<string, string> = { APPROVED: 'aprobada', REVIEW_REQUIRED: 'pendiente', CHANGES_REQUESTED: 'cambios solicitados' };
 
-export default function Publish({ project, session, hidden }: Props) {
+export default function Publish({ project, session, hidden, workClosure = false }: Props) {
   const [draft, setDraft] = useState<PrDraft | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -42,7 +42,7 @@ export default function Publish({ project, session, hidden }: Props) {
     setConfirm(null);
     setBusy(true);
     try {
-      const d = await pr.draft(project, session, base);
+      const d = await pr.draft(project, session, workClosure ? 'main' : base);
       if (request !== sequence.current) return;
       setDraft(d);
       setTitle(d.title);
@@ -55,7 +55,7 @@ export default function Publish({ project, session, hidden }: Props) {
     } finally {
       if (request === sequence.current) setBusy(false);
     }
-  }, [project, session]);
+  }, [project, session, workClosure]);
 
   useEffect(() => {
     void load(null);
@@ -155,7 +155,7 @@ export default function Publish({ project, session, hidden }: Props) {
           {!published && <>
             <label className="pub-field">
               <span className="muted">base</span>
-              <select value={draft.base} disabled={busy || !!confirm} onChange={(e) => void load(e.target.value)}>
+              <select value={draft.base} disabled={busy || !!confirm || workClosure || draft.workSession != null} onChange={(e) => void load(e.target.value)}>
                 {draft.bases.map((base) => <option key={base} value={base}>{base}</option>)}
               </select>
             </label>
@@ -175,7 +175,7 @@ export default function Publish({ project, session, hidden }: Props) {
         {!confirm && !published && draft && <button className="co-btn is-primary" disabled={busy || !!draft.blocked || (!info && !title.trim())}
           onClick={() => void prepare('confirmar publicación', pr.reviewPublish(project, session, draft, title, body, asDraft),
             (proof) => pr.publish(project, session, draft, title, body, asDraft, proof))}>
-          {info ? 'publicar commits' : 'publicar y abrir PR'}
+          {workClosure || draft.workSession != null ? 'publicar PR y finalizar sesión' : info ? 'publicar commits' : 'publicar y abrir PR'}
         </button>}
         {!confirm && info?.state === 'OPEN' && <>
           <select className="chip-select" aria-label="Método de merge" value={method} disabled={busy || !eligible} onChange={(e) => setMethod(e.target.value)}>

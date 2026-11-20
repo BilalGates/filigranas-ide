@@ -6,6 +6,7 @@ import Publish, { CHECK_STATE } from './Publish';
 import CodeHealth from './CodeHealth';
 import Larry from './Larry';
 import Pending from './Pending';
+import WorkSession from './WorkSession';
 
 const STATUS: Record<string, string> = {
   backlog: 'pendiente', ready: 'lista', running: 'en marcha', waiting_approval: 'espera permiso',
@@ -76,7 +77,7 @@ function buildScopes(list: Task[], open: Session[], orphans: Session[]) {
     for (const session of task.sessions) owner.set(session.id, task.id);
   }
   const add = (session: ScopeSession) => {
-    const key = session.worktree ?? `session:${session.id}`;
+    const key = session.worktree ?? (session.branch ? `shared:${session.branch}` : `session:${session.id}`);
     const scope = scopes.get(key) ?? { key, owner: null, live: null, orphan: false, history: [] };
     if (!keys.has(session.id)) scope.history.push(session);
     keys.set(session.id, key);
@@ -105,6 +106,7 @@ export default function Tasks({
   onBranchesChanged, onWorktree,
 }: Props) {
   const [list, setList] = useState<Task[] | null>(null);
+  const [workReview, setWorkReview] = useState(false);
   const [orphans, setOrphans] = useState<Session[] | null>(null);
   const [selected, setSelected] = useState<number | null>();
   const [section, setSection] = useState<WorkSection>('summary');
@@ -130,7 +132,9 @@ export default function Tasks({
     () => buildScopes(list ?? [], sessions.filter((session) => session.project === project), orphans ?? []),
     [list, sessions, project, orphans],
   );
-  const scopes = topology.scopes.filter((scope) => scope.owner === taskId);
+  const scopes = topology.scopes.filter((scope) => taskId == null
+    ? scope.history.some((session) => !items.some((item) => item.sessions.some((linked) => linked.id === session.id)))
+    : scope.history.some((session) => task?.sessions.some((linked) => linked.id === session.id)));
   const chosenKey = scopeKey ?? (taskId == null ? CHECKOUT : scopes.length === 1 ? scopes[0].key : null);
   const scope = scopes.find((candidate) => candidate.key === chosenKey);
   const evidence = scope?.history.find((session) => session.id === healthTarget) ?? scope?.live ?? scope?.history[0];
@@ -306,7 +310,8 @@ export default function Tasks({
 
   return (
     <section className="coach tasks" aria-label="Trabajo del proyecto" hidden={hidden}>
-      <div className="task-body">
+      <WorkSession key={project} project={project} hidden={hidden} onReview={setWorkReview} />
+      <div className="task-body" style={workReview ? { display: 'none' } : undefined}>
         <nav className="task-list" aria-label="Lista de tareas">
           <div className="work-list-tools">
             <button className="co-btn is-primary" disabled={busy} onClick={() => { setError(null); setEdit({ ...EMPTY }); }}>Nueva tarea</button>
@@ -416,7 +421,7 @@ export default function Tasks({
                       {taskId == null && <option value={CHECKOUT}>Checkout del proyecto · {checkout}</option>}
                       {scopes.map((candidate) => {
                         const session = candidate.live ?? candidate.history[0];
-                        const label = session.branch ? `${session.branch} · ${session.name}` : session.name;
+                        const label = session.branch ? `${session.branch}${session.worktree ? ` · ${session.name}` : ' · compartida'}` : session.name;
                         return <option key={candidate.key} value={candidate.key}>{label}{candidate.orphan || !candidate.live ? ' · cerrada' : ''}</option>;
                       })}
                     </select></label>

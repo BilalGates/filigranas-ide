@@ -261,6 +261,7 @@ pub struct Draft {
     remote_error: Option<String>,
     task_id: Option<i64>,
     larry_checked: bool,
+    work_session: Option<i64>,
 }
 
 fn local_draft(repo: &Path, wanted: Option<String>) -> CmdResult<Draft> {
@@ -316,7 +317,7 @@ fn append_task(state: &AppState, project: &str, session: Option<i64>, draft: &mu
             _ => "pendiente de registrar",
         };
         draft.body.push_str(&format!("\n## Pruebas locales\n\n- {tested}\n"));
-    } else {
+    } else if draft.work_session.is_none() {
         draft.body.push_str("\n## Pruebas locales\n\n- Pendiente de registrar\n");
     }
     if draft.larry_checked {
@@ -331,7 +332,16 @@ pub async fn pr_draft(app: AppHandle, path: String, session: Option<i64>, base: 
         let state = app.state::<AppState>();
         let project = project(&state, &path)?;
         let dir = crate::isolate::work_dir(&state, &project, session)?;
-        let mut draft = local_draft(&dir, base)?;
+        let work = if dir == Path::new(&project) { crate::work::current(&*state.db.lock().map_err(err)?, &project)?.filter(|w| w.state != "finished") } else { None };
+        let mut draft = local_draft(&dir, if work.is_some() { Some("main".into()) } else { base })?;
+        if let Some(work) = &work {
+            draft.work_session = Some(work.id);
+            draft.title = work.objective.clone();
+            draft.body.push_str(&format!("\n## Sesión de trabajo #{}\n\n{}\n\n## Pruebas locales\n\nResultado registrado: {}\n\n{}\n", work.id, work.objective,
+                match work.tests.as_deref() { Some("passed") => "correctas", Some("not_applicable") => "no aplican", _ => "pendiente" },
+                work.evidence.as_deref().unwrap_or("Pendiente de registrar")));
+            if work.state != "review" { draft.blocked = Some("Finaliza la sesión desde Trabajo antes de publicar su PR hacia main".into()); }
+        }
         append_task(&state, &project, session, &mut draft)?;
         let target = match Target::read(&dir) {
             Ok(target) => target,
@@ -468,6 +478,7 @@ pub fn pr_review_publish(state: tauri::State<AppState>, path: String, session: O
     let project = project(&state, &path)?;
     let dir = crate::isolate::work_dir(&state, &project, session)?;
     let target = Target::read(&dir)?;
+    crate::work::publication(&*state.db.lock().map_err(err)?, &project, &dir, &edit.base)?;
     if target.branch != edit.expected_branch || target.head != edit.expected_head || target.repository != edit.expected_repository {
         return Err("la rama, el commit o el repositorio cambió. Vuelve a revisar el borrador".into());
     }
@@ -486,7 +497,17 @@ pub async fn pr_publish(app: AppHandle, path: String, session: Option<i64>, edit
         let exec = |program: &str, args: &[&str]| run(&dir, program, args);
         let remote = Github { target: &target, project: &project, db: &state.db, exec: &exec };
         state.approvals.consume(("pr_publish", &project, session, &target, &edit), &proof)?;
-        let result = publish(&dir, &remote, &edit, |_| true);
+        let work = crate::work::publication(&*state.db.lock().map_err(err)?, &project, &dir, &edit.base)?;
+        let result = publish(&dir, &remote, &edit, |_| true).and_then(|pull| {
+            if let Some(id) = work {
+                let conn = state.db.lock().map_err(err)?;
+                if crate::work::publication(&conn, &project, &dir, &edit.base)? != Some(id) {
+                    return Err("la sesión cambió durante la publicación; revisa su estado antes de cerrar".into());
+                }
+                crate::work::complete(&conn, id, &pull)?;
+            }
+            Ok(pull)
+        });
         let _ = app.emit("project-changed", ());
         crate::tasks::changed(&app);
         result

@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { design, type DesignRegion, type DesignScreen, type DesignShot, type Session } from './ipc';
+import DesignCanvas from './DesignCanvas';
+import type { CanvasFrame } from './designCanvasModel';
+import { Icon } from './GitPanel';
 
 const EMPTY: DesignScreen = { id: null, name: '', url: '', constraints: '', revision: null, approved: null };
 const FULL: DesignRegion = { x: 0, y: 0, width: 100, height: 100 };
 const STATUSES: Record<string, string> = { candidate: 'candidata', approved: 'aprobada', discarded: 'descartada' };
 
-type Props = { project: string; sessions: Session[]; hidden: boolean; onNew: () => void; onSession: (id: number) => void };
+type Props = {
+  project: string; sessions: Session[]; hidden: boolean; reference: CanvasFrame; archived: number;
+  onConversation: () => void; onNew: () => void; onSession: (id: number) => void;
+};
 type Images = { selected: number; reference: number | null; candidate: string; baseline: string | null };
 
 function fileBase64(file: File): Promise<string> {
@@ -17,7 +23,27 @@ function fileBase64(file: File): Promise<string> {
   });
 }
 
-export default function DesignLoop({ project, sessions, hidden, onNew, onSession }: Props) {
+export default function DesignLoop({ reference, archived, onConversation, ...props }: Props) {
+  const [view, setView] = useState<'canvas' | 'captures'>('canvas');
+  const navigation = <>
+    <h2 className="design-loop-title"><Icon name="design" size={15} />Design Loop</h2>
+    <div className="design-tool-group" role="group" aria-label="Vista de Design Loop">
+      <button type="button" className="co-btn" aria-pressed={view === 'canvas'} onClick={() => setView('canvas')}>Lienzo</button>
+      <button type="button" className="co-btn" aria-pressed={view === 'captures'} onClick={() => setView('captures')}>Capturas</button>
+    </div>
+  </>;
+  const conversation = <button type="button" className="co-btn" onClick={onConversation}
+    aria-label="Conversación" title="Enfocar la conversación"><Icon name="chat" /></button>;
+  return <section className="design-loop" aria-label="Design Loop" hidden={props.hidden}>
+    <div className="design-loop-view" hidden={view !== 'canvas'}>
+      <DesignCanvas project={props.project} reference={reference} archived={archived} navigation={navigation} conversation={conversation} />
+    </div>
+    {view === 'captures' && <div className="design-board-tools">{navigation}<span className="grow" />{conversation}</div>}
+    <DesignCaptures {...props} hidden={props.hidden || view !== 'captures'} />
+  </section>;
+}
+
+function DesignCaptures({ project, sessions, hidden, onNew, onSession }: Pick<Props, 'project' | 'sessions' | 'hidden' | 'onNew' | 'onSession'>) {
   const [screens, setScreens] = useState<DesignScreen[]>([]);
   const [screenId, setScreenId] = useState<number | null>(null);
   const [form, setForm] = useState<DesignScreen>(EMPTY);
@@ -128,7 +154,7 @@ export default function DesignLoop({ project, sessions, hidden, onNew, onSession
     });
   };
 
-  return <section className="coach" aria-label="Design Loop" hidden={hidden}>
+  return <section className="coach design-loop-view" aria-label="Revisión de capturas" hidden={hidden}>
     <div className="co-log p5-panel">
       {error && <p className="co-error" role="alert">{error}</p>}
       <form className="task-form p5-section" onSubmit={(e) => { e.preventDefault(); void save(); }}>

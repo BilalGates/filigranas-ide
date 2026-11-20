@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { Entry, GithubLoginStatus, Group, HostedShare, LocalService, Project, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -79,6 +79,42 @@ const meta: Record<string, { groupId: number | null; archived: boolean }> = {
   filigranas: { groupId: null, archived: false },
 };
 
+// Datos sintéticos de Brain, solo para la vista de desarrollo en navegador.
+const mockBrainEntries: Array<BrainEntry & { project: string | null }> = [];
+function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
+  const nodes: BrainGraphData['nodes'] = [];
+  const edges: BrainGraphData['edges'] = [];
+  const now = Math.floor(Date.now() / 1000);
+  const themes = ['Arquitectura y decisiones', 'Contexto compartido', 'Validación de cambios', 'Continuidad entre sesiones'];
+  projectNames().forEach((name, i) => {
+    const project = `${ROOT}/${name}`;
+    if (filter.project && filter.project !== project) return;
+    const hub = `project:${project}`;
+    nodes.push({ key: hub, id: 0, kind: 'project', title: name, project, date: now, url: null, body: null, source: null, matched: true });
+    themes.forEach((title, j) => {
+      const id = i * 10 + j + 1;
+      const entry: BrainEntry & { project: string } = { id, version: 1, global: false, task: null, kind: j === 0 ? 'decision' : j === 3 ? 'outcome' : 'fact',
+        title: `${title} · ${name}`, body: `Memoria de ejemplo de ${name}. Conserva las decisiones y sus fuentes para continuar el trabajo.`, source: `Nota de diseño · ${name}`,
+        sourceTask: null, sourceRun: null, share: false, validUntil: null, created: now, updated: now - j * 86400, project };
+      if (!mockBrainEntries.some(e => e.id === id)) mockBrainEntries.push(entry);
+      const key = `m:${id}`;
+      nodes.push({ key, id, kind: entry.kind, title: entry.title, date: entry.updated, project, url: null, body: entry.body, source: entry.source, matched: true });
+      edges.push({ from: key, to: hub, kind: 'project_member' });
+    });
+  });
+  const global: BrainEntry & { project: null } = { id: 999, version: 1, task: null,
+    kind: 'preference', title: 'Priorizar la continuidad', body: 'Conservar el contexto entre proyectos y sesiones.',
+    source: 'Preferencia de ejemplo', project: null, global: true, share: false, sourceTask: null,
+    sourceRun: null, validUntil: null, created: now, updated: now };
+  if (!mockBrainEntries.some(e => e.id === global.id)) mockBrainEntries.push(global);
+  if (!filter.project) nodes.push({ ...global, key: 'm:999', id: 999, date: now, url: null, matched: true });
+  const matches = new Set(nodes.filter(n => (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
+    && (!filter.query || `${n.title} ${n.body ?? ''}`.toLocaleLowerCase().includes(filter.query.toLocaleLowerCase()))).map(n => n.key));
+  const visible = new Set(matches);
+  for (const edge of edges) { if (matches.has(edge.from)) visible.add(edge.to); if (matches.has(edge.to)) visible.add(edge.from); }
+  return { nodes: nodes.filter(n => visible.has(n.key)).map(n => ({ ...n, matched: matches.has(n.key) })), edges: edges.filter(e => visible.has(e.from) && visible.has(e.to)), limited: false };
+}
+
 const rel = (p: string) => p.slice(ROOT.length + 1);
 const projectNames = () => [...new Set(Object.keys(files).map((f) => f.split('/')[0]))].sort();
 
@@ -106,6 +142,9 @@ const fail = (msg: string) => {
   throw msg;
 };
 
+const mockWorks = new Map<string, WorkSession>();
+let nextWork = 1;
+
 let mockJevSettings = { mode: 'local', policy: 'balanced', timeoutSecs: 3, model: null, lightModel: null };
 const mockJevStatus = () => ({ settings: mockJevSettings, supported: false, service: 'Filigranas IDE TypeSafe', account: 'jev', codexModels: [] });
 let mockCliAuto = true;
@@ -120,6 +159,37 @@ mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
     switch (cmd) {
+      case 'work_current':
+        return mockWorks.get(a.project) ?? null;
+      case 'work_start': {
+        if (mockWorks.get(a.project)?.state && mockWorks.get(a.project)?.state !== 'finished') return fail('ya hay una sesión de trabajo abierta');
+        const slug = String(a.description).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0,72).replace(/-$/, '');
+        const work: WorkSession = { id: nextWork++, objective: a.objective, branch: `${a.kind}/${slug}`, baseCommit: '84ab176', state: 'active', tests: null, evidence: null, reviewedHead: null, prUrl: null,
+          agents: mockSessions.filter(s => s.project === a.project && !s.worktree).map(s => ({sessionId:s.id,name:s.name,paths:['.'],running:false,closed:false})) };
+        mockWorks.set(a.project, work);
+        mockBranches.set(a.project, work.branch);
+        void emit('project-changed');
+        void emit('tasks-changed');
+        return work;
+      }
+      case 'work_assign': {
+        const agent = mockWorks.get(a.project)?.agents.find(s => s.sessionId === a.session);
+        if (agent) agent.paths = a.paths;
+        void emit('tasks-changed');
+        return null;
+      }
+      case 'work_prepare': {
+        const work = mockWorks.get(a.project);
+        if (work) { work.state = 'review'; work.tests = a.tests; work.evidence = a.evidence; work.reviewedHead = '9af2c5a462f7618732f102a1f12442411c737cb3'; }
+        void emit('tasks-changed');
+        return null;
+      }
+      case 'work_resume': {
+        const work = mockWorks.get(a.project);
+        if (work) { work.state = 'active'; work.tests = null; work.evidence = null; }
+        void emit('tasks-changed');
+        return null;
+      }
       case 'get_workspace':
         return workspace();
       case 'default_root':
@@ -326,8 +396,8 @@ mockIPC(
           name,
           providerSession: crypto.randomUUID(),
           effort: null,
-          worktree: `/Users/demo/Library/Application Support/filigranas/worktrees/${rel(a.project)}/${name}-${id}`,
-          branch: `ide/${name}-${id}`,
+          worktree: null,
+          branch: mockWorks.get(a.project)?.branch ?? null,
           base: 'main',
           baseCommit: '84ab176',
           integrated: null,
@@ -336,7 +406,9 @@ mockIPC(
           paused: null,
         };
         mockSessions.push(created);
-        return { ...created, notice: rel(a.project) === 'bitacola' ? `${name} parte del último commit de main: los cambios sin commit del proyecto no están en su rama` : null };
+        mockWorks.get(a.project)?.agents.push({sessionId:id,name,paths:['.'],running:false,closed:false});
+        void emit('tasks-changed');
+        return { ...created, notice: 'Comparte la rama y el checkout de la sesión de trabajo.' };
       }
       case 'session_history':
         return [];
@@ -442,12 +514,12 @@ mockIPC(
         return { created: ['9af2c5b fix(lib): valida la política antes de encolar'], stopped: null };
       case 'pr_draft':
         return {
-          branch: 'feat/autonomia',
+          branch: mockWorks.get(a.path)?.branch ?? 'feat/autonomia',
           head: '9af2c5a462f7618732f102a1f12442411c737cb3',
           repository: 'demo/bitacola',
           bases: ['main', 'develop'],
           base: a.base ?? 'main',
-          title: 'fix(lib): valida la política antes de encolar',
+          title: mockWorks.get(a.path)?.objective ?? 'fix(lib): valida la política antes de encolar',
           body: '## Cambios\n\n- fix(lib): valida la política antes de encolar\n\n## Pruebas\n\n- [ ] (describe cómo se ha comprobado)\n',
           commits: ['fix(lib): valida la política antes de encolar'],
           dirty: false,
@@ -457,8 +529,15 @@ mockIPC(
           remoteError: null,
           taskId: null,
           larryChecked: true,
+          workSession: mockWorks.get(a.path)?.state !== 'finished' ? mockWorks.get(a.path)?.id ?? null : null,
         };
-      case 'pr_publish':
+      case 'pr_publish': {
+        const work = mockWorks.get(a.path);
+        if (work?.state === 'review') { work.state = 'finished'; work.prUrl = 'https://github.com/demo/bitacola/pull/7'; void emit('tasks-changed'); }
+        return { number: 7, url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.edit?.draftPr ?? true,
+          branch: a.edit?.expectedBranch, base: a.edit?.base ?? 'main', head: a.edit?.expectedHead,
+          checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
+      }
       case 'pr_status':
         return { number: 7, url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.edit?.draftPr ?? true,
           branch: 'feat/autonomia', base: a.edit?.base ?? 'main', head: '9af2c5a462f7618732f102a1f12442411c737cb3',
@@ -466,12 +545,15 @@ mockIPC(
       case 'open_pr_url':
         return null;
       case 'brain_graph':
-        return { nodes: [], edges: [], limited: false };
+        return mockBrainGraph(a.filter);
+      case 'brain_entry':
+        return mockBrainEntries.find(e => e.id === a.id && (e.project === a.project || e.global)) ?? fail('Recuerdo no disponible');
+      case 'brain_search':
+        return mockBrainEntries.filter(e => (e.project === a.project || e.global) && (!a.kind || e.kind === a.kind) && e.title.toLocaleLowerCase().includes(a.query.toLocaleLowerCase()));
       case 'task_parallel_limit':
         return a.limit ?? 2;
       case 'tasks_list':
       case 'task_runs':
-      case 'brain_search':
       case 'brain_preview':
       case 'health_list':
       case 'health_ci':

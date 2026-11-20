@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 1;
+pub const TOOLS_VERSION: i64 = 3;
 
 const ENGINES: [(&str, &str); 4] = [("claude", "claude code"), ("opencode", "opencode"), ("agy", "antigravity"), ("devin", "devin")];
 const WAIT_DEFAULT: u64 = 300;
@@ -30,11 +30,38 @@ Los permisos que pida el agente los aprueba el usuario en la pestaña de la sesi
                 "type": "object",
                 "properties": {
                     "agente": { "type": "string", "enum": ["claude", "opencode", "agy", "devin"], "description": "claude = Claude Code, opencode = OpenCode (modelo gratuito), agy = Antigravity (Gemini), devin = Devin" },
+                    "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Archivos o carpetas relativos asignados al agente, sin comodines. Usa . para todo el proyecto, en ejecución secuencial." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Solo Claude Code. Por defecto medium." }
                 },
                 "required": ["agente", "tarea"],
                 "additionalProperties": false
+            }
+        },
+        {
+            "type": "function",
+            "name": "asignar_archivos",
+            "description": "Cambia el área de un agente inactivo de la sesión compartida. No mueve archivos. Los ámbitos solapados se ejecutan por turnos.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sesion": { "type": "string" },
+                    "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                },
+                "required": ["sesion", "archivos"], "additionalProperties": false
+            }
+        },
+        {
+            "type": "function",
+            "name": "continuar_sesion",
+            "description": "Envía otro encargo al mismo agente. Permite continuar después de esperar un ámbito ocupado, sin crear otro chat.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "sesion": { "type": "string" },
+                    "tarea": { "type": "string" }
+                },
+                "required": ["sesion", "tarea"], "additionalProperties": false
             }
         },
         {
@@ -111,6 +138,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             if task.is_empty() {
                 return Err("falta la tarea".into());
             }
+            let paths = args["archivos"].as_array().map(|paths| paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_else(|| vec![".".into()]);
             let effort = (engine == "claude").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
             let task_id = {
                 let mut conn = state.db.lock().map_err(err)?;
@@ -122,11 +150,20 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             crate::tasks::changed(app);
             let created = claude::new_session(app, &project, engine, Some(task_id))?;
             let session = created.session;
+            {
+                let conn = state.db.lock().map_err(err)?;
+                if let Err(error) = crate::work::assign(&conn, &project, session.id, paths) {
+                    db::close_session(&conn, session.id).map_err(err)?;
+                    return Err(error);
+                }
+            }
             let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
-            claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), effort)?;
+            if let Err(error) = claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), effort) {
+                return Ok(format!("Sesión «{}» creada para la tarea #{task_id}, pero el turno no se inició: {error}. Conserva este chat. Tras resolverlo o esperar al agente ocupado, usa continuar_sesion con este nombre para reintentar.", session.name));
+            }
             let place = match (&session.branch, &session.worktree) {
                 (Some(b), Some(w)) => format!("Trabaja en la rama {b}, en {w}; sus cambios no llegan al proyecto hasta que el usuario los integre."),
-                _ => "Trabaja directamente en la carpeta del proyecto.".to_string(),
+                _ => format!("Comparte la carpeta del proyecto y la rama {}. No necesita integrar diffs de worktrees.", session.branch.as_deref().unwrap_or("de la sesión de trabajo")),
             };
             let notice = created.notice.map(|n| format!("\nAviso: {n}.")).unwrap_or_default();
             Ok(format!(
@@ -136,6 +173,21 @@ Si el agente pide permisos, el usuario los aprueba en la pestaña de la sesión.
                 label(engine),
                 session.name
             ))
+        }
+        "asignar_archivos" | "continuar_sesion" => {
+            let name = args["sesion"].as_str().unwrap_or("");
+            let list = db::sessions(&*state.db.lock().map_err(err)?, &project).map_err(err)?;
+            let session = list.iter().find(|s| s.name == name).ok_or_else(|| format!("no hay una sesión abierta llamada «{name}»"))?;
+            if tool == "asignar_archivos" {
+                let paths = args["archivos"].as_array().ok_or("falta la lista de archivos")?.iter()
+                    .map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()?;
+                crate::work::assign(&*state.db.lock().map_err(err)?, &project, session.id, paths)?;
+                crate::tasks::changed(app);
+                return Ok(format!("Reparto actualizado para {name}. Se aplicará en su próximo turno."));
+            }
+            let task = args["tarea"].as_str().filter(|s| !s.trim().is_empty()).ok_or("falta el encargo")?;
+            claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), None)?;
+            Ok(format!("Encargo enviado a {name}."))
         }
         "estado_sesiones" => {
             let list = db::sessions(&*state.db.lock().map_err(err)?, &project).map_err(err)?;
@@ -168,7 +220,7 @@ mod tests {
     fn specs_are_valid_function_tools() {
         let specs = specs();
         let names: Vec<&str> = specs.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["delegar", "estado_sesiones", "esperar_sesion"]);
+        assert_eq!(names, ["delegar", "asignar_archivos", "continuar_sesion", "estado_sesiones", "esperar_sesion"]);
         for t in specs.as_array().unwrap() {
             assert_eq!(t["type"], json!("function"));
             assert_eq!(t["inputSchema"]["type"], json!("object"));

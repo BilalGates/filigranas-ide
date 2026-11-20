@@ -1,5 +1,7 @@
 # Coordinador Codex
 
+> Política vigente desde el 20 de noviembre de 2026: los nuevos chats comparten la rama descriptiva y el checkout de una sesión de trabajo. El reparto se hace por rutas con `delegar.archivos`, `asignar_archivos` y `continuar_sesion`; los ámbitos solapados esperan. La sesión termina con PR hacia `main` desde Trabajo. Las referencias a aislamiento por agente de este documento describen el flujo histórico, conservado para sesiones con worktree. Véase el [flujo actual](../README.md#sesiones-de-trabajo).
+
 **Decisión (2026-11-16):** Codex es el motor coordinador principal de la primera versión y también puede ejecutar tareas. Si se agota su cuota, otro motor disponible puede asumir temporalmente la coordinación mediante un relevo. Hansi Flick, Pep Guardiola, Luis Enrique y Johan Cruyff son perfiles de instrucciones del coordinador activo. Claude Code, OpenCode, Antigravity y Devin siguen disponibles como agentes ejecutores.
 
 **Alcance actual de V1.** Los relevos se aplican a sesiones ejecutoras. El coordinador conserva su hilo Codex y puede delegar con `delegar`, `estado_sesiones` y `esperar_sesion`. Esta política también describe objetivos de producto como el relevo del propio coordinador y la validación de dependencias entre tareas, pendientes de implementación. Véase el [inventario verificado](aceptacion-v1.md).

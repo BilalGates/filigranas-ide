@@ -191,7 +191,7 @@ fn forget(conn: &Connection, project: &str, id: i64, version: i64) -> CmdResult<
     Ok(())
 }
 
-fn keywords(text: &str, prefix: bool) -> String {
+pub(crate) fn keywords(text: &str, prefix: bool) -> String {
     let mut seen = HashSet::new();
     text.split(|c: char| !c.is_alphanumeric()).filter(|w| (if prefix { 2 } else { 3 }..=48).contains(&w.chars().count()))
         .map(str::to_lowercase)
@@ -284,15 +284,18 @@ pub fn augment(tx: &rusqlite::Transaction<'_>, run: i64, project: &str, task: i6
 }
 
 #[tauri::command]
-pub fn brain_search(state: State<AppState>, project: String, query: String, kind: Option<String>) -> CmdResult<Vec<Entry>> {
+pub fn brain_search(state: State<AppState>, project: Option<String>, query: String, kind: Option<String>) -> CmdResult<Vec<Entry>> {
     let conn = state.db.lock().map_err(err)?;
-    search(&conn, &project_path(&conn,&project)?, &query, kind.as_deref())
+    let project = project.as_deref().map(|path| project_path(&conn, path)).transpose()?;
+    let project = project.as_deref().unwrap_or_default();
+    search(&conn, project, &query, kind.as_deref())
 }
 
 #[tauri::command]
-pub fn brain_entry(state: State<AppState>, project: String, id: i64) -> CmdResult<Entry> {
+pub fn brain_entry(state: State<AppState>, project: Option<String>, id: i64) -> CmdResult<Entry> {
     let conn = state.db.lock().map_err(err)?;
-    let project = project_path(&conn,&project)?;
+    let project = project.as_deref().map(|path| project_path(&conn, path)).transpose()?;
+    let project = project.as_deref().unwrap_or_default();
     conn.query_row(&format!("SELECT {FIELDS} FROM brain_entries b WHERE b.id=?1 AND (b.project=?2 OR b.project IS NULL)"),
         params![id,project],entry).optional().map_err(err)?.ok_or_else(|| "el recuerdo ya no está disponible en este proyecto".into())
 }
@@ -304,16 +307,23 @@ pub fn brain_preview(state: State<AppState>, project: String, task: i64, query: 
 }
 
 #[tauri::command]
-pub fn brain_save(state: State<AppState>, project: String, draft: Draft, confirmed: bool) -> CmdResult<i64> {
+pub fn brain_save(state: State<AppState>, project: Option<String>, draft: Draft, confirmed: bool) -> CmdResult<i64> {
     if !confirmed { return Err("confirma el contenido y la procedencia del recuerdo".into()); }
     let conn = state.db.lock().map_err(err)?;
-    save(&conn, &project_path(&conn,&project)?, draft)
+    let project = project.as_deref().map(|path| project_path(&conn, path)).transpose()?;
+    let project = project.as_deref().unwrap_or_default();
+    if project.is_empty() && !draft.global {
+        return Err("elige un proyecto para ese ámbito".into());
+    }
+    save(&conn, project, draft)
 }
 
 #[tauri::command]
-pub fn brain_forget(state: State<AppState>, project: String, id: i64, version: i64) -> CmdResult<()> {
+pub fn brain_forget(state: State<AppState>, project: Option<String>, id: i64, version: i64) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    forget(&conn, &project_path(&conn,&project)?, id, version)
+    let project = project.as_deref().map(|path| project_path(&conn, path)).transpose()?;
+    let project = project.as_deref().unwrap_or_default();
+    forget(&conn, project, id, version)
 }
 
 #[cfg(test)]
@@ -400,4 +410,20 @@ mod tests {
         forget(&conn,"web",id,2).unwrap();
         assert!(search(&conn,"web","criterio",None).unwrap().is_empty());
     }
+    #[test]
+    fn global_memory_can_be_managed_without_a_selected_project() {
+        let conn = crate::db::open(std::path::Path::new(":memory:")).unwrap();
+        let local = save(&conn,"web",draft("Decisión privada")).unwrap();
+        let global = save(&conn,"",Draft {global:true,..draft("Preferencia común")}).unwrap();
+        let found = search(&conn,"","",None).unwrap();
+        assert_eq!(found.len(),1);
+        assert_eq!(found[0].draft.id,Some(global));
+        assert!(forget(&conn,"",local,1).is_err());
+        save(&conn,"",Draft {id:Some(global),version:Some(1),global:true,..draft("Preferencia revisada")}).unwrap();
+        assert_eq!(search(&conn,"","revisada",None).unwrap().len(),1);
+        forget(&conn,"",global,2).unwrap();
+        assert!(search(&conn,"","",None).unwrap().is_empty());
+        assert_eq!(search(&conn,"web","privada",None).unwrap().len(),1);
+    }
+
 }

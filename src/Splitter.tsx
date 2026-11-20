@@ -7,6 +7,7 @@ export type Size = { name: string; def: number; min: number; max: number };
 export const SIZES = {
   side: { name: '--side-w', def: 232, min: 180, max: 420 },
   git: { name: '--git-w', def: 360, min: 300, max: 720 },
+  design: { name: '--design-w', def: 820, min: 300, max: 1320 },
   term: { name: '--term-h', def: 240, min: 120, max: 720 },
   log: { name: '--log-h', def: 280, min: 96, max: 900 },
   compose: { name: '--compose-h', def: 76, min: 44, max: 420 },
@@ -53,6 +54,7 @@ type Props = {
   axis: 'x' | 'y';
   /** El panel crece al arrastrar hacia la izquierda / arriba. */
   invert?: boolean;
+  measureParent?: boolean;
   className?: string;
   label: string;
 };
@@ -61,11 +63,15 @@ type Props = {
  * Divisor arrastrable entre dos secciones. Doble clic vuelve al tamaño
  * por defecto; con el teclado, las flechas lo mueven de 16 en 16 px.
  */
-export default function Splitter({ size, axis, invert, className, label }: Props) {
+export default function Splitter({ size, axis, invert, measureParent, className, label }: Props) {
   const drag = useRef<{ start: number; from: number } | null>(null);
   const sign = invert ? -1 : 1;
 
   const set = (px: number) => store(size, apply(size, px));
+  const renderedSize = (handle: HTMLElement) => {
+    const panel = measureParent ? handle.parentElement : null;
+    return panel ? (axis === 'x' ? panel.offsetWidth : panel.offsetHeight) : current(size);
+  };
 
   return (
     <div
@@ -81,7 +87,7 @@ export default function Splitter({ size, axis, invert, className, label }: Props
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        drag.current = { start: axis === 'x' ? e.clientX : e.clientY, from: current(size) };
+        drag.current = { start: axis === 'x' ? e.clientX : e.clientY, from: renderedSize(e.currentTarget) };
         document.documentElement.dataset.resizing = axis;
       }}
       onPointerMove={(e) => {
@@ -103,7 +109,7 @@ export default function Splitter({ size, axis, invert, className, label }: Props
         const step = grow[e.key as keyof typeof grow];
         if (!step) return;
         e.preventDefault();
-        set(current(size) + sign * step * 16);
+        set(renderedSize(e.currentTarget) + sign * step * 16);
       }}
     />
   );

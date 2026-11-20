@@ -72,6 +72,22 @@ fn codex_messages(thread: &Value) -> Vec<Value> {
         }).collect()
 }
 
+/// Conserva la conversación al renovar las herramientas del coordinador.
+/// El marcador evita duplicarla si falla el arranque del nuevo hilo.
+pub fn archive_tool_upgrade(conn: &mut Connection, project: &str, thread: &str, history: &Value) -> CmdResult<()> {
+    let tx = conn.transaction().map_err(err)?;
+    let marker = format!("tools-history:{thread}");
+    if db::get_setting(&tx, &marker).map_err(err)?.is_some() { return Ok(()); }
+    let scope = scope(project, None);
+    let mut items = archived(&tx, &scope)?;
+    items.extend(codex_messages(history));
+    tx.execute("INSERT INTO chat_history(scope,items) VALUES(?1,?2)
+                ON CONFLICT(scope) DO UPDATE SET items=excluded.items,context_run=NULL",
+        params![scope,serde_json::to_string(&items).map_err(err)?]).map_err(err)?;
+    db::set_setting(&tx, &marker, "archived").map_err(err)?;
+    tx.commit().map_err(err)
+}
+
 fn claude_messages(entries: Vec<Value>) -> Vec<Value> {
     entries.into_iter().filter_map(|entry| {
         let user = entry["type"] == "user";
@@ -247,6 +263,28 @@ fn save_switch(tx: &rusqlite::Transaction<'_>, project: &str, session: Option<i6
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_upgrade_preserves_pm_messages_once_and_restores_context() {
+        let mut conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let history = json!({"thread":{"turns":[{"items":[
+            {"type":"userMessage","content":[{"type":"text","text":"Conserva mi objetivo"}]},
+            {"type":"agentMessage","text":"Seguiremos en la rama compartida"},
+            {"type":"reasoning","text":"no archivar razonamiento"}
+        ]}]}});
+        archive_tool_upgrade(&mut conn, "/repo", "old-thread", &history).unwrap();
+        archive_tool_upgrade(&mut conn, "/repo", "old-thread", &history).unwrap();
+        let items = archived(&conn, &scope("/repo", None)).unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(archived(&conn, &scope("/other", None)).unwrap().is_empty());
+        let tx = conn.transaction().unwrap();
+        let run = runs::begin(&tx, "/repo", "new-thread", "codex", None, None).unwrap();
+        let input = with_context(&tx, "/repo", None, run, "Continúa".into()).unwrap();
+        assert!(input.contains("Conserva mi objetivo"));
+        assert!(input.contains("Seguiremos en la rama compartida"));
+        assert!(!input.contains("no archivar razonamiento"));
+        tx.commit().unwrap();
+    }
 
     #[test]
     fn switch_keeps_the_session_and_reuses_its_model_preference() {

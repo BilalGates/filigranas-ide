@@ -50,6 +50,20 @@ async fn spawn(project: String, args: Vec<String>) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+// Las mutaciones del checkout se serializan con Larry y la publicación.
+async fn mutate(app: AppHandle, project: String, args: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let conn = state.db.lock().map_err(err)?;
+        let project = crate::workspace::project_path(&conn, &project)?;
+        crate::work::git_idle(&conn, &project)?;
+        drop(conn);
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        run(&project, &args)
+    }).await.map_err(err)?
+}
+
 fn args(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| s.to_string()).collect()
 }
@@ -61,8 +75,8 @@ pub async fn git_fetch(project: String) -> Result<String, String> {
 
 /// Solo avance rápido: si las ramas han divergido, git lo dice y no mezcla.
 #[tauri::command]
-pub async fn git_pull(project: String) -> Result<String, String> {
-    spawn(project, args(&["pull", "--ff-only"])).await
+pub async fn git_pull(app: AppHandle, project: String) -> Result<String, String> {
+    mutate(app, project, args(&["pull", "--ff-only"])).await
 }
 
 #[derive(Serialize)]
@@ -109,7 +123,11 @@ pub async fn git_push(app: AppHandle, project: String, set_upstream: bool, proof
         let state = app.state::<AppState>();
         let _gate = state.publication.try_lock().map_err(|_| "ya hay una operación de publicación en curso")?;
         let path = crate::isolate::work_dir(&state, &project, None)?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
         let plan = PushPlan::read(&path, set_upstream)?;
+        if let Some(work) = crate::work::current(&*state.db.lock().map_err(err)?, &project)?.filter(|w| w.state != "finished") {
+            if plan.dest != work.branch { return Err("publica la rama de trabajo; la entrega a main se realiza mediante PR".into()); }
+        }
         state.approvals.consume(("git_push", &path, &plan), &proof)?;
         let exec = |program: &str, args: &[&str]| pr::run(&path, program, args);
         pr::push_exact(&exec, &plan.url, &plan.head, &plan.dest)?;
@@ -121,18 +139,18 @@ pub async fn git_push(app: AppHandle, project: String, set_upstream: bool, proof
 }
 
 #[tauri::command]
-pub async fn git_stash(project: String, message: Option<String>) -> Result<String, String> {
+pub async fn git_stash(app: AppHandle, project: String, message: Option<String>) -> Result<String, String> {
     let mut list = args(&["stash", "push", "--include-untracked"]);
     if let Some(m) = message.filter(|m| !m.trim().is_empty()) {
         list.push("-m".into());
         list.push(m);
     }
-    spawn(project, list).await
+    mutate(app, project, list).await
 }
 
 #[tauri::command]
-pub async fn git_stash_pop(project: String) -> Result<String, String> {
-    spawn(project, args(&["stash", "pop"])).await
+pub async fn git_stash_pop(app: AppHandle, project: String) -> Result<String, String> {
+    mutate(app, project, args(&["stash", "pop"])).await
 }
 
 #[derive(Serialize)]
@@ -154,16 +172,20 @@ pub async fn git_stash_list(project: String) -> Result<Vec<Stash>, String> {
 /// Deshace el último commit sin tocar los archivos (`reset --soft HEAD~1`):
 /// los cambios vuelven al índice. Se niega si el commit ya está publicado.
 #[tauri::command]
-pub async fn git_undo_commit(project: String) -> Result<String, String> {
-    let p = project.clone();
-    let published = tauri::async_runtime::spawn_blocking(move || run(&p, &["branch", "-r", "--contains", "HEAD"]))
-        .await
-        .map_err(|e| e.to_string())?
-        .unwrap_or_default();
-    if !published.trim().is_empty() {
-        return Err("el último commit ya está en el remoto: deshacerlo reescribiría la historia publicada".into());
-    }
-    spawn(project, args(&["reset", "--soft", "HEAD~1"])).await
+pub async fn git_undo_commit(app: AppHandle, project: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let conn = state.db.lock().map_err(err)?;
+        let project = crate::workspace::project_path(&conn, &project)?;
+        crate::work::git_idle(&conn, &project)?;
+        drop(conn);
+        let published = run(&project, &["branch", "-r", "--contains", "HEAD"])?;
+        if !published.trim().is_empty() {
+            return Err("el último commit ya está en el remoto: deshacerlo reescribiría la historia publicada".into());
+        }
+        run(&project, &["reset", "--soft", "HEAD~1"])
+    }).await.map_err(err)?
 }
 
 #[derive(Serialize)]

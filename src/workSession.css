@@ -1,0 +1,14 @@
+.work-session-panel { flex: 0 0 auto; border-bottom: 1px solid var(--line); max-height: 65%; overflow: auto; }
+.work-session-panel.is-review { flex: 1; max-height: 100%; }
+.work-session-panel > summary { cursor: pointer; padding: 12px 16px; font-weight: bold; overflow-wrap: anywhere; }
+.work-session-content { display: grid; gap: 12px; padding: 0 16px 16px; }
+.work-session-content p { margin: 0; }
+.work-session-form { display: grid; gap: 10px; }
+.work-session-form label, .work-assignment label { display: grid; gap: 5px; }
+.work-session-form input:not([type=checkbox]), .work-session-form textarea, .work-assignment textarea { width: 100%; padding: 7px 9px; background: var(--well); color: inherit; border: 1px solid var(--line); border-radius: 4px; }
+.work-session-branch { display: flex; gap: 10px; flex-wrap: wrap; }
+.work-session-branch label:last-child { flex: 1; min-width: 180px; }
+.work-assignment { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.work-assignment > button, .work-session-form > button { justify-self: start; }
+.work-session-content .publish { min-height: 360px; max-height: 560px; }
+.work-session-form .pub-check { display: flex; align-items: center; gap: 8px; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { githubLogin, type GithubLoginStatus, type Tool } from './ipc';
 
 export default function GithubConnect({ tool, onRefresh }: { tool?: Tool; onRefresh: () => void }) {
@@ -6,6 +6,7 @@ export default function GithubConnect({ tool, onRefresh }: { tool?: Tool; onRefr
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const waiting = status?.state === 'waiting';
+  const refreshed = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -15,7 +16,10 @@ export default function GithubConnect({ tool, onRefresh }: { tool?: Tool; onRefr
         const result = await githubLogin.status();
         if (!active) return;
         setStatus(result);
-        if (result?.state === 'complete' && tool?.loggedIn !== true) onRefresh();
+        if (result?.state === 'complete' && !refreshed.current) {
+          refreshed.current = true;
+          onRefresh();
+        }
         if (result?.state !== 'waiting') return;
       } catch (reason) {
         if (!active) return;
@@ -26,7 +30,7 @@ export default function GithubConnect({ tool, onRefresh }: { tool?: Tool; onRefr
     };
     void read();
     return () => { active = false; window.clearTimeout(timer); };
-  }, [waiting, onRefresh, tool?.loggedIn]);
+  }, [waiting, onRefresh]);
 
   const run = async (action: () => Promise<void>) => {
     setError(null);
@@ -61,14 +65,17 @@ export default function GithubConnect({ tool, onRefresh }: { tool?: Tool; onRefr
       </div>
     );
   }
-  if (tool?.loggedIn || status?.state === 'complete') {
-    return <span className="github-connected" role="status">{tool?.account ? `@${tool.account}` : 'GitHub conectado'}</span>;
-  }
+  const connected = tool?.loggedIn || status?.state === 'complete';
   return (
     <div className="github-connect">
+      {connected && <span className="github-connected" role="status">
+        {tool?.account ? `@${tool.account}` : 'GitHub conectado'}
+      </span>}
       <button type="button" className="co-btn" disabled={busy} onClick={() => void run(async () => {
-        setStatus(await githubLogin.start());
-      })}>Iniciar sesión con GitHub</button>
+        const next = await githubLogin.start();
+        refreshed.current = false;
+        setStatus(next);
+      })}>{connected ? 'Autorizar otra cuenta' : 'Iniciar sesión con GitHub'}</button>
       {(error || status?.state === 'error') && <p className="co-error" role="alert">{error ?? (status?.state === 'error' ? status.message : '')}</p>}
     </div>
   );

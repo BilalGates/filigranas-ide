@@ -144,7 +144,8 @@ pub async fn browser_open(app: AppHandle, url: String, bounds: Bounds) -> CmdRes
         window.add_child(builder, rect.position, rect.size).map_err(err)?;
     }
     let state = app.state::<AppState>();
-    record_visit(&state.db.lock().map_err(err)?, &url)
+    let conn = state.db.lock().map_err(err)?;
+    record_visit(&conn, &url)
 }
 
 #[tauri::command]
@@ -179,7 +180,8 @@ pub fn browser_location(app: AppHandle) -> CmdResult<Option<String>> {
     if let Some(url) = &url {
         if permitted(url) {
             let state = app.state::<AppState>();
-            record_visit(&state.db.lock().map_err(err)?, url)?;
+            let conn = state.db.lock().map_err(err)?;
+            record_visit(&conn, url)?;
         }
     }
     Ok(url.map(|url| url.to_string()))
@@ -187,20 +189,27 @@ pub fn browser_location(app: AppHandle) -> CmdResult<Option<String>> {
 
 #[tauri::command]
 pub fn browser_history(state: State<'_, AppState>) -> CmdResult<Vec<BrowserEntry>> {
-    entries(&state.db.lock().map_err(err)?, "browser_history")
+    let conn = state.db.lock().map_err(err)?;
+    entries(&conn, "browser_history")
 }
 
 #[tauri::command]
 pub fn browser_bookmarks(state: State<'_, AppState>) -> CmdResult<Vec<BrowserEntry>> {
-    entries(&state.db.lock().map_err(err)?, "browser_bookmarks")
+    let conn = state.db.lock().map_err(err)?;
+    entries(&conn, "browser_bookmarks")
+}
+
+fn validate_bookmark(url: &str, title: &str) -> CmdResult<Url> {
+    let url = Url::parse(url).map_err(err)?;
+    if !permitted(&url) || title.trim().is_empty() || title.len() > 200 {
+        return Err("el marcador no es válido".into());
+    }
+    Ok(url)
 }
 
 #[tauri::command]
 pub fn browser_bookmark(state: State<'_, AppState>, url: String, title: String) -> CmdResult<()> {
-    let url = Url::parse(&url).map_err(err)?;
-    if !permitted(&url) || title.trim().is_empty() || title.len() > 200 {
-        return Err("el marcador no es válido".into());
-    }
+    let url = validate_bookmark(&url, &title)?;
     state.db.lock().map_err(err)?.execute(
         "INSERT INTO browser_bookmarks(url, title) VALUES (?1, ?2)
          ON CONFLICT(url) DO UPDATE SET title = excluded.title",
@@ -236,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_history_strips_query_and_fragment_and_is_bounded() {
+    fn browser_history_strips_query_and_fragment() {
         let conn = db();
         let url = Url::parse("https://example.com/path?token=private#section").unwrap();
         record_visit(&conn, &url).unwrap();
@@ -248,8 +257,6 @@ mod tests {
 
     #[test]
     fn bookmarks_reject_non_web_urls() {
-        let conn = db();
-        let url = Url::parse("file:///private/secret").unwrap();
-        assert!(!permitted(&url));
+        assert!(validate_bookmark("file:///private/secret", "private").is_err());
     }
 }

@@ -15,6 +15,7 @@ import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
 import Brain from './Brain';
 import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
+import { sidebarReference } from './designCanvasModel';
 import Tools from './Tools';
 import UsagePanel from './Usage';
 import { percentLabel, useProviderQuota, useQuotaEvents } from './usageStore';
@@ -24,6 +25,7 @@ import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Browser from './Browser';
 import Splitter, { SIZES } from './Splitter';
+import GithubProfile from './GithubProfile';
 import Sharing, { type ShareTarget } from './Sharing';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -57,6 +59,7 @@ export default function App() {
   const nextTermId = useRef(1);
   const [termOpen, setTermOpen] = useState(false);
   const [view, setView] = useState<'coach' | 'work' | number>('coach');
+  const [brainProject, setBrainProject] = useState<string | null>(null);
   const [brainTarget, setBrainTarget] = useState<number | null>(null);
   const [workTarget, setWorkTarget] = useState<WorkTarget | null>(null);
   const [worktree, setWorktree] = useState<{ project: string; id: number } | null>(null);
@@ -74,6 +77,7 @@ export default function App() {
   const [sessionsOf, setSessionsOf] = useState<string | null>(null);
   const [pmChat, setPmChat] = useState<{ project: string; session: Session | null } | null>(null);
   const [switching, setSwitching] = useState<number | string | null>(null);
+  const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTools, setUsageTools] = useState(false);
   const [browserTarget, setBrowserTarget] = useState<{ url: string } | null>(null);
@@ -273,6 +277,7 @@ export default function App() {
 
   const newSession = (engine = 'codex', task: number | null = null) => {
     if (!project) return;
+    if (rightView === 'design') setNoRight(true);
     sessions.create(project, engine, task).then(
       ({ notice, ...s }) => {
         if (currentProject.current !== s.project) return;
@@ -282,6 +287,11 @@ export default function App() {
       },
       (e) => setError(String(e)),
     );
+  };
+
+  const showConversation = (session: 'coach' | number) => {
+    setView(session);
+    if (rightView === 'design') setNoRight(true);
   };
 
   const checkTools = useCallback(() => {
@@ -360,6 +370,7 @@ export default function App() {
     if (!path) return;
     if (section) setWorkTarget({ project: path, section, session: scope === undefined ? undefined : scope?.id ?? null });
     setView('work');
+    if (rightView === 'design') setNoRight(true);
   };
   const openPending = () => {
     if (!project) return;
@@ -409,7 +420,6 @@ export default function App() {
     currentProject.current = path;
     setProject(path);
     setCoachTask(null);
-    setBrainTarget(null);
     setWorkTarget(null);
     setWorktree(null);
     closeFile();
@@ -421,9 +431,10 @@ export default function App() {
     if (path !== project) selectProject(path);
     setWorkTarget({ project: path, task: id, section: 'summary' });
     setView('work');
+    setNoRight(true);
   };
   const graphMemory = (path: string | null, id: number) => {
-    if (path && path !== project) selectProject(path);
+    setBrainProject(path);
     setBrainTarget(id);
     revealRight('brain');
   };
@@ -453,6 +464,12 @@ export default function App() {
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
   const toggleTerminal = () => {
     if (!current) return;
+    if (rightView === 'design' && !noRight) {
+      setNoRight(true);
+      setTermOpen(true);
+      if (!projectTerms.length) openTerminal(current.path);
+      return;
+    }
     const terminal = projectTerms.find((t) => t.id === activeTerm);
     if (termOpen && terminal?.session === sessionWorktree?.id) setTermOpen(false);
     else if (sessionWorktree) openSessionTerminal(sessionWorktree);
@@ -492,13 +509,12 @@ export default function App() {
       { id: 'tasks', label: 'Trabajo · tareas', run: () => openWork() },
       { id: 'health', label: 'Code Health', run: () => openWork('health', view === 'work' ? undefined : activeSession ?? null) },
       { id: 'pending', label: 'Ramas sin integrar', run: openPending },
-      ...(['design', 'brain', 'brain-graph'] as const).map((tab) => ({
-        id: tab, label: RIGHT_PANELS[tab].title, run: () => showRight(tab),
-      })),
+      { id: 'design', label: RIGHT_PANELS.design.title, run: () => showRight('design') },
     ] : []),
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openWork('pulls', view === 'work' ? undefined : activeSession ?? null) },
     { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
+    { id: 'brain', label: 'Filigranas Brain', run: () => showRight('brain-graph') },
     { id: 'browser', label: 'navegador', run: () => showRight('browser') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
@@ -586,11 +602,11 @@ export default function App() {
         </button>
       </div>
       {hasPm &&
-        row('coach', view === 'coach', 'Project manager', null, sessionState('coach'), () => setView('coach'), () => {
+        row('coach', view === 'coach', 'Project manager', null, sessionState('coach'), () => showConversation('coach'), () => {
           setPm(current.path, false);
           setView(agentSessions[0]?.id ?? 'coach');
         })}
-      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => setView(s.id), () => closeSession(s.id)))}
+      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => showConversation(s.id), () => closeSession(s.id)))}
       <button className="project-new-session" onClick={() => newSession()}>
         <Icon name="plus" size={12} /> Nueva sesión
       </button>
@@ -598,15 +614,27 @@ export default function App() {
   );
 
   const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
-  const panelOpen = !noRight && (!!current || rightView === 'browser');
+  const isBrain = rightView === 'brain' || rightView === 'brain-graph';
+  const panelOpen = !noRight && (!!current || rightView === 'browser' || isBrain);
+  const brainOpen = panelOpen && isBrain;
+  const browserOpen = panelOpen && rightView === 'browser';
+  const designOpen = !!current && panelOpen && rightView === 'design';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
+    if (tab === 'brain' || tab === 'brain-graph') return false;
+    if (tab === 'browser') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
-    return !!current || tab === 'browser';
+    return !!current;
   });
+  const errorToast = error && (
+    <button className="toast" onClick={() => setError(null)} title="cerrar">
+      <Icon name="warn" size={13} />
+      <span>{error}</span>
+    </button>
+  );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}`}>
+    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}`}>
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
           <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title="barra lateral · ⌘B">
@@ -619,7 +647,21 @@ export default function App() {
           <span className="grow" />
           <kbd>⌘K</kbd>
         </button>
-        <div className="tb-right" data-tauri-drag-region />
+        <div className="tb-right" data-tauri-drag-region>
+          <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
+            onClick={() => showRight('browser')}
+            aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
+            title="Navegador">
+            <Icon name="globe" size={15} />
+          </button>
+          <button className={`tb-brain${brainOpen ? ' is-on' : ''}`}
+            onClick={() => showRight(panelOpen && rightView === 'brain' ? 'brain' : 'brain-graph')}
+            aria-label="Filigranas Brain" title="Filigranas Brain" aria-controls="workspace-right-panel" aria-expanded={brainOpen}>
+            <Icon name="brain" size={15} />
+          </button>
+          <GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
+            onOpenChange={open => { setGithubOpen(open); if (open) setUsageOpen(false); }} />
+        </div>
       </header>
 
       <Sidebar
@@ -780,12 +822,7 @@ export default function App() {
               <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
             ))}
         </section>
-        {error && (
-          <button className="toast" onClick={() => setError(null)} title="cerrar">
-            <Icon name="warn" size={13} />
-            <span>{error}</span>
-          </button>
-        )}
+        {!designOpen && errorToast}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">
@@ -807,13 +844,23 @@ export default function App() {
       </nav>
 
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
-        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen} target={browserTarget} />
-        {current && panelOpen && rightView === 'brain' && <Brain key={'brain:' + current.path} project={current.path} target={brainTarget}
-          onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />}
-        {current && <BrainGraph key={'graph:' + current.path} project={current.path} projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
-          onMemories={() => { setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />}
-        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!panelOpen || rightView !== 'design'}
-          onNew={() => newSession('claude')} onSession={setView} />}
+        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen} target={browserTarget} />
+        {panelOpen && rightView === 'brain' && <>
+          <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>
+            <option value="">Memoria global</option>
+            {ws.projects.map(p => <option key={p.path} value={p.path}>{p.name}</option>)}
+          </select></label></div>
+          <Brain key={brainProject ?? 'global'} project={brainProject} target={brainTarget}
+            onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />
+        </>}
+        <BrainGraph projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
+          onMemories={path => { setBrainProject(path); setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />
+        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
+          reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
+          archived={ws.projects.filter((item) => item.archived).length}
+          onConversation={() => setNoRight(true)}
+          onNew={() => newSession('claude')}
+          onSession={showConversation} />}
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -862,6 +909,7 @@ export default function App() {
             <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />
           ))}
       </Right>
+      {designOpen && errorToast}
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-actions">
           <button ref={usageButton} className={`status-action${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}

@@ -44,11 +44,17 @@ export const sharing = {
 };
 
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
+export type BrowserEntry = { url: string; title: string; timestamp: number };
 export const browser = {
   open: (url: string, bounds: BrowserBounds) => invoke<void>('browser_open', { url, bounds }),
   place: (bounds: BrowserBounds | null) => invoke<void>('browser_place', { bounds }),
   action: (action: 'back' | 'forward' | 'reload') => invoke<void>('browser_action', { action }),
   location: () => invoke<string | null>('browser_location'),
+  history: () => invoke<BrowserEntry[]>('browser_history'),
+  bookmarks: () => invoke<BrowserEntry[]>('browser_bookmarks'),
+  bookmark: (url: string, title: string) => invoke<void>('browser_bookmark', { url, title }),
+  removeBookmark: (url: string) => invoke<void>('browser_bookmark_remove', { url }),
+  clearHistory: () => invoke<void>('browser_history_clear'),
 };
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
@@ -315,6 +321,7 @@ export type PrDraft = {
   remoteError: string | null;
   taskId: number | null;
   larryChecked: boolean;
+  workSession: number | null;
 };
 
 export type Review = { id: string; message: string; code: string };
@@ -385,6 +392,8 @@ export const design = {
   preview: (project: string, screen: number) => invoke<void>('design_preview', { project, screen }),
   capture: (project: string, screen: number, width: number, height: number, note: string) =>
     invoke<number>('design_capture', { project, screen, width, height, note }),
+  generate: (project: string, prompt: string, engine: ChatEngine) =>
+    invoke<string>('design_generate', { project, prompt, engine }),
   import: (project: string, screen: number, png: string, note: string) => invoke<number>('design_import', { project, screen, png, note }),
   review: (project: string, screen: number, review: { shot: number; baseline: number | null; revision: number; approve: boolean; confirmed: boolean }) =>
     invoke<void>('design_review', { project, screen, review }),
@@ -399,19 +408,19 @@ export type BrainDraft = {
   share: boolean; validUntil: number | null;
 };
 export type BrainEntry = BrainDraft & { created: number; updated: number };
-export type BrainNodeKind = BrainKind | 'task' | 'pr';
-export type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean };
-export type BrainEdge = { from: string; to: string; kind: 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
+export type BrainNodeKind = BrainKind | 'task' | 'pr' | 'project';
+export type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean; project: string | null; body: string | null; source: string | null };
+export type BrainEdge = { from: string; to: string; kind: 'project_member' | 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
 export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
-export type BrainGraphFilter = { project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
+export type BrainGraphFilter = { query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
 export type BrainReference = { id: number; version: number; source: string };
 export const brain = {
   graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
-  entry: (project: string, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
-  search: (project: string, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
+  entry: (project: string | null, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
+  search: (project: string | null, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
   preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
-  save: (project: string, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
-  forget: (project: string, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
+  save: (project: string | null, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
+  forget: (project: string | null, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
 };
 
 export type ServiceForm = { id: string | null; name: string; command: string; port: number | null };
@@ -427,4 +436,15 @@ export const localServices = {
   list: (project: string, logsFor: string | null) => invoke<LocalService[]>('services_list', { project, logsFor }),
   save: (project: string, form: ServiceForm) => invoke<string>('service_save', { project, form }),
   action: (project: string, id: string, action: ServiceAction) => invoke<void>('service_action', { project, id, action }),
+};
+
+// Sesiones de trabajo compartidas, independientes de los chats de proveedor.
+export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean };
+export type WorkSession = { id: number; objective: string; branch: string; baseCommit: string | null; state: 'active' | 'review' | 'finished'; tests: string | null; evidence: string | null; reviewedHead: string | null; prUrl: string | null; agents: WorkAgent[] };
+export const workSessions = {
+  current: (project: string) => invoke<WorkSession | null>('work_current', { project }),
+  start: (project: string, objective: string, kind: string, description: string, includeExisting: boolean) => invoke<WorkSession>('work_start', { project, objective, kind, description, includeExisting }),
+  assign: (project: string, session: number, paths: string[]) => invoke<void>('work_assign', { project, session, paths }),
+  prepare: (project: string, tests: string, evidence: string) => invoke<void>('work_prepare', { project, tests, evidence }),
+  resume: (project: string) => invoke<void>('work_resume', { project }),
 };

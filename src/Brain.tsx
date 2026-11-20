@@ -24,7 +24,7 @@ function Source({ entry }: { entry: BrainEntry }) {
 }
 
 export default function Brain({ project, target, onClearTarget, onGraph }: {
-  project: string; target: number | null; onClearTarget: () => void; onGraph: () => void;
+  project: string | null; target: number | null; onClearTarget: () => void; onGraph: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<BrainKind | null>(null);
@@ -43,6 +43,7 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
 
   useEffect(() => {
     let current = true;
+    if (project == null) return;
     tasks.list(project).then((items) => { if (current) setTaskList(items); }, (e) => { if (current) setError(String(e)); });
     return () => { current = false; };
   }, [project]);
@@ -83,8 +84,8 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
   };
 
   return <section className="coach" aria-label="Filigranas Brain">
-    <div className="co-head"><span className="push" />
-      <button className="co-link" onClick={onGraph}>Grafo</button>
+    <div className="co-head brain-tabs">
+      <button className="co-link" onClick={onGraph}>Grafo</button><button className="co-link is-active" aria-current="page">Recuerdos</button>
     </div>
     <div className="co-log p5-panel">
       <div className="p5-actions task-form">
@@ -93,7 +94,7 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
           <option value="">Todos</option>
           {Object.entries(KINDS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        <button className="co-btn" disabled={busy} onClick={() => edit(EMPTY)}>Nuevo recuerdo</button>
+        <button className="co-btn" disabled={busy} onClick={() => edit({ ...EMPTY, global: project == null })}>Nuevo recuerdo</button>
         {target != null && <button className="co-btn" onClick={() => { setError(''); onClearTarget(); }}>Mostrar todos</button>}
       </div>
       {!!error && <p className="co-error" role="alert">{error}</p>}
@@ -109,7 +110,7 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
         <div className="p5-actions">
           <label>Ámbito<select value={draft.global ? 'global' : 'project'} disabled={busy} onChange={(e) => change(e.target.value === 'global'
             ? { global: true, task: null, sourceTask: null, sourceRun: null } : { global: false })}>
-            <option value="project">Este proyecto</option>
+            {project && <option value="project">Este proyecto</option>}
             <option value="global">Global</option>
           </select></label>
           <label>Clase<select value={draft.kind} disabled={busy} onChange={(e) => change({ kind: e.target.value as BrainKind })}>
@@ -176,7 +177,7 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
         </details>)}
       </section>
 
-      <section className="p5-section" aria-label="Contexto para una tarea">
+      {project && <section className="p5-section" aria-label="Contexto para una tarea">
         <h2>Contexto para una tarea</h2>
         <form className="p5-actions task-form" onSubmit={(e) => {
           e.preventDefault();
@@ -194,7 +195,7 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
         {preview && (preview.length ? <ul>
           {preview.map((item) => <li key={item.id}>{item.title} · <Source entry={item} /></li>)}
         </ul> : <p className="muted">Sin recuerdos vigentes y pertinentes para esta tarea.</p>)}
-      </section>
+      </section>}
     </div>
   </section>;
 }

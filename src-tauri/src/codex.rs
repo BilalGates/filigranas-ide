@@ -775,6 +775,7 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
     let text = &message.text;
     let state = app.state::<AppState>();
     let gate = state.chat_gate.lock().map_err(err)?;
+    let git_gate = state.publication.try_lock().map_err(|_| "hay una operación Git en curso; espera a que termine")?;
     let session_id = direct.map(|s| s.id);
     let validated = direct_session(&state, path, session_id)?;
     let direct = validated.as_ref();
@@ -828,6 +829,7 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
         tx.commit().map_err(err)?;
         (run, input)
     };
+    drop(git_gate);
     drop(gate);
     tasks::changed(app);
     let (effort, model_override) = if automatic {

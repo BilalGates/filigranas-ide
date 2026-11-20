@@ -335,8 +335,7 @@ pub async fn session_create(app: AppHandle, project: String, engine: String, tas
     .map_err(err)?
 }
 
-/// Crea una sesión en un proyecto ya validado, aislada en su propia rama y
-/// worktree cuando el repositorio tiene commits. Claude Code acepta un UUID
+/// Crea un chat en el checkout compartido del proyecto. Claude Code acepta un UUID
 /// propio; los agentes ACP asignan el suyo al crearla y se guarda entonces.
 pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i64>) -> CmdResult<Created> {
     let state = app.state::<AppState>();
@@ -348,7 +347,6 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
     };
     let names = numbered();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let data_dir = app.path().app_data_dir().map_err(err)?;
     let session = {
         let mut conn = state.db.lock().map_err(err)?;
         let tx = conn.transaction().map_err(err)?;
@@ -359,26 +357,12 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
         if let Some(task) = task {
             tasks::link(&tx, project, task, s.id)?;
         }
+        crate::work::join(&tx, project, s.id)?;
         tx.commit().map_err(err)?;
         s
     };
-    let iso = match crate::isolate::create(&data_dir, std::path::Path::new(project), &session.name, session.id) {
-        Ok(iso) => iso,
-        Err(e) => {
-            let _ = db::close_session(&*state.db.lock().map_err(err)?, session.id);
-            return Err(format!("no se pudo crear la rama de la sesión: {e}"));
-        }
-    };
     let conn = state.db.lock().map_err(err)?;
-    let notice = match &iso {
-        Some(iso) => {
-            db::set_session_worktree(&conn, session.id, &iso.worktree, &iso.branch, &iso.base, &iso.base_commit).map_err(err)?;
-            iso.main_dirty.then(|| {
-                format!("{} parte del último commit de {}: los cambios sin commit del proyecto no están en su rama", session.name, iso.base)
-            })
-        }
-        None => Some(format!("{} trabaja directamente en el proyecto: el repositorio aún no tiene commits de los que partir", session.name)),
-    };
+    let notice = Some("Este chat comparte la carpeta y la rama de la sesión de trabajo. Organiza su área desde Trabajo; no se crea un worktree.".into());
     let session = db::session(&conn, session.id).map_err(err)?.ok_or("la sesión no se guardó")?;
     drop(conn);
     tasks::changed(app);
@@ -441,6 +425,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
 ) -> CmdResult<()> {
     let state = app.state::<AppState>();
     let gate = state.chat_gate.lock().map_err(err)?;
+    let git_gate = state.publication.try_lock().map_err(|_| "hay una operación Git en curso; espera a que termine")?;
     let session = open_session(&state, id)?;
     if expected_engine.is_some_and(|engine| engine != session.engine) {
         return Err("La sesión ha cambiado de proveedor. Vuelve a enviar desde la sesión actual.".into());
@@ -449,6 +434,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         return Err("la sesión no admite capturas de diseño".into());
     }
     if session.engine == "codex" {
+        drop(git_gate);
         drop(gate);
         return crate::codex::send_turn(app, &session.project, Some(&session), None, message, effort);
     }
@@ -480,6 +466,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         tx.commit().map_err(err)?;
         (run, input)
     };
+    drop(git_gate);
     drop(gate);
     tasks::changed(app);
     let result = (|| {

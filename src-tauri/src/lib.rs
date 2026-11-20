@@ -36,6 +36,7 @@ mod watch;
 mod git_ops;
 mod window;
 mod workspace;
+mod work;
 
 use std::sync::Mutex;
 
@@ -138,6 +139,7 @@ pub fn run() {
             design::design_import,
             design::design_preview,
             design::design_capture,
+            design::design_generate,
             design::design_review,
             design::design_send,
             git_ops::git_fetch,
@@ -164,6 +166,11 @@ pub fn run() {
             browser::browser_place,
             browser::browser_action,
             browser::browser_location,
+            browser::browser_history,
+            browser::browser_bookmarks,
+            browser::browser_bookmark,
+            browser::browser_bookmark_remove,
+            browser::browser_history_clear,
             sharing::share_start,
             sharing::share_current,
             sharing::share_stop,
@@ -194,6 +201,11 @@ pub fn run() {
             codex::coordinator_respond,
             codex::codex_rate_limits,
             codex::codex_pin_model,
+            work::work_current,
+            work::work_start,
+            work::work_assign,
+            work::work_prepare,
+            work::work_resume,
             tasks::tasks_list,
             tasks::task_save,
             tasks::task_link,

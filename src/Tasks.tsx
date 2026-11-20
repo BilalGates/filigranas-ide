@@ -6,6 +6,7 @@ import Publish, { CHECK_STATE } from './Publish';
 import CodeHealth from './CodeHealth';
 import Larry from './Larry';
 import Pending from './Pending';
+import WorkSession from './WorkSession';
 
 const STATUS: Record<string, string> = {
   backlog: 'pendiente', ready: 'lista', running: 'en marcha', waiting_approval: 'espera permiso',
@@ -306,6 +307,7 @@ export default function Tasks({
 
   return (
     <section className="coach tasks" aria-label="Trabajo del proyecto" hidden={hidden}>
+      <WorkSession key={project} project={project} hidden={hidden} />
       <div className="task-body">
         <nav className="task-list" aria-label="Lista de tareas">
           <div className="work-list-tools">

@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf, process::Command};
+use std::{io::Cursor, path::PathBuf, process::{Command, Stdio}};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -199,6 +199,20 @@ fn chrome() -> Option<PathBuf> {
 
 struct Scratch(PathBuf);
 
+impl Scratch {
+    fn create(prefix: &str) -> CmdResult<Self> {
+        let path = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+        let mut directory = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            directory.mode(0o700);
+        }
+        directory.create(&path).map_err(err)?;
+        Ok(Self(path))
+    }
+}
+
 impl Drop for Scratch {
     fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
 }
@@ -232,14 +246,7 @@ fn capture(url: &Url, width: u32, height: u32) -> CmdResult<Vec<u8>> {
     if !valid_size(width, height) { return Err("tamaño de captura fuera de rango".into()); }
     let binary = chrome().ok_or("Chrome no está disponible. Puedes importar un PNG")?;
     check_preview(url)?;
-    let root = Scratch(std::env::temp_dir().join(format!("filigranas-preview-{}",uuid::Uuid::new_v4())));
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().mode(0o700).create(&root.0).map_err(err)?;
-    }
-    #[cfg(not(unix))]
-    std::fs::create_dir(&root.0).map_err(err)?;
+    let root = Scratch::create("filigranas-preview")?;
     let mut command = Command::new(binary);
     command.current_dir(&root.0).args(["--headless","--no-first-run","--disable-extensions",
         "--disable-sync","--disable-background-networking","--no-proxy-server","--force-device-scale-factor=1",
@@ -254,6 +261,105 @@ fn capture(url: &Url, width: u32, height: u32) -> CmdResult<Vec<u8>> {
     let bytes = std::fs::read(path).map_err(err)?;
     if dimensions(&bytes)? != (width,height) { return Err("Chrome devolvió un tamaño distinto al solicitado".into()); }
     Ok(bytes)
+}
+
+#[tauri::command]
+pub async fn design_generate(app: AppHandle, project: String, prompt: String, engine: CanvasEngine) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if prompt.trim().is_empty() || prompt.len() > 64 * 1024 {
+            return Err("el encargo de diseño está vacío o supera 64 KiB".into());
+        }
+        let state = app.state::<AppState>();
+        {
+            let conn = state.db.lock().map_err(err)?;
+            project_path(&conn, &project)?;
+        }
+        let scratch = Scratch::create("filigranas-design")?;
+        match engine {
+            CanvasEngine::Claude => generate_with_claude(&scratch, &prompt),
+            CanvasEngine::Codex => state.codex.run_structured(
+                &app, &scratch.0.to_string_lossy(), CANVAS_INSTRUCTIONS, &prompt,
+                canvas_schema(), "low", std::time::Duration::from_secs(180),
+            ).map_err(|error| {
+                if crate::handoff::quota_reason(&error).is_some() {
+                    "Codex ha agotado su cuota. Puedes seguir editando las variantes que ya tienes.".into()
+                } else {
+                    format!("Codex no pudo generar las variantes: {error}")
+                }
+            }),
+        }
+    }).await.map_err(err)?
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CanvasEngine { Claude, Codex }
+
+const CANVAS_INSTRUCTIONS: &str = "Genera variantes de diseño para Filigranas IDE. Toda la información necesaria está en el encargo. Responde directamente con el JSON pedido, sin usar herramientas ni consultar archivos.";
+
+fn canvas_schema() -> serde_json::Value {
+    let row = json!({
+        "type": "object", "additionalProperties": false, "required": ["id", "indent"],
+        "properties": { "id": { "type": "string" }, "indent": { "type": "integer" } }
+    });
+    let group = json!({
+        "type": "object", "additionalProperties": false, "required": ["title", "rows"],
+        "properties": { "title": { "type": "string" }, "rows": { "type": "array", "items": row } }
+    });
+    let frame = json!({
+        "type": "object", "additionalProperties": false,
+        "required": ["title", "width", "height", "spacing", "groups"],
+        "properties": {
+            "title": { "type": "string" },
+            "width": { "type": "integer" }, "height": { "type": "integer" }, "spacing": { "type": "integer" },
+            "groups": { "type": "array", "items": group }
+        }
+    });
+    json!({
+        "type": "object", "additionalProperties": false, "required": ["variants"],
+        "properties": { "variants": { "type": "array", "items": frame } }
+    })
+}
+
+fn generate_with_claude(scratch: &Scratch, prompt: &str) -> CmdResult<String> {
+    let path = scratch.0.join("prompt.txt");
+    std::fs::write(&path, prompt).map_err(err)?;
+    let input = std::fs::File::open(path).map_err(err)?;
+    let mut command = Command::new(crate::codex::program("claude"));
+    command.current_dir(&scratch.0).args([
+        "--print", "--output-format", "json", "--no-session-persistence",
+        "--tools", "", "--setting-sources", "", "--strict-mcp-config",
+        "--mcp-config", r#"{"mcpServers":{}}"#,
+        "--system-prompt", CANVAS_INSTRUCTIONS,
+    ]);
+    if let Some(path) = crate::codex::login_path() {
+        command.env("PATH", path);
+    }
+    let output = p5_process::run_with_stdin(command, Stdio::from(input), 180).map_err(|error| {
+        if error == p5_process::TIMEOUT {
+            "Claude tardó demasiado en responder. Puedes volver a intentarlo."
+        } else {
+            "No se pudo iniciar Claude Code. Comprueba que está instalado."
+        }
+    })?;
+    design_result(output)
+}
+
+fn design_result(output: p5_process::Output) -> CmdResult<String> {
+    if output.truncated {
+        return Err("La respuesta de Claude es demasiado larga.".into());
+    }
+    let reply: serde_json::Value = serde_json::from_slice(&output.bytes)
+        .map_err(|_| "Claude no devolvió un resultado válido. Comprueba la conexión y tu sesión de Claude Code.")?;
+    let result = reply["result"].as_str().filter(|text| !text.trim().is_empty());
+    if !output.success || reply["is_error"] == true || reply["subtype"] != "success" {
+        if crate::handoff::quota_reason(&reply.to_string()).is_some()
+            || result.is_some_and(|text| text.to_ascii_lowercase().contains("weekly limit")) {
+            return Err("Claude Code ha agotado su cuota. Puedes seguir editando las variantes que ya tienes.".into());
+        }
+        return Err(result.unwrap_or("Claude no pudo generar las variantes.").to_owned());
+    }
+    result.map(str::to_owned).ok_or("Claude devolvió una respuesta vacía.".into())
 }
 
 #[tauri::command]
@@ -369,6 +475,21 @@ mod tests {
         encoder.set_color(png::ColorType::Rgb);
         encoder.write_header().unwrap().write_image_data(&[0;64*64*3]).unwrap();
         bytes
+    }
+
+    #[test]
+    fn canvas_generation_reads_only_successful_claude_results() {
+        let output = |success, truncated, reply: &str| p5_process::Output {
+            success, truncated, bytes: reply.as_bytes().to_vec(),
+        };
+        let reply = r#"{"subtype":"success","is_error":false,"result":"{\"variants\":[]}"}"#;
+        assert_eq!(design_result(output(true, false, reply)).unwrap(), r#"{"variants":[]}"#);
+        assert!(design_result(output(true, true, reply)).is_err());
+        let quota = r#"{"subtype":"error_during_execution","is_error":true,"result":"cuota agotada"}"#;
+        assert_eq!(design_result(output(false, false, quota)).unwrap_err(), "cuota agotada");
+        let weekly = r#"{"subtype":"success","is_error":true,"result":"You've hit your weekly limit"}"#;
+        assert!(design_result(output(true, false, weekly)).unwrap_err().contains("ha agotado su cuota"));
+        assert!(design_result(output(false, false, "not JSON")).is_err());
     }
 
     #[test]

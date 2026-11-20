@@ -9,7 +9,11 @@ pub struct Output {
     pub truncated: bool,
 }
 
-pub fn run(mut command: Command, seconds: u64) -> Result<Output, &'static str> {
+pub fn run(command: Command, seconds: u64) -> Result<Output, &'static str> {
+    run_with_stdin(command, Stdio::null(), seconds)
+}
+
+pub fn run_with_stdin(mut command: Command, stdin: Stdio, seconds: u64) -> Result<Output, &'static str> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -20,7 +24,7 @@ pub fn run(mut command: Command, seconds: u64) -> Result<Output, &'static str> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command.stdin(Stdio::null()).stderr(Stdio::null()).stdout(Stdio::piped())
+    let mut child = command.stdin(stdin).stderr(Stdio::null()).stdout(Stdio::piped())
         .spawn().map_err(|_| "no se pudo arrancar la herramienta")?;
     let mut pipe = child.stdout.take().expect("stdout is piped");
     let (sender, output) = std::sync::mpsc::sync_channel(1);

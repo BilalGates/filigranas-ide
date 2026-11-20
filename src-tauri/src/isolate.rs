@@ -12,6 +12,7 @@ use crate::{db, CmdResult};
 // sin commit, para revisarlos y que Larry los agrupe; si algo choca no se
 // aplica nada y la rama y el worktree se conservan.
 
+#[cfg(test)]
 pub struct Isolation {
     pub worktree: String,
     pub branch: String,
@@ -22,6 +23,7 @@ pub struct Isolation {
 }
 
 /// Carpeta de worktrees de un proyecto dentro del directorio de datos.
+#[cfg(test)]
 fn worktree_dir(data_dir: &Path, project: &Path, name: &str, id: i64) -> PathBuf {
     let project_name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "proyecto".into());
     data_dir.join("worktrees").join(project_name).join(format!("{name}-{id}"))
@@ -29,6 +31,7 @@ fn worktree_dir(data_dir: &Path, project: &Path, name: &str, id: i64) -> PathBuf
 
 /// Crea rama y worktree para una sesión. `None` si el proyecto no tiene
 /// commits todavía (no hay de dónde partir): la sesión usa el proyecto.
+#[cfg(test)]
 pub fn create(data_dir: &Path, project: &Path, name: &str, id: i64) -> CmdResult<Option<Isolation>> {
     let Ok(head) = git(project, &["rev-parse", "--verify", "--quiet", "HEAD"]) else { return Ok(None) };
     let base_commit = String::from_utf8_lossy(&head).trim().to_string();
@@ -351,8 +354,10 @@ pub fn session_diff_texts(state: State<AppState>, id: i64, path: String, orig: O
 /// Integra el trabajo de la sesión en el checkout principal.
 #[tauri::command]
 pub fn session_integrate(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Vec<String>> {
+    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
     let session = any_session(&state, id)?;
     let conn = state.db.lock().map_err(err)?;
+    crate::work::git_idle(&conn, &session.project)?;
     if crate::runs::session_active(&conn, id).map_err(err)? {
         return Err("espera a que termine el turno antes de integrar la rama".into());
     }
@@ -366,8 +371,10 @@ pub fn session_integrate(app: AppHandle, state: State<AppState>, id: i64) -> Cmd
 /// Integra fusionando a tres bandas; lo que choca queda marcado.
 #[tauri::command]
 pub fn session_integrate_merging(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Merged> {
+    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
     let session = any_session(&state, id)?;
     let conn = state.db.lock().map_err(err)?;
+    crate::work::git_idle(&conn, &session.project)?;
     if crate::runs::session_active(&conn, id).map_err(err)? {
         return Err("espera a que termine el turno antes de integrar la rama".into());
     }
@@ -409,7 +416,14 @@ pub fn work_dir(state: &AppState, project: &str, session: Option<i64>) -> CmdRes
     if s.project != path {
         return Err("la sesión no es de este proyecto".into());
     }
-    let wt = PathBuf::from(s.worktree.ok_or("la sesión no tiene rama propia")?);
+    let wt = PathBuf::from(s.cwd());
+    if s.worktree.is_none() {
+        if let Some(work) = crate::work::current(&*state.db.lock().map_err(err)?, &path)?.filter(|w| w.state != "finished") {
+            if crate::pr::value(&wt, &["branch", "--show-current"])? != work.branch {
+                return Err(format!("recupera la rama {} antes de continuar", work.branch));
+            }
+        }
+    }
     if !wt.is_dir() {
         return Err(format!("no se encuentra el worktree {}", wt.display()));
     }

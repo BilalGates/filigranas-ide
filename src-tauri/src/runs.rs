@@ -38,6 +38,7 @@ pub fn begin(tx: &rusqlite::Transaction<'_>, project: &str, scope: &str, provide
     if active(tx, scope)?.is_some() || session.map(|id| session_active(tx, id)).transpose().map_err(err)?.unwrap_or(false) {
         return Err("ya hay un turno en marcha".into());
     }
+    crate::work::before_turn(tx, project, session)?;
     if let Some(id) = task {
         tasks::validate_start(tx, project, id)?;
         let active: u32 = tx.query_row(
@@ -83,13 +84,15 @@ pub fn last_task(conn: &Connection, scope: &str) -> rusqlite::Result<Option<i64>
 }
 
 pub fn task_input(tx: &rusqlite::Transaction<'_>, run: i64, project: &str, task: Option<i64>, previous: Option<i64>, text: &str) -> CmdResult<String> {
-    match task.filter(|id| Some(*id) != previous) {
+    let input = match task.filter(|id| Some(*id) != previous) {
         Some(id) => {
             let input = tasks::context(tx, id, text)?;
-            crate::brain::augment(tx, run, project, id, text, input)
+            crate::brain::augment(tx, run, project, id, text, input)?
         }
-        None => Ok(text.into()),
-    }
+        None => text.into(),
+    };
+    let session = tx.query_row("SELECT session_id FROM task_runs WHERE id=?1", [run], |r| r.get(0)).map_err(err)?;
+    crate::work::context(tx, project, session, input)
 }
 
 pub fn bind_turn(conn: &Connection, scope: &str, turn: &str) -> rusqlite::Result<()> {

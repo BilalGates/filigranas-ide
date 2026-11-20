@@ -317,7 +317,7 @@ function RemoteFile({ path, revision, drafts, editable, online }: {
   };
 
   const update = (text: string) => {
-    const base = draft?.base ?? current;
+    const base = drafts.get(path)?.base ?? current;
     if (base === null) return;
     const next = base === text ? undefined : { base, text };
     if (next) drafts.set(path, next);

@@ -336,6 +336,8 @@ pub async fn larry_commit(app: AppHandle, project: String, session: Option<i64>,
         let state = app.state::<AppState>();
         let project = crate::workspace::project_path(&*state.db.lock().map_err(err)?, &project)?;
         let dir = crate::isolate::work_dir(&state, &project, session)?;
+        let _git = state.publication.try_lock().map_err(|_| "ya hay una operación Git en curso")?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
         let outcome = commit_recording(&dir, &commits, |oid, subject| {
             let branch = crate::pr::value(&dir, &["branch", "--show-current"])?;
             let conn = state.db.lock().map_err(err)?;

@@ -267,7 +267,15 @@ pub fn git_branches(state: State<AppState>, project: String) -> CmdResult<Vec<St
 /// partir de una remota con el mismo nombre.
 #[tauri::command]
 pub fn git_switch(state: State<AppState>, project: String, branch: String) -> CmdResult<()> {
-    switch(&repo(&state, &project)?, &branch)
+    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+    let conn = state.db.lock().map_err(err)?;
+    let project = project_path(&conn, &project)?;
+    crate::work::idle(&conn, &project)?;
+    if let Some(work) = crate::work::current(&conn, &project)?.filter(|w| w.state != "finished") {
+        if branch != work.branch { return Err(format!("finaliza la sesión de trabajo antes de cambiar la rama {}", work.branch)); }
+    }
+    drop(conn);
+    switch(Path::new(&project), &branch)
 }
 
 fn switch(repo: &Path, branch: &str) -> CmdResult<()> {

@@ -131,6 +131,10 @@ pub async fn session_resume(app: AppHandle, id: i64) -> CmdResult<()> {
 pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResult<db::Session> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let gate = state.chat_gate.lock().map_err(err)?;
+        if crate::chat::is_pm(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+            return Err("cambia el proveedor desde la pestaña del Project manager".into());
+        }
         let from = open_session(&state, id)?;
         if engine != "claude" && engine != "codex" && !crate::acp::ENGINES.contains(&engine.as_str()) {
             return Err(format!("motor desconocido: {engine}"));
@@ -146,6 +150,7 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
             let mut conn = state.db.lock().map_err(err)?;
             db::create_handoff(&mut conn, id, &engine, &provider, &NAMES).map_err(err)?
         };
+        drop(gate);
         let _ = app.emit("sessions-changed", json!({ "project": from.project, "focus": to.id }));
         crate::tasks::changed(&app);
         send_message(&app, to.id, text, None)?;

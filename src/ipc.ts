@@ -18,10 +18,37 @@ export const api = {
   deleteGroup: (id: number) => invoke<Workspace>('delete_group', { id }),
   moveProject: (path: string, groupId: number | null) => invoke<Workspace>('move_project', { path, groupId }),
   setArchived: (path: string, archived: boolean) => invoke<Workspace>('set_archived', { path, archived }),
+  revealProject: (path: string) => invoke<void>('reveal_project', { path }),
   listDir: (path: string) => invoke<Entry[]>('list_dir', { path }),
   // `session`: archivo del worktree de una sesión aislada.
   readText: (path: string, session: number | null = null) => invoke<string>('read_text', { path, session }),
-  writeText: (path: string, content: string, session: number | null = null) => invoke<void>('write_text', { path, content, session }),
+  writeText: (path: string, content: string, session: number | null = null, previous: string | null = null) =>
+    invoke<void>('write_text', { path, content, session, previous }),
+};
+
+export type GuestShare = { name: string; editable: boolean };
+export type HostedShare = GuestShare & { invitation: string; expiresAt: number };
+export type SharedFile = { text: string; revision: string };
+export const sharing = {
+  start: (project: string, session: number | null, relay: string, key: string, editable: boolean) =>
+    invoke<HostedShare>('share_start', { project, session, relay, key, editable }),
+  current: () => invoke<HostedShare | null>('share_current'),
+  stop: () => invoke<void>('share_stop'),
+  access: (editable: boolean) => invoke<HostedShare>('share_access', { editable }),
+  join: (code: string) => invoke<GuestShare>('share_join', { code }),
+  status: () => invoke<{ online: boolean; closed: boolean; editable: boolean }>('share_status'),
+  list: (path: string) => invoke<Entry[]>('share_list', { path }),
+  read: (path: string, revision: string | null) => invoke<SharedFile | null>('share_read', { path, revision }),
+  write: (path: string, previous: string, content: string) => invoke<void>('share_write', { path, previous, content }),
+  leave: () => invoke<void>('share_leave'),
+};
+
+export type BrowserBounds = { x: number; y: number; width: number; height: number };
+export const browser = {
+  open: (url: string, bounds: BrowserBounds) => invoke<void>('browser_open', { url, bounds }),
+  place: (bounds: BrowserBounds | null) => invoke<void>('browser_place', { bounds }),
+  action: (action: 'back' | 'forward' | 'reload') => invoke<void>('browser_action', { action }),
+  location: () => invoke<string | null>('browser_location'),
 };
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
@@ -31,6 +58,7 @@ export type LogRow = { hash: string; parents: string[]; refs: string; subject: s
 export type DiffTexts = { old: string; new: string };
 
 export const git = {
+  head: (project: string) => invoke<string>('git_head', { project }),
   status: (project: string) => invoke<GitStatus>('git_status', { project }),
   log: (project: string) => invoke<LogRow[]>('git_log', { project }),
   diffTexts: (project: string, path: string, orig: string | null) => invoke<DiffTexts>('git_diff_texts', { project, path, orig }),
@@ -67,6 +95,8 @@ export const pty = {
 };
 
 // Coordinador (Codex app-server). Tipos reducidos a lo que se pinta.
+export type ChatAttachment = { kind: 'file'; name: string; data: string } | { kind: 'link'; url: string };
+
 export type CItem = {
   id: string;
   type: string;
@@ -84,15 +114,13 @@ export type CItem = {
   arguments?: any;
   contentItems?: { type: string; text?: string }[] | null;
   success?: boolean | null;
-  /** Quién firma la respuesta, si se sabe (p. ej. el perfil de Hansi al escribirla). */
   by?: string;
 };
 export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
 export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
-export type RateLimits = { primary: RateWindow | null; secondary: RateWindow | null; rateLimitReachedType: string | null };
+export type RateLimits = { primary: RateWindow | null; secondary: RateWindow | null; rateLimitReachedType: string | null; ordinaryUsageAllowed?: boolean | null; spendControlReached?: boolean | null };
 export type Opened = {
   threadId: string;
-  profile: string;
   model: string | null;
   effort: string | null;
   efforts: string[];
@@ -107,11 +135,11 @@ export type Decision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
 export const coordinator = {
   open: (project: string, session: number | null = null) => invoke<Opened>('coordinator_open', { project, session }),
-  send: (project: string, text: string, effort: string | null, session: number | null, task: number | null) => invoke<void>('coordinator_send', { project, text, effort, session, task }),
+  send: (project: string, text: string, effort: string | null, session: number | null, task: number | null, attachments: ChatAttachment[]) => invoke<void>('coordinator_send', { project, text, effort, session, task, attachments }),
   interrupt: (project: string, session: number | null) => invoke<void>('coordinator_interrupt', { project, session }),
   respond: (requestId: unknown, decision: Decision) => invoke<void>('coordinator_respond', { requestId, decision }),
-  setProfile: (project: string, profile: string) => invoke<void>('coordinator_set_profile', { project, profile }),
-  pinModel: (project: string, session: number, model: string | null) => invoke<void>('codex_pin_model', { project, session, model }),
+  rateLimits: () => invoke<RateLimits>('codex_rate_limits'),
+  pinModel: (project: string, session: number | null, model: string | null) => invoke<void>('codex_pin_model', { project, session, model }),
 };
 
 // Sesiones de agentes ejecutores (Claude Code en este tramo). Los mensajes
@@ -141,11 +169,20 @@ export type SessionEvent = { id: number; msg: any };
 /** Opción editable de un agente ACP (modelo o nivel de razonamiento). */
 export type AcpOption = { id: string; name: string; category: string; currentValue: string; options: { value: string; name: string }[] };
 
+export type ChatEngine = 'codex' | 'claude';
+
+export const chats = {
+  pm: (project: string) => invoke<Session | null>('chat_pm', { project }),
+  history: (project: string, session: number | null) => invoke<CItem[]>('chat_history', { project, session }),
+  switchEngine: (project: string, session: number | null, engine: ChatEngine) =>
+    invoke<Session | null>('chat_switch', { project, session, engine }),
+};
+
 export const sessions = {
   list: (project: string) => invoke<Session[]>('session_list', { project }),
   create: (project: string, engine: string, task: number | null = null) => invoke<CreatedSession>('session_create', { project, engine, task }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
-  send: (id: number, text: string, effort: string | null) => invoke<void>('session_send', { id, text, effort }),
+  send: (id: number, text: string, effort: string | null, task: number | null, attachments: ChatAttachment[], expectedEngine: string) => invoke<void>('session_send', { id, text, effort, task, attachments, expectedEngine }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
   respond: (requestId: string, decision: Decision) => invoke<void>('session_respond', { requestId, decision }),
   close: (id: number) => invoke<void>('session_close', { id }),
@@ -229,7 +266,10 @@ export type JevSettings = {
   lightModel: string | null;
 };
 export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export type JevUsage = { tokens: number; costUsd: number | null };
 export const jev = {
+  usage: () => invoke<JevUsage>('jev_usage'),
+  euroRate: () => invoke<number>('jev_euro_rate'),
   status: () => invoke<JevStatus>('jev_status'),
   configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
@@ -301,22 +341,18 @@ export const pr = {
 };
 
 // Herramientas externas que usa el IDE.
-export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null };
+export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null; account?: string | null };
 export const tools = { status: () => invoke<Tool[]>('tools_status') };
 
-// Contenedores Docker del proyecto (solo lectura).
-export type Container = { id: string; name: string; image: string; state: string; health: string | null; ports: string[]; service: string | null };
-export type ContainersView = {
-  status: 'ok' | 'absent' | 'stopped' | 'denied' | 'error';
-  message: string | null;
-  compose: Container[];
-  linked: Container[];
-  unlinked: Container[];
-};
-export const containers = {
-  list: (project: string) => invoke<ContainersView>('containers_list', { project }),
-  link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
-  unlink: (id: string) => invoke<void>('container_unlink', { id }),
+export type GithubLoginStatus =
+  | { state: 'waiting'; code: string | null }
+  | { state: 'complete' | 'cancelled' }
+  | { state: 'error'; message: string };
+export const githubLogin = {
+  start: () => invoke<GithubLoginStatus>('github_login_start'),
+  status: () => invoke<GithubLoginStatus | null>('github_login_status'),
+  cancel: () => invoke<void>('github_login_cancel'),
+  open: () => invoke<void>('github_login_open'),
 };
 
 export type HealthFinding = {
@@ -376,4 +412,19 @@ export const brain = {
   preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
   save: (project: string, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
   forget: (project: string, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
+};
+
+export type ServiceForm = { id: string | null; name: string; command: string; port: number | null };
+export type ServiceAction = 'start' | 'stop' | 'restart' | 'remove';
+export type LocalService = Omit<ServiceForm, 'id'> & {
+  id: string;
+  state: 'stopped' | 'running' | 'exited' | 'failed';
+  pid: number | null;
+  exitCode: number | null;
+  logs: string | null;
+};
+export const localServices = {
+  list: (project: string, logsFor: string | null) => invoke<LocalService[]>('services_list', { project, logsFor }),
+  save: (project: string, form: ServiceForm) => invoke<string>('service_save', { project, form }),
+  action: (project: string, id: string, action: ServiceAction) => invoke<void>('service_action', { project, id, action }),
 };

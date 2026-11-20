@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { sessions, type AcpOption, type Change, type CItem, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
-import { Composer, ConversationLog, type Ask } from './Conversation';
-import { addTokens, reportLimits } from './usageStore';
+import { sessions, type AcpOption, type Change, type CItem, type ChatAttachment, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
+import { Composer, ConversationLog, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
 import { useReportActivity } from './ui';
 import Coordinator from './Coordinator';
+import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
 
 export const ENGINE_LABEL: Record<string, string> = { codex: 'codex', claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -136,36 +136,40 @@ function acpAsk(msg: any): Pending {
   };
 }
 
-/** Cuota de Claude Code (ventanas de 5 h y semana) en el formato común. */
-function reportClaude(info: any) {
-  const label = (k: string) => (k === 'five_hour' ? '5 h' : k === 'seven_day' ? 'semana' : k.replace('_', ' '));
-  const out = !!info.status && info.status !== 'allowed' && info.status !== 'allowed_warning';
-  reportLimits({
-    engine: 'claude',
-    out,
-    windows: Object.entries<any>(info.unifiedWindows ?? {}).map(([k, w]) => ({
-      label: label(k),
-      percent: (w?.utilization ?? 0) * 100,
-      resetsAt: w?.resetsAt ?? info.resetsAt ?? null,
-    })),
-  });
-}
-
 // ── componente ──────────────────────────────────────────────────────────
 
-type Props = { session: SessionInfo; project: string; hidden: boolean; onDiff: (c: DiffTarget) => void; onTerminal: () => void; onCommits: () => void; onPublish: () => void; onOpenFile: (path: string) => void; onConflicts: (files: string[]) => void };
+type Props = {
+  session: SessionInfo;
+  project: string;
+  hidden: boolean;
+  switching?: boolean;
+  providerPicker?: ReactNode;
+  onDiff: (c: DiffTarget) => void;
+  quotaNear?: boolean;
+  onOpenFile?: (path: string) => void;
+  onConflicts?: (files: string[]) => void;
+  onModel: (key: number | string, model: string | null) => void;
+  manager?: { task: { id: number; title: string } | null; clearTask: () => void };
+};
 
 /** Conversación con una sesión de agente ejecutor del proyecto. */
-export default function Session({ session, project, hidden, onDiff, onTerminal, onCommits, onPublish, onOpenFile, onConflicts }: Props) {
+export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager }: Props) {
+  const isManager = manager !== undefined;
   const isClaude = session.engine === 'claude';
   const isCodex = session.engine === 'codex';
+  const history = useChatHistory(project, isClaude ? (manager ? null : session.id) : undefined);
   const [items, setItems] = useState<CItem[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [providerRunning, setRunning] = useState(false);
   const [directState, setDirectState] = useState('inactiva');
+  const [codexHasWork, setCodexHasWork] = useState(false);
   const running = isCodex ? ['en marcha', 'esperando permiso'].includes(directState) : providerRunning;
   const [starting, setStarting] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [context, setContext] = useState<number | null>(null);
+  const claudeContext = useRef<{ model: string; used: number } | null>(null);
+  const claudeWindows = useRef<Record<string, number>>({});
+
   const [claudeModels, setClaudeModels] = useState<{ id: string; label: string }[]>([]);
   const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,6 +194,12 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
   }, [directState, isCodex]);
   // Modelo y razonamiento elegibles en los agentes ACP.
   const [acpOptions, setAcpOptions] = useState<AcpOption[]>([]);
+  const modelOption = acpOptions.find((o) => o.category === 'model');
+  const displayedModel = claudeModels.find((m) => m.id === pinned)?.label ?? pinned
+    ?? modelOption?.options.find((m) => m.value === modelOption.currentValue)?.name ?? modelOption?.currentValue ?? model;
+  useEffect(() => {
+    if (!hidden && !isCodex) onModel(isManager ? project : session.id, displayedModel);
+  }, [displayedModel, hidden, isCodex, onModel, project, isManager, session.id]);
   // La integración directa chocó: se ofrece fusionar con marcas.
   const [clash, setClash] = useState(false);
   const diffLabel = `${session.branch} frente a ${session.base}`;
@@ -242,26 +252,40 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           else if (d?.type === 'thinking_delta') chunk('reasoning', d.thinking, 'live-think');
           break;
         }
-        case 'assistant':
+        case 'assistant': {
+          const usage = msg.message?.usage;
+          const modelId = msg.message?.model;
+          if (isClaude && typeof modelId === 'string' && typeof usage?.input_tokens === 'number') {
+            const used = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+            claudeContext.current = { model: modelId, used };
+            setContext(contextRemaining(used, claudeWindows.current[modelId]));
+          }
           setItems((list) => {
             const fresh = assistantItems(msg.message);
             return [...list.filter((it) => !it.id.startsWith('live') && !fresh.some((f) => f.id === it.id)), ...fresh];
           });
           break;
+        }
         case 'user':
           setItems((list) => applyResults(list, msg.message, declined.current));
           break;
         case 'control_request':
           setPending((p) => [...p, claudeAsk(msg)]);
           break;
-        case 'result':
-          for (const [m, u] of Object.entries<any>(msg.modelUsage ?? {}))
-            addTokens('claude', m, { input: (u.inputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0), cached: u.cacheReadInputTokens, output: u.outputTokens });
+        case 'result': {
+          for (const [id, metrics] of Object.entries(msg.modelUsage ?? {})) {
+            const size = (metrics as { contextWindow?: number })?.contextWindow;
+            if (typeof size === 'number' && size > 0) claudeWindows.current[id] = size;
+          }
+          const last = claudeContext.current;
+          if (last) setContext(contextRemaining(last.used, claudeWindows.current[last.model]));
+          if (msg.is_error && typeof msg.result === 'string' && msg.result.toLowerCase().includes('prompt is too long')) setContext(0);
           refreshChanges();
           setRunning(false);
           setItems((list) => list.filter((it) => !it.id.startsWith('live')));
           if (!pausedReason.current && (msg.is_error || (msg.subtype && msg.subtype !== 'success'))) setError(msg.result || `la sesión terminó con error (${msg.subtype})`);
           break;
+        }
         case 'system':
           if (msg.model) setModel(msg.model);
           break;
@@ -291,6 +315,9 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
               break;
             case 'agent_thought_chunk':
               if (u.content?.type === 'text') chunk('reasoning', u.content.text);
+              break;
+            case 'usage_update':
+              setContext(contextRemaining(u.used, u.size));
               break;
             case 'user_message_chunk':
               // En vivo el mensaje propio ya está pintado; solo al reanudar.
@@ -343,10 +370,11 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           setError(msg.message);
           break;
 
-        case 'rate_limit_event':
-          if (msg.rate_limit_info) reportClaude(msg.rate_limit_info);
-          break;
         case 'paused':
+          if (typeof msg.reason === 'string' && msg.reason.startsWith('cuota agotada:')) {
+            if (isClaude) reportQuotaLimit('claude');
+            if (isCodex) reportQuotaLimit('codex');
+          }
           pausedReason.current = msg.reason;
           setPaused(msg.reason);
           setPending([]);
@@ -367,7 +395,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
     return () => {
       unlisten.then((off) => off());
     };
-  }, [session.id, refreshChanges]);
+  }, [session.id, refreshChanges, isClaude, isCodex]);
 
   // Después de escuchar: la carga de una sesión ACP llega como eventos.
   useEffect(() => {
@@ -392,14 +420,14 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
     }, () => {}); // El envío sigue mostrando errores del proveedor.
   }, [hidden, isClaude, session.id]);
 
-  const send = (text: string) => {
+  const send = (text: string, attachments: ChatAttachment[]) => {
     setError(null);
     pausedReason.current = null;
     setPaused(null);
     setRunning(true);
     current.current = null;
-    setItems((list) => [...list, { id: `local-${Date.now()}`, type: 'userMessage', content: [{ type: 'text', text }] }]);
-    return sessions.send(session.id, text, isClaude ? effort : null).catch((e) => {
+    setItems((list) => [...list, { id: `local-${Date.now()}`, type: 'userMessage', content: [{ type: 'text', text: withAttachmentNames(text, attachments) }] }]);
+    return sessions.send(session.id, text, isClaude ? effort : null, manager?.task?.id ?? null, attachments, session.engine).catch((e) => {
       setRunning(false);
       setError(String(e));
       setItems((list) => list.filter((it) => !it.id.startsWith('local-')));
@@ -444,7 +472,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
         ({ files, conflicts }) => {
           setIntegrated(true);
           setClash(false);
-          if (conflicts.length) onConflicts(conflicts);
+          if (conflicts.length) onConflicts?.(conflicts);
           setNotice(
             conflicts.length
               ? `Integrado con conflictos en ${conflicts.join(', ')}: resuélvelos en el editor (marcas <<<<<<< proyecto / >>>>>>> ${session.branch}). El resto de los ${files.length} archivos ya está aplicado.`
@@ -502,8 +530,12 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
 
   const asks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
   const state = isCodex ? directState : pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
-  useReportActivity(String(session.id), state);
+  useReportActivity(manager ? 'coach' : String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;
+  const contextLow = context !== null && context <= LOW_REMAINING;
+  const quotaBlocked = !!paused?.startsWith('cuota agotada:');
+  const mayHandoff = !manager && (contextLow || quotaNear || quotaBlocked) && (!!session.task || items.length > 0 || codexHasWork || running || quotaBlocked);
+
 
   return (
     <section className="coach" aria-label={`Sesión ${session.name}`} hidden={hidden}>
@@ -514,7 +546,8 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
             pausar
           </button>
         )}
-        <select
+        {contextLow && <span className="usage-limit" title="Contexto restante de esta sesión">{percentLabel(context)} de contexto</span>}
+        {mayHandoff && <select
           className="co-profile"
           aria-label="Relevar la tarea a otro motor"
           value=""
@@ -523,13 +556,9 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
           title="pasa la tarea a otro motor en la misma rama"
         >
           <option value="">relevar a…</option>
-          {Object.entries(ENGINE_LABEL).filter(([id]) => id === 'claude' || id === 'devin').map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-              {id === session.engine ? ' (sesión nueva)' : ''}
-            </option>
-          ))}
-        </select>
+          {session.engine !== 'codex' && <option value="codex">Codex</option>}
+          {session.engine !== 'claude' && <option value="claude">Claude Code</option>}
+        </select>}
       </div>
       {paused && (
         <div className="co-paused" role="status">
@@ -541,20 +570,8 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
       )}
       {isolated && (
         <div className="co-branch">
-          <span title={session.worktree ?? undefined}>
-            ⎇ {session.branch} <span className="muted">← {session.base}</span>
-          </span>
           <button className="co-link" aria-expanded={showChanges} onClick={() => setShowChanges((v) => !v)} disabled={!changes.length}>
             {changes.length ? `${changes.length} cambio${changes.length === 1 ? '' : 's'}` : 'sin cambios'}
-          </button>
-          <button className="co-link" onClick={onTerminal} title="terminal en la carpeta de esta sesión">
-            terminal
-          </button>
-          <button className="co-link" onClick={onCommits} disabled={running || !changes.length} title="larry propone commits en la rama de esta sesión">
-            commits
-          </button>
-          <button className="co-link" onClick={onPublish} disabled={running} title="publica la rama de esta sesión y abre su PR">
-            publicar
           </button>
           <span className="push" />
           <button className="co-btn" onClick={integrate} disabled={busy || running || !changes.length} title="aplica sus cambios al proyecto, sin commit">
@@ -583,7 +600,7 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
                 {c.dels != null && <span className="del">−{c.dels}</span>}
               </button>
               {c.status !== 'D' && (
-                <button className="co-link" onClick={() => onOpenFile(`${session.worktree}/${c.path}`)} title="abrir en el editor (en la rama de la sesión)">
+                <button className="co-link" onClick={() => onOpenFile?.(`${session.worktree}/${c.path}`)} title="abrir en el editor (en la rama de la sesión)">
                   editar
                 </button>
               )}
@@ -594,26 +611,30 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
       {isCodex ? <>
         {notice && <div className="co-notice">{notice}</div>}
         {error && <div className="co-error">{error}</div>}
-        <Coordinator project={project} session={session} hidden={hidden} onDiff={openDiff} onActivity={setDirectState} />
+        <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} onActivity={setDirectState} onModel={onModel}
+          onContext={setContext} onConversation={setCodexHasWork} />
       </> : <>
-      <ConversationLog items={items} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
-        {items.length === 0 && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
+        {history.error && <div className="co-error">{history.error}</div>}
+        {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
         {error && <div className="co-error">{error}</div>}
       </ConversationLog>
       <Composer
-        disabled={false}
+        providerPicker={providerPicker}
+        draftKey={manager ? `pm:${project}` : `session:${session.id}`}
+        disabled={switching === true}
         running={running}
         efforts={isClaude ? CLAUDE_EFFORTS : []}
         effort={effort}
         onEffort={setEffort}
         model={
           <>
-            {isClaude && claudeModels.length ? <select className="chip-select" aria-label="Fijar modelo Claude" value={pinned ?? ''} disabled={running}
+            {isClaude && claudeModels.length ? <select className="chip-select" aria-label="Fijar modelo Claude" value={pinned ?? ''} disabled={running || switching}
               onChange={(e) => {
                 const value = e.target.value;
-                sessions.setOption(session.id, 'model', value).then(() => setPinned(value || null), (error) => setError(String(error)));
+                sessions.setOption(session.id, 'model', value).then(() => { setPinned(value || null); setContext(null); claudeContext.current = null; }, (error) => setError(String(error)));
               }}>
               <option value="">{model ?? 'modelo de la sesión'}</option>
               {pinned && !claudeModels.some((item) => item.id === pinned) && <option value={pinned}>{pinned} · no disponible</option>}
@@ -622,6 +643,9 @@ export default function Session({ session, project, hidden, onDiff, onTerminal, 
               {engine}
               {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
             </span>}
+            {manager?.task && <button className="co-btn" onClick={manager.clearTask} title="desvincular los próximos mensajes" disabled={running}>
+              #{manager.task.id} {manager.task.title} ×
+            </button>}
             {acpOptions.map((o) => (
               <select
                 key={o.id}

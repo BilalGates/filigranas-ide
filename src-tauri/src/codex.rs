@@ -151,7 +151,6 @@ impl Rpc {
 
 // ── proceso y estado ────────────────────────────────────────────────────
 
-const PROFILES: [&str; 4] = ["hansi", "pep", "luis-enrique", "cruyff"];
 const DECISIONS: [&str; 4] = ["accept", "acceptForSession", "decline", "cancel"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const APPROVALS: [&str; 2] = ["item/commandExecution/requestApproval", "item/fileChange/requestApproval"];
@@ -160,32 +159,20 @@ const QUIET: [&str; 3] = ["mcpServer/startupStatus/updated", "remoteControl/stat
 const SHORT: Duration = Duration::from_secs(30);
 const LONG: Duration = Duration::from_secs(120);
 
-fn persona(profile: &str) -> &'static str {
-    match profile {
-        "pep" => include_str!("../resources/coordinadores/pep.md"),
-        "luis-enrique" => include_str!("../resources/coordinadores/luis-enrique.md"),
-        "cruyff" => include_str!("../resources/coordinadores/cruyff.md"),
-        _ => include_str!("../resources/coordinadores/hansi.md"),
-    }
-}
-
-fn instructions(profile: &str, rules: &str) -> String {
-    if profile == "direct" {
+fn instructions(direct: bool, rules: &str) -> String {
+    if direct {
         return format!("Eres un ejecutor Codex en una conversación directa. Trabaja en esta sesión y sigue las instrucciones del proyecto.\n\n{rules}");
     }
-    format!("{}\n\n{rules}\n\n{}", include_str!("../resources/coordinadores/politica.md"), persona(profile))
+    format!("{}\n\n{rules}", include_str!("../resources/coordinadores/politica.md"))
 }
 
-/// Mensaje de desarrollador que cambia el perfil de un hilo ya creado.
-/// `thread/resume` no aplica unas instrucciones nuevas a un hilo cargado;
-/// inyectado en el historial, el modelo lo ve en los turnos siguientes.
-fn profile_switch(profile: &str) -> Value {
+fn retire_persona() -> Value {
     json!({
         "type": "message",
         "role": "developer",
         "content": [{
             "type": "input_text",
-            "text": format!("El usuario ha cambiado tu perfil de coordinador. Este perfil sustituye al anterior desde ahora:\n\n{}", persona(profile)),
+            "text": format!("Las instrucciones anteriores sobre nombres y personalidades quedan revocadas.\n\n{}", include_str!("../resources/coordinadores/politica.md")),
         }],
     })
 }
@@ -193,12 +180,12 @@ fn profile_switch(profile: &str) -> Value {
 /// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
 /// carpeta de trabajo, escritura dentro de él y aprobación para el resto
 /// (decisión del usuario del 2026-11-16).
-fn thread_params(cwd: &str, profile: &str, rules: &str) -> Value {
+fn thread_params(cwd: &str, direct: bool, rules: &str) -> Value {
     json!({
         "cwd": cwd,
         "sandbox": "workspace-write",
         "approvalPolicy": "on-request",
-        "developerInstructions": instructions(profile, rules),
+        "developerInstructions": instructions(direct, rules),
     })
 }
 
@@ -551,20 +538,38 @@ impl Codex {
         Ok(rpc)
     }
 
+    pub(crate) fn read_history(&self, app: &AppHandle, thread: &str) -> CmdResult<Value> {
+        let rpc = self.rpc(app)?;
+        let result = rpc.request("thread/read", json!({ "threadId": thread, "includeTurns": true }), LONG);
+        if result.as_ref().is_err_and(|e| e.contains("not materialized") || e == "list_turns is not supported yet") {
+            let metadata = rpc.request("thread/read", json!({ "threadId": thread, "includeTurns": false }), SHORT)?;
+            if let Some(path) = metadata.pointer("/thread/path").and_then(Value::as_str) {
+                let file = std::fs::File::open(path).map_err(err)?;
+                let mut lines = BufReader::new(file).lines();
+                if let Some(Ok(line)) = lines.next() {
+                    if serde_json::from_str::<Value>(&line).is_ok_and(|item| item["type"] == "session_meta") && lines.next().is_none() {
+                        return Ok(Value::Null);
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Carga (o crea) el hilo del proyecto. Devuelve el proceso, el id y la
     /// respuesta de `thread/resume` o `thread/start` si hubo que pedirla.
     fn thread(&self, app: &AppHandle, state: &AppState, path: &str, session: Option<&db::Session>, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
         let _gate = self.thread_gate.lock().map_err(err)?;
-        let (saved, profile) = match session {
+        let (saved, legacy_persona) = match session {
             Some(s) => {
                 let current = crate::claude::open_session(state, s.id)?;
-                (Some(current.provider_session).filter(|id| !id.is_empty()), "direct".into())
+                (Some(current.provider_session).filter(|id| !id.is_empty()), false)
             }
             None => {
                 let conn = state.db.lock().map_err(err)?;
                 let (saved, profile) = db::coordinator(&conn, path).map_err(err)?;
                 let tools = db::coordinator_tools(&conn, path).map_err(err)?;
-                (saved.filter(|_| tools == crate::delegate::TOOLS_VERSION), profile)
+                (saved.filter(|_| tools == crate::delegate::TOOLS_VERSION), profile != "pm")
             }
         };
         let cwd = session.map(db::Session::cwd).unwrap_or(path);
@@ -573,10 +578,14 @@ impl Codex {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
-            let mut params = thread_params(cwd, &profile, &crate::skills::instructions(app));
+            let mut params = thread_params(cwd, session.is_some(), &crate::skills::instructions(app));
             params["threadId"] = json!(id);
             match rpc.request("thread/resume", params, LONG) {
                 Ok(res) => {
+                    if legacy_persona {
+                        rpc.request("thread/inject_items", json!({ "threadId": id, "items": [retire_persona()] }), SHORT)?;
+                        db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(id), crate::delegate::TOOLS_VERSION).map_err(err)?;
+                    }
                     self.remember(id, &res, session.map(|s| s.id))?;
                     return Ok((rpc, id.clone(), Some(res)));
                 }
@@ -587,14 +596,14 @@ impl Codex {
                         [id], |r| r.get(0),
                     ).map_err(err)?;
                     // Solo sustituimos un hilo sin historial del que el proveedor ya no tiene registro.
-                    let missing = e.contains("no rollout") || e.contains("thread not found");
+                    let missing = e.contains("no rollout") || e.contains("thread not found") || e == "list_turns is not supported yet";
                     if (session.is_some() && (has_history || !missing)) || !rpc.alive() {
                         return Err(e);
                     }
                 }
             }
         }
-        let mut params = thread_params(cwd, &profile, &crate::skills::instructions(app));
+        let mut params = thread_params(cwd, session.is_some(), &crate::skills::instructions(app));
         if session.is_none() {
             params["dynamicTools"] = crate::delegate::specs();
         }
@@ -631,7 +640,6 @@ impl Codex {
 #[serde(rename_all = "camelCase")]
 pub struct Opened {
     thread_id: String,
-    profile: String,
     model: Option<String>,
     effort: Option<String>,
     /// Esfuerzos que admite el modelo, de menor a mayor.
@@ -662,13 +670,15 @@ pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let _gate = state.chat_gate.lock().map_err(err)?;
+        let direct = direct_session(&state, &path, session)?;
+        ensure_pm_codex(&state, &path, session)?;
         let codex = &state.codex;
         let rpc = codex.rpc(&app)?;
         let account = rpc.request("account/read", json!({}), SHORT)?;
         if account.get("account").is_none_or(Value::is_null) && account["requiresOpenaiAuth"] == json!(true) {
             return Err("Codex no tiene sesión iniciada: ejecuta `codex login` en el terminal y vuelve a abrir el coordinador".into());
         }
-        let direct = direct_session(&state, &path, session)?;
         let (rpc, thread_id, res) = codex.thread(&app, &state, &path, direct.as_ref(), true)?;
         let res = res.unwrap_or(Value::Null);
         let catalog = rpc.request("model/list", json!({}), SHORT).ok();
@@ -683,10 +693,10 @@ pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i
             else { available.iter().find(|m| m.is_default).map(|m| m.id.clone()) }
         })
             .or_else(|| res["model"].as_str().map(str::to_string));
-        let pinned_model = direct.as_ref().map(|s| pinned(&state, s.id)).transpose()?.flatten();
+        let pinned_model = pinned(&state, &path, session)?;
         let efforts = available.iter().find(|m| Some(m.id.as_str()) == pinned_model.as_deref().or(model.as_deref()))
             .map(|m| m.efforts.clone()).unwrap_or_else(|| EFFORTS[..3].iter().map(|e| e.to_string()).collect());
-        let rate_limits = rpc.request("account/rateLimits/read", Value::Null, SHORT).map(|r| r["rateLimits"].clone()).unwrap_or(Value::Null);
+        let rate_limits = read_rate_limits(&rpc).unwrap_or(Value::Null);
         let mut shared = codex.shared.lock().map_err(err)?;
         shared.quota = runs::Quota::codex(&rate_limits);
         if catalog.is_some() {
@@ -698,19 +708,15 @@ pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i
         }
         let active_turn = shared.turns.get(&thread_id).cloned();
         drop(shared);
-        let profile = if direct.is_some() { "direct".into() } else {
-            db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?.1
-        };
         Ok(Opened {
             thread_id,
-            profile,
             model,
             effort: res["reasoningEffort"].as_str().map(str::to_string),
             efforts: efforts.into_iter().filter(|e| EFFORTS.contains(&e.as_str())).collect(),
             turns: res.pointer("/thread/turns").cloned().unwrap_or(json!([])),
             rate_limits,
             active_turn,
-            models: if direct.is_some() { available } else { Vec::new() },
+            models: available,
             pinned_model,
         })
     })
@@ -743,14 +749,36 @@ fn direct_session(state: &AppState, project: &str, session: Option<i64>) -> CmdR
     }).transpose()
 }
 
-fn pinned(state: &AppState, id: i64) -> CmdResult<Option<String>> {
+fn ensure_pm_codex(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<()> {
+    if session.is_none() && crate::chat::pm_id(&*state.db.lock().map_err(err)?, project).map_err(err)?.is_some() {
+        return Err("el Project manager ha cambiado de proveedor".into());
+    }
+    Ok(())
+}
+
+fn pm_model_key(project: &str) -> String {
+    format!("codex.pm.model:{project}")
+}
+
+fn pinned(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<Option<String>> {
     let conn = state.db.lock().map_err(err)?;
-    Ok(db::session_options(&conn, id).map_err(err)?.get("model").and_then(Value::as_str).map(str::to_string))
+    match session {
+        Some(id) => Ok(db::session_options(&conn, id).map_err(err)?.get("model").and_then(Value::as_str).map(str::to_string)),
+        None => Ok(db::get_setting(&conn, &pm_model_key(project)).map_err(err)?.filter(|model| !model.is_empty())),
+    }
 }
 
 /// Usa el mismo app-server para el PM y las conversaciones directas.
-pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>, text: String, effort: Option<String>) -> CmdResult<()> {
+pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
+    mut message: crate::attachments::Message, effort: Option<String>,
+) -> CmdResult<()> {
+    let text = &message.text;
     let state = app.state::<AppState>();
+    let gate = state.chat_gate.lock().map_err(err)?;
+    let session_id = direct.map(|s| s.id);
+    let validated = direct_session(&state, path, session_id)?;
+    let direct = validated.as_ref();
+    ensure_pm_codex(&state, path, session_id)?;
     let task = {
         let conn = state.db.lock().map_err(err)?;
         let task = match direct {
@@ -763,7 +791,8 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
         task
     };
     let (rpc, thread_id, _) = state.codex.thread(app, &state, path, direct, false)?;
-    let pinned = direct.map(|s| pinned(&state, s.id)).transpose()?.flatten();
+    let pinned = pinned(&state, path, session_id)?;
+    let model_pinned = pinned.is_some();
     let baseline = if direct.is_none() {
         crate::jev::baseline(&*state.db.lock().map_err(err)?, &thread_id).map_err(err)?
     } else {
@@ -788,19 +817,21 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
         let task = if let Some(session) = direct { tasks::linked(&tx, session.id).map_err(err)? } else { task };
         let previous = runs::last_task(&tx, &thread_id).map_err(err)?;
         let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
-        let input = runs::task_input(&tx, run, path, task, previous, &text)?;
+        let input = runs::task_input(&tx, run, path, task, previous, text)?;
+        let input = crate::chat::with_context(&tx, path, session_id, run, input)?;
         runs::quota(&tx, run, quota).map_err(err)?;
         runs::usage(&tx, run, runs::Usage { model: model.clone(), ..Default::default() }).map_err(err)?;
         if let Some(session) = direct {
-            db::set_session_task(&tx, session.id, &text).map_err(err)?;
+            db::set_session_task(&tx, session.id, text).map_err(err)?;
             db::set_session_paused(&tx, session.id, None).map_err(err)?;
         }
         tx.commit().map_err(err)?;
         (run, input)
     };
+    drop(gate);
     tasks::changed(app);
     let (effort, model_override) = if automatic {
-        crate::jev::route(&state, run, model.as_deref(), &available).ok().and_then(|trace| {
+        crate::jev::route(&state, run, model.as_deref(), &available, !model_pinned && !message.has_images()).ok().and_then(|trace| {
             let mut conn = state.db.lock().ok()?;
             let tx = conn.transaction().ok()?;
             let override_model = if let Some(execution_model) = &trace.execution_model {
@@ -812,16 +843,27 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
             };
             crate::jev::record(&tx, run, &trace).ok()?;
             tx.commit().ok()?;
+            drop(conn);
+            tasks::changed(app);
             Some((trace.effort, override_model))
         }).unwrap_or((None, model_override))
     } else { (effort, model_override) };
-    let mut params = json!({ "threadId": thread_id, "input": [{ "type": "text", "text": input, "text_elements": [] }] });
+    let inputs: Vec<_> = std::iter::once(json!({ "type": "text", "text": input, "text_elements": [] }))
+        .chain(message.codex_images()).collect();
+    let mut params = json!({ "threadId": thread_id, "input": inputs });
     if let Some(e) = effort {
         params["effort"] = json!(e);
     }
+    let _ = app.emit("coordinator", Event {
+        method: "model/selected".into(),
+        params: json!({ "threadId": thread_id, "model": model_override.as_ref().or(model.as_ref()) }),
+        request_id: None,
+    });
     if let Some(model) = model_override {
         params["model"] = json!(model);
     }
+    // El servidor puede haber aceptado el turno aunque no llegue su respuesta.
+    message.retain_files();
     let result = rpc.request("turn/start", params, LONG);
     if result.is_err() {
         let outcome = if rpc.alive() { "failed" } else { "interrupted" };
@@ -831,8 +873,11 @@ pub fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task
 }
 
 #[tauri::command]
-pub async fn coordinator_send(app: AppHandle, project: String, text: String, effort: Option<String>, session: Option<i64>, task: Option<i64>) -> CmdResult<()> {
-    if text.trim().is_empty() {
+pub async fn coordinator_send(app: AppHandle, project: String, text: String, effort: Option<String>, session: Option<i64>,
+    task: Option<i64>, attachments: Option<Vec<crate::attachments::Attachment>>,
+) -> CmdResult<()> {
+    let attachments = attachments.unwrap_or_default();
+    if text.trim().is_empty() && attachments.is_empty() {
         return Err("mensaje vacío".into());
     }
     if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e) && !(e == "auto" && session.is_none() && task.is_some())) {
@@ -842,7 +887,8 @@ pub async fn coordinator_send(app: AppHandle, project: String, text: String, eff
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
         let direct = direct_session(&state, &path, session)?;
-        send_turn(&app, &path, direct.as_ref(), task, text, effort)
+        let message = crate::attachments::Message::prepare(&app.path().app_data_dir().map_err(err)?, text, attachments)?;
+        send_turn(&app, &path, direct.as_ref(), task, message, effort)
     })
     .await
     .map_err(err)?
@@ -870,11 +916,13 @@ pub async fn coordinator_interrupt(app: AppHandle, project: String, session: Opt
 }
 
 #[tauri::command]
-pub async fn codex_pin_model(app: AppHandle, project: String, session: i64, model: Option<String>) -> CmdResult<()> {
+pub async fn codex_pin_model(app: AppHandle, project: String, session: Option<i64>, model: Option<String>) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
-        direct_session(&state, &path, Some(session))?;
+        let _gate = state.chat_gate.lock().map_err(err)?;
+        direct_session(&state, &path, session)?;
+        ensure_pm_codex(&state, &path, session)?;
         if let Some(model) = &model {
             let rpc = state.codex.rpc(&app)?;
             let catalog = rpc.request("model/list", json!({}), SHORT)?;
@@ -883,10 +931,19 @@ pub async fn codex_pin_model(app: AppHandle, project: String, session: i64, mode
             }
         }
         let conn = state.db.lock().map_err(err)?;
-        if runs::session_active(&conn, session).map_err(err)? {
-            return Err("espera a que termine el turno".into());
+        if let Some(session) = session {
+            if runs::session_active(&conn, session).map_err(err)? {
+                return Err("espera a que termine el turno".into());
+            }
+            db::update_session_option(&conn, session, "model", model.as_deref()).map_err(err)
+        } else {
+            if let Some(thread) = db::coordinator(&conn, &path).map_err(err)?.0 {
+                if runs::active(&conn, &thread)?.is_some() {
+                    return Err("espera a que termine el turno".into());
+                }
+            }
+            db::set_setting(&conn, &pm_model_key(&path), model.as_deref().unwrap_or_default()).map_err(err)
         }
-        db::update_session_option(&conn, session, "model", model.as_deref()).map_err(err)
     }).await.map_err(err)?
 }
 
@@ -902,29 +959,26 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
 }
 
-/// Cambia el perfil del coordinador. En un hilo existente se inyecta el
-/// perfil nuevo en su historial para que el modelo lo aplique ya.
+/// Lee la cuota de la cuenta sin abrir ni crear una conversación.
 #[tauri::command]
-pub async fn coordinator_set_profile(app: AppHandle, project: String, profile: String) -> CmdResult<()> {
-    if !PROFILES.contains(&profile.as_str()) {
-        return Err("perfil desconocido".into());
-    }
+pub async fn codex_rate_limits(app: AppHandle) -> CmdResult<Value> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
-        let (thread, current) = db::coordinator(&*state.db.lock().map_err(err)?, &path).map_err(err)?;
-        if current == profile {
-            return Ok(());
-        }
-        db::set_coordinator_profile(&*state.db.lock().map_err(err)?, &path, &profile).map_err(err)?;
-        if thread.is_some() {
-            let (rpc, id, _) = state.codex.thread(&app, &state, &path, None, false)?;
-            rpc.request("thread/inject_items", json!({ "threadId": id, "items": [profile_switch(&profile)] }), SHORT)?;
-        }
-        Ok(())
-    })
-    .await
-    .map_err(err)?
+        let rpc = state.codex.rpc(&app)?;
+        read_rate_limits(&rpc)
+    }).await.map_err(err)?
+}
+
+fn read_rate_limits(rpc: &Rpc) -> CmdResult<Value> {
+    let mut response = rpc.request("account/rateLimits/read", Value::Null, SHORT)?;
+    let mut limits = response["rateLimits"].take();
+    if !limits.is_object() {
+        return Err("Codex no devolvió la cuota".into());
+    }
+    if let Some(allowed) = response["ordinaryUsageAllowed"].as_bool() {
+        limits["ordinaryUsageAllowed"] = json!(allowed);
+    }
+    Ok(limits)
 }
 
 #[cfg(test)]
@@ -947,6 +1001,24 @@ mod tests {
 
     fn write(w: &mut PipeWriter, v: Value) {
         writeln!(w, "{v}").unwrap();
+    }
+
+    #[test]
+    fn rate_limit_read_keeps_the_account_block_even_without_percentages() {
+        let (rx, tx) = fake(|msg, w| {
+            assert_eq!(msg["method"], "account/rateLimits/read");
+            write(w, json!({
+                "id": msg["id"],
+                "result": {
+                    "ordinaryUsageAllowed": false,
+                    "rateLimits": { "primary": null, "secondary": null }
+                }
+            }));
+        });
+        let rpc = Rpc::start(rx, tx, |_, _| {});
+        let limits = read_rate_limits(&rpc).unwrap();
+        assert_eq!(limits["ordinaryUsageAllowed"], false);
+        assert!(limits["primary"].is_null());
     }
 
     #[test]
@@ -1017,14 +1089,14 @@ mod tests {
 
     #[test]
     fn thread_params_ask_before_leaving_the_project() {
-        let p = thread_params("/r/p", "pep", crate::skills::RULES);
+        let p = thread_params("/r/p", false, crate::skills::RULES);
         assert_eq!((p["cwd"].as_str(), p["sandbox"].as_str(), p["approvalPolicy"].as_str()), (Some("/r/p"), Some("workspace-write"), Some("on-request")));
         let text = p["developerInstructions"].as_str().unwrap();
-        assert!(text.contains("Coordinación en Filigranas IDE") && text.contains("Pep Guardiola"));
-        assert!(instructions("desconocido", crate::skills::RULES).contains("Hansi Flick"));
-        let switch = profile_switch("cruyff");
+        assert!(text.contains("Coordinación en Filigranas IDE"));
+        assert!(text.contains("Project manager"));
+        let switch = retire_persona();
         assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
-        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Johan Cruyff"));
+        assert!(switch["content"][0]["text"].as_str().unwrap().contains("Project manager"));
     }
 
     #[test]
@@ -1066,7 +1138,7 @@ mod tests {
         rpc.request("initialize", json!({ "clientInfo": { "name": "filigranas-test", "title": null, "version": "0" }, "capabilities": null }), SHORT).unwrap();
         rpc.notify("initialized").unwrap();
         let dir = std::env::temp_dir();
-        let mut params = thread_params(dir.to_str().unwrap(), "hansi", crate::skills::RULES);
+        let mut params = thread_params(dir.to_str().unwrap(), false, crate::skills::RULES);
         params["sandbox"] = json!("read-only");
         params["ephemeral"] = json!(true);
         let thread = rpc.request("thread/start", params, LONG).unwrap();

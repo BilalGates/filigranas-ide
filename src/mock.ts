@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { Entry, Group, Project, Workspace } from './ipc';
+import type { Entry, GithubLoginStatus, Group, HostedShare, LocalService, Project, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -51,9 +51,14 @@ export async function enqueue(client: string, action: string) {
 let root: string | null = null;
 let nextGroup = 5;
 let nextPty = 1;
-let coachProfile = 'hansi';
 let nextSession = 1;
+const mockServices = new Map<string, LocalService[]>();
+const mockBranches = new Map<string, string>();
 const mockSessions: any[] = [];
+const mockManagers = new Map<string, any>();
+let mockShare: (HostedShare & { project: string }) | null = null;
+let mockShareGuest = false;
+let mockGithub: GithubLoginStatus | null = null;
 let sessionAnswer: ((decision: string) => void) | null = null;
 let pendingApproval: ((decision: string) => void) | null = null;
 const ptys = new Map<number, (data: string) => void>();
@@ -141,17 +146,73 @@ mockIPC(
         else meta[name].archived = a.archived;
         return workspace();
       }
+      case 'reveal_project':
+        return null;
+      case 'share_start':
+        mockShare = { project: a.project, name: rel(a.project), editable: a.editable,
+          invitation: 'filigranas-demo', expiresAt: Date.now() + 900_000 };
+        return mockShare;
+      case 'share_current':
+        return mockShare;
+      case 'share_access':
+        if (!mockShare) return fail('la sesión compartida ha terminado');
+        mockShare = { ...mockShare, editable: a.editable };
+        return mockShare;
+      case 'share_stop':
+        mockShare = null;
+        return null;
+      case 'share_join':
+        if (mockShareGuest || !mockShare || a.code !== mockShare.invitation) return fail('invitación no válida');
+        mockShareGuest = true;
+        return { name: mockShare.name, editable: mockShare.editable };
+      case 'share_status':
+        return { online: !!mockShare, closed: !mockShare, editable: mockShare?.editable ?? false };
+      case 'share_list':
+        if (!mockShare) return fail('la sesión compartida ha terminado');
+        return listDir(a.path ? `${mockShare.project}/${a.path}` : mockShare.project)
+          .map((entry) => ({ ...entry, path: entry.path.slice(mockShare!.project.length + 1) }));
+      case 'share_read': {
+        if (!mockShare) return fail('la sesión compartida ha terminado');
+        const text = files[`${rel(mockShare.project)}/${a.path}`] ?? fail('archivo no compartido');
+        return a.revision === text ? null : { text, revision: text };
+      }
+      case 'share_write': {
+        if (!mockShare?.editable) return fail('el proyecto es de solo lectura');
+        const file = `${rel(mockShare.project)}/${a.path}`;
+        if (files[file] !== a.previous && files[file] !== a.content) return fail('El archivo cambió en el equipo anfitrión.');
+        files[file] = a.content;
+        void emit('project-changed');
+        return null;
+      }
+      case 'share_leave':
+        mockShareGuest = false;
+        mockShare = null;
+        return null;
+      case 'github_login_start':
+        mockGithub = { state: 'waiting', code: 'DEMO-1234' };
+        return mockGithub;
+      case 'github_login_status':
+        return mockGithub;
+      case 'github_login_cancel':
+        mockGithub = { state: 'cancelled' };
+        return null;
+      case 'github_login_open':
+        mockGithub = { state: 'complete' };
+        return null;
       case 'list_dir':
         return listDir(a.path);
       case 'read_text':
         return files[rel(a.path)] ?? fail('archivo no encontrado');
       case 'write_text':
         if (!(rel(a.path) in files)) fail('solo se pueden guardar archivos existentes');
+        if (a.previous != null && files[rel(a.path)] !== a.previous) return fail('El archivo cambió en disco.');
         files[rel(a.path)] = a.content;
         return null;
+      case 'git_head':
+        return mockBranches.get(a.project) ?? 'main';
       case 'git_status':
         return {
-          branch: 'main',
+          branch: mockBranches.get(a.project) ?? 'main',
           head: '84ab176',
           upstream: 'origin/main',
           ahead: 1,
@@ -171,7 +232,10 @@ mockIPC(
       case 'git_branches':
         return ['ide/tests-e27', 'main'];
       case 'git_switch':
-        return a.branch === 'main' ? null : fail('tus cambios locales se sobrescribirían al cambiar de rama');
+        if (rel(a.project) === 'bitacola' && a.branch !== 'main') fail('tus cambios locales se sobrescribirían al cambiar de rama');
+        mockBranches.set(a.project, a.branch);
+        void emit('project-changed');
+        return null;
       case 'watch_project':
         return null;
       case 'git_fetch':
@@ -222,6 +286,26 @@ mockIPC(
       case 'pty_close':
         ptys.delete(a.id);
         return null;
+      case 'chat_pm':
+        return mockManagers.get(a.project) ?? null;
+      case 'chat_history':
+        return [];
+      case 'chat_switch': {
+        if (a.session != null) {
+          const at = mockSessions.findIndex((session) => session.id === a.session);
+          const next = { ...mockSessions[at], engine: a.engine, providerSession: '' };
+          mockSessions[at] = next;
+          return next;
+        }
+        if (a.engine === 'codex') {
+          mockManagers.delete(a.project);
+          return null;
+        }
+        const manager = { id: nextSession++, project: a.project, engine: 'claude', name: 'Project manager',
+          providerSession: crypto.randomUUID(), worktree: null, effort: null };
+        mockManagers.set(a.project, manager);
+        return manager;
+      }
       case 'session_list':
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
@@ -249,6 +333,8 @@ mockIPC(
       }
       case 'session_history':
         return [];
+      case 'claude_chat_options':
+        return { models: [], pinnedModel: null };
       case 'session_send':
         void demoSession(a.id);
         return null;
@@ -316,9 +402,9 @@ mockIPC(
         return null;
       case 'coordinator_open':
         return {
-          threadId: 'hilo-demo',
-          profile: coachProfile,
+          threadId: a.session == null ? 'hilo-demo' : `hilo-demo-${a.session}`,
           model: 'gpt-6-sol',
+          models: [{ id: 'gpt-6-sol', label: 'GPT-6 Sol', efforts: ['low', 'medium', 'high'] }],
           effort: 'medium',
           efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
           turns: [],
@@ -326,16 +412,16 @@ mockIPC(
           activeTurn: null,
         };
       case 'coordinator_send':
-        void demoTurn(a.text);
+        void demoTurn(a.text, a.session);
         return null;
       case 'coordinator_respond':
         pendingApproval?.(a.decision);
         return null;
+      case 'codex_pin_model':
       case 'coordinator_interrupt':
         return null;
-      case 'coordinator_set_profile':
-        coachProfile = a.profile;
-        return null;
+      case 'codex_rate_limits':
+        return { primary: { usedPercent: 22, windowDurationMins: 300, resetsAt: Date.now() / 1000 + 9000 }, secondary: { usedPercent: 47, windowDurationMins: 10080, resetsAt: null }, rateLimitReachedType: null };
       case 'larry_propose':
         return {
           branch: 'main',
@@ -372,9 +458,12 @@ mockIPC(
           checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
       case 'open_pr_url':
         return null;
-      case 'tasks_list':
       case 'brain_graph':
         return { nodes: [], edges: [], limited: false };
+      case 'task_parallel_limit':
+        return a.limit ?? 2;
+      case 'tasks_list':
+      case 'task_runs':
       case 'brain_search':
       case 'brain_preview':
       case 'health_list':
@@ -387,6 +476,8 @@ mockIPC(
       case 'health_import':
       case 'design_save':
         return fail('Este flujo necesita la app de escritorio de Filigranas');
+      case 'jev_usage':
+        return { tokens: 0, costUsd: 0 };
       case 'jev_status':
         return mockJevStatus();
       case 'jev_configure':
@@ -400,25 +491,33 @@ mockIPC(
           { id: 'opencode', name: 'OpenCode', role: 'agente ejecutor', installed: true, loggedIn: false, detail: '0 credentials', login: 'opencode auth login' },
           { id: 'agy', name: 'Antigravity', role: 'agente ejecutor', installed: true, loggedIn: null, detail: '1.5.9', login: 'agy' },
           { id: 'devin', name: 'Devin', role: 'agente ejecutor', installed: false, loggedIn: null, detail: 'no está instalada o no está en el PATH', login: 'devin auth login' },
-          { id: 'gh', name: 'GitHub CLI', role: 'publicar ramas y PR', installed: true, loggedIn: true, detail: 'gh version 2.101.0', login: 'gh auth login' },
+          { id: 'gh', name: 'GitHub', role: 'publicar ramas y PR', installed: true, loggedIn: mockGithub?.state === 'complete', account: mockGithub?.state === 'complete' ? 'demo' : null, detail: 'gh version 2.101.0', login: null },
           { id: 'node', name: 'Node.js', role: 'agrupar commits (Larry)', installed: true, loggedIn: null, detail: 'v26.0.0', login: null },
         ];
-      case 'containers_list':
-        return rel(a.project) === 'bitacola'
-          ? {
-              status: 'ok',
-              message: null,
-              compose: [
-                { id: 'a1b2c3d4e5f6', name: 'bitacola-db-1', image: 'pgvector/pgvector:pg16', state: 'running', health: 'healthy', ports: ['127.0.0.1:5433→5432/tcp'], service: 'db' },
-                { id: 'b2c3d4e5f6a1', name: 'bitacola-redis-1', image: 'redis:7', state: 'exited', health: null, ports: [], service: 'redis' },
-              ],
-              linked: [],
-              unlinked: [{ id: 'c3d4e5f6a1b2', name: 'vantia-local', image: 'postgis/postgis:17-3.5', state: 'exited', health: null, ports: [], service: null }],
-            }
-          : { status: 'stopped', message: 'El daemon de Docker no está en marcha. Arráncalo (Docker Desktop u otro) y actualiza.', compose: [], linked: [], unlinked: [] };
-      case 'container_link':
-      case 'container_unlink':
+      case 'services_list':
+        return (mockServices.get(a.project) ?? []).map((service) =>
+          ({ ...service, logs: service.id === a.logsFor ? service.logs : null }));
+      case 'service_save': {
+        const services = mockServices.get(a.project) ?? [];
+        const id = a.form.id ?? crypto.randomUUID();
+        const existing = services.find((s) => s.id === id);
+        if (existing) Object.assign(existing, a.form);
+        else services.push({ ...a.form, id, state: 'stopped', pid: null, exitCode: null, logs: null });
+        mockServices.set(a.project, services);
+        return id;
+      }
+      case 'service_action': {
+        const services = mockServices.get(a.project) ?? [];
+        const service = services.find((s) => s.id === a.id);
+        if (!service) return fail('Servicio desconocido');
+        if (a.action === 'remove') mockServices.set(a.project, services.filter((s) => s.id !== a.id));
+        else {
+          service.state = a.action === 'stop' ? 'stopped' : 'running';
+          service.pid = a.action === 'stop' ? null : Math.floor(Math.random() * 5000) + 100;
+          service.logs = a.action === 'stop' ? service.logs : 'Servicio de demostración en marcha.';
+        }
         return null;
+      }
       case 'plugin:dialog|open':
         return ROOT;
       default:
@@ -431,10 +530,10 @@ mockIPC(
 
 // Turno de ejemplo del coordinador: razonamiento, respuesta en streaming,
 // un comando que pide permiso y un cambio de archivo.
-async function demoTurn(text: string) {
+async function demoTurn(text: string, session: number | null) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const ev = (method: string, params: object, requestId: unknown = null) =>
-    emit('coordinator', { method, params: { threadId: 'hilo-demo', turnId: 't1', ...params }, requestId });
+    emit('coordinator', { method, params: { threadId: session == null ? 'hilo-demo' : `hilo-demo-${session}`, turnId: 't1', ...params }, requestId });
   const n = Date.now();
   await ev('turn/started', { turn: { id: 't1' } });
   await ev('item/completed', { item: { id: `u${n}`, type: 'userMessage', content: [{ type: 'text', text }] } });
@@ -487,7 +586,10 @@ async function demoSession(id: number) {
   const ok = decision !== 'decline';
   await ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `t${n}`, is_error: !ok, content: ok ? 'ok' : 'rechazado' }] } });
   await ev({ type: 'assistant', message: { id: `m${n}b`, content: [{ type: 'text', text: ok ? 'Hecho: la validación rechaza clientes sin política.' : 'Entendido, no toco el archivo.' }] } });
-  await ev({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.31 }, seven_day: { utilization: 0.58 } } } });
+  await ev({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: {
+    five_hour: { utilization: 0.31, resetsAt: Date.now() / 1000 + 9000 },
+    seven_day: { utilization: 0.58, resetsAt: Date.now() / 1000 + 450000 },
+  } } });
   await ev({ type: 'result', subtype: 'success', is_error: false, result: '', modelUsage: { 'claude-opus-5-5': { inputTokens: 1200, cacheCreationInputTokens: 9000, cacheReadInputTokens: 64000, outputTokens: 3100 } } });
 }
 

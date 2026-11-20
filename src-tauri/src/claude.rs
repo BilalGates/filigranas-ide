@@ -111,6 +111,13 @@ fn history_from(text: &str) -> Vec<Value> {
 
 /// Qué se reenvía a la interfaz. Se descartan avisos internos y, del
 /// streaming parcial, todo salvo los fragmentos de texto y razonamiento.
+pub(crate) fn read_history(provider: &str) -> CmdResult<Vec<Value>> {
+    match transcript(provider) {
+        Some(file) => Ok(history_from(&std::fs::read_to_string(file).map_err(err)?)),
+        None => Ok(Vec::new()),
+    }
+}
+
 fn forward(msg: &Value) -> bool {
     match msg["type"].as_str() {
         Some("system") => msg["subtype"] == json!("init"),
@@ -154,7 +161,10 @@ impl Claude {
     /// se reinicia reanudando la misma conversación.
     fn proc(&self, app: &AppHandle, session: &db::Session, effort: Option<&str>) -> CmdResult<Input> {
         let state = app.state::<AppState>();
-        let pinned_model = claude_model(&*state.db.lock().map_err(err)?, session.id)?;
+        let (pinned_model, is_pm) = {
+            let conn = state.db.lock().map_err(err)?;
+            (claude_model(&conn, session.id)?, crate::chat::is_pm(&conn, session.id).map_err(err)?)
+        };
         let mut procs = self.procs.lock().map_err(err)?;
         if let Some(p) = procs.get(&session.id) {
             let busy = state.tracker.get(session.id).running;
@@ -165,10 +175,18 @@ impl Claude {
         }
         procs.remove(&session.id); // termina el anterior (Drop)
 
+        let rules = crate::skills::instructions(app);
+        let prompt = if is_pm {
+            let policy = include_str!("../resources/coordinadores/politica.md");
+            let role = policy.split("## Cómo delegas").next().unwrap_or(policy);
+            format!("{role}Coordina el trabajo y comprueba los resultados. Puedes usar los subagentes de Claude Code si están disponibles. Deja los commits, la publicación y la integración a las acciones del IDE y del usuario.\n\n{rules}")
+        } else {
+            system_prompt(&session.name, &rules)
+        };
         let mut cmd = Command::new(crate::codex::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
-            .args(["--append-system-prompt", &system_prompt(&session.name, &crate::skills::instructions(app))]);
+            .args(["--append-system-prompt", &prompt]);
         if transcript(&session.provider_session).is_some() {
             cmd.args(["--resume", &session.provider_session]);
         } else {
@@ -385,63 +403,88 @@ pub async fn session_history(app: AppHandle, id: i64) -> CmdResult<Vec<Value>> {
             state.acp.attach(&app, &state, &session)?;
             return Ok(Vec::new());
         }
-        match transcript(&session.provider_session) {
-            Some(file) => Ok(history_from(&std::fs::read_to_string(file).map_err(err)?)),
-            None => Ok(Vec::new()),
-        }
+        read_history(&session.provider_session)
     })
     .await
     .map_err(err)?
 }
 
 #[tauri::command]
-pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<String>) -> CmdResult<()> {
-    if text.trim().is_empty() {
+pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<String>, task: Option<i64>,
+    attachments: Option<Vec<crate::attachments::Attachment>>, expected_engine: Option<String>,
+) -> CmdResult<()> {
+    let attachments = attachments.unwrap_or_default();
+    if text.trim().is_empty() && attachments.is_empty() {
         return Err("mensaje vacío".into());
     }
     if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) {
         return Err("nivel de esfuerzo no válido".into());
     }
-    tauri::async_runtime::spawn_blocking(move || send_message(&app, id, text, effort)).await.map_err(err)?
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = crate::attachments::Message::prepare(&app.path().app_data_dir().map_err(err)?, text, attachments)?;
+        send_content(&app, id, message, effort, Vec::new(), task, expected_engine.as_deref())
+    }).await.map_err(err)?
 }
 
 /// Envía un mensaje a la sesión, arrancando su proceso si hace falta.
 /// Bloquea mientras arranca: llamar fuera del hilo principal.
 pub fn send_message(app: &AppHandle, id: i64, text: String, effort: Option<String>) -> CmdResult<()> {
-    send_content(app, id, text, effort, Vec::new())
+    send_content(app, id, crate::attachments::Message::text(text), effort, Vec::new(), None, None)
 }
 
 pub(crate) fn send_with_images(app: &AppHandle, id: i64, text: &str, images: Vec<Value>) -> CmdResult<()> {
-    send_content(app, id, text.into(), None, images)
+    send_content(app, id, crate::attachments::Message::text(text.into()), None, images, None, None)
 }
 
-fn send_content(app: &AppHandle, id: i64, text: String, effort: Option<String>, mut images: Vec<Value>) -> CmdResult<()> {
+fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Message, effort: Option<String>,
+    mut images: Vec<Value>, pm_task: Option<i64>, expected_engine: Option<&str>,
+) -> CmdResult<()> {
     let state = app.state::<AppState>();
+    let gate = state.chat_gate.lock().map_err(err)?;
     let session = open_session(&state, id)?;
+    if expected_engine.is_some_and(|engine| engine != session.engine) {
+        return Err("La sesión ha cambiado de proveedor. Vuelve a enviar desde la sesión actual.".into());
+    }
     if !images.is_empty() && session.engine != "claude" {
         return Err("la sesión no admite capturas de diseño".into());
     }
     if session.engine == "codex" {
-        return crate::codex::send_turn(app, &session.project, Some(&session), None, text, effort);
+        drop(gate);
+        return crate::codex::send_turn(app, &session.project, Some(&session), None, message, effort);
     }
+    if session.engine == "claude" {
+        images.extend(message.take_claude_images());
+    }
+    let text = &message.text;
     let (run, input_text) = {
         let mut conn = state.db.lock().map_err(err)?;
         let tx = conn.transaction().map_err(err)?;
-        let task = tasks::linked(&tx, id).map_err(err)?;
+        let is_pm = crate::chat::is_pm(&tx, id).map_err(err)?;
+        let task = if is_pm {
+            if crate::chat::pm_id(&tx, &session.project).map_err(err)? != Some(id) {
+                return Err("el Project manager ha cambiado de proveedor".into());
+            }
+            pm_task
+        } else {
+            tasks::linked(&tx, id).map_err(err)?
+        };
         let scope = runs::session_scope(id);
         let previous = runs::last_task(&tx, &scope).map_err(err)?;
-        let run = runs::begin(&tx, &session.project, &scope, &session.engine, Some(id), task)?;
-        let input = runs::task_input(&tx, run, &session.project, task, previous, &text)?;
-        db::set_session_task(&tx, id, &text).map_err(err)?;
+        let run = runs::begin(&tx, &session.project, &scope, &session.engine, (!is_pm).then_some(id), task)?;
+        let input = runs::task_input(&tx, run, &session.project, task, previous, text)?;
+        let input = crate::chat::with_context(&tx, &session.project, (!is_pm).then_some(id), run, input)?;
+        db::set_session_task(&tx, id, text).map_err(err)?;
         if session.paused.is_some() {
             db::set_session_paused(&tx, id, None).map_err(err)?;
         }
         tx.commit().map_err(err)?;
         (run, input)
     };
+    drop(gate);
     tasks::changed(app);
     let result = (|| {
         if session.engine != "claude" {
+            message.retain_files();
             return state.acp.send(app, &state, &session, input_text, run);
         }
         if let Some(e) = &effort {
@@ -454,6 +497,7 @@ fn send_content(app: &AppHandle, id: i64, text: String, effort: Option<String>, 
             images.insert(0, json!({ "type": "text", "text": input_text }));
             json!(images)
         };
+        message.retain_files();
         let sent = write_line(&input.stdin, &json!({ "type": "user", "message": { "role": "user", "content": content }, "parent_tool_use_id": null, "session_id": "" }));
         if sent.is_err() {
             *input.run.lock().map_err(err)? = None;
@@ -524,6 +568,7 @@ pub struct ChatOptions {
 pub async fn claude_chat_options(app: AppHandle, id: i64) -> CmdResult<ChatOptions> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let _gate = state.chat_gate.lock().map_err(err)?;
         let session = open_session(&state, id)?;
         if session.engine != "claude" {
             return Err("la sesión no es de Claude Code".into());
@@ -542,6 +587,7 @@ pub async fn claude_chat_options(app: AppHandle, id: i64) -> CmdResult<ChatOptio
 pub async fn session_set_option(app: AppHandle, id: i64, key: String, value: String) -> CmdResult<Value> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let _gate = state.chat_gate.lock().map_err(err)?;
         let session = open_session(&state, id)?;
         if session.engine == "claude" && key == "model" {
             let valid = value.is_empty() || state.claude.models.lock().map_err(err)?.iter().any(|m| m.id == value);
@@ -549,7 +595,7 @@ pub async fn session_set_option(app: AppHandle, id: i64, key: String, value: Str
                 return Err("el modelo no está disponible".into());
             }
             let conn = state.db.lock().map_err(err)?;
-            if runs::session_active(&conn, id).map_err(err)? {
+            if runs::active(&conn, &runs::session_scope(id))?.is_some() {
                 return Err("espera a que termine el turno".into());
             }
             db::update_session_option(&conn, id, &key, (!value.is_empty()).then_some(value.as_str())).map_err(err)?;
@@ -570,7 +616,11 @@ pub async fn session_set_option(app: AppHandle, id: i64, key: String, value: Str
 pub async fn session_close(app: AppHandle, id: i64) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
+        let _gate = state.chat_gate.lock().map_err(err)?;
         let session = open_session(&state, id)?;
+        if crate::chat::is_pm(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+            return Err("cierra el Project manager desde su pestaña".into());
+        }
         if session.engine == "codex" && runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
             crate::codex::interrupt(&app, &session.provider_session)?;
         }

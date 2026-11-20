@@ -1,4 +1,4 @@
-use std::{io::{Read, Write}, path::PathBuf, process::{Command, Stdio}};
+use std::{io::{Read, Write}, process::Stdio};
 
 use serde_json::Value;
 
@@ -26,12 +26,7 @@ impl Failure {
     }
 }
 
-fn curl() -> PathBuf {
-    #[cfg(windows)]
-    return PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into())).join(r"System32\curl.exe");
-    #[cfg(not(windows))]
-    PathBuf::from("/usr/bin/curl")
-}
+pub(super) use crate::system_curl::command as curl_command;
 
 pub fn models(key: &str, timeout: u32) -> Result<Value, Failure> {
     request(&format!("{ORIGIN}/v1/models"), "=https", key, timeout, None)
@@ -47,16 +42,7 @@ fn request(url: &str, protocols: &str, key: &str, timeout: u32, body: Option<&Va
     if key.is_empty() || key.len() > 2048 || !key.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=".contains(&b)) {
         return Err(Failure::Credential);
     }
-    let mut command = Command::new(curl());
-    command.env_clear();
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-        if let Some(root) = std::env::var_os("SystemRoot") {
-            command.env("SystemRoot", root);
-        }
-    }
+    let mut command = curl_command();
     command.args(["--disable", "--proto", protocols, "--noproxy", "*", "--silent",
         "--max-time", &timeout.to_string(), "--max-filesize", &MAX_BODY_BYTES.to_string(),
         "--write-out", "\n%{http_code}", "--config", "-", "--url", url]);

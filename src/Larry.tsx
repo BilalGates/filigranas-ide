@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { larry, type DiffTarget, type LarryCommit, type LarryOutcome, type LarryPlan, type Session } from './ipc';
 
-type Props = { project: string; session: Session | null; hidden: boolean; onDiff: (c: DiffTarget) => void; onDone: () => void };
+type Props = { project: string; session: Session | null; onDiff: (c: DiffTarget) => void; onDone: () => void };
 
 /**
  * Larry: propone los commits del proyecto por unidad funcional. El usuario
  * revisa y edita los mensajes; los commits se crean en local con rutas
  * explícitas. Sin push: publicar es otra acción.
  */
-export default function Larry({ project, session, hidden, onDiff, onDone }: Props) {
+export default function Larry({ project, session, onDiff, onDone }: Props) {
   const sid = session?.id ?? null;
   const [plan, setPlan] = useState<LarryPlan | null>(null);
   const [commits, setCommits] = useState<LarryCommit[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [script, setScript] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<LarryOutcome | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -38,6 +39,7 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
   const propose = useCallback(() => {
     const id = ++request.current;
     setLoading(true);
+    setScript(false);
     setError(null);
     setOutcome(null);
     const { ok, fail } = show(id);
@@ -47,6 +49,10 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
   /** No esperar al modelo: grupos del script al instante. */
   const useScript = () => {
     const id = ++request.current;
+    setLoading(true);
+    setScript(true);
+    setError(null);
+    setOutcome(null);
     const { ok, fail } = show(id);
     larry.groups(project, sid).then(ok, fail);
   };
@@ -59,7 +65,6 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
     return () => window.clearInterval(timer);
   }, [loading]);
 
-  useEffect(propose, [propose]);
 
   const create = () => {
     setBusy(true);
@@ -74,24 +79,24 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
   const ready = commits.length > 0 && commits.every((c) => c.message.trim() && !c.message.includes('describe el cambio'));
 
   return (
-    <section className="coach larry" aria-label="Larry" hidden={hidden}>
+    <section className="coach larry" aria-label="Larry">
       <div className="co-head">
-        <span>larry</span>
         <span className="muted">commits por unidad funcional{plan ? ` · ${plan.branch}` : ''}{session ? ` · carpeta de ${session.name}` : ''}</span>
         <span className="push" />
         <button className="co-link" onClick={propose} disabled={loading || busy}>
-          volver a proponer
+          {plan || outcome || error ? 'Volver a proponer' : 'Proponer commits'}
+        </button>
+        <button className="co-link" onClick={useScript} disabled={busy || (loading && script)}>
+          Usar grupos del script
         </button>
       </div>
       <div className="co-log">
         {loading && (
           <div className="co-error-row muted">
-            larry está agrupando los cambios… {elapsed} s
-            <button className="co-link" onClick={useScript}>
-              no esperar: usar los grupos del script
-            </button>
+            {script ? 'Agrupando cambios…' : 'Larry está agrupando los cambios…'} {elapsed} s
           </div>
         )}
+        {!loading && !plan && !error && <p className="muted">Agrupa los cambios para revisar los archivos y los mensajes de cada commit.</p>}
         {plan?.notes && <div className={plan.notes.includes('no pudo') ? 'co-error' : 'co-aside'}>{plan.notes}</div>}
         {!outcome &&
           commits.map((c, i) => (
@@ -119,7 +124,7 @@ export default function Larry({ project, session, hidden, onDiff, onDone }: Prop
                 <pre className="co-code">{outcome.created.join('\n')}</pre>
               </>
             )}
-            {outcome.stopped ? <div className="co-error">Larry se detuvo: {outcome.stopped}</div> : <div className="co-notice">Hecho. Nada se ha publicado: el push y la PR son acciones aparte.</div>}
+            {outcome.stopped ? <div className="co-error">Larry se detuvo: {outcome.stopped}</div> : <div className="co-notice">Commits creados en la rama local.</div>}
           </div>
         )}
         {error && <div className="co-error">{error}</div>}

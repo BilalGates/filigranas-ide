@@ -1,5 +1,6 @@
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::State;
@@ -7,7 +8,8 @@ use tauri::State;
 use crate::{err, paths, workspace::root_of, AppState, CmdResult};
 
 /// Tamaño máximo que el visor carga de una vez.
-const MAX_TEXT: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_TEXT: u64 = 2 * 1024 * 1024;
+pub(crate) static SAVE_GATE: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,14 +45,29 @@ pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
 /// nuevos: eso llegará con acciones explícitas del árbol. Escribe primero en
 /// un temporal junto al archivo y lo renombra, para no dejarlo a medias.
 #[tauri::command]
-pub fn write_text(state: State<AppState>, path: String, content: String, session: Option<i64>) -> CmdResult<()> {
+pub fn write_text(state: State<AppState>, path: String, content: String, session: Option<i64>, previous: Option<String>) -> CmdResult<()> {
     let root = root_for(&state, session)?;
     let file = paths::inside(&root, Path::new(&path))?;
-    write_file(&file, &content)
+    let _save = SAVE_GATE.lock().map_err(err)?;
+    if let Some(previous) = previous {
+        write_file_checked(&file, &content, || {
+            let current = read_file(&file)?;
+            if current != previous && current != content {
+                return Err("El archivo cambió en disco. Conserva tu borrador antes de abrir la versión actual.".into());
+            }
+            Ok(())
+        })
+    } else {
+        write_file(&file, &content)
+    }
 }
 
 /// Sustituye un archivo completo sin compartir temporales entre guardados.
 fn write_file(file: &Path, content: &str) -> CmdResult<()> {
+    write_file_checked(file, content, || Ok(()))
+}
+
+pub(crate) fn write_file_checked(file: &Path, content: &str, check: impl FnOnce() -> CmdResult<()>) -> CmdResult<()> {
     if content.len() as u64 > MAX_TEXT {
         return Err(format!("archivo demasiado grande ({} KB)", content.len() / 1024));
     }
@@ -69,6 +86,7 @@ fn write_file(file: &Path, content: &str) -> CmdResult<()> {
         output.write_all(content.as_bytes()).map_err(err)?;
         output.set_permissions(meta.permissions()).map_err(err)?;
         drop(output);
+        check()?;
         std::fs::rename(&tmp, file).map_err(err)
     })();
     if result.is_err() {
@@ -151,6 +169,19 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "saved");
         assert_eq!(std::fs::read_to_string(&old_temp).unwrap(), "unrelated");
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_revision_check_leaves_the_current_file_and_cleans_up() {
+        let dir = temp_dir();
+        let file = dir.join("note.txt");
+        std::fs::write(&file, "versión actual").unwrap();
+
+        let result = write_file_checked(&file, "borrador antiguo", || Err("cambió en disco".into()));
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "versión actual");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

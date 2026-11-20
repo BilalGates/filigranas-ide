@@ -117,9 +117,29 @@ pub fn integration_verified(s: &db::Session) -> CmdResult<bool> {
     Ok(patch.is_empty() || s.integrated.as_deref() == Some(fingerprint(&patch).as_str()))
 }
 
+fn integration_target(session: &db::Session) -> CmdResult<()> {
+    let project = Path::new(&session.project);
+    let expected = session.base.as_deref().ok_or("la sesión no tiene destino de integración")?;
+    let current = match crate::pr::value(project, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+        Ok(branch) => branch,
+        Err(_) => {
+            let head = crate::pr::value(project, &["rev-parse", "HEAD"])?;
+            if session.base_commit.as_deref() == Some(&head) && head.get(..7) == Some(expected) {
+                return Ok(());
+            }
+            head
+        }
+    };
+    if current != expected {
+        return Err(format!("Abre {expected} en el checkout del proyecto antes de integrar. Ahora está en {current}."));
+    }
+    Ok(())
+}
+
 /// Aplica el trabajo de la sesión al checkout principal. Devuelve los
 /// archivos afectados y la huella del diff integrado.
 pub fn integrate(session: &db::Session) -> CmdResult<(Vec<String>, String)> {
+    integration_target(session)?;
     let (_, _, patch) = session_patch(session)?;
     if patch.is_empty() {
         return Err("la sesión no tiene cambios que integrar".into());
@@ -172,6 +192,7 @@ fn merge_path_safe(root: &Path, relative: &str) -> bool {
 /// aplica; lo que choca queda con marcas de conflicto para resolverlo en el
 /// editor. No toca el índice del proyecto. Rama y worktree se conservan.
 pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
+    integration_target(session)?;
     let (wt, base, patch) = session_patch(session)?;
     if patch.is_empty() {
         return Err("la sesión no tiene cambios que integrar".into());
@@ -331,8 +352,13 @@ pub fn session_diff_texts(state: State<AppState>, id: i64, path: String, orig: O
 #[tauri::command]
 pub fn session_integrate(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Vec<String>> {
     let session = any_session(&state, id)?;
+    let conn = state.db.lock().map_err(err)?;
+    if crate::runs::session_active(&conn, id).map_err(err)? {
+        return Err("espera a que termine el turno antes de integrar la rama".into());
+    }
     let (files, fp) = integrate(&session)?;
-    db::set_session_integrated(&*state.db.lock().map_err(err)?, id, Some(&fp)).map_err(err)?;
+    db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
+    drop(conn);
     let _ = app.emit("project-changed", ());
     Ok(files)
 }
@@ -341,8 +367,13 @@ pub fn session_integrate(app: AppHandle, state: State<AppState>, id: i64) -> Cmd
 #[tauri::command]
 pub fn session_integrate_merging(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Merged> {
     let session = any_session(&state, id)?;
+    let conn = state.db.lock().map_err(err)?;
+    if crate::runs::session_active(&conn, id).map_err(err)? {
+        return Err("espera a que termine el turno antes de integrar la rama".into());
+    }
     let (merged, fp) = integrate_merging(&session)?;
-    db::set_session_integrated(&*state.db.lock().map_err(err)?, id, Some(&fp)).map_err(err)?;
+    db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
+    drop(conn);
     let _ = app.emit("project-changed", ());
     Ok(merged)
 }
@@ -455,6 +486,13 @@ mod tests {
         git(&wt, &["commit", "-qam", "agente"]).unwrap();
         std::fs::write(wt.join("nuevo.txt"), "nuevo\n").unwrap();
         assert!(cleanup(&s).is_err(), "limpiar con cambios sin integrar");
+
+        run(&["switch", "-qc", "otro-destino"]);
+        assert!(integrate(&s).unwrap_err().contains("Abre main"));
+        assert!(integrate_merging(&s).unwrap_err().contains("Abre main"));
+        assert_eq!(std::fs::read_to_string(project.join("a.txt")).unwrap(), "uno\n");
+        assert!(!project.join("nuevo.txt").exists());
+        run(&["switch", "-q", "main"]);
 
         let (files, fp) = integrate(&s).unwrap();
         assert_eq!(files, vec!["a.txt", "nuevo.txt"]);

@@ -1,60 +1,47 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { coordinator, type Change, type CItem, type CoordinatorEvent, type Decision, type Opened, type RateLimits, type RateWindow } from './ipc';
-import { Composer, ConversationLog, KIND_LETTER, type Ask } from './Conversation';
-import { addTokens, reportLimits, spanLabel } from './usageStore';
+import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
+import { Composer, ConversationLog, KIND_LETTER, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
 import { useReportActivity } from './ui';
+import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
 
-const PROFILES: [string, string][] = [
-  ['hansi', 'Hansi Flick'],
-  ['pep', 'Pep Guardiola'],
-  ['luis-enrique', 'Luis Enrique'],
-  ['cruyff', 'Johan Cruyff'],
-];
 const APPROVAL_METHODS = ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'];
 
 type Approval = { requestId: unknown; method: string; params: any };
 type Props = {
   project: string;
   hidden: boolean;
+  switching?: boolean;
+  providerPicker?: ReactNode;
   onDiff: (c: Change) => void;
-  onProfile?: (name: string) => void;
   session?: { id: number; name: string; worktree: string | null };
   task?: { id: number; title: string } | null;
   onClearTask?: () => void;
   onActivity?: (status: string) => void;
+  onModel?: (key: number | string, model: string | null) => void;
+  onContext?: (remaining: number | null) => void;
+  onConversation?: (hasWork: boolean) => void;
 };
-
-/** Cuota de Codex en el formato común del panel de consumo. */
-function report(limits: RateLimits) {
-  const windows = [limits.primary, limits.secondary].filter((w): w is RateWindow => !!w);
-  reportLimits({
-    engine: 'codex',
-    out: !!limits.rateLimitReachedType,
-    windows: windows.map((w) => ({ label: spanLabel(w.windowDurationMins), percent: w.usedPercent, resetsAt: w.resetsAt ?? null })),
-  });
-}
 
 /**
  * Conversación con el coordinador del proyecto (Codex). El historial viene
  * del hilo guardado; los turnos nuevos llegan como eventos y se pintan a
  * medida que avanzan. Las aprobaciones esperan aquí la decisión del usuario.
  */
-export default function Coordinator({ project, hidden, onDiff, onProfile, session, task, onClearTask, onActivity }: Props) {
+export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
   const sessionId = session?.id ?? null;
   const directName = session?.name;
+  const history = useChatHistory(project, sessionId);
   const [visited, setVisited] = useState(!session || !hidden);
   useEffect(() => {
     if (!hidden) setVisited(true);
   }, [hidden]);
   const [info, setInfo] = useState<Opened | null>(null);
+  const [turnModel, setTurnModel] = useState<string | null>(null);
   const [items, setItems] = useState<CItem[]>([]);
+  const [submitted, setSubmitted] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [running, setRunning] = useState<string | null>(null);
-  const [limits, setLimits] = useState<RateLimits | null>(null);
-  useEffect(() => {
-    if (limits) report(limits);
-  }, [limits]);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(true);
   const [effort, setEffort] = useState('medium');
@@ -62,27 +49,18 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   const automaticTask = sessionId == null ? task?.id : undefined;
   const selectedEffort = automaticTask == null ? effort : taskEffort?.id === automaticTask ? taskEffort.value : 'auto';
   const thread = useRef<string | null>(null);
-  const model = useRef<string | null>(null);
-  model.current = info?.model ?? null;
-  const onProfileRef = useRef(onProfile);
-  onProfileRef.current = onProfile;
-  // Perfil vigente, para firmar las respuestas según llegan.
-  const signer = useRef('coordinador');
-
   const open = useCallback(() => {
     setOpening(true);
     setError(null);
     coordinator.open(project, sessionId).then(
       (o) => {
+        if (o.rateLimits) reportCodex(o.rateLimits);
         thread.current = o.threadId;
-        signer.current = (directName ?? PROFILES.find(([id]) => id === o.profile)?.[1] ?? 'coordinador').toLowerCase();
         setInfo(o);
-        setItems(o.turns.flatMap((t) => t.items));
+        setItems(o.turns.flatMap((t) => t.items.map((item) => sessionId == null && item.type === 'agentMessage' ? { ...item, by: undefined } : item)));
         setRunning(o.activeTurn);
-        setLimits(o.rateLimits);
         setApprovals([]);
         setEffort(o.efforts.includes('medium') ? 'medium' : (o.efforts[0] ?? 'medium'));
-        onProfileRef.current?.(o.profile);
         setOpening(false);
       },
       (e) => {
@@ -90,7 +68,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
         setOpening(false);
       },
     );
-  }, [directName, project, sessionId]);
+  }, [project, sessionId]);
 
   useEffect(() => {
     if (sessionId != null && !visited) return;
@@ -102,6 +80,11 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
 
   // Eventos del hilo de este proyecto.
   useEffect(() => {
+    const turnError = (error: { message?: string; codexErrorInfo?: unknown }) => {
+      if (error.codexErrorInfo === 'usageLimitExceeded') reportQuotaLimit('codex');
+      if (error.codexErrorInfo === 'contextWindowExceeded') onContext?.(0);
+      setError(error.message ?? 'error de Codex');
+    };
     const patch = (id: string, f: (it: CItem) => CItem) => setItems((list) => list.map((it) => (it.id === id ? f(it) : it)));
     const upsert = (item: CItem) =>
       setItems((list) => {
@@ -123,15 +106,18 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
         setError('Codex se ha cerrado; se volverá a abrir al enviar el siguiente mensaje');
         return;
       }
-      if (method === 'account/rateLimits/updated') return setLimits(params.rateLimits);
       if (!thread.current || params?.threadId !== thread.current) return;
-      if (method === 'thread/tokenUsage/updated') {
-        const last = params.tokenUsage?.last;
-        if (last) addTokens('codex', model.current, { input: (last.inputTokens ?? 0) - (last.cachedInputTokens ?? 0), cached: last.cachedInputTokens, output: last.outputTokens });
-        return;
-      }
       if (APPROVAL_METHODS.includes(method)) return setApprovals((a) => [...a, { requestId, method, params }]);
       switch (method) {
+        case 'thread/tokenUsage/updated':
+          onContext?.(contextRemaining(params.tokenUsage?.last?.totalTokens, params.tokenUsage?.modelContextWindow));
+          break;
+        case 'model/selected':
+          setTurnModel(typeof params.model === 'string' ? params.model : null);
+          break;
+        case 'model/rerouted':
+          if (typeof params.toModel === 'string') setTurnModel(params.toModel);
+          break;
         case 'turn/started':
           setRunning(params.turn.id);
           setError(null);
@@ -139,11 +125,11 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
         case 'turn/completed':
           setRunning(null);
           setApprovals([]);
-          if (params.turn.error) setError(params.turn.error.message);
+          if (params.turn.error) turnError(params.turn.error);
           break;
         case 'item/started':
         case 'item/completed':
-          upsert(params.item.type === 'agentMessage' ? { ...params.item, by: signer.current } : params.item);
+          upsert(params.item);
           break;
         case 'item/agentMessage/delta':
         case 'item/plan/delta':
@@ -163,19 +149,20 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
           setApprovals((a) => a.filter((x) => JSON.stringify(x.requestId) !== JSON.stringify(params.requestId)));
           break;
         case 'error':
-          if (!params.willRetry) setError(params.error?.message ?? 'error de Codex');
+          if (!params.willRetry) turnError(params.error ?? {});
           break;
       }
     });
     return () => {
       unlisten.then((off) => off());
     };
-  }, []);
+  }, [onContext]);
 
-  const send = (text: string) => {
+  const send = (text: string, attachments: ChatAttachment[]) => {
+    setSubmitted(true);
     setError(null);
-    setItems((list) => [...list, { id: `local-${Date.now()}`, type: 'userMessage', content: [{ type: 'text', text }] }]);
-    return coordinator.send(project, text, selectedEffort, sessionId, task?.id ?? null).catch((e) => {
+    setItems((list) => [...list, { id: `local-${Date.now()}`, type: 'userMessage', content: [{ type: 'text', text: withAttachmentNames(text, attachments) }] }]);
+    return coordinator.send(project, text, selectedEffort, sessionId, task?.id ?? null, attachments).catch((e) => {
       setError(String(e));
       setItems((list) => list.filter((it) => !it.id.startsWith('local-')));
       throw e;
@@ -185,20 +172,6 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   const respond = (a: Approval, decision: Decision) => {
     setApprovals((list) => list.filter((x) => x !== a));
     coordinator.respond(a.requestId, decision).catch((e) => setError(String(e)));
-  };
-
-  const changeProfile = (profile: string) => {
-    const name = PROFILES.find(([id]) => id === profile)?.[1] ?? profile;
-    setError(null);
-    coordinator.setProfile(project, profile).then(
-      () => {
-        signer.current = name.toLowerCase();
-        setInfo((i) => (i ? { ...i, profile } : i));
-        onProfileRef.current?.(profile);
-        setItems((list) => [...list, { id: `perfil-${Date.now()}`, type: 'notice', text: `perfil cambiado a ${name}: se aplica desde el siguiente mensaje` }]);
-      },
-      (e) => setError(String(e)),
-    );
   };
 
   const asks: Ask[] = approvals.map((a, i) => {
@@ -213,15 +186,20 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
     };
   });
 
-  const profileName = PROFILES.find(([id]) => id === info?.profile)?.[1] ?? 'Hansi Flick';
   const state = approvals.length ? 'esperando permiso' : running ? 'en marcha' : error && !info ? 'fallida' : 'inactiva';
   useReportActivity(session ? null : 'coach', state);
   useEffect(() => onActivity?.(state), [onActivity, state]);
+  const hasWork = history.items.length > 0 || submitted || items.some((item) => item.type === 'userMessage');
+  useEffect(() => onConversation?.(hasWork), [hasWork, onConversation]);
+  useEffect(() => {
+    if (!hidden) onModel?.(sessionId ?? project, turnModel ?? info?.pinnedModel ?? info?.model ?? null);
+  }, [hidden, info?.model, info?.pinnedModel, onModel, project, sessionId, turnModel]);
 
   const pin = (value: string) => {
-    if (sessionId == null) return;
     setError(null);
     coordinator.pinModel(project, sessionId, value || null).then(() => {
+      setTurnModel(null);
+      onContext?.(null);
       const efforts = info?.models?.find((m) => m.id === (value || info.model))?.efforts ?? info?.efforts ?? ['medium'];
       setInfo((old) => old && { ...old, pinnedModel: value || null, efforts });
       if (!efforts.includes(effort)) setEffort(efforts.includes('medium') ? 'medium' : (efforts[0] ?? 'medium'));
@@ -231,9 +209,10 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
   return (
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
 
-      <ConversationLog items={items} asks={asks} agent="coordinador" project={project} onDiff={onDiff}>
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff}>
         {opening && <div className="muted">abriendo el coordinador…</div>}
-        {!opening && info && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
+        {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
+        {history.error && <div className="co-error">{history.error}</div>}
         {error && (
           <div className="co-error">
             {error}
@@ -247,29 +226,17 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
       </ConversationLog>
 
       <Composer
-        disabled={!info}
+        providerPicker={providerPicker}
+        draftKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
+        disabled={!info || switching === true}
         running={!!running}
         efforts={automaticTask == null ? info?.efforts ?? ['medium'] : ['auto', ...(info?.efforts ?? ['medium'])]}
         effort={selectedEffort}
         onEffort={(value) => automaticTask == null ? setEffort(value) : setTaskEffort({ id: automaticTask, value })}
         model={
           <>
-            {!session && <select
-              className="chip-select"
-              title="project manager"
-              aria-label="Perfil del coordinador"
-              value={info?.profile ?? 'hansi'}
-              onChange={(e) => changeProfile(e.target.value)}
-              disabled={!info || !!running}
-            >
-              {PROFILES.map(([id, name]) => (
-                <option key={id} value={id}>
-                  {name}
-                </option>
-              ))}
-            </select>}
-            {session && info?.models?.length ? <select className="chip-select" aria-label="Fijar modelo Codex" value={info.pinnedModel ?? ''}
-              onChange={(e) => pin(e.target.value)} disabled={!!running}>
+            {info?.models?.length ? <select className="chip-select" aria-label="Fijar modelo Codex" value={info.pinnedModel ?? ''}
+              onChange={(e) => pin(e.target.value)} disabled={!!running || switching}>
               <option value="">{info.model ?? 'modelo de la sesión'}</option>
               {info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel) && <option value={info.pinnedModel}>{info.pinnedModel} · no disponible</option>}
               {info.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
@@ -279,7 +246,7 @@ export default function Coordinator({ project, hidden, onDiff, onProfile, sessio
         }
         onSend={send}
         onInterrupt={() => coordinator.interrupt(project, sessionId).catch((e) => setError(String(e)))}
-        placeholder={`encargo para ${directName ?? profileName.toLowerCase()}`}
+        placeholder={`encargo para ${directName ?? 'Project manager'}`}
       />
     </section>
   );

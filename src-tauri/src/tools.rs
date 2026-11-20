@@ -7,8 +7,7 @@ use crate::codex::{login_path, program};
 use crate::{err, CmdResult};
 
 // Estado de las CLI que usa el IDE: si están instaladas y si tienen la
-// sesión iniciada. El IDE no inicia sesión por el usuario: le abre un
-// terminal con el comando adecuado para que lo complete él.
+// sesión iniciada. GitHub utiliza la autorización web de GitHub CLI.
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +22,7 @@ pub struct Tool {
     pub detail: String,
     /// Comando para iniciar sesión en un terminal.
     pub login: Option<&'static str>,
+    pub account: Option<String>,
 }
 
 struct Spec {
@@ -40,7 +40,7 @@ const SPECS: [Spec; 7] = [
     Spec { id: "opencode", name: "OpenCode", role: "agente ejecutor", status: Some(&["auth", "list"]), login: Some("opencode auth login") },
     Spec { id: "agy", name: "Antigravity", role: "agente ejecutor", status: None, login: Some("agy") },
     Spec { id: "devin", name: "Devin", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("devin auth login") },
-    Spec { id: "gh", name: "GitHub CLI", role: "publicar ramas y PR", status: Some(&["auth", "status"]), login: Some("gh auth login") },
+    Spec { id: "gh", name: "GitHub", role: "publicar ramas y PR", status: Some(&["auth", "status", "--hostname", "github.com", "--active"]), login: None },
     Spec { id: "node", name: "Node.js", role: "agrupar commits (Larry)", status: None, login: None },
 ];
 
@@ -48,6 +48,9 @@ const SPECS: [Spec; 7] = [
 fn run(name: &str, args: &[&str]) -> Option<(bool, String)> {
     let mut cmd = Command::new(program(name));
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if name == "gh" {
+        cmd.env_remove("GH_DEBUG");
+    }
     if let Some(path) = login_path() {
         cmd.env("PATH", path);
     }
@@ -113,6 +116,14 @@ fn first_line(text: &str) -> String {
         .lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with(['┌', '│', '{'])).unwrap_or("").chars().take(120).collect()
 }
 
+fn github_account(text: &str) -> Option<String> {
+    text.lines().filter_map(|line| line.split_once("Logged in to github.com account "))
+        .filter_map(|(_, rest)| rest.split_whitespace().next())
+        .find(|name| !name.is_empty() && name.len() <= 100
+            && name.bytes().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'-' | b'_')))
+        .map(str::to_owned)
+}
+
 fn check(spec: &Spec) -> Tool {
     let version = run(spec.id, &["--version"]);
     let installed = version.is_some();
@@ -124,6 +135,7 @@ fn check(spec: &Spec) -> Tool {
         logged_in: None,
         detail: version.map(|(_, t)| first_line(&t)).unwrap_or_else(|| "no está instalada o no está en el PATH".into()),
         login: spec.login,
+        account: None,
     };
     if !installed {
         return tool;
@@ -134,17 +146,22 @@ fn check(spec: &Spec) -> Tool {
             tool.logged_in = Some(yes);
             if !yes {
                 tool.detail = first_line(&text);
+            } else if spec.id == "gh" {
+                tool.account = github_account(&text);
             }
         }
     }
     tool
 }
 
-/// Comprueba todas las CLI en paralelo (algunas tardan segundos en arrancar).
+/// Comprueba en paralelo las CLI del panel Herramientas.
 #[tauri::command]
 pub async fn tools_status() -> CmdResult<Vec<Tool>> {
     tauri::async_runtime::spawn_blocking(|| {
-        let handles: Vec<_> = SPECS.iter().map(|s| std::thread::spawn(move || check(s))).collect();
+        let handles: Vec<_> = SPECS.iter()
+            .filter(|s| matches!(s.id, "codex" | "claude" | "gh" | "node"))
+            .map(|s| std::thread::spawn(move || check(s)))
+            .collect();
         handles.into_iter().map(|h| h.join().map_err(|_| "falló una comprobación".to_string())).collect()
     })
     .await

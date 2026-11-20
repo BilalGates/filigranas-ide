@@ -143,6 +143,62 @@ pub async fn jev_configure(app: AppHandle, change: Change) -> CmdResult<Status> 
     }).await.map_err(err)?
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JevUsage {
+    tokens: i64,
+    cost_usd: Option<f64>,
+}
+
+fn totals(conn: &Connection) -> rusqlite::Result<JevUsage> {
+    conn.query_row(
+        "WITH usage AS (
+           SELECT json_extract(data, '$.inputTokens') AS input,
+                  json_extract(data, '$.outputTokens') AS output,
+                  json_extract(data, '$.costEstimateUsd') AS cost,
+                  json_extract(data, '$.model') AS model
+           FROM jev_routes
+         )
+         SELECT coalesce(sum(coalesce(input,0) + coalesce(output,0)),0),
+                CASE WHEN count(*) FILTER (WHERE cost IS NULL) = 0
+                     THEN coalesce(sum(cost),0.0) END
+         FROM usage WHERE input IS NOT NULL OR output IS NOT NULL OR model IS NOT NULL",
+        [],
+        |row| Ok(JevUsage { tokens: row.get(0)?, cost_usd: row.get(1)? }),
+    )
+}
+
+#[tauri::command]
+pub fn jev_usage(state: State<AppState>) -> CmdResult<JevUsage> {
+    let conn = state.db.lock().map_err(err)?;
+    totals(&conn).map_err(err)
+}
+
+fn usd_per_euro(xml: &str) -> Option<f64> {
+    let usd = xml.split("<Cube").filter_map(|part| part.split_once('>').map(|(attrs, _)| attrs))
+        .find(|attrs| attrs.contains("currency='USD'") || attrs.contains(r#"currency="USD""#))?;
+    let rate = usd.split_once("rate=")?.1;
+    let quote = rate.chars().next()?;
+    if !matches!(quote, '\'' | '"') {
+        return None;
+    }
+    rate[1..].split_once(quote)?.0.parse::<f64>().ok().filter(|rate| rate.is_finite() && *rate > 0.0)
+}
+
+#[tauri::command]
+pub async fn jev_euro_rate() -> CmdResult<f64> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let result = typesafe::curl_command().args([
+            "--disable", "--proto", "=https", "--fail", "--silent", "--max-time", "5",
+            "--max-filesize", "16384", "--url", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml",
+        ]).output().map_err(err)?;
+        if !result.status.success() {
+            return Err("Cambio del BCE no disponible".into());
+        }
+        usd_per_euro(&String::from_utf8_lossy(&result.stdout)).ok_or_else(|| "Cambio del BCE no disponible".into())
+    }).await.map_err(err)?
+}
+
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS jev_attempts (at INTEGER NOT NULL DEFAULT (unixepoch()));
@@ -413,7 +469,7 @@ fn estimate_usd(model: &str, input: u64) -> Option<f64> {
     Some(input as f64 * price / 1_000_000.0)
 }
 
-pub fn route(state: &AppState, run: i64, baseline: Option<&str>, available: &[String]) -> CmdResult<Trace> {
+pub fn route(state: &AppState, run: i64, baseline: Option<&str>, available: &[String], allow_model_override: bool) -> CmdResult<Trace> {
     // A concurrent route falls back locally. A revocation that has returned
     // holds the same gate used for network calls, so it cannot race a new send.
     let gate = state.jev_gate.try_lock();
@@ -422,7 +478,7 @@ pub fn route(state: &AppState, run: i64, baseline: Option<&str>, available: &[St
         (settings(&conn).map_err(err)?, Signals::for_run(&conn, run).map_err(err)?)
     };
     let candidates = state.codex.jev_models()?;
-    let light_model = settings.light_model.as_ref().filter(|id| baseline.is_some_and(|b| b != *id) && candidates.contains(id));
+    let light_model = settings.light_model.as_ref().filter(|id| allow_model_override && baseline.is_some_and(|b| b != *id) && candidates.contains(id));
     let mut trace = decide(&settings, &signals, available, light_model.is_some(), |body| {
         let _gate = gate.map_err(|_| "busy")?;
         let key = credential::read(false).ok_or("credential")?;
@@ -456,6 +512,33 @@ pub fn record(conn: &Connection, run: i64, trace: &Trace) -> CmdResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_counts_all_reported_tokens_and_detects_unpriced_usage() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE task_runs(id INTEGER PRIMARY KEY);
+                            INSERT INTO task_runs(id) VALUES (1),(2),(3),(4);").unwrap();
+        migrate(&conn).unwrap();
+        assert_eq!(totals(&conn).unwrap().cost_usd, Some(0.0));
+        for (id, data) in [
+            (1, json!({"source":"local","reason":"unavailable"})),
+            (2, json!({"source":"shadow","inputTokens":250,"outputTokens":12,"costEstimateUsd":0.0000105})),
+            (3, json!({"source":"local","reason":"confidence","inputTokens":100,"outputTokens":3,"costEstimateUsd":0.0000042})),
+        ] {
+            conn.execute("INSERT INTO jev_routes(run_id,data) VALUES(?1,?2)", params![id, data.to_string()]).unwrap();
+        }
+        let usage = totals(&conn).unwrap();
+        assert_eq!(usage.tokens, 365);
+        assert!((usage.cost_usd.unwrap() - 0.0000147).abs() < 1e-10);
+        conn.execute(r#"INSERT INTO jev_routes VALUES(4, '{"inputTokens":1}')"#, []).unwrap();
+        assert_eq!(totals(&conn).unwrap().cost_usd, None);
+    }
+
+    #[test]
+    fn daily_reference_rate_selects_usd() {
+        assert_eq!(usd_per_euro("<Cube currency='JPY' rate='160'/><Cube currency='USD' rate='1.16'/>"), Some(1.16));
+        assert_eq!(usd_per_euro(r#"<Cube currency="USD" rate="0"/>"#), None);
+    }
 
     fn change(mode: Mode, consent: bool) -> Change {
         Change { mode, consent, policy: Policy::Balanced, timeout_secs: 2, light_model: None }

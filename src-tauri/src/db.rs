@@ -46,6 +46,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     migrate(&conn)?;
     crate::tasks::migrate(&conn)?;
     crate::runs::migrate(&conn)?;
+    crate::chat::migrate(&conn)?;
     crate::brain::migrate(&conn)?;
     crate::jev::migrate(&conn)?;
     crate::health::migrate(&conn)?;
@@ -85,6 +86,8 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("paused", "TEXT"),
         // Opciones elegidas en un agente ACP (JSON: id de opción → valor).
         ("options", "TEXT"),
+        ("other_options", "TEXT"),
+        ("other_effort", "TEXT"),
     ] {
         if !has_in("sessions", col)? {
             conn.execute_batch(&format!("ALTER TABLE sessions ADD COLUMN {col} {ty}"))?;
@@ -99,14 +102,15 @@ pub fn coordinator(conn: &Connection, path: &str) -> rusqlite::Result<(Option<St
         Ok((r.get(0)?, r.get(1)?))
     })
     .optional()
-    .map(|row| row.unwrap_or((None, "hansi".into())))
+    .map(|row| row.unwrap_or((None, "pm".into())))
 }
 
 /// Guarda el hilo del coordinador y la versión de herramientas con que se creó.
 pub fn set_coordinator_thread(conn: &Connection, path: &str, thread: Option<&str>, tools: i64) -> rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO projects (path, coordinator_thread, coordinator_tools) VALUES (?1, ?2, ?3)
-         ON CONFLICT(path) DO UPDATE SET coordinator_thread = excluded.coordinator_thread, coordinator_tools = excluded.coordinator_tools",
+        "INSERT INTO projects (path, coordinator_thread, coordinator_tools, coordinator_profile) VALUES (?1, ?2, ?3, 'pm')
+         ON CONFLICT(path) DO UPDATE SET coordinator_thread = excluded.coordinator_thread,
+           coordinator_tools = excluded.coordinator_tools, coordinator_profile = excluded.coordinator_profile",
         params![path, thread, tools],
     )?;
     Ok(())
@@ -119,15 +123,6 @@ pub fn coordinator_tools(conn: &Connection, path: &str) -> rusqlite::Result<i64>
 /// Proyecto al que pertenece un hilo del coordinador.
 pub fn project_for_thread(conn: &Connection, thread: &str) -> rusqlite::Result<Option<String>> {
     conn.query_row("SELECT path FROM projects WHERE coordinator_thread = ?1", [thread], |r| r.get(0)).optional()
-}
-
-pub fn set_coordinator_profile(conn: &Connection, path: &str, profile: &str) -> rusqlite::Result<()> {
-    conn.execute(
-        "INSERT INTO projects (path, coordinator_profile) VALUES (?1, ?2)
-         ON CONFLICT(path) DO UPDATE SET coordinator_profile = excluded.coordinator_profile",
-        params![path, profile],
-    )?;
-    Ok(())
 }
 
 #[derive(serde::Serialize, Clone, Debug, PartialEq)]
@@ -226,7 +221,7 @@ pub fn set_session_integrated(conn: &Connection, id: i64, fingerprint: Option<&s
 
 /// Sesiones abiertas de un proyecto, de la más antigua a la más nueva.
 pub fn sessions(conn: &Connection, project: &str) -> rusqlite::Result<Vec<Session>> {
-    let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE project = ?1 AND closed = 0 ORDER BY id"))?;
+    let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE project = ?1 AND closed = 0 AND id NOT IN (SELECT session_id FROM project_manager_claude) ORDER BY id"))?;
     let rows = stmt.query_map([project], session_row)?;
     rows.collect()
 }
@@ -380,13 +375,11 @@ mod tests {
         let conn = open(&file).unwrap();
         open(&file).unwrap(); // idempotente
         assert_eq!(coordinator(&conn, "/r/a").unwrap(), (None, "hansi".into()));
-        assert_eq!(coordinator(&conn, "/r/nuevo").unwrap(), (None, "hansi".into()));
+        assert_eq!(coordinator(&conn, "/r/nuevo").unwrap(), (None, "pm".into()));
         set_coordinator_thread(&conn, "/r/a", Some("t1"), 1).unwrap();
         assert_eq!(coordinator_tools(&conn, "/r/a").unwrap(), 1);
         assert_eq!(project_for_thread(&conn, "t1").unwrap().as_deref(), Some("/r/a"));
-        set_coordinator_profile(&conn, "/r/b", "pep").unwrap();
-        assert_eq!(coordinator(&conn, "/r/a").unwrap(), (Some("t1".into()), "hansi".into()));
-        assert_eq!(coordinator(&conn, "/r/b").unwrap(), (None, "pep".into()));
+        assert_eq!(coordinator(&conn, "/r/a").unwrap(), (Some("t1".into()), "pm".into()));
         let archived: i64 = conn.query_row("SELECT archived FROM projects WHERE path = '/r/a'", [], |r| r.get(0)).unwrap();
         assert_eq!(archived, 1);
         drop(conn);

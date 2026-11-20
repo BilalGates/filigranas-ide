@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
-import type { Change, CItem, Decision } from './ipc';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { chats, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
 import Splitter, { SIZES } from './Splitter';
 import { beep } from './ui';
 
@@ -12,6 +12,23 @@ const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
+const CONTEXT_MARKER = '\n\n[Filigranas IDE: historial del proveedor anterior]\n';
+
+export function useChatHistory(project: string, session: number | null | undefined) {
+  const [items, setItems] = useState<CItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (session === undefined) return;
+    let active = true;
+    chats.history(project, session).then(
+      (items) => { if (active) setItems(items); },
+      (error) => { if (active) setError(String(error)); },
+    );
+    return () => { active = false; };
+  }, [project, session]);
+  return { items, error };
+}
+
 export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', update: 'M' };
 
 /** Petición de permiso ya traducida, con la decisión a la que llama. */
@@ -135,7 +152,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
       return (
         <div className="co-msg is-user">
           <div className="co-by">tú</div>
-          <Prose text={(it.content ?? []).map((c) => c.text ?? '').join('\n')} />
+          <Prose text={(it.content ?? []).map((c) => c.text ?? '').join('\n').split(CONTEXT_MARKER, 1)[0]} />
         </div>
       );
     case 'agentMessage':
@@ -221,30 +238,143 @@ type ComposerProps = {
   efforts: string[];
   effort: string;
   onEffort: (e: string) => void;
+  providerPicker?: ReactNode;
   /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
   model?: ReactNode;
-  onSend: (text: string) => Promise<unknown>;
+  onSend: (text: string, attachments: ChatAttachment[]) => Promise<unknown>;
   onInterrupt: () => void;
   placeholder: string;
+  draftKey: string;
 };
 
+const drafts = new Map<string, string>();
+type DraftAttachment = { kind: 'file'; file: File } | { kind: 'link'; url: string };
+const draftAttachments = new Map<string, DraftAttachment[]>();
+const FILE_LIMIT = 10 * 1024 * 1024;
+const BATCH_LIMIT = 20 * 1024 * 1024;
+const IMAGE_LIMIT = 5_000_000;
+
+export function withAttachmentNames(text: string, attachments: ChatAttachment[]) {
+  if (!attachments.length) return text;
+  const names = attachments.map((item) => `- ${item.kind === 'file' ? item.name : item.url}`);
+  return [text, 'Adjuntos del mensaje:\n' + names.join('\n')].filter(Boolean).join('\n\n');
+}
+
+function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
+  if (item.kind === 'link') return Promise.resolve(item);
+  const file = item.file;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      resolve({ kind: 'file', name: file.name, data: dataUrl.slice(dataUrl.indexOf(',') + 1) });
+    };
+    reader.onerror = reader.onabort = () => reject(new Error(`No se pudo leer «${file.name}».`));
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, model, onSend, onInterrupt, placeholder }: ComposerProps) {
+export function Composer({ disabled, running, efforts, effort, onEffort, providerPicker, model, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const attachRoot = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const [attachments, setAttachments] = useState(() => draftAttachments.get(draftKey) ?? []);
+  const [submitting, setSubmitting] = useState(false);
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!attachMenu) return;
+    const outside = (e: Event) => {
+      if (!attachRoot.current?.contains(e.target as Node)) setAttachMenu(false);
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('focusin', outside);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('focusin', outside);
+    };
+  }, [attachMenu]);
+
+  const updateAttachments = (items: DraftAttachment[]) => {
+    if (items.length) draftAttachments.set(draftKey, items);
+    else draftAttachments.delete(draftKey);
+    setAttachments(items);
+  };
+  const addFiles = (files: File[]) => {
+    const next = [...attachments];
+    let size = next.reduce((total, item) => total + (item.kind === 'file' ? item.file.size : 0), 0);
+    const rejected: string[] = [];
+    for (const file of files) {
+      if (next.length === 8) {
+        rejected.push('Hasta 8 adjuntos por mensaje.');
+        break;
+      }
+      const isImage = /^image\/(png|jpeg|webp|gif)$/.test(file.type);
+      const limit = isImage ? IMAGE_LIMIT : FILE_LIMIT;
+      if (file.size > limit) {
+        rejected.push(`«${file.name}» supera ${isImage ? '5 MB' : '10 MiB'}.`);
+        continue;
+      }
+      if (size + file.size > BATCH_LIMIT) {
+        rejected.push(`«${file.name}» superaría los 20 MiB en total.`);
+        continue;
+      }
+      size += file.size;
+      next.push({ kind: 'file', file });
+    }
+    updateAttachments(next);
+    setAttachmentError(rejected.join(' ') || null);
+  };
+  const addLink = () => {
+    try {
+      const url = new URL(link?.trim() ?? '');
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.href.length > 4096) throw new Error();
+      if (attachments.length >= 8) {
+        setAttachmentError('Hasta 8 adjuntos por mensaje.');
+        return;
+      }
+      updateAttachments([...attachments, { kind: 'link', url: url.href }]);
+      setLink(null);
+      setAttachmentError(null);
+      area.current?.focus();
+    } catch {
+      setAttachmentError('Introduce un enlace HTTP o HTTPS válido.');
+    }
+  };
 
   const send = () => {
     const el = area.current;
     const text = el?.value.trim();
-    if (!el || !text || busy.current) return;
+    if (!el || text === undefined || (!text && !attachments.length) || busy.current || disabled || running) return;
     busy.current = true;
+    setSubmitting(true);
+    setAttachMenu(false);
+    setAttachmentError(null);
     el.value = '';
+    drafts.delete(draftKey);
     beep('send');
-    onSend(text)
-      .catch(() => {
-        if (!el.value) el.value = text; // devolver el borrador si falló
+    Promise.all(attachments.map(encodeAttachment))
+      .catch((e: Error) => {
+        setAttachmentError(e.message);
+        throw e;
       })
-      .finally(() => (busy.current = false));
+      .then((payload) => onSend(text, payload))
+      .then(() => updateAttachments([]))
+      .catch(() => {
+        if (text && !drafts.has(draftKey)) {
+          drafts.set(draftKey, text);
+          el.value = text;
+        }
+      })
+      .finally(() => {
+        busy.current = false;
+        setSubmitting(false);
+      });
   };
 
   // ⌘. interrumpe, ⌘⇧E cambia el esfuerzo y ⌘M abre el modelo.
@@ -279,10 +409,22 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
       <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
         ref={area}
+        defaultValue={drafts.get(draftKey) ?? ''}
+        onChange={(e) => {
+          const value = e.currentTarget.value;
+          if (value) drafts.set(draftKey, value);
+          else drafts.delete(draftKey);
+        }}
         aria-label="Mensaje"
         placeholder={running ? 'trabajando… puedes interrumpir' : placeholder}
         rows={2}
         disabled={disabled}
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.files);
+          if (!files.length || disabled || busy.current) return;
+          e.preventDefault();
+          addFiles(files);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
@@ -290,8 +432,61 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
           }
         }}
       />
+      {attachments.length > 0 && (
+        <ul className="co-attachments" aria-label="Adjuntos del mensaje">
+          {attachments.map((item, index) => {
+            const name = item.kind === 'file' ? item.file.name : item.url;
+            return (
+              <li key={index}>
+                <span title={name}>{name}</span>
+                <button type="button" className="icon" disabled={submitting}
+                  aria-label={`Quitar ${name}`} onClick={() => {
+                    updateAttachments(attachments.filter((_, i) => i !== index));
+                    setAttachmentError(null);
+                  }}>×</button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {link !== null && (
+        <form className="co-attach-link" onSubmit={(e) => { e.preventDefault(); addLink(); }}>
+          <input aria-label="Dirección del enlace" placeholder="https://…" type="text" inputMode="url"
+            value={link} autoFocus disabled={submitting} onChange={(e) => setLink(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setLink(null); setAttachmentError(null); area.current?.focus(); } }} />
+          <button className="co-btn" type="submit" disabled={submitting || !link.trim()}>Añadir</button>
+          <button className="icon" type="button" aria-label="Cancelar enlace"
+            onClick={() => { setLink(null); setAttachmentError(null); area.current?.focus(); }}>×</button>
+        </form>
+      )}
+      {attachmentError && <p className="co-attachment-error" role="alert">{attachmentError}</p>}
       <div className="co-compose-bar">
         <div className="co-compose-opts">
+          <div className="co-attach" ref={attachRoot} onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setAttachMenu(false);
+              e.currentTarget.querySelector('button')?.focus();
+            }
+          }}>
+            <input type="file" hidden multiple ref={fileInput} aria-label="Archivos adjuntos"
+              onChange={(e) => {
+                addFiles(Array.from(e.currentTarget.files ?? []));
+                e.currentTarget.value = '';
+                area.current?.focus();
+              }} />
+            <button className="chip co-attach-button" type="button" title="Adjuntar archivos o enlaces" aria-label="Adjuntar"
+              aria-expanded={attachMenu} aria-controls={attachMenu ? menuId : undefined}
+              disabled={disabled || submitting} onClick={() => setAttachMenu((open) => !open)}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+                <path d="m5.6 8.4 4-4a1.45 1.45 0 0 1 2.05 2.05l-5 5a2.55 2.55 0 0 1-3.6-3.6l5.2-5.2a3.35 3.35 0 0 1 4.74 4.74l-5.1 5.1" strokeLinecap="round" />
+              </svg>
+            </button>
+            {attachMenu && <div className="menu co-attach-menu" id={menuId}>
+              <button className="menu-item" type="button" onClick={() => { fileInput.current?.click(); setAttachMenu(false); }}>Adjuntar archivos</button>
+              <button className="menu-item" type="button" onClick={() => { setAttachMenu(false); setLink(''); }}>Añadir enlace</button>
+            </div>}
+          </div>
+          {providerPicker}
           {model && <span className="co-model">{model}</span>}
           {efforts.length > 0 && (
             <button
@@ -314,7 +509,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, model, 
             </svg>
           </button>
         ) : (
-          <button className="send" aria-label="Enviar" title="enviar · ⌘↩" onClick={send} disabled={disabled}>
+          <button className="send" aria-label="Enviar" title="enviar · ⌘↩" onClick={send} disabled={disabled || submitting}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" />
             </svg>

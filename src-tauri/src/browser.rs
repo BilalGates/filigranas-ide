@@ -122,7 +122,7 @@ pub async fn browser_open(app: AppHandle, url: String, bounds: Bounds) -> CmdRes
         return Err("Introduce una dirección HTTP o HTTPS válida.".into());
     }
     if let Some(webview) = app.get_webview(LABEL) {
-        webview.navigate(url).map_err(err)?;
+        webview.navigate(url.clone()).map_err(err)?;
         position(&webview, Some(bounds))?;
     } else {
         let window = app.get_window("main").ok_or("no se encuentra la ventana principal")?;

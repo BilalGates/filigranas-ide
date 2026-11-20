@@ -38,10 +38,13 @@ Tauri 2 · Rust y SQLite (`src-tauri/`) · React y TypeScript (`src/`) · Git me
 
 ```sh
 npm install
-npm run tauri dev      # app con recarga en caliente
+npm run app            # app con recarga en caliente y datos de desarrollo separados
+npm run tauri dev      # igual, pero con los datos de la app instalada
 npm run tauri build    # instalador (.dmg / .msi)
 cd src-tauri && cargo test
 ```
+
+`npm run app` usa el identificador `com.filigranas.ide.dev`, así que su base SQLite y sus worktrees no se mezclan con los de la app instalada. Los cambios de la interfaz (`src/`) se ven al guardar; los de Rust (`src-tauri/src/`) recompilan y reinician la app solos. El instalador solo hace falta para distribuir o probar la instalación.
 
 Las CLI de los agentes (`codex`, `claude`, `opencode`, `agy`, `devin`), `node` y `gh` deben estar instaladas y con la sesión iniciada; la app las busca con el PATH del shell de login. Los tests marcados `#[ignore]` hablan con esas CLI de verdad y gastan un turno corto: `cargo test -- --ignored`.
 

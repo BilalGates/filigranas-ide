@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Review, type Stash } from './ipc';
 import ApprovalForm from './ApprovalForm';
@@ -33,9 +33,16 @@ const ICON: Record<string, JSX.Element> = {
   folder: <path d="M1.5 4h4.5l1.5 1.5h7V13h-13z" />,
   file: <><path d="M4 1.5h5.5L13 5v9.5H4z" /><path d="M9.5 1.5V5H13" /></>,
   changes: <><path d="M8 2v6M5 5h6" /><path d="M5 12h6" /></>,
+  tasks: <><path d="m2 4 1.5 1.5L6 3M2 9l1.5 1.5L6 8M8 4.5h6M8 9.5h6M8 13h6" /></>,
+  health: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M2 8h3l1.5-3 2 6L10 8h4" /></>,
+  design: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M1.5 6h13m-5 0v7.5" /></>,
+  brain: <><path d="M8 4a2.3 2.3 0 0 0-4.5-.4A2.5 2.5 0 0 0 2.7 8a2.7 2.7 0 0 0 1.8 4.5A1.8 1.8 0 0 0 8 12m0-8a2.3 2.3 0 0 1 4.5-.4 2.5 2.5 0 0 1 .8 4.4 2.7 2.7 0 0 1-1.8 4.5A1.8 1.8 0 0 1 8 12m0-8v8M4.5 7 6 8m5.5-1L10 8" /></>,
+  graph: <><circle cx="8" cy="3" r="1.5" /><circle cx="3" cy="12" r="1.5" /><circle cx="13" cy="12" r="1.5" /><path d="m7.2 4.3-3.4 6.4m5-6.4 3.4 6.4m-7.7 1.3h7" /></>,
+  tools: <path d="M9.5 2a3.5 3.5 0 0 0-4.4 4.5L2 9.6a2 2 0 1 0 2.8 2.8l3.1-3.1A3.5 3.5 0 0 0 12.5 5l-2.1 2.1L8 4.7z" />,
   sidebar: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></>,
   panel: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></>,
   gauge: <><path d="M2.5 11a5.5 5.5 0 1 1 11 0" /><path d="M8 11l2.5-3" /></>,
+  globe: <><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></>,
   search: <><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></>,
   chat: <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />,
   pm: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 2.7-4 5-4s4.2 1.4 5 4" /></>,
@@ -59,7 +66,8 @@ type Props = {
   onPublish: () => void;
   pending: number;
   onPending: () => void;
-  onBranch: (branch: string | null) => void;
+  chooseBranch: boolean;
+  onBranchPickerOpened: () => void;
   onDirty?: (dirty: boolean) => void;
 };
 
@@ -69,7 +77,7 @@ type Draft = { commits: LarryCommit[]; touched: boolean; loading: boolean };
 const EMPTY: Draft = { commits: [], touched: false, loading: false };
 
 /** Control de versiones del proyecto abierto, al estilo de Cursor. */
-export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, onBranch, onDirty }: Props) {
+export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, chooseBranch, onBranchPickerOpened, onDirty }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -84,11 +92,9 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   const [message, setMessage] = useState('');
   const draftReq = useRef(0);
   const [detail, setDetail] = useState<{ hash: string; data: CommitDetail | null } | null>(null);
+  const [detailHeight, setDetailHeight] = useState(0);
+  const detailId = useId();
   const detailRef = useRef<HTMLDivElement>(null);
-  // La tarjeta del commit siempre a la vista dentro del historial.
-  useEffect(() => {
-    detailRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [detail]);
 
   const say = (text: string, ok = true) => setOutput({ text, ok, key: Date.now() });
 
@@ -129,15 +135,28 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
     };
   }, [refresh]);
 
-  useEffect(() => onBranch(status?.branch ?? null), [status?.branch, onBranch]);
+  useEffect(() => {
+    if (!chooseBranch || !status) return;
+    setMenu('branch');
+    onBranchPickerOpened();
+  }, [chooseBranch, onBranchPickerOpened, status]);
   const hasChanges = !!status?.changes.length;
   useEffect(() => {
     if (status) onDirty?.(hasChanges);
   }, [status, hasChanges, onDirty]);
 
   const changes = status?.changes ?? [];
-  const graph = useMemo(() => layoutGraph(log), [log]);
   const detailIndex = log.findIndex((r) => r.hash === detail?.hash);
+  const graph = useMemo(() => layoutGraph(log, detailIndex, detailHeight), [log, detailIndex, detailHeight]);
+  useLayoutEffect(() => {
+    const panel = detailRef.current;
+    if (!panel) return;
+    const measure = () => setDetailHeight(panel.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [detailIndex, detail]);
   const changeKey = changes.map((c) => c.path).join('\n');
 
   // Larry redacta en cuanto hay cambios (agrupación rápida, sin modelo).
@@ -256,13 +275,12 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
     );
   };
 
-  // Cerrar menús y el detalle al pulsar fuera o con Escape.
+  // Los menús se cierran al pulsar fuera. Escape también pliega el detalle.
   useEffect(() => {
     if (!menu && !detail) return;
     const close = (e: MouseEvent) => {
       const t = e.target as HTMLElement;
       if (menu && !t.closest('.menu, .rh-btn, .split, .sync')) setMenu(null);
-      if (detail && !t.closest('.git-detail, .git-row')) setDetail(null);
     };
     const esc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -454,73 +472,66 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
               <GitGraph graph={graph} selected={detailIndex} />
               {log.map((r, i) => {
                 const dot = graph.dots[i];
+                const expanded = detailIndex === i;
+                const rowId = `${detailId}-${r.hash}`;
                 const timestamp = Date.parse(r.date);
                 return (
-                  <div
-                    className={`git-row${detailIndex === i ? ' is-open' : ''}${r.hash ? ' is-commit' : ''}`}
-                    key={r.hash}
-                    style={{ '--git-lane': dot.color, '--git-inset': `${dot.inset}px` } as CSSProperties}
-                    onClick={() => r.hash && openDetail(r.hash)}
-                    role={r.hash ? 'button' : undefined}
-                    tabIndex={r.hash ? 0 : undefined}
-                    aria-expanded={r.hash ? detailIndex === i : undefined}
-                    onKeyDown={(e) => {
-                      if (r.hash && (e.key === 'Enter' || e.key === ' ')) {
-                        e.preventDefault();
-                        openDetail(r.hash);
-                      }
-                    }}
-                  >
-                    {r.hash && (
-                      <>
-                        <span className="git-subject" title={r.subject}>
-                          {parseRefs(r.refs).map((ref) => (
-                            <span key={ref.name} className={`git-ref is-${ref.kind}`} title={ref.name}>
-                              {ref.kind === 'head' && <span aria-hidden="true">✓ </span>}
-                              {ref.name}
-                            </span>
-                          ))}
-                          {r.subject}
-                        </span>
-                        <span className="git-meta git-author" title={r.author}>{r.author}</span>
-                        <span className="git-meta git-hash" title={r.hash}>{r.hash}</span>
-                        <time className="git-meta git-date" title={r.date} dateTime={r.date}>
-                          {Number.isFinite(timestamp) ? LOG_DATE.format(timestamp) : ''}
-                        </time>
-                      </>
+                  <div key={r.hash} style={{ '--git-lane': dot.color, '--git-inset': `${dot.inset}px` } as CSSProperties}>
+                    <button
+                      id={rowId}
+                      type="button"
+                      className={`git-row is-commit${expanded ? ' is-open' : ''}`}
+                      onClick={() => openDetail(r.hash)}
+                      aria-expanded={expanded}
+                      aria-controls={expanded ? detailId : undefined}
+                    >
+                      <span className="git-subject" title={r.subject}>
+                        {parseRefs(r.refs).map((ref) => (
+                          <span key={ref.name} className={`git-ref is-${ref.kind}`} title={ref.name}>
+                            {ref.kind === 'head' && <span aria-hidden="true">✓ </span>}
+                            {ref.name}
+                          </span>
+                        ))}
+                        {r.subject}
+                      </span>
+                      <span className="git-meta git-author" title={r.author}>{r.author}</span>
+                      <span className="git-meta git-hash" title={r.hash}>{r.hash}</span>
+                      <time className="git-meta git-date" title={r.date} dateTime={r.date}>
+                        {Number.isFinite(timestamp) ? LOG_DATE.format(timestamp) : ''}
+                      </time>
+                    </button>
+                    {expanded && detail && (
+                      <div ref={detailRef} id={detailId} className="git-detail" role="region" aria-labelledby={rowId}>
+                        {!detail.data ? (
+                          <div className="muted" role="status">cargando…</div>
+                        ) : (
+                          <>
+                            <div className="gd-head">
+                              <span className="gd-hash">{detail.data.hash.slice(0, 7)}</span>
+                              <span>{detail.data.author}</span>
+                              <span className="muted">{detail.data.date}</span>
+                            </div>
+                            {detail.data.body && <div className="gd-body">{detail.data.body}</div>}
+                            <div className="gd-files">
+                              {detail.data.files.map((f) => (
+                                <div className="gd-file" key={f.path}>
+                                  <span className="git-st" style={{ color: STATUS_COLOR[f.status] ?? 'var(--tx3)' }}>
+                                    {f.status}
+                                  </span>
+                                  <span className="git-path">{f.path}</span>
+                                  <span className="git-nums">
+                                    +{f.adds ?? 0} −{f.dels ?? 0}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
               })}
-              {detail && detailIndex >= 0 && (
-                <div ref={detailRef} className="git-detail" role="dialog" aria-label="Detalle del commit" style={{ top: (detailIndex + 1) * GIT_ROW_HEIGHT + 4 }}>
-                  {!detail.data ? (
-                    <div className="muted">cargando…</div>
-                  ) : (
-                    <>
-                      <div className="gd-head">
-                        <span className="gd-hash">{detail.data.hash.slice(0, 7)}</span>
-                        <span>{detail.data.author}</span>
-                        <span className="muted">{detail.data.date}</span>
-                      </div>
-                      {detail.data.body && <div className="gd-body">{detail.data.body}</div>}
-                      <div className="gd-files">
-                        {detail.data.files.map((f) => (
-                          <div className="gd-file" key={f.path}>
-                            <span className="git-st" style={{ color: STATUS_COLOR[f.status] ?? 'var(--tx3)' }}>
-                              {f.status}
-                            </span>
-                            <span className="git-path">{f.path}</span>
-                            <span className="git-nums">
-                              +{f.adds ?? 0} −{f.dels ?? 0}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
           </section>
         </>

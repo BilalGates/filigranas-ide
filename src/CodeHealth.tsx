@@ -13,13 +13,13 @@ const SEVERITIES: Record<string, string> = { error: 'error', warning: 'aviso', n
 
 type Props = {
   project: string;
-  sessions: Session[];
-  onFile: (path: string, session: number | null) => void;
+  session: Pick<Session, 'id' | 'worktree'> | null;
+  closed: boolean;
+  onFile: (path: string, session: number | null, root: string | null) => void;
 };
 
-export default function CodeHealth({ project, sessions, onFile }: Props) {
-  const [chosen, setChosen] = useState<number | null>(null);
-  const session = chosen != null && sessions.some((s) => s.id === chosen) ? chosen : null;
+export default function CodeHealth({ project, session: chosen, closed, onFile }: Props) {
+  const session = chosen?.id ?? null;
   const [state, setState] = useState<{ session: number | null; runs: HealthRun[]; ci: PrInfo[] }>();
   const [check, setCheck] = useState<HealthCheck>('diff');
   const [busy, setBusy] = useState(false);
@@ -49,13 +49,9 @@ export default function CodeHealth({ project, sessions, onFile }: Props) {
   };
 
   return <section className="coach" aria-label="Code Health">
-    <header className="co-head"><span>Code Health</span></header>
     <div className="co-log p5-panel">
+      {closed ? <p className="muted">Evidencia guardada. Retoma la sesión para ejecutar comprobaciones o importar un informe.</p> :
       <div className="p5-actions task-form">
-        <label>Ámbito<select disabled={busy} value={session ?? ''} onChange={(e) => { setChosen(e.target.value ? Number(e.target.value) : null); setError(''); }}>
-          <option value="">Proyecto</option>
-          {sessions.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'proyecto'}</option>)}
-        </select></label>
         <label>Comprobación local<select disabled={busy} value={check} onChange={(e) => setCheck(e.target.value as HealthCheck)}>
           {Object.entries(CHECKS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select></label>
@@ -72,20 +68,20 @@ export default function CodeHealth({ project, sessions, onFile }: Props) {
             });
           }} />
         </label>
-      </div>
-      {check !== 'diff' && <p className="muted">La comprobación ejecutará el código de compilación o pruebas del ámbito seleccionado.</p>}
+      </div>}
+      {!closed && check !== 'diff' && <p className="muted">La comprobación ejecutará el código de compilación o pruebas del ámbito seleccionado.</p>}
       {error && <p className="co-error" role="alert">{error}</p>}
       <section aria-label="CI de GitHub" className="p5-section">
         <h2>CI de GitHub</h2>
         {current && current.ci.length === 0 && <p className="muted">Esta rama aún no tiene una observación de CI guardada.</p>}
         {current?.ci.map((pull) => <p key={pull.url}>
           <button className="co-link" onClick={() => pr.open(pull.url).catch((e) => setError(String(e)))}>PR #{pull.number}</button>
-          {' · '}{CHECK_STATE[pull.checksState]} · SHA <code>{pull.head.slice(0, 12)}</code> · {new Date(pull.observedAt * 1000).toLocaleString()}
+          {' · Último estado observado · '}{CHECK_STATE[pull.checksState]} · SHA <code>{pull.head.slice(0, 12)}</code> · {new Date(pull.observedAt * 1000).toLocaleString()}
         </p>)}
       </section>
       <section aria-label="Evidencia local" className="p5-section">
         <h2>Evidencia local</h2>
-        {current && current.runs.length === 0 && <p className="muted">Ejecuta una comprobación o importa un informe del linter, escáner o CI.</p>}
+        {current && current.runs.length === 0 && <p className="muted">No hay comprobaciones guardadas en este ámbito.</p>}
         {current?.runs.map((run) => <details key={run.id} className="p5-record">
           <summary>{run.source} · {run.tool} {run.version ?? 'versión desconocida'} · {OUTCOMES[run.outcome]} · {new Date(run.observed * 1000).toLocaleString()}</summary>
           <p className="muted">{run.task != null && `Tarea #${run.task} · `}SHA {run.revision ?? 'desconocido'}
@@ -93,8 +89,7 @@ export default function CodeHealth({ project, sessions, onFile }: Props) {
           {run.findings.map((finding) => <FindingRow key={`${finding.fingerprint}:${finding.status}:${finding.resolution}`}
             finding={finding} busy={busy}
             onFile={(path) => {
-              const editorSession = sessions.find((item) => item.id === session && item.worktree)?.id ?? null;
-              health.file(project, session, path).then((absolute) => onFile(absolute, editorSession), (e) => setError(String(e)));
+              health.file(project, session, path).then((absolute) => onFile(absolute, chosen?.worktree ? session : null, chosen?.worktree ?? null), (e) => setError(String(e)));
             }}
             onSave={(status, resolution) => act(() => health.resolve(project, session, run.id, finding.fingerprint, status, resolution))} />)}
         </details>)}

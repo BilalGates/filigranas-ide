@@ -47,7 +47,6 @@ export default function Conflicts({ project, files, hidden, onOpenFile }: Props)
   return (
     <section className="coach" aria-label="Conflictos" hidden={hidden}>
       <div className="co-head">
-        <span>conflictos</span>
         <span className={left ? 'co-state is-esperando-permiso' : 'add'}>{left ? `${left} por resolver` : 'resueltos'}</span>
         <span className="push" />
         <button className="co-link" onClick={load}>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pr, type PrDraft, type PrInfo, type Proof, type Review } from './ipc';
+import { cancelReview, pr, type PrDraft, type PrInfo, type Proof, type Review } from './ipc';
 import ApprovalForm from './ApprovalForm';
 
 type Props = { project: string; session: number | null; hidden: boolean };
@@ -20,6 +20,21 @@ export default function Publish({ project, session, hidden }: Props) {
   const [published, setPublished] = useState(false);
   const [confirm, setConfirm] = useState<{ review: Review; action: string; run: (proof: Proof) => Promise<PrInfo> } | null>(null);
   const sequence = useRef(0);
+  const approval = useRef<string | null>(null);
+  const suspended = useRef(hidden);
+  suspended.current = hidden;
+
+  const discardApproval = useCallback(() => {
+    const id = approval.current;
+    approval.current = null;
+    if (id) void cancelReview(id).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!hidden) return;
+    discardApproval();
+    setConfirm(null);
+  }, [hidden, discardApproval]);
 
   const load = useCallback(async (base: string | null) => {
     const request = ++sequence.current;
@@ -42,7 +57,13 @@ export default function Publish({ project, session, hidden }: Props) {
     }
   }, [project, session]);
 
-  useEffect(() => { void load(null); return () => { ++sequence.current; }; }, [load]);
+  useEffect(() => {
+    void load(null);
+    return () => {
+      ++sequence.current;
+      discardApproval();
+    };
+  }, [load, discardApproval]);
 
   const number = info?.number;
   const refresh = useCallback(async () => {
@@ -66,19 +87,27 @@ export default function Publish({ project, session, hidden }: Props) {
   }, [open, hidden, busy, refresh]);
 
   const prepare = async (action: string, review: Promise<Review>, run: (proof: Proof) => Promise<PrInfo>) => {
+    const request = sequence.current;
     setBusy(true);
     setError(null);
     try {
-      setConfirm({ review: await review, action, run });
+      const prepared = await review;
+      if (request !== sequence.current || suspended.current) {
+        await cancelReview(prepared.id);
+        return;
+      }
+      approval.current = prepared.id;
+      setConfirm({ review: prepared, action, run });
     } catch (error) {
-      setError(String(error));
+      if (request === sequence.current) setError(String(error));
     } finally {
-      setBusy(false);
+      if (request === sequence.current) setBusy(false);
     }
   };
 
   const mutate = async (run: () => Promise<PrInfo>) => {
     ++sequence.current;
+    approval.current = null;
     setConfirm(null);
     setBusy(true);
     setError(null);
@@ -102,7 +131,7 @@ export default function Publish({ project, session, hidden }: Props) {
   return (
     <section className="coach publish" aria-label="Publicar" hidden={hidden}>
       <div className="co-head">
-        <span>publicar{draft?.taskId != null ? ` · tarea #${draft.taskId}` : ''}</span>
+        {draft?.taskId != null && <span>tarea #{draft.taskId}</span>}
         <span className="muted">{draft ? `${draft.branch} → ${draft.base || '…'}` : 'cargando…'}</span>
       </div>
       <div className="co-log">
@@ -142,7 +171,7 @@ export default function Publish({ project, session, hidden }: Props) {
       </div>
       <div className="co-compose co-compose-bar">
         {confirm && <ApprovalForm key={confirm.review.id} review={confirm.review} action={confirm.action}
-          onClose={() => setConfirm(null)} onConfirm={(proof) => void mutate(() => confirm.run(proof))} />}
+          onClose={() => { approval.current = null; setConfirm(null); }} onConfirm={(proof) => void mutate(() => confirm.run(proof))} />}
         {!confirm && !published && draft && <button className="co-btn is-primary" disabled={busy || !!draft.blocked || (!info && !title.trim())}
           onClick={() => void prepare('confirmar publicación', pr.reviewPublish(project, session, draft, title, body, asDraft),
             (proof) => pr.publish(project, session, draft, title, body, asDraft, proof))}>

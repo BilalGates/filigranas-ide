@@ -198,6 +198,15 @@ fn scope(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<(St
     }
 }
 
+fn stored_scope(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<(String, Option<crate::db::Session>)> {
+    let project = project_path(conn, project)?;
+    let item = session.map(|id| {
+        crate::db::session_any(conn, id).map_err(err)?.filter(|item| item.project == project)
+            .ok_or_else(|| "la sesión no pertenece al proyecto".to_string())
+    }).transpose()?;
+    Ok((project, item))
+}
+
 fn list(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<Vec<Run>> {
     let mut runs = conn.prepare(
         "SELECT id,task,tool,version,source,revision,digest,outcome,observed
@@ -229,13 +238,17 @@ fn list(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<Vec
 
 #[tauri::command]
 pub fn health_list(state: State<AppState>, project: String, session: Option<i64>) -> CmdResult<Vec<Run>> {
-    let (project, _, _) = scope(&state, &project, session)?;
-    list(&*state.db.lock().map_err(err)?, &project, session)
+    let conn = state.db.lock().map_err(err)?;
+    let (project, _) = stored_scope(&conn, &project, session)?;
+    list(&conn, &project, session)
 }
 
 #[tauri::command]
 pub fn health_file(state: State<AppState>, project: String, session: Option<i64>, path: String) -> CmdResult<String> {
-    let (_, cwd, _) = scope(&state, &project, session)?;
+    let conn = state.db.lock().map_err(err)?;
+    let (project, item) = stored_scope(&conn, &project, session)?;
+    let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
+    drop(conn);
     let path = relative(&path).ok_or("ruta del hallazgo inválida")?;
     let root = Path::new(&cwd);
     let target = crate::paths::inside(root, &root.join(path))?;
@@ -342,12 +355,12 @@ pub async fn health_run(app: AppHandle, project: String, session: Option<i64>, c
 #[tauri::command]
 pub fn health_resolve(state: State<AppState>, project: String, session: Option<i64>, run: i64, fingerprint: String,
     status: String, resolution: String) -> CmdResult<()> {
-    let (project, _, _) = scope(&state, &project, session)?;
     if !matches!(status.as_str(), "open" | "resolved" | "accepted") || resolution.trim().len() > 1200
         || (status != "open" && resolution.trim().is_empty()) {
         return Err("indica una resolución breve para cerrar o aceptar el hallazgo".into());
     }
     let conn = state.db.lock().map_err(err)?;
+    let (project, _) = stored_scope(&conn, &project, session)?;
     let changed = conn.execute(
         "INSERT INTO health_resolution(project,scope,fingerprint,status,resolution)
          SELECT r.project,ifnull(r.session,0),f.fingerprint,?5,?6 FROM health_runs r
@@ -361,8 +374,13 @@ pub fn health_resolve(state: State<AppState>, project: String, session: Option<i
 
 #[tauri::command]
 pub fn health_ci(state: State<AppState>, project: String, session: Option<i64>) -> CmdResult<Vec<crate::github::Pull>> {
-    let (project, cwd, _) = scope(&state, &project, session)?;
-    let Some(branch) = crate::pr::value(Path::new(&cwd), &["symbolic-ref","--quiet","--short","HEAD"]).ok() else { return Ok(Vec::new()); };
+    let conn = state.db.lock().map_err(err)?;
+    let (project, item) = stored_scope(&conn, &project, session)?;
+    drop(conn);
+    let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
+    let branch = crate::pr::value(Path::new(cwd), &["symbolic-ref","--quiet","--short","HEAD"]).ok()
+        .or_else(|| item.as_ref().and_then(|item| item.branch.clone()));
+    let Some(branch) = branch else { return Ok(Vec::new()); };
     let conn = state.db.lock().map_err(err)?;
     crate::github::pulls(&conn, &project, None, &branch)
 }
@@ -388,6 +406,33 @@ mod tests {
         assert!(!serde_json::to_string(&rows).unwrap().contains("SECRET SAMPLE"));
         assert!(relative("../outside").is_none());
         assert!(report_path("%2e%2e/outside", None, Path::new("/tmp/project")).is_none());
+    }
+
+    #[test]
+    fn reads_closed_evidence_only_within_the_owning_project() {
+        let root = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        let project = root.join("one");
+        let other = root.join("two");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        let conn = crate::db::open(Path::new(":memory:")).unwrap();
+        crate::db::set_setting(&conn, "root", &crate::paths::to_string(&root)).unwrap();
+        let project = project.to_str().unwrap();
+        let id = crate::db::create_session(&conn, project, "claude", "", &["xavi"]).unwrap().id;
+        let (canonical, _) = stored_scope(&conn, project, Some(id)).unwrap();
+        save(&conn, &canonical, Some(id), None, vec![Evidence {
+            tool: "git".into(), version: None, source: "local", revision: None,
+            digest: None, outcome: "passed", findings: vec![],
+        }]).unwrap();
+        crate::db::close_session(&conn, id).unwrap();
+
+        assert!(crate::db::session(&conn, id).unwrap().is_none());
+        let (canonical, item) = stored_scope(&conn, project, Some(id)).unwrap();
+        assert_eq!(item.unwrap().id, id);
+        assert_eq!(list(&conn, &canonical, Some(id)).unwrap().len(), 1);
+        assert!(list(&conn, &canonical, None).unwrap().is_empty());
+        assert!(stored_scope(&conn, other.to_str().unwrap(), Some(id)).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

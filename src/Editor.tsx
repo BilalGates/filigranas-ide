@@ -6,7 +6,7 @@ import { loadMonaco, themeName } from './monacoLoader';
 
 // Los modelos de Monaco sobreviven al componente para conservar el historial
 // de deshacer. La versión guardada también debe pertenecer a cada modelo.
-const savedVersions = new WeakMap<Monaco.editor.ITextModel, number>();
+const saved = new WeakMap<Monaco.editor.ITextModel, { version: number | null; disk: string }>();
 
 /**
  * Editor del archivo seleccionado. Guarda con ⌘S / Ctrl+S y marca con un
@@ -19,6 +19,7 @@ export default function Editor({ path, root, session = null, onError }: { path: 
   const [ready, setReady] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<{ model: Monaco.editor.ITextModel; text: string } | null>(null);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
@@ -45,6 +46,7 @@ export default function Editor({ path, root, session = null, onError }: { path: 
     if (!ready) return;
     let alive = true;
     setError(null);
+    setConflict(null);
     Promise.all([loadMonaco(), api.readText(path, session)]).then(
       ([{ monaco, languageFor }, text]) => {
         if (!alive) return;
@@ -52,83 +54,92 @@ export default function Editor({ path, root, session = null, onError }: { path: 
         let model = monaco.editor.getModel(uri);
         if (!model) {
           model = monaco.editor.createModel(text, languageFor(path), uri);
-          savedVersions.set(model, model.getAlternativeVersionId());
-        } else if (model.getAlternativeVersionId() === savedVersions.get(model) && model.getValue() !== text) {
+          saved.set(model, { version: model.getAlternativeVersionId(), disk: text });
+        } else if (model.getAlternativeVersionId() === saved.get(model)?.version || model.getValue() === text) {
           // Sin cambios locales: tomar la versión del disco.
-          model.setValue(text);
-          savedVersions.set(model, model.getAlternativeVersionId());
+          if (model.getValue() !== text) model.setValue(text);
+          saved.set(model, { version: model.getAlternativeVersionId(), disk: text });
         }
         const ed = editor.current;
         if (!ed) return;
-        if (!savedVersions.has(model)) savedVersions.set(model, model.getAlternativeVersionId());
+        if (!saved.has(model)) saved.set(model, { version: model.getAlternativeVersionId(), disk: text });
         ed.setModel(model);
-        setDirty(model.getAlternativeVersionId() !== savedVersions.get(model));
-        const sub = model.onDidChangeContent(() => setDirty(model!.getAlternativeVersionId() !== savedVersions.get(model!)));
+        setDirty(model.getAlternativeVersionId() !== saved.get(model)?.version);
+        const sub = model.onDidChangeContent(() => setDirty(model!.getAlternativeVersionId() !== saved.get(model!)?.version));
+        let saving = false;
+        let readId = 0;
         const save = ed.addAction({
           id: 'filigranas.save',
           label: 'guardar',
           keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
           run: async () => {
-            const version = model!.getAlternativeVersionId();
-            const content = model!.getValue();
+            if (saving) return;
+            saving = true;
+            readId++;
+            const version = model.getAlternativeVersionId();
+            const content = model.getValue();
             try {
-              const currentDisk = await api.readText(path, session);
-              if (currentDisk !== disk) {
-                onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; vuelve a abrirlo antes de guardar`);
-                return;
+              await api.writeText(path, content, session, saved.get(model)!.disk);
+              saved.set(model, { version, disk: content });
+              if (alive) {
+                setDirty(model.getAlternativeVersionId() !== version);
+                setConflict(null);
               }
-              await api.writeText(path, content, session);
-              disk = content;
-              savedVersions.set(model!, version);
-              if (alive) setDirty(model!.getAlternativeVersionId() !== version);
             } catch (e) {
               onErrorRef.current(String(e));
+            } finally {
+              saving = false;
+              if (alive) later();
             }
           },
         });
         ed.focus();
 
-        // Cambios externos (un agente, un cambio de rama): sin cambios
-        // locales se toma la versión del disco; con ellos no se toca nada y
-        // se avisa, porque guardar sobrescribiría lo que hay en disco.
-        let disk = text;
-        if (model.getValue() !== text && model.getAlternativeVersionId() !== savedVersions.get(model)) {
-          onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; vuelve a abrirlo antes de guardar`);
-        }
+        if (saved.get(model)?.disk !== text) setConflict({ model, text });
         let timer: number | undefined;
-        const reload = () =>
-          api.readText(path, session).then(
+        const reload = () => {
+          if (saving) return;
+          const request = ++readId;
+          const base = saved.get(model)!;
+          return api.readText(path, session).then(
             (now) => {
-              if (!alive || now === disk) return;
-              disk = now;
-              // Lo guardado desde aquí también llega por el observador.
-              if (now === model!.getValue()) return;
-              if (model!.getAlternativeVersionId() === savedVersions.get(model!)) {
+              if (!alive || request !== readId || saved.get(model) !== base) return;
+              if (now === base.disk) {
+                setConflict(null);
+                return;
+              }
+              if (now === model.getValue()) {
+                saved.set(model, { version: model.getAlternativeVersionId(), disk: now });
+                setDirty(false);
+                setConflict(null);
+              } else if (model.getAlternativeVersionId() === base.version) {
                 const view = ed.saveViewState();
-                model!.setValue(now);
-                savedVersions.set(model!, model!.getAlternativeVersionId());
+                model.setValue(now);
+                saved.set(model, { version: model.getAlternativeVersionId(), disk: now });
+                setDirty(false);
+                setConflict(null);
                 if (view) ed.restoreViewState(view);
               } else {
-                onErrorRef.current(`${path.slice(path.lastIndexOf('/') + 1)} cambió en disco; guardar sobrescribirá esa versión`);
+                setConflict({ model, text: now });
               }
             },
             () => {}, // borrado o ilegible: se mantiene lo que hay en pantalla
           );
+        };
         const later = () => {
           window.clearTimeout(timer);
           timer = window.setTimeout(reload, 300);
         };
-        // Archivos de una sesión: su carpeta no se observa; se relee cuando
-        // el agente termina un turno.
-        const unlisten =
-          session == null
-            ? listen('project-changed', later)
-            : listen<{ id: number; msg: any }>('session', ({ payload }) => {
-                if (payload.id === session && ['result', 'turn_end'].includes(payload.msg?.type)) later();
-              });
+        const unlisten = listen('project-changed', later);
+        void unlisten.then(() => { if (alive) later(); }, () => {});
+        const unlistenSession = session == null ? null
+          : listen<{ id: number; msg: any }>('session', ({ payload }) => {
+              if (payload.id === session && ['result', 'turn_end'].includes(payload.msg?.type)) later();
+            });
         cleanup = () => {
           window.clearTimeout(timer);
           unlisten.then((off) => off());
+          unlistenSession?.then((off) => off());
           sub.dispose();
           save.dispose();
         };
@@ -144,6 +155,13 @@ export default function Editor({ path, root, session = null, onError }: { path: 
 
   const rel = root && path.startsWith(root) ? path.slice(root.length + 1) : path;
   const sep = rel.search(/[^\\/]*$/);
+  const keepDraft = () => {
+    if (!conflict || editor.current?.getModel() !== conflict.model) return;
+    const isSaved = conflict.model.getValue() === conflict.text;
+    saved.set(conflict.model, { disk: conflict.text, version: isSaved ? conflict.model.getAlternativeVersionId() : null });
+    setDirty(!isSaved);
+    setConflict(null);
+  };
 
   return (
     <section className="viewer" aria-label="Editor">
@@ -152,6 +170,11 @@ export default function Editor({ path, root, session = null, onError }: { path: 
         <span>{rel.slice(sep)}</span>
         {dirty && <span className="dirty" role="img" aria-label="sin guardar" title="sin guardar · ⌘S" />}
       </div>
+      {conflict && <details className="share-file-conflict">
+        <summary>Hay cambios guardados. Ver versión actual</summary>
+        <pre>{conflict.text}</pre>
+        <button className="co-btn" onClick={keepDraft}>Mantener mi borrador sobre esta versión</button>
+      </details>}
       {error && <div className="viewer-msg">{error}</div>}
       <div ref={host} className="monaco" hidden={!!error} />
     </section>

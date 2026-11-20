@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import GithubConnect from './GithubConnect';
 import { jev, type JevSettings, type JevStatus, type Tool } from './ipc';
 
 type Props = {
@@ -17,15 +18,12 @@ export function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada'
   return t.loggedIn ? 'ok' : 'instalada';
 }
 
-/**
- * CLI que usa el IDE: instaladas o no y con sesión o no. El IDE no inicia
- * sesión por el usuario; abre un terminal con la orden para que la complete.
- */
+/** Estado y acceso a las herramientas del IDE. */
 export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: Props) {
+  const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh', 'node'].includes(id));
   return (
     <section className="coach" aria-label="Herramientas" hidden={hidden}>
       <div className="co-head">
-        <span>herramientas</span>
         <span className="muted">CLI de los agentes, Node y GitHub</span>
         <span className="push" />
         <button className="co-link" onClick={onRefresh} disabled={checking}>
@@ -34,7 +32,7 @@ export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: P
       </div>
       <div className="co-log">
         {!tools && <div className="muted">comprobando las herramientas…</div>}
-        {tools?.map((t) => {
+        {visible?.map((t) => {
           const state = toolState(t);
           return (
             <div className="tool-row" key={t.id}>
@@ -45,6 +43,7 @@ export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: P
               <span className="muted tool-detail" title={t.detail}>
                 {t.detail}
               </span>
+              {t.id === 'gh' && <GithubConnect tool={t} onRefresh={onRefresh} />}
               {t.installed && t.login && state !== 'ok' && (
                 <button
                   className="co-btn"
@@ -58,7 +57,7 @@ export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: P
             </div>
           );
         })}
-        {tools?.some((t) => !t.installed) && (
+        {visible?.some((t) => !t.installed) && (
           <div className="co-aside">Instala las que faltan con su instalador habitual y vuelve a comprobar; la app las busca con el PATH de tu shell.</div>
         )}
         {!hidden && <JevRouting />}

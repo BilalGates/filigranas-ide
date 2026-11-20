@@ -1,116 +1,162 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { containers, type Container, type ContainersView } from './ipc';
+import { useEffect, useRef, useState } from 'react';
+import { Icon } from './GitPanel';
+import { localServices, type LocalService, type ServiceAction, type ServiceForm } from './ipc';
 
-type Props = { project: string; onCount: (n: number | null) => void };
+type Props = { project: string; onOpen: (url: string) => void };
 
-const STATE_LABEL: Record<string, string> = { running: 'en marcha', exited: 'detenido', paused: 'en pausa', restarting: 'reiniciando', created: 'creado', dead: 'muerto' };
+const LABELS: Record<LocalService['state'], string> = {
+  stopped: 'Detenido',
+  running: 'En marcha',
+  exited: 'Finalizado',
+  failed: 'Falló',
+};
+const EMPTY: ServiceForm = { id: null, name: '', command: '', port: null };
 
-function Row({ c, action }: { c: Container; action?: ReactNode }) {
-  const running = c.state === 'running';
-  return (
-    <div className="ctr-row">
-      <span className={`ctr-dot${running ? (c.health === 'unhealthy' ? ' is-bad' : ' is-on') : ''}`} aria-hidden="true" />
-      <div className="ctr-main">
-        <div className="ctr-name" title={`${c.name} · ${c.id}`}>
-          {c.service ?? c.name}
-        </div>
-        <div className="ctr-sub" title={c.image}>
-          {STATE_LABEL[c.state] ?? c.state}
-          {c.health ? ` · ${c.health === 'healthy' ? 'sano' : c.health === 'unhealthy' ? 'no sano' : c.health}` : ''} · {c.image}
-        </div>
-        {c.ports.length > 0 && <div className="ctr-ports">{c.ports.join('  ')}</div>}
-      </div>
-      {action}
-    </div>
-  );
-}
-
-/**
- * Contenedores Docker del proyecto, solo lectura. Se consulta al abrir, a
- * demanda y cada 10 s mientras la vista está visible; nunca en segundo plano.
- */
-export default function Containers({ project, onCount }: Props) {
-  const [view, setView] = useState<ContainersView | null>(null);
+export default function Containers({ project, onOpen }: Props) {
+  const [services, setServices] = useState<LocalService[] | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [form, setForm] = useState<ServiceForm | null>(null);
+  const [deleteFor, setDeleteFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setBusy(true);
-    containers
-      .list(project)
-      .then(
-        (v) => {
-          setView(v);
-          setError(null);
-          onCount(v.status === 'ok' ? v.compose.length + v.linked.length : null);
-        },
-        (e) => setError(String(e)),
-      )
-      .finally(() => setBusy(false));
-  }, [project, onCount]);
+  const [revision, setRevision] = useState(0);
+  const log = useRef<HTMLPreElement>(null);
+  const follow = useRef(true);
+  const active = services?.find((s) => s.id === selected);
+  const output = active?.logs;
 
   useEffect(() => {
-    setView(null);
+    if (busy) return;
+    let current = true;
+    let pending = false;
+    let pollingError = false;
+    const load = () => {
+      if (pending) return;
+      pending = true;
+      localServices.list(project, selected).then((next) => {
+        if (!current) return;
+        setServices(next);
+        if (pollingError) setError(null);
+        pollingError = false;
+      }, (e) => {
+        if (!current) return;
+        pollingError = true;
+        setError(String(e));
+      }).finally(() => { pending = false; });
+    };
     load();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') load();
-    }, 10_000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+    const timer = window.setInterval(load, 1000);
+    return () => { current = false; window.clearInterval(timer); };
+  }, [project, selected, busy, revision]);
 
-  const link = (c: Container) => containers.link(project, c.id, c.name).then(load, (e) => setError(String(e)));
-  const unlink = (c: Container) => containers.unlink(c.id).then(load, (e) => setError(String(e)));
+  useEffect(() => {
+    if (log.current && follow.current) log.current.scrollTop = log.current.scrollHeight;
+  }, [output, selected]);
 
-  const total = view ? view.compose.length + view.linked.length : 0;
+  const select = (id: string | null) => {
+    follow.current = true;
+    setSelected(id);
+    setDeleteFor(null);
+  };
+
+  const mutate = async (operation: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await operation();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRevision((r) => r + 1);
+      setBusy(false);
+    }
+  };
+
+  const act = (id: string, action: ServiceAction) => void mutate(async () => {
+    await localServices.action(project, id, action);
+    if (action === 'remove' && selected === id) select(null);
+  });
+
+  const save = (value: ServiceForm) => void mutate(async () => {
+    const id = await localServices.save(project, value);
+    select(id);
+    setForm(null);
+  });
+
+  const running = services?.filter((s) => s.state === 'running').length ?? 0;
 
   return (
-    <>
-      <div className="git-label">
-        <span>{view?.status === 'ok' ? `${total} contenedor${total === 1 ? '' : 'es'}` : 'docker'}</span>
-        <button className="co-link" onClick={load} disabled={busy}>
-          {busy ? '…' : 'actualizar'}
-        </button>
+    <section className="service-panel" aria-label="Servicios locales del proyecto">
+      <div className="service-head">
+        <div>
+          <h3>Servicios locales</h3>
+          {services && <span className="muted">{running} en marcha · {services.length} en total</span>}
+        </div>
+        <button className="co-btn" disabled={busy || !!form} onClick={() => setForm(EMPTY)}><Icon name="plus" size={13} /> Nuevo servicio</button>
       </div>
-      {error && <div className="git-error">{error}</div>}
-      {view && view.status !== 'ok' && <div className={view.status === 'absent' ? 'muted' : 'git-error'}>{view.message}</div>}
-      {view?.status === 'ok' && (
-        <div className="ctr-list">
-          {total === 0 && <div className="muted">Este proyecto no tiene contenedores asociados.</div>}
-          {view.compose.length > 0 && <div className="git-label">compose</div>}
-          {view.compose.map((c) => (
-            <Row key={c.id} c={c} />
+      {error && <p className="co-error" role="alert">{error}</p>}
+      {form && (
+        <form className="service-form" onSubmit={(e) => { e.preventDefault(); save(form); }}>
+          <h3>{form.id ? 'Editar servicio' : 'Nuevo servicio'}</h3>
+          <label>Nombre<input required maxLength={120} autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
+          <label>Comando<textarea required rows={2} maxLength={8192} value={form.command} placeholder="npm run dev" onChange={(e) => setForm({ ...form, command: e.target.value })} /></label>
+          <label>Puerto (opcional)<input type="number" min={1} max={65535} value={form.port ?? ''} placeholder="3000" onChange={(e) => setForm({ ...form, port: e.target.value ? Number(e.target.value) : null })} /></label>
+          <p className="muted">El comando se ejecuta en la carpeta del proyecto con tus permisos. Si indicas un puerto, se pasa como <code>PORT</code> y se habilita el acceso desde el navegador.</p>
+          <div className="service-actions">
+            <button type="submit" className="co-btn is-primary" disabled={busy || !form.name.trim() || !form.command.trim()}>Guardar</button>
+            <button type="button" className="co-btn" disabled={busy} onClick={() => setForm(null)}>Cancelar</button>
+          </div>
+        </form>
+      )}
+      {services === null && !error && <p className="muted">Cargando servicios…</p>}
+      {!form && services?.length === 0 && <p className="service-empty muted">Añade el comando con el que arrancas el servidor, una API u otro proceso de este proyecto.</p>}
+      {!!services?.length && (
+        <div className="service-list" aria-label="Servicios">
+          {services.map((s) => (
+            <div className="service-row" key={s.id}>
+              <button className="service-select" aria-pressed={selected === s.id} onClick={() => select(s.id)}>
+                <Icon name="box" size={16} />
+                <span><strong>{s.name}</strong><small>{s.port ? `localhost:${s.port}` : s.command}</small></span>
+                <span className="service-state" data-state={s.state}><i />{LABELS[s.state]}</span>
+              </button>
+              <button className="co-btn" disabled={busy} aria-label={`${s.state === 'running' ? 'Detener' : 'Arrancar'} ${s.name}`} onClick={() => act(s.id, s.state === 'running' ? 'stop' : 'start')}>
+                {s.state === 'running' ? 'Detener' : 'Arrancar'}
+              </button>
+            </div>
           ))}
-          {view.linked.length > 0 && <div className="git-label">asociados a mano</div>}
-          {view.linked.map((c) => (
-            <Row
-              key={c.id}
-              c={c}
-              action={
-                <button className="co-link" onClick={() => unlink(c)} title="quitar la asociación con este proyecto">
-                  quitar
-                </button>
-              }
-            />
-          ))}
-          {view.unlinked.length > 0 && (
-            <details className="ctr-unlinked">
-              <summary className="git-label">sin asociar a ningún proyecto · {view.unlinked.length}</summary>
-              <div className="muted ctr-hint">Contenedores sin Compose: asócialos si son de este proyecto. Si se recrean, habrá que volver a asociarlos.</div>
-              {view.unlinked.map((c) => (
-                <Row
-                  key={c.id}
-                  c={c}
-                  action={
-                    <button className="co-link" onClick={() => link(c)}>
-                      asociar
-                    </button>
-                  }
-                />
-              ))}
-            </details>
-          )}
         </div>
       )}
-    </>
+      {active && !form && (
+        <section className="service-detail" aria-label={`Detalles de ${active.name}`}>
+          <div className="service-detail-head">
+            <h3>{active.name}</h3>
+            <span className="muted">{active.pid ? `PID ${active.pid}` : active.exitCode !== null ? `Salida ${active.exitCode}` : LABELS[active.state]}</span>
+          </div>
+          <code className="service-command">{active.command}</code>
+          <div className="service-actions">
+            {active.port && active.state === 'running' && <button className="co-btn" onClick={() => onOpen(`http://localhost:${active.port}`)}><Icon name="globe" size={14} /> Abrir en el navegador</button>}
+            {active.state === 'running' ? (
+              <button className="co-btn" disabled={busy} onClick={() => act(active.id, 'restart')}>Reiniciar</button>
+            ) : (
+              <>
+                <button className="co-btn" disabled={busy} onClick={() => setForm({ id: active.id, name: active.name, command: active.command, port: active.port })}>Editar</button>
+                <button className="co-btn" disabled={busy} onClick={() => setDeleteFor(active.id)}>Quitar</button>
+              </>
+            )}
+          </div>
+          {deleteFor === active.id && active.state !== 'running' && <div className="service-actions">
+            <span>¿Quitar la configuración de {active.name}?</span>
+            <button className="co-btn" disabled={busy} onClick={() => act(active.id, 'remove')}>Confirmar</button>
+            <button className="co-btn" disabled={busy} onClick={() => setDeleteFor(null)}>Cancelar</button>
+          </div>}
+          <h4>Registros</h4>
+          <pre ref={log} className="service-log" tabIndex={0} aria-label={`Registros de ${active.name}`} onScroll={(e) => {
+            const el = e.currentTarget;
+            follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+          }}>{output || 'Sin salida todavía.'}</pre>
+        </section>
+      )}
+    </section>
   );
 }

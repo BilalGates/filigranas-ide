@@ -11,7 +11,7 @@ const curve = (x1: number, y1: number, x2: number, y2: number) =>
 
 type Segment = { d: string; color: string };
 type Dot = { x: number; y: number; color: string; kind: 'head' | 'merge' | 'commit'; inset: number };
-export type Graph = { lines: Segment[]; dots: Dot[]; width: number };
+export type Graph = { lines: Segment[]; dots: Dot[]; width: number; height: number };
 
 /** Un carril espera a un commit; `from` es la columna de la que sale su tramo hacia la fila siguiente. */
 type Lane = { hash: string; color: string; from: number } | null;
@@ -21,7 +21,7 @@ type Lane = { hash: string; color: string; from: number } | null;
  * Cada tramo va del centro de una fila al de la siguiente, así que las líneas
  * llegan siempre a su círculo y cada rama conserva su color hasta unirse.
  */
-export function layoutGraph(rows: LogRow[]): Graph {
+export function layoutGraph(rows: LogRow[], expandedIndex: number, detailHeight: number): Graph {
   const lines: Segment[] = [];
   const dots: Dot[] = [];
   let lanes: Lane[] = [];
@@ -33,16 +33,19 @@ export function layoutGraph(rows: LogRow[]): Graph {
     const slot = lanes.indexOf(null);
     return slot < 0 ? lanes.length : slot;
   };
+  const gap = expandedIndex >= 0 ? detailHeight : 0;
 
   rows.forEach((row, index) => {
-    const mid = index * GIT_ROW_HEIGHT + GIT_ROW_HEIGHT / 2;
+    const rowMid = index * GIT_ROW_HEIGHT + GIT_ROW_HEIGHT / 2;
+    const mid = rowMid + (index > expandedIndex ? gap : 0);
+    const previousMid = mid - GIT_ROW_HEIGHT - (index === expandedIndex + 1 ? gap : 0);
     const known = lanes.findIndex((lane) => lane?.hash === row.hash);
     const col = known < 0 ? free() : known;
     const color = lanes[col]?.color ?? fresh();
     const target = (lane: number) => (lanes[lane]?.hash === row.hash ? col : lane);
 
-    lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), mid - GIT_ROW_HEIGHT, x(target(j)), mid), color: lane.color }));
-    merges.forEach((m) => lines.push({ d: curve(x(m.from), mid - GIT_ROW_HEIGHT, x(target(m.lane)), mid), color: m.color }));
+    lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), previousMid, x(target(j)), mid), color: lane.color }));
+    merges.forEach((m) => lines.push({ d: curve(x(m.from), previousMid, x(target(m.lane)), mid), color: m.color }));
     const incoming = lanes.length;
 
     lanes = lanes.map((lane, j) => (lane && lane.hash !== row.hash ? { ...lane, from: j } : null));
@@ -62,18 +65,18 @@ export function layoutGraph(rows: LogRow[]): Graph {
   });
 
   // Padres que quedan fuera del límite del historial: la línea sigue hasta el borde.
-  const end = rows.length * GIT_ROW_HEIGHT;
-  const last = end - GIT_ROW_HEIGHT / 2;
+  const end = rows.length * GIT_ROW_HEIGHT + gap;
+  const last = end - GIT_ROW_HEIGHT / 2 - (expandedIndex === rows.length - 1 ? gap : 0);
   lanes.forEach((lane, j) => lane && lines.push({ d: curve(x(lane.from), last, x(j), end), color: lane.color }));
   merges.forEach((m) => lines.push({ d: curve(x(m.from), last, x(m.lane), end), color: m.color }));
 
-  return { lines, dots, width: ORIGIN * 2 + (width - 1) * LANE };
+  return { lines, dots, width: ORIGIN * 2 + (width - 1) * LANE, height: end };
 }
 
 /** Dibuja todo el historial en un único SVG sobre el fondo de las filas. */
 export default function GitGraph({ graph, selected }: { graph: Graph; selected: number }) {
   return (
-    <svg className="git-graph-svg" width={graph.width} height={graph.dots.length * GIT_ROW_HEIGHT} fill="none" aria-hidden="true">
+    <svg className="git-graph-svg" width={graph.width} height={graph.height} fill="none" aria-hidden="true">
       {graph.lines.map((line, index) => (
         <path key={index} d={line.d} stroke={line.color} strokeWidth="1.5" strokeLinecap="round" />
       ))}

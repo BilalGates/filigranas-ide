@@ -149,9 +149,9 @@ export default function BrainGraph({ project, projects, hidden, onMemories, onTa
   }) : [];
 
   return <section className="coach" aria-label="Grafo de Filigranas Brain" hidden={hidden}>
-    <header className="co-head"><span>Grafo de Brain</span><span className="push" />
+    <div className="co-head"><span className="push" />
       <button className="co-link" onClick={onMemories}>Recuerdos</button>
-    </header>
+    </div>
     <div className="co-log p5-panel brain-graph">
       <div className="p5-actions task-form">
         <label>Proyecto<select value={scope ?? ''} onChange={(e) => { setData(null); setSelected(null); setScope(e.target.value || null); }}>

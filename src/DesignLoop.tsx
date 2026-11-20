@@ -129,7 +129,6 @@ export default function DesignLoop({ project, sessions, hidden, onNew, onSession
   };
 
   return <section className="coach" aria-label="Design Loop" hidden={hidden}>
-    <header className="co-head"><span>Design Loop</span></header>
     <div className="co-log p5-panel">
       {error && <p className="co-error" role="alert">{error}</p>}
       <form className="task-form p5-section" onSubmit={(e) => { e.preventDefault(); void save(); }}>

@@ -83,9 +83,9 @@ export default function Brain({ project, target, onClearTarget, onGraph }: {
   };
 
   return <section className="coach" aria-label="Filigranas Brain">
-    <header className="co-head"><span>Filigranas Brain</span><span className="push" />
+    <div className="co-head"><span className="push" />
       <button className="co-link" onClick={onGraph}>Grafo</button>
-    </header>
+    </div>
     <div className="co-log p5-panel">
       <div className="p5-actions task-form">
         <label>Buscar recuerdos<input type="search" value={query} maxLength={300} onChange={(e) => { onClearTarget(); setQuery(e.target.value); }} /></label>

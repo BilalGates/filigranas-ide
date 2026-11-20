@@ -108,6 +108,13 @@ const fail = (msg: string) => {
 
 let mockJevSettings = { mode: 'local', policy: 'balanced', timeoutSecs: 3, model: null, lightModel: null };
 const mockJevStatus = () => ({ settings: mockJevSettings, supported: false, service: 'Filigranas IDE TypeSafe', account: 'jev', codexModels: [] });
+let mockCliAuto = true;
+let mockCodexVersion = 'codex-cli 0.169.0';
+/** Simula el aviso del bucle automático: `__mockCliUpdates()` en la consola. */
+(window as any).__mockCliUpdates = (failed = false) => emit('cli-updates', failed
+  ? [{ id: 'codex', name: 'Codex', outcome: 'failed', from: 'codex-cli 0.169.0', to: 'codex-cli 0.169.0', detail: 'EBUSY: resource busy or locked' }]
+  : [{ id: 'claude', name: 'Claude Code', outcome: 'updated', from: '2.1.325 (Claude Code)', to: '2.1.328 (Claude Code)', detail: '2.1.325 (Claude Code) → 2.1.328 (Claude Code)' },
+     { id: 'agy', name: 'Antigravity', outcome: 'updated', from: '1.5.9', to: '1.6.0', detail: '1.5.9 → 1.6.0' }]);
 
 mockIPC(
   (cmd, args) => {
@@ -486,7 +493,7 @@ mockIPC(
         return mockJevStatus();
       case 'tools_status':
         return [
-          { id: 'codex', name: 'Codex', role: 'coordinador y Larry', installed: true, loggedIn: true, detail: 'codex-cli 0.169.0', login: 'codex login' },
+          { id: 'codex', name: 'Codex', role: 'coordinador y Larry', installed: true, loggedIn: true, detail: mockCodexVersion, login: 'codex login' },
           { id: 'claude', name: 'Claude Code', role: 'agente ejecutor', installed: true, loggedIn: true, detail: '2.1.325 (Claude Code)', login: 'claude auth login' },
           { id: 'opencode', name: 'OpenCode', role: 'agente ejecutor', installed: true, loggedIn: false, detail: '0 credentials', login: 'opencode auth login' },
           { id: 'agy', name: 'Antigravity', role: 'agente ejecutor', installed: true, loggedIn: null, detail: '1.5.9', login: 'agy' },
@@ -494,6 +501,19 @@ mockIPC(
           { id: 'gh', name: 'GitHub', role: 'publicar ramas y PR', installed: true, loggedIn: mockGithub?.state === 'complete', account: mockGithub?.state === 'complete' ? 'demo' : null, detail: 'gh version 2.101.0', login: null },
           { id: 'node', name: 'Node.js', role: 'agrupar commits (Larry)', installed: true, loggedIn: null, detail: 'v26.0.0', login: null },
         ];
+      case 'tools_update': {
+        const from = mockCodexVersion;
+        mockCodexVersion = 'codex-cli 0.170.0';
+        return new Promise((done) => setTimeout(done, 900)).then(() => [
+          { id: 'codex', name: 'Codex', outcome: from === mockCodexVersion ? 'current' : 'updated', from, to: mockCodexVersion, detail: from === mockCodexVersion ? from : `${from} → ${mockCodexVersion}` },
+          { id: 'claude', name: 'Claude Code', outcome: 'busy', from: '', to: null, detail: 'se actualizará cuando quede libre' },
+          { id: 'agy', name: 'Antigravity', outcome: 'current', from: '1.5.9', to: '1.5.9', detail: '1.5.9' },
+          { id: 'opencode', name: 'OpenCode', outcome: 'failed', from: '0.9.2', to: '0.9.2', detail: 'EBUSY: resource busy or locked' },
+        ]);
+      }
+      case 'tools_auto_update':
+        if (typeof a.enabled === 'boolean') mockCliAuto = a.enabled;
+        return mockCliAuto;
       case 'services_list':
         return (mockServices.get(a.project) ?? []).map((service) =>
           ({ ...service, logs: service.id === a.logsFor ? service.logs : null }));

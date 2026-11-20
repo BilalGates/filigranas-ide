@@ -1,10 +1,13 @@
+use std::collections::{HashMap, HashSet};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager};
 
-use crate::codex::{login_path, program};
-use crate::{err, CmdResult};
+use crate::codex::{login_path, resolve};
+use crate::{db, err, AppState, CmdResult};
 
 // Estado de las CLI que usa el IDE: si están instaladas y si tienen la
 // sesión iniciada. GitHub utiliza la autorización web de GitHub CLI.
@@ -32,21 +35,29 @@ struct Spec {
     /// Orden que informa de la sesión (código 0 = comprobable).
     status: Option<&'static [&'static str]>,
     login: Option<&'static str>,
+    /// Orden de la propia CLI que busca e instala su última versión; conoce
+    /// el método de instalación (npm, instalador nativo, Homebrew…).
+    update: Option<&'static [&'static str]>,
 }
 
 const SPECS: [Spec; 7] = [
-    Spec { id: "codex", name: "Codex", role: "coordinador y Larry", status: Some(&["login", "status"]), login: Some("codex login") },
-    Spec { id: "claude", name: "Claude Code", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("claude auth login") },
-    Spec { id: "opencode", name: "OpenCode", role: "agente ejecutor", status: Some(&["auth", "list"]), login: Some("opencode auth login") },
-    Spec { id: "agy", name: "Antigravity", role: "agente ejecutor", status: None, login: Some("agy") },
-    Spec { id: "devin", name: "Devin", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("devin auth login") },
-    Spec { id: "gh", name: "GitHub", role: "publicar ramas y PR", status: Some(&["auth", "status", "--hostname", "github.com", "--active"]), login: None },
-    Spec { id: "node", name: "Node.js", role: "agrupar commits (Larry)", status: None, login: None },
+    Spec { id: "codex", name: "Codex", role: "coordinador y Larry", status: Some(&["login", "status"]), login: Some("codex login"), update: Some(&["update"]) },
+    Spec { id: "claude", name: "Claude Code", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("claude auth login"), update: Some(&["update"]) },
+    Spec { id: "opencode", name: "OpenCode", role: "agente ejecutor", status: Some(&["auth", "list"]), login: Some("opencode auth login"), update: Some(&["upgrade"]) },
+    Spec { id: "agy", name: "Antigravity", role: "agente ejecutor", status: None, login: Some("agy"), update: Some(&["update"]) },
+    // Sin orden de actualización confirmada.
+    Spec { id: "devin", name: "Devin", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("devin auth login"), update: None },
+    Spec { id: "gh", name: "GitHub", role: "publicar ramas y PR", status: Some(&["auth", "status", "--hostname", "github.com", "--active"]), login: None, update: None },
+    Spec { id: "node", name: "Node.js", role: "agrupar commits (Larry)", status: None, login: None, update: None },
 ];
 
 /// Ejecuta una orden corta; `None` si no se pudo lanzar (no instalada).
 fn run(name: &str, args: &[&str]) -> Option<(bool, String)> {
-    let mut cmd = Command::new(program(name));
+    run_for(name, args, Duration::from_secs(25))
+}
+
+fn run_for(name: &str, args: &[&str], limit: Duration) -> Option<(bool, String)> {
+    let mut cmd = Command::new(resolve(name));
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if name == "gh" {
         cmd.env_remove("GH_DEBUG");
@@ -60,22 +71,40 @@ fn run(name: &str, args: &[&str]) -> Option<(bool, String)> {
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     let mut child = cmd.spawn().ok()?;
+    // La salida se lee mientras corre: una actualización puede escribir más
+    // de lo que cabe en el búfer del pipe y quedarse bloqueada.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let readers: Vec<Box<dyn std::io::Read + Send>> = [
+        child.stdout.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+        child.stderr.take().map(|s| Box::new(s) as Box<dyn std::io::Read + Send>),
+    ].into_iter().flatten().collect();
+    let pipes = readers.len();
+    for (i, mut pipe) in readers.into_iter().enumerate() {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            let _ = tx.send((i, buf));
+        });
+    }
     // Una CLI colgada no debe bloquear la comprobación.
-    let deadline = std::time::Instant::now() + Duration::from_secs(25);
-    loop {
+    let deadline = Instant::now() + limit;
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Some((false, "no respondió a tiempo".into()));
             }
         }
-    }
-    let out = child.wait_with_output().ok()?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    Some((out.status.success(), strip_ansi(&text)))
+    };
+    // Un proceso hijo que siga vivo puede retener el pipe: no se le espera.
+    let mut parts: Vec<(usize, Vec<u8>)> = (0..pipes).filter_map(|_| rx.recv_timeout(Duration::from_secs(2)).ok()).collect();
+    parts.sort_by_key(|(i, _)| *i);
+    let text: String = parts.iter().map(|(_, b)| String::from_utf8_lossy(b)).collect();
+    Some((status.success(), strip_ansi(&text)))
 }
 
 fn strip_ansi(text: &str) -> String {
@@ -168,6 +197,182 @@ pub async fn tools_status() -> CmdResult<Vec<Tool>> {
     .map_err(err)?
 }
 
+// Actualización de las CLI de los proveedores de IA. Cada CLI se actualiza
+// con su propia orden y se compara `--version` antes y después. No se toca
+// una CLI que el IDE tenga abierta: en Windows su ejecutable está bloqueado.
+
+/// Plazo de una actualización (descarga incluida).
+const UPDATE_LIMIT: Duration = Duration::from_secs(300);
+/// Cada cuánto se vuelve a buscar una versión nueva de cada CLI.
+const RECHECK: Duration = Duration::from_secs(6 * 3600);
+/// Cada cuánto despierta el bucle para reintentar las CLI que estaban en uso.
+const TICK: Duration = Duration::from_secs(30 * 60);
+const AUTO_KEY: &str = "cli_auto_update";
+
+fn updating() -> &'static (Mutex<HashSet<&'static str>>, Condvar) {
+    static UPDATING: OnceLock<(Mutex<HashSet<&'static str>>, Condvar)> = OnceLock::new();
+    UPDATING.get_or_init(Default::default)
+}
+
+/// Bloquea hasta que termine la actualización en curso de `name`, si la hay,
+/// para no lanzar la CLI mientras se reemplaza su ejecutable.
+pub(crate) fn wait_update(name: &str) {
+    let (lock, done) = updating();
+    if let Ok(guard) = lock.lock() {
+        let _ = done.wait_timeout_while(guard, UPDATE_LIMIT + Duration::from_secs(30), |set| set.contains(name));
+    }
+}
+
+/// Marca de actualización en curso; se retira al soltarla.
+struct Gate(&'static str);
+
+impl Gate {
+    fn take(id: &'static str) -> Option<Self> {
+        // Sin `then_some`: crearía la marca aunque ya hubiera otra, y al
+        // soltarla, con el cerrojo aún tomado, se bloquearía y borraría la ajena.
+        let fresh = updating().0.lock().ok()?.insert(id);
+        if fresh { Some(Self(id)) } else { None }
+    }
+}
+
+impl Drop for Gate {
+    fn drop(&mut self) {
+        let (lock, done) = updating();
+        if let Ok(mut set) = lock.lock() {
+            set.remove(self.0);
+        }
+        done.notify_all();
+    }
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Update {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// `updated`, `current`, `busy` o `failed`.
+    pub outcome: &'static str,
+    pub from: String,
+    pub to: Option<String>,
+    pub detail: String,
+}
+
+/// Si el IDE tiene abierto un proceso de esa CLI.
+fn in_use(app: &AppHandle, id: &str) -> bool {
+    let state = app.state::<AppState>();
+    match id {
+        "codex" => state.codex.running(),
+        "claude" => state.claude.running(),
+        engine => state.acp.running(engine),
+    }
+}
+
+fn last_line(text: &str) -> String {
+    text.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("sin salida").chars().take(160).collect()
+}
+
+/// Resultado de una actualización a partir de las versiones y la salida.
+fn outcome(spec: &Spec, from: String, ok: bool, text: &str, to: Option<String>) -> Update {
+    let (outcome, detail) = match &to {
+        _ if !ok => ("failed", last_line(text)),
+        Some(to) if *to != from => ("updated", format!("{from} → {to}")),
+        _ => ("current", from.clone()),
+    };
+    Update { id: spec.id, name: spec.name, outcome, from, to, detail }
+}
+
+/// Actualiza una CLI. `None` si no tiene orden de actualización o no está instalada.
+fn update_one(app: &AppHandle, spec: &'static Spec) -> Option<Update> {
+    let args = spec.update?;
+    let busy = |detail: &str| Update { id: spec.id, name: spec.name, outcome: "busy", from: String::new(), to: None, detail: detail.into() };
+    // La marca va antes de mirar si está en uso: un arranque posterior espera.
+    let Some(gate) = Gate::take(spec.id) else { return Some(busy("ya se está actualizando")) };
+    if in_use(app, spec.id) {
+        return Some(busy("se actualizará cuando quede libre"));
+    }
+    let from = first_line(&run(spec.id, &["--version"])?.1);
+    let (ok, text) = run_for(spec.id, args, UPDATE_LIMIT).unwrap_or((false, "no se pudo lanzar la actualización".into()));
+    let to = run(spec.id, &["--version"]).map(|(_, t)| first_line(&t));
+    drop(gate);
+    Some(outcome(spec, from, ok, &text, to))
+}
+
+/// Actualiza en paralelo las CLI indicadas.
+fn update_all(app: &AppHandle, specs: Vec<&'static Spec>) -> Vec<(&'static str, Option<Update>)> {
+    let handles: Vec<_> = specs.into_iter()
+        .map(|s| { let app = app.clone(); (s.id, std::thread::spawn(move || update_one(&app, s))) })
+        .collect();
+    handles.into_iter().map(|(id, h)| (id, h.join().ok().flatten())).collect()
+}
+
+fn auto_enabled(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let value = state.db.lock().ok().and_then(|conn| db::get_setting(&conn, AUTO_KEY).ok().flatten());
+    value.as_deref() != Some("0")
+}
+
+/// Bucle en segundo plano: al arrancar y cada [`RECHECK`] actualiza las CLI
+/// de IA instaladas; las que estaban en uso se reintentan cada [`TICK`].
+/// Avisa con `cli-updates` de las actualizadas y de los fallos nuevos.
+pub fn start_auto(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut checked: HashMap<&'static str, Instant> = HashMap::new();
+        let mut failures: HashMap<&'static str, String> = HashMap::new();
+        loop {
+            if auto_enabled(&app) {
+                let due = SPECS.iter()
+                    .filter(|s| s.update.is_some() && checked.get(s.id).is_none_or(|t| t.elapsed() >= RECHECK))
+                    .collect();
+                let mut notable = Vec::new();
+                for (id, result) in update_all(&app, due) {
+                    if result.as_ref().is_some_and(|u| u.outcome == "busy") {
+                        continue;
+                    }
+                    checked.insert(id, Instant::now());
+                    match result {
+                        Some(u) if u.outcome == "failed" => {
+                            if failures.insert(id, u.detail.clone()).as_ref() != Some(&u.detail) {
+                                notable.push(u);
+                            }
+                        }
+                        Some(u) => {
+                            failures.remove(id);
+                            if u.outcome == "updated" {
+                                notable.push(u);
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                if !notable.is_empty() {
+                    let _ = app.emit("cli-updates", &notable);
+                }
+            }
+            std::thread::sleep(TICK);
+        }
+    });
+}
+
+/// Busca e instala ahora las versiones nuevas de las CLI de IA instaladas.
+#[tauri::command]
+pub async fn tools_update(app: AppHandle) -> CmdResult<Vec<Update>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        update_all(&app, SPECS.iter().filter(|s| s.update.is_some()).collect()).into_iter().filter_map(|(_, u)| u).collect()
+    })
+    .await
+    .map_err(err)
+}
+
+/// Lee (sin `enabled`) o cambia la actualización automática de las CLI.
+#[tauri::command]
+pub fn tools_auto_update(state: tauri::State<AppState>, enabled: Option<bool>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    if let Some(on) = enabled {
+        db::set_setting(&conn, AUTO_KEY, if on { "1" } else { "0" }).map_err(err)?;
+    }
+    Ok(db::get_setting(&conn, AUTO_KEY).map_err(err)?.as_deref() != Some("0"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +388,31 @@ mod tests {
         assert!(!logged_in("opencode", true, "┌  Credentials\n│\n└  0 credentials\n"));
         assert!(logged_in("gh", true, "github.com\n  ✓ Logged in"));
         assert!(!logged_in("gh", false, "You are not logged into any GitHub hosts"));
+    }
+
+    #[test]
+    fn classifies_each_update() {
+        let codex = &SPECS[0];
+        let v = |s: &str| Some(s.to_string());
+        let up = outcome(codex, "codex-cli 0.169.0".into(), true, "Updated", v("codex-cli 0.170.0"));
+        assert_eq!((up.outcome, up.detail.as_str()), ("updated", "codex-cli 0.169.0 → codex-cli 0.170.0"));
+        assert_eq!(outcome(codex, "codex-cli 0.170.0".into(), true, "up to date", v("codex-cli 0.170.0")).outcome, "current");
+        let failed = outcome(codex, "codex-cli 0.170.0".into(), false, "Checking…\nEBUSY: resource busy\n\n", v("codex-cli 0.170.0"));
+        assert_eq!((failed.outcome, failed.detail.as_str()), ("failed", "EBUSY: resource busy"));
+        assert!(SPECS.iter().filter(|s| s.update.is_some()).all(|s| matches!(s.id, "codex" | "claude" | "opencode" | "agy")));
+    }
+
+    #[test]
+    fn a_launch_waits_for_the_update_in_progress() {
+        let gate = Gate::take("fixture-cli").unwrap();
+        assert!(Gate::take("fixture-cli").is_none(), "dos actualizaciones a la vez");
+        let start = Instant::now();
+        let waiter = std::thread::spawn(|| wait_update("fixture-cli"));
+        std::thread::sleep(Duration::from_millis(200));
+        drop(gate);
+        waiter.join().unwrap();
+        assert!(start.elapsed() >= Duration::from_millis(200) && start.elapsed() < Duration::from_secs(5));
+        wait_update("otra-cli"); // sin actualización en curso no espera
     }
 
     #[test]

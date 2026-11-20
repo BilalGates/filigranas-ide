@@ -1731,6 +1731,121 @@ button.co-file:hover {
   color: var(--tx3);
 }
 
+/* Actualización de las CLI de IA: sección de Herramientas y aviso emergente. */
+.cli-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 72ch;
+  margin-top: 18px;
+}
+.cli-updates-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.cli-updates h2 { margin: 0; font-size: inherit; }
+.cli-updates p { margin: 0; }
+.cli-update-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cli-update-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: var(--r-l);
+  background: var(--hover);
+}
+.cli-update-list .tool-detail {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.cli-update-state {
+  color: var(--tx3);
+  white-space: nowrap;
+}
+.tool-dot.is-updated,
+.tool-dot.is-current {
+  background: var(--ok);
+}
+.cli-update-state.is-updated {
+  color: var(--ok);
+}
+.tool-dot.is-failed {
+  background: var(--warn);
+}
+.cli-update-state.is-failed {
+  color: var(--warn);
+}
+
+.cli-toast {
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 280px;
+}
+.cli-toast.is-ok > svg {
+  color: var(--ok);
+}
+.cli-toast-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cli-toast-title {
+  font-weight: 500;
+  color: var(--tx);
+}
+.cli-toast ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--tx3);
+}
+.cli-toast li {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.cli-toast li > span:not(.cli-toast-detail) {
+  flex: none;
+  color: var(--tx2);
+}
+.cli-toast-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+/* Acciones a la altura del título, separadas de las versiones. */
+.cli-toast > .co-link,
+.cli-toast > .icon {
+  flex: none;
+  align-self: flex-start;
+  line-height: 18px;
+}
+.cli-toast > .co-link {
+  margin-left: 6px;
+}
+.cli-toast > .icon {
+  margin: -2px -4px 0 -4px;
+}
+
 .statusbar {
   grid-row: 3;
   grid-column: 1 / -1;

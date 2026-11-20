@@ -48,6 +48,7 @@ const ICON: Record<string, JSX.Element> = {
   pm: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 2.7-4 5-4s4.2 1.4 5 4" /></>,
   wand: <><path d="M3 13 11 5" /><path d="M11 2v2M13 4h-2M12.5 7.5l1 1M7.5 2.5l1 1" /></>,
   merge: <><circle cx="4" cy="3.5" r="1.7" /><circle cx="4" cy="12.5" r="1.7" /><circle cx="12" cy="12.5" r="1.7" /><path d="M4 5.2v5.6M4 6c0 4 8 2 8 4.8" /></>,
+  check: <path d="M3 8.5 6.5 12 13 4.5" />,
   warn: <><path d="M8 2 14.5 13.5h-13z" /><path d="M8 6.5v3M8 11.5v.2" /></>,
 };
 

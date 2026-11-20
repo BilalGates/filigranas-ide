@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type Session, type Tool, type Workspace } from './ipc';
+import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
@@ -15,7 +15,7 @@ import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
 import Brain from './Brain';
 import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
-import Tools from './Tools';
+import Tools, { CliNotice } from './Tools';
 import UsagePanel from './Usage';
 import { percentLabel, useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
@@ -76,6 +76,10 @@ export default function App() {
   const [switching, setSwitching] = useState<number | string | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTools, setUsageTools] = useState(false);
+  // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
+  const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
+  // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
+  const [cliLast, setCliLast] = useState<CliUpdate[] | null>(null);
   const [browserTarget, setBrowserTarget] = useState<{ url: string } | null>(null);
   const [reportedModel, setReportedModel] = useState<{ key: number | string; model: string | null } | null>(null);
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
@@ -292,6 +296,16 @@ export default function App() {
       .finally(() => setCheckingTools(false));
   }, []);
   useEffect(checkTools, [checkTools]);
+  useEffect(() => {
+    const unlisten = listen<CliUpdate[]>('cli-updates', (e) => { setCliNotice(e.payload); setCliLast(e.payload); checkTools(); });
+    return () => { unlisten.then((off) => off()); };
+  }, [checkTools]);
+  // Los avisos de éxito se retiran solos; los fallos esperan a que se lean.
+  useEffect(() => {
+    if (!cliNotice || cliNotice.some((u) => u.outcome === 'failed')) return;
+    const timer = window.setTimeout(() => setCliNotice(null), 12000);
+    return () => window.clearTimeout(timer);
+  }, [cliNotice]);
 
   const countPending = useCallback(() => {
     if (!project) return;
@@ -660,7 +674,7 @@ export default function App() {
           </header>
           {usageTools ? <>
             <button className="usage-tools" onClick={() => setUsageTools(false)}>‹ Volver a Uso</button>
-            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools}
+            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
               onLogin={current ? (command) => { setUsageOpen(false); openTerminal(current.path, true, command); } : null} />
           </> : <>
             <UsagePanel engine={usageEngine} label={usageLabel} model={usageModel} quota={quota} />
@@ -786,6 +800,8 @@ export default function App() {
             <span>{error}</span>
           </button>
         )}
+        {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
+          onOpen={() => { setCliNotice(null); setUsageTools(true); setUsageOpen(true); }} />}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">

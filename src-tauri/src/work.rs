@@ -433,6 +433,7 @@ mod tests {
         assert_eq!(runs::active(&conn, &runs::session_scope(next.id)).unwrap(), None);
         assert!(interrupted > 0);
         assert_eq!(pr::value(Path::new(&project), &["worktree", "list", "--porcelain"]).unwrap().matches("worktree ").count(), 1);
+        drop(conn); // Windows no borra la base mientras siga abierta.
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -471,6 +472,7 @@ mod tests {
         assert!(current(&conn, &project).unwrap().unwrap().agents.is_empty());
         assert!(begin(&mut conn, &project, s.id).unwrap_err().contains("sesión de trabajo anterior"));
         assert_eq!(db::session(&conn, s.id).unwrap().unwrap().branch.as_deref(), Some(work.branch.as_str()));
+        drop(conn); // Windows no borra la base mientras siga abierta.
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -485,6 +487,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(repo.join("prior.txt")).unwrap(), "trabajo previo\n");
         assert!(start(&mut conn, &project, "Otra sesión", "feat", "otra sesion", true).is_err());
         assert_eq!(pr::value(repo, &["branch", "--show-current"]).unwrap(), "fix/mejorar-editor");
+        drop(conn); // Windows no borra la base mientras siga abierta.
         std::fs::remove_dir_all(dir).unwrap();
     }
 

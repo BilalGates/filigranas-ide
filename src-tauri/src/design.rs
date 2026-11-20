@@ -202,6 +202,7 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn create(prefix: &str) -> CmdResult<Self> {
         let path = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+        #[cfg_attr(not(unix), allow(unused_mut))] // `mode` solo existe en Unix.
         let mut directory = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {

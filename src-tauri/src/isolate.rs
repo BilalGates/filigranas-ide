@@ -418,6 +418,10 @@ pub fn work_dir(state: &AppState, project: &str, session: Option<i64>) -> CmdRes
     }
     let wt = PathBuf::from(s.cwd());
     if s.worktree.is_none() {
+        let branch = crate::pr::value(&wt, &["branch", "--show-current"])?;
+        if s.branch.as_deref().is_some_and(|expected| expected != branch) {
+            return Err("este chat conserva una rama de trabajo anterior; abre su PR guardada o inicia otro chat para el trabajo actual".into());
+        }
         if let Some(work) = crate::work::current(&*state.db.lock().map_err(err)?, &path)?.filter(|w| w.state != "finished") {
             if crate::pr::value(&wt, &["branch", "--show-current"])? != work.branch {
                 return Err(format!("recupera la rama {} antes de continuar", work.branch));

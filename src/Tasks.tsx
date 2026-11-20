@@ -77,7 +77,7 @@ function buildScopes(list: Task[], open: Session[], orphans: Session[]) {
     for (const session of task.sessions) owner.set(session.id, task.id);
   }
   const add = (session: ScopeSession) => {
-    const key = session.worktree ?? `session:${session.id}`;
+    const key = session.worktree ?? (session.branch ? `shared:${session.branch}` : `session:${session.id}`);
     const scope = scopes.get(key) ?? { key, owner: null, live: null, orphan: false, history: [] };
     if (!keys.has(session.id)) scope.history.push(session);
     keys.set(session.id, key);
@@ -131,7 +131,9 @@ export default function Tasks({
     () => buildScopes(list ?? [], sessions.filter((session) => session.project === project), orphans ?? []),
     [list, sessions, project, orphans],
   );
-  const scopes = topology.scopes.filter((scope) => scope.owner === taskId);
+  const scopes = topology.scopes.filter((scope) => taskId == null
+    ? scope.history.some((session) => !items.some((item) => item.sessions.some((linked) => linked.id === session.id)))
+    : scope.history.some((session) => task?.sessions.some((linked) => linked.id === session.id)));
   const chosenKey = scopeKey ?? (taskId == null ? CHECKOUT : scopes.length === 1 ? scopes[0].key : null);
   const scope = scopes.find((candidate) => candidate.key === chosenKey);
   const evidence = scope?.history.find((session) => session.id === healthTarget) ?? scope?.live ?? scope?.history[0];
@@ -418,7 +420,7 @@ export default function Tasks({
                       {taskId == null && <option value={CHECKOUT}>Checkout del proyecto · {checkout}</option>}
                       {scopes.map((candidate) => {
                         const session = candidate.live ?? candidate.history[0];
-                        const label = session.branch ? `${session.branch} · ${session.name}` : session.name;
+                        const label = session.branch ? `${session.branch}${session.worktree ? ` · ${session.name}` : ' · compartida'}` : session.name;
                         return <option key={candidate.key} value={candidate.key}>{label}{candidate.orphan || !candidate.live ? ' · cerrada' : ''}</option>;
                       })}
                     </select></label>

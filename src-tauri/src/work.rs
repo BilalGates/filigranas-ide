@@ -95,8 +95,9 @@ fn check_branch(project: &str, work: &Work) -> CmdResult<()> {
 pub fn join(conn: &Connection, project: &str, session: i64) -> CmdResult<()> {
     let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") else { return Ok(()); };
     conn.execute("INSERT INTO work_agents(session_id,work_id) VALUES(?1,?2)
-                  ON CONFLICT(session_id) DO UPDATE SET work_id=excluded.work_id,paths='[\".\"]'
-                  WHERE work_agents.work_id!=excluded.work_id", params![session,work.id]).map_err(err)?;
+                  ON CONFLICT(session_id) DO NOTHING", params![session,work.id]).map_err(err)?;
+    let assigned: i64 = conn.query_row("SELECT work_id FROM work_agents WHERE session_id=?1", [session], |r| r.get(0)).map_err(err)?;
+    if assigned != work.id { return Err("este chat pertenece a una sesión de trabajo anterior; abre un chat nuevo para el objetivo actual".into()); }
     conn.execute("UPDATE sessions SET branch=?2,base='main',base_commit=?3 WHERE id=?1 AND worktree IS NULL",
         params![session,work.branch,work.base_commit]).map_err(err)?;
     Ok(())
@@ -144,11 +145,11 @@ fn start(conn: &mut Connection, project: &str, objective: &str, kind: &str, desc
     tx.execute("INSERT INTO work_sessions(project,objective,branch,base_commit) VALUES(?1,?2,?3,?4)",
         params![project,objective,branch,base_commit]).map_err(err)?;
     let id = tx.last_insert_rowid();
-    // Reutiliza los chats abiertos del checkout; conserva intactos los aislados.
+    // Vincula chats todavía sin sesión de trabajo; conserva su historia al cerrar.
     tx.execute("INSERT INTO work_agents(session_id,work_id)
                 SELECT id,?2 FROM sessions WHERE project=?1 AND worktree IS NULL AND closed=0
                 AND id NOT IN (SELECT session_id FROM project_manager_claude)
-                ON CONFLICT(session_id) DO UPDATE SET work_id=excluded.work_id,paths='[\".\"]'",
+                AND id NOT IN (SELECT session_id FROM work_agents)",
         params![project,id]).map_err(err)?;
     tx.execute("UPDATE sessions SET branch=?2,base='main',base_commit=?3 WHERE id IN (SELECT session_id FROM work_agents WHERE work_id=?4)",
         params![project,branch,base_commit,id]).map_err(err)?;
@@ -187,7 +188,17 @@ pub fn assign(conn: &Connection, project: &str, session: i64, paths: Vec<String>
     if s.project != project || s.worktree.is_some() || crate::chat::is_pm(conn, session).map_err(err)? {
         return Err("el agente no pertenece al checkout compartido de este proyecto".into());
     }
+    join(conn, project, session)?;
     let paths = normalize_paths(paths)?;
+    for path in &paths {
+        let mut ancestor = std::path::PathBuf::from(project);
+        for component in Path::new(path).components() {
+            ancestor.push(component);
+            if std::fs::symlink_metadata(&ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err("asigna rutas reales en lugar de enlaces simbólicos para evitar ámbitos duplicados".into());
+            }
+        }
+    }
     conn.execute("INSERT INTO work_agents(session_id,work_id,paths) VALUES(?1,?2,?3)
                   ON CONFLICT(session_id) DO UPDATE SET work_id=excluded.work_id,paths=excluded.paths",
         params![session,work.id,serde_json::to_string(&paths).map_err(err)?]).map_err(err)?;
@@ -456,7 +467,9 @@ mod tests {
         assert_eq!(current(&conn, &project).unwrap().unwrap().state, "finished");
         let next = start(&mut conn, &project, "Corregir editor", "fix", "guardado editor", false).unwrap();
         assert_eq!(next.branch, "fix/guardado-editor");
-        assert_eq!(current(&conn, &project).unwrap().unwrap().agents[0].session_id, s.id);
+        assert!(current(&conn, &project).unwrap().unwrap().agents.is_empty());
+        assert!(begin(&mut conn, &project, s.id).unwrap_err().contains("sesión de trabajo anterior"));
+        assert_eq!(db::session(&conn, s.id).unwrap().unwrap().branch.as_deref(), Some(work.branch.as_str()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

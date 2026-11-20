@@ -560,20 +560,25 @@ impl Codex {
     /// respuesta de `thread/resume` o `thread/start` si hubo que pedirla.
     fn thread(&self, app: &AppHandle, state: &AppState, path: &str, session: Option<&db::Session>, force: bool) -> CmdResult<(Arc<Rpc>, String, Option<Value>)> {
         let _gate = self.thread_gate.lock().map_err(err)?;
-        let (saved, legacy_persona) = match session {
+        let (saved, legacy_persona, upgrade_from) = match session {
             Some(s) => {
                 let current = crate::claude::open_session(state, s.id)?;
-                (Some(current.provider_session).filter(|id| !id.is_empty()), false)
+                (Some(current.provider_session).filter(|id| !id.is_empty()), false, None)
             }
             None => {
                 let conn = state.db.lock().map_err(err)?;
                 let (saved, profile) = db::coordinator(&conn, path).map_err(err)?;
                 let tools = db::coordinator_tools(&conn, path).map_err(err)?;
-                (saved.filter(|_| tools == crate::delegate::TOOLS_VERSION), profile != "pm")
+                let upgrade_from = saved.clone().filter(|_| tools != crate::delegate::TOOLS_VERSION);
+                (saved.filter(|_| tools == crate::delegate::TOOLS_VERSION), profile != "pm", upgrade_from)
             }
         };
         let cwd = session.map(db::Session::cwd).unwrap_or(path);
         let rpc = self.rpc(app)?;
+        if let Some(previous) = upgrade_from {
+            let history = self.read_history(app, &previous)?;
+            crate::chat::archive_tool_upgrade(&mut *state.db.lock().map_err(err)?, path, &previous, &history)?;
+        }
         if let Some(id) = &saved {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));

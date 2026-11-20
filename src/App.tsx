@@ -85,6 +85,7 @@ export default function App() {
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
   const usageButton = useRef<HTMLButtonElement>(null);
   const usagePopup = useRef<HTMLElement>(null);
+  const centerPanel = useRef<HTMLElement>(null);
   const [pmProjects, setPmProjects] = useState(loadPm);
   const setPm = (path: string, on: boolean) =>
     setPmProjects((cur) => {
@@ -111,7 +112,7 @@ export default function App() {
   const pmReady = !!project && pmChat?.project === project;
   const pmSession = pmReady ? pmChat.session : null;
   const pmEngine = pmSession?.engine ?? 'codex';
-  const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : null);
+  const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
   const quota = useProviderQuota(usageEngine, usageModel);
   const sessionWorktree = activeSession?.worktree ? activeSession : null;
@@ -277,7 +278,6 @@ export default function App() {
 
   const newSession = (engine = 'codex', task: number | null = null) => {
     if (!project) return;
-    if (rightView === 'design') setNoRight(true);
     sessions.create(project, engine, task).then(
       ({ notice, ...s }) => {
         if (currentProject.current !== s.project) return;
@@ -289,9 +289,12 @@ export default function App() {
     );
   };
 
-  const showConversation = (session: 'coach' | number) => {
-    setView(session);
-    if (rightView === 'design') setNoRight(true);
+  const focusConversation = () => {
+    const panel = centerPanel.current;
+    if (!panel) return;
+    const composer = [...panel.querySelectorAll<HTMLTextAreaElement>('.co-compose textarea:not(:disabled)')]
+      .find((textarea) => !textarea.closest('[hidden]'));
+    (composer ?? panel).focus();
   };
 
   const checkTools = useCallback(() => {
@@ -370,7 +373,6 @@ export default function App() {
     if (!path) return;
     if (section) setWorkTarget({ project: path, section, session: scope === undefined ? undefined : scope?.id ?? null });
     setView('work');
-    if (rightView === 'design') setNoRight(true);
   };
   const openPending = () => {
     if (!project) return;
@@ -464,12 +466,6 @@ export default function App() {
   const activeTerm = project ? selectedTerm[project] ?? projectTerms[0]?.id : undefined;
   const toggleTerminal = () => {
     if (!current) return;
-    if (rightView === 'design' && !noRight) {
-      setNoRight(true);
-      setTermOpen(true);
-      if (!projectTerms.length) openTerminal(current.path);
-      return;
-    }
     const terminal = projectTerms.find((t) => t.id === activeTerm);
     if (termOpen && terminal?.session === sessionWorktree?.id) setTermOpen(false);
     else if (sessionWorktree) openSessionTerminal(sessionWorktree);
@@ -602,11 +598,11 @@ export default function App() {
         </button>
       </div>
       {hasPm &&
-        row('coach', view === 'coach', 'Project manager', null, sessionState('coach'), () => showConversation('coach'), () => {
+        row('coach', view === 'coach', 'Project manager', null, sessionState('coach'), () => setView('coach'), () => {
           setPm(current.path, false);
           setView(agentSessions[0]?.id ?? 'coach');
         })}
-      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => showConversation(s.id), () => closeSession(s.id)))}
+      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => setView(s.id), () => closeSession(s.id)))}
       <button className="project-new-session" onClick={() => newSession()}>
         <Icon name="plus" size={12} /> Nueva sesión
       </button>
@@ -624,7 +620,7 @@ export default function App() {
     if (tab === 'browser') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
-    return !!current;
+    return true;
   });
   const errorToast = error && (
     <button className="toast" onClick={() => setError(null)} title="cerrar">
@@ -712,7 +708,7 @@ export default function App() {
       )}
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
 
-      <main className="panel center">
+      <main className="panel center" ref={centerPanel} tabIndex={-1}>
         {centerTitle && (
           <div className="center-head">
             <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
@@ -822,7 +818,7 @@ export default function App() {
               <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
             ))}
         </section>
-        {!designOpen && errorToast}
+        {errorToast}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">
@@ -858,9 +854,9 @@ export default function App() {
         {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
           reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
           archived={ws.projects.filter((item) => item.archived).length}
-          onConversation={() => setNoRight(true)}
+          onConversation={focusConversation}
           onNew={() => newSession('claude')}
-          onSession={showConversation} />}
+          onSession={setView} />}
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -909,10 +905,9 @@ export default function App() {
             <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />
           ))}
       </Right>
-      {designOpen && errorToast}
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-actions">
-          <button ref={usageButton} className={`status-action${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
+          <button ref={usageButton} className={`status-action status-usage${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
             aria-expanded={usageOpen} onClick={toggleUsage} title="uso de los modelos · ⌘U">
             <Icon name="gauge" size={13} />
             <span>{usageEngine === 'claude' ? 'Uso · Claude' : usageLabel ? `Uso · ${usageLabel}` : 'Uso'}</span>
@@ -923,13 +918,13 @@ export default function App() {
               </span>
             )}
           </button>
-          {current && (
-            <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
-              aria-expanded={termOpen} title="Terminal · ⌘J">
-              <Icon name="terminal" size={13} /> Terminal
-            </button>
-          )}
         </div>
+        {current && (
+          <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
+            aria-expanded={termOpen} title="Terminal · ⌘J">
+            <Icon name="terminal" size={13} /> Terminal
+          </button>
+        )}
         <button className="status-branch" disabled={!current} title={current ? `Rama del proyecto · ${branchLabel}` : 'Abre un proyecto para ver su rama'}
           aria-label={current ? `Rama del proyecto: ${branchLabel}` : 'Sin proyecto'} onClick={() => { revealRight('git'); setChooseBranch(true); }}>
           <Icon name="branch" size={13} />

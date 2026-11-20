@@ -337,7 +337,9 @@ pub async fn pr_draft(app: AppHandle, path: String, session: Option<i64>, base: 
         if let Some(work) = &work {
             draft.work_session = Some(work.id);
             draft.title = work.objective.clone();
-            draft.body.push_str(&format!("\n## Sesión de trabajo #{}\n\n{}\n\n## Evidencia\n\n{}\n", work.id, work.objective, work.evidence.as_deref().unwrap_or("Pendiente de registrar")));
+            draft.body.push_str(&format!("\n## Sesión de trabajo #{}\n\n{}\n\n## Pruebas locales\n\nResultado registrado: {}\n\n{}\n", work.id, work.objective,
+                match work.tests.as_deref() { Some("passed") => "correctas", Some("not_applicable") => "no aplican", _ => "pendiente" },
+                work.evidence.as_deref().unwrap_or("Pendiente de registrar")));
             if work.state != "review" { draft.blocked = Some("Finaliza la sesión desde Trabajo antes de publicar su PR hacia main".into()); }
         }
         append_task(&state, &project, session, &mut draft)?;

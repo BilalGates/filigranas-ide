@@ -1,11 +1,5 @@
-.app.has-design .center,
-.app.has-design .splitter.is-right { display: none; }
-
-.app.has-design .rail { grid-column: 2; }
-.app.has-design .right { grid-column: 3 / 5; width: auto; }
-.app.has-design,
-.app.has-design.no-side {
-  grid-template-columns: var(--workspace-sidebar-width) auto minmax(0, 1fr) 0;
+.app.has-design.is-wide .right {
+  width: min(var(--design-w, 820px), var(--right-width-limit));
 }
 
 .panel-body.is-design { overflow: hidden; }

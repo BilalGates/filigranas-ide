@@ -125,6 +125,9 @@ pub async fn git_push(app: AppHandle, project: String, set_upstream: bool, proof
         let path = crate::isolate::work_dir(&state, &project, None)?;
         crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
         let plan = PushPlan::read(&path, set_upstream)?;
+        if let Some(work) = crate::work::current(&*state.db.lock().map_err(err)?, &project)?.filter(|w| w.state != "finished") {
+            if plan.dest != work.branch { return Err("publica la rama de trabajo; la entrega a main se realiza mediante PR".into()); }
+        }
         state.approvals.consume(("git_push", &path, &plan), &proof)?;
         let exec = |program: &str, args: &[&str]| pr::run(&path, program, args);
         pr::push_exact(&exec, &plan.url, &plan.head, &plan.dest)?;

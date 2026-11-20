@@ -1746,10 +1746,17 @@ button.co-file:hover {
 .status-actions {
   display: flex;
   flex: none;
+  width: calc(var(--workspace-sidebar-width) - 16px);
   gap: 4px;
 }
 .status-action {
   white-space: nowrap;
+}
+.status-usage {
+  width: 100%;
+}
+.app.no-side .status-actions {
+  width: auto;
 }
 .status-action, .status-branch, .status-session-branch {
   display: flex;

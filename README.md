@@ -1,13 +1,23 @@
 # Filigranas IDE
 
-IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo sobre varias ramas. macOS primero, también Windows.
+IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo en una rama compartida por sesión. macOS primero, también Windows.
 
 **Estado:** las cinco entregas de V1 tienen implementación. La [aceptación de V1](docs/aceptacion-v1.md) distingue los flujos comprobados y los pendientes por plataforma y proveedor.
 
 - Proyectos, grupos y archivo; editor Monaco, terminales y Git local (estado, diffs, ramas, historial gráfico).
 - Coordinador Codex por proyecto (perfiles Hansi, Pep, Luis Enrique y Cruyff) que delega en sesiones de Claude Code, OpenCode, Antigravity y Devin.
-- Cada sesión trabaja en su propia rama y worktree; integración guiada, pausa por cuota, reanudación y relevo entre motores.
+- Cada sesión de trabajo reúne varios chats en el checkout del proyecto y una rama descriptiva (`feat/brain-global`, `fix/guardado-editor`). El reparto por rutas coordina el paralelismo; se conservan los worktrees históricos, la pausa y los relevos.
 - Larry comprueba el diff y crea commits locales. El tablero vincula ramas, commits y PR. La publicación y el merge en GitHub requieren aprobaciones separadas.
+
+## Sesiones de trabajo
+
+1. En **Trabajo**, introduce el objetivo, el tipo y el nombre descriptivo de la rama. Se parte de la referencia local disponible de `origin/main` o `main`; actualiza las referencias si necesitas incorporar cambios remotos recientes. Para incorporar cambios previos, revísalos y marca la opción correspondiente: en ese caso se conserva la base actual y todo su diff hacia `main`.
+2. Abre chats de agentes. Todos comparten la carpeta y rama de esa sesión. Asigna archivos o carpetas relativos, uno por línea; `.` reserva todo el proyecto. El coordinador puede delegar con `archivos`, modificar el reparto con `asignar_archivos` y reintentar en el mismo chat con `continuar_sesion`.
+3. Dos turnos con áreas solapadas no arrancan a la vez. Las áreas diferentes pueden avanzar en paralelo, dentro del límite de tareas del proyecto. El reparto se comunica a todas las CLI como instrucciones; no constituye un sandbox por archivo. Las operaciones Git del IDE esperan a que terminen los turnos. Las CLI y terminales externos deben respetar el mismo reparto.
+4. Crea los commits con Larry. Registra el resultado y la evidencia de las comprobaciones y pulsa **Finalizar sesión y revisar PR**. La app exige un árbol limpio, commits hacia `origin/main` y un diff válido. Durante la revisión se bloquean los nuevos turnos y las mutaciones Git del IDE.
+5. Revisa el título, la descripción, el destino `main` y el SHA. **Publicar PR y finalizar sesión** usa la confirmación existente; el merge sigue siendo independiente. Si falla la red, la sesión y la rama se conservan para reintentar sin duplicar la PR. Puedes reanudar el trabajo, invalidando la revisión anterior.
+
+Cerrar un chat o salir de la aplicación no finaliza el trabajo. Tras una PR confirmada, la siguiente sesión crea otra rama y usa chats nuevos; los anteriores conservan su historial y su rama. Las sesiones antiguas con worktree mantienen sus acciones de integración y limpieza.
 
 - [Compartir proyectos en solo lectura y configurar el servicio de conexión](relay/README.md)
 - [Plan de implementación](PLAN.md)

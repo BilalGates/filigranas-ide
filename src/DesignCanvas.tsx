@@ -135,7 +135,7 @@ export default function DesignCanvas({ project, reference, archived, navigation,
       setRun(generateCanvas(project, reference, request.trim(), engine));
     }}>
       <label>Agente
-        <select value={engine} onChange={(event) => setEngine(event.target.value as ChatEngine)}>
+        <select aria-label="Agente" value={engine} onChange={(event) => setEngine(event.target.value as ChatEngine)}>
           <option value="claude">{CANVAS_ENGINES.claude}</option>
           <option value="codex">{CANVAS_ENGINES.codex}</option>
         </select>

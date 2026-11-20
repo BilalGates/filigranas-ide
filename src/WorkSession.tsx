@@ -16,9 +16,12 @@ function Assignment({ agent, disabled, save }: { agent: WorkAgent; disabled: boo
   </form>;
 }
 
-export default function WorkSession({ project, hidden }: { project: string; hidden: boolean }) {
+export default function WorkSession({ project, hidden, onReview }: { project: string; hidden: boolean; onReview: (review: boolean) => void }) {
   const [work, setWork] = useState<Work | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  useEffect(() => setExpanded(work?.state !== 'active'), [work?.id, work?.state]);
+  useEffect(() => { onReview(work?.state === 'review'); }, [work?.state, onReview]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [objective, setObjective] = useState('');
@@ -60,7 +63,7 @@ export default function WorkSession({ project, hidden }: { project: string; hidd
   const active = !!work && work.state !== 'finished';
   const slug = (description || objective).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 72).replace(/-$/, '');
 
-  return <details className="work-session-panel" key={`${work?.id ?? 'new'}:${work?.state ?? ''}`} open={!active || work?.state === 'review'}>
+  return <details className={`work-session-panel${work?.state === 'review' ? ' is-review' : ''}`} open={expanded} onToggle={(e) => setExpanded(e.currentTarget.open)}>
     <summary>Sesión de trabajo · {active ? `${work.branch} → main` : 'nueva sesión'}{active && ` · ${work.agents.filter((a) => !a.closed).length} agentes`}</summary>
     <div className="work-session-content">
       {error && <div className="co-error" role="alert">{error}</div>}

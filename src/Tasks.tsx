@@ -106,6 +106,7 @@ export default function Tasks({
   onBranchesChanged, onWorktree,
 }: Props) {
   const [list, setList] = useState<Task[] | null>(null);
+  const [workReview, setWorkReview] = useState(false);
   const [orphans, setOrphans] = useState<Session[] | null>(null);
   const [selected, setSelected] = useState<number | null>();
   const [section, setSection] = useState<WorkSection>('summary');
@@ -309,8 +310,8 @@ export default function Tasks({
 
   return (
     <section className="coach tasks" aria-label="Trabajo del proyecto" hidden={hidden}>
-      <WorkSession key={project} project={project} hidden={hidden} />
-      <div className="task-body">
+      <WorkSession key={project} project={project} hidden={hidden} onReview={setWorkReview} />
+      <div className="task-body" style={workReview ? { display: 'none' } : undefined}>
         <nav className="task-list" aria-label="Lista de tareas">
           <div className="work-list-tools">
             <button className="co-btn is-primary" disabled={busy} onClick={() => { setError(null); setEdit({ ...EMPTY }); }}>Nueva tarea</button>

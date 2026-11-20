@@ -153,8 +153,8 @@ fn start(conn: &mut Connection, project: &str, objective: &str, kind: &str, desc
         params![project,id]).map_err(err)?;
     tx.execute("UPDATE sessions SET branch=?2,base='main',base_commit=?3 WHERE id IN (SELECT session_id FROM work_agents WHERE work_id=?4)",
         params![project,branch,base_commit,id]).map_err(err)?;
-    if head.is_some() { pr::value(repo, &["switch", "-c", &branch, base])?; }
-    else { pr::value(repo, &["switch", "-c", &branch])?; }
+    if head.is_some() { pr::value(repo, &["switch", "--no-track", "-c", &branch, base])?; }
+    else { pr::value(repo, &["switch", "--no-track", "-c", &branch])?; }
     if let Err(error) = tx.commit() {
         let restored = pr::value(repo, &["switch", &previous]);
         return Err(format!("no se pudo guardar la sesión: {error}. Recuperación de rama: {restored:?}. La rama {branch} se conserva"));
@@ -397,6 +397,7 @@ mod tests {
         assert!(begin(&mut conn, &project, a.id).unwrap_err().contains("inicia una sesión"));
         let work = start(&mut conn, &project, "Compartir el trabajo", "refactor", "agentes rama compartida", false).unwrap();
         assert_eq!(work.branch, "refactor/agentes-rama-compartida");
+        assert!(pr::value(Path::new(&project), &["rev-parse", "--abbrev-ref", "@{upstream}"]).is_err());
         assert_eq!(work.agents.len(), 3);
         for id in [a.id,b.id,c.id] {
             let s = db::session(&conn, id).unwrap().unwrap();

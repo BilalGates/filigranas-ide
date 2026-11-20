@@ -33,7 +33,7 @@ export default function DesignLoop({ reference, archived, onConversation, ...pro
     </div>
   </>;
   const conversation = <button type="button" className="co-btn" onClick={onConversation}
-    aria-label="Conversación" title="Volver a la conversación"><Icon name="chat" /></button>;
+    aria-label="Conversación" title="Enfocar la conversación"><Icon name="chat" /></button>;
   return <section className="design-loop" aria-label="Design Loop" hidden={props.hidden}>
     <div className="design-loop-view" hidden={view !== 'canvas'}>
       <DesignCanvas project={props.project} reference={reference} archived={archived} navigation={navigation} conversation={conversation} />

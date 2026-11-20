@@ -55,6 +55,8 @@ struct Proc {
     rpc: Arc<Rpc>,
     child: Child,
     session_id: String,
+    /// Agente lanzado (`opencode`, `agy`, `devin`).
+    engine: String,
     /// Opciones que ofrece el agente (`configOptions` de ACP).
     config: Value,
 }
@@ -105,6 +107,15 @@ impl Acp {
     /// Permisos sin contestar de una sesión.
     pub fn pending_for(&self, id: i64) -> usize {
         self.pending.lock().map(|p| p.values().filter(|(sid, _, _)| *sid == id).count()).unwrap_or(0)
+    }
+
+    /// Si hay un proceso vivo o arrancando (cerrojo ocupado) del agente `engine`.
+    pub fn running(&self, engine: &str) -> bool {
+        let Ok(procs) = self.procs.try_lock() else { return true };
+        procs.values().any(|slot| match slot.try_lock() {
+            Ok(p) => p.as_ref().is_some_and(|p| p.engine == engine && p.rpc.alive()),
+            Err(_) => true,
+        })
     }
 
     fn slot(&self, id: i64) -> CmdResult<Slot> {
@@ -252,7 +263,7 @@ impl Acp {
             .or_else(|| res.pointer("/models/currentModelId").and_then(Value::as_str).map(str::to_string));
         emit(json!({ "type": "ready", "model": model, "options": editable(&config) }));
 
-        *guard = Some(Proc { rpc: rpc.clone(), child, session_id: session_id.clone(), config });
+        *guard = Some(Proc { rpc: rpc.clone(), child, engine: engine.to_string(), session_id: session_id.clone(), config });
         Ok((rpc, session_id))
     }
 

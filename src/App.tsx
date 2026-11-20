@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type Session, type Tool, type Workspace } from './ipc';
+import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
@@ -16,11 +16,11 @@ import Brain from './Brain';
 import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
 import { sidebarReference } from './designCanvasModel';
-import Tools from './Tools';
+import Tools, { CliNotice } from './Tools';
 import UsagePanel from './Usage';
 import { percentLabel, useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
-import { emit, toggleMute, useUi } from './ui';
+import { emit, shortcut, toggleMute, useUi } from './ui';
 import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Browser from './Browser';
@@ -80,6 +80,10 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTools, setUsageTools] = useState(false);
+  // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
+  const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
+  // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
+  const [cliLast, setCliLast] = useState<CliUpdate[] | null>(null);
   const [browserTarget, setBrowserTarget] = useState<{ url: string } | null>(null);
   const [reportedModel, setReportedModel] = useState<{ key: number | string; model: string | null } | null>(null);
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
@@ -305,6 +309,16 @@ export default function App() {
       .finally(() => setCheckingTools(false));
   }, []);
   useEffect(checkTools, [checkTools]);
+  useEffect(() => {
+    const unlisten = listen<CliUpdate[]>('cli-updates', (e) => { setCliNotice(e.payload); setCliLast(e.payload); checkTools(); });
+    return () => { unlisten.then((off) => off()); };
+  }, [checkTools]);
+  // Los avisos de éxito se retiran solos; los fallos esperan a que se lean.
+  useEffect(() => {
+    if (!cliNotice || cliNotice.some((u) => u.outcome === 'failed')) return;
+    const timer = window.setTimeout(() => setCliNotice(null), 12000);
+    return () => window.clearTimeout(timer);
+  }, [cliNotice]);
 
   const countPending = useCallback(() => {
     if (!project) return;
@@ -633,15 +647,15 @@ export default function App() {
     <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}`}>
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
-          <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title="barra lateral · ⌘B">
+          <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title={shortcut('barra lateral · ⌘B')}>
             <Icon name="sidebar" size={15} />
           </button>
         </div>
-        <button className="tb-pill" onClick={() => setOverlay('palette')} title="órdenes, sesiones y vistas · ⌘K">
+        <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
           <Icon name="folder" size={13} />
           <span className="tb-name">{current?.name ?? 'filigranas'}</span>
           <span className="grow" />
-          <kbd>⌘K</kbd>
+          <kbd>{shortcut('⌘K')}</kbd>
         </button>
         <div className="tb-right" data-tauri-drag-region>
           <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
@@ -684,7 +698,7 @@ export default function App() {
         onError={setError}
         sessions={sessionList}
         status={muted && (
-          <button className="side-usage" onClick={() => toggleMute()} title="silenciado · ⌘⇧M">
+          <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
             <Icon name="mute" size={13} /> Silenciado
           </button>
         )}
@@ -698,7 +712,7 @@ export default function App() {
           </header>
           {usageTools ? <>
             <button className="usage-tools" onClick={() => setUsageTools(false)}>‹ Volver a Uso</button>
-            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools}
+            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
               onLogin={current ? (command) => { setUsageOpen(false); openTerminal(current.path, true, command); } : null} />
           </> : <>
             <UsagePanel engine={usageEngine} label={usageLabel} model={usageModel} quota={quota} />
@@ -808,7 +822,7 @@ export default function App() {
               </button>
             </div>
             <span className="grow" />
-            <button className="tb-btn" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title="ocultar · ⌘J">
+            <button className="tb-btn" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title={shortcut('ocultar · ⌘J')}>
               <Icon name="down" size={12} />
             </button>
           </div>
@@ -819,6 +833,8 @@ export default function App() {
             ))}
         </section>
         {errorToast}
+        {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
+          onOpen={() => { setCliNotice(null); setUsageTools(true); setUsageOpen(true); }} />}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">
@@ -830,7 +846,7 @@ export default function App() {
           return (
             <Fragment key={id}>
               <button className={`rail-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
-                aria-label={label} aria-controls="workspace-right-panel" aria-expanded={active} title={`${label}${keys}`}>
+                aria-label={label} aria-controls="workspace-right-panel" aria-expanded={active} title={shortcut(`${label}${keys}`)}>
                 <Icon name={panel.icon} size={16} />
                 {id === 'git' && dirty && <span className="dot is-dirty" />}
               </button>
@@ -908,7 +924,7 @@ export default function App() {
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-actions">
           <button ref={usageButton} className={`status-action status-usage${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
-            aria-expanded={usageOpen} onClick={toggleUsage} title="uso de los modelos · ⌘U">
+            aria-expanded={usageOpen} onClick={toggleUsage} title={shortcut('uso de los modelos · ⌘U')}>
             <Icon name="gauge" size={13} />
             <span>{usageEngine === 'claude' ? 'Uso · Claude' : usageLabel ? `Uso · ${usageLabel}` : 'Uso'}</span>
             {usageLabel && (
@@ -921,7 +937,7 @@ export default function App() {
         </div>
         {current && (
           <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
-            aria-expanded={termOpen} title="Terminal · ⌘J">
+            aria-expanded={termOpen} title={shortcut('Terminal · ⌘J')}>
             <Icon name="terminal" size={13} /> Terminal
           </button>
         )}

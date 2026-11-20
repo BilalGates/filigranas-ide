@@ -253,7 +253,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.to_str().unwrap();
         assert!(Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&dir).status().unwrap().success());
-        for args in [vec!["config", "user.email", "t@t"], vec!["config", "user.name", "t"]] {
+        // Sin conversión de finales de línea: el resultado no depende de la configuración global (Windows).
+        for args in [vec!["config", "user.email", "t@t"], vec!["config", "user.name", "t"], vec!["config", "core.autocrlf", "false"]] {
             run(p, &args).unwrap();
         }
         std::fs::write(dir.join("a.txt"), "base\n").unwrap();

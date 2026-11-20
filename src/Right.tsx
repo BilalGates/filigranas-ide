@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Splitter, { SIZES } from './Splitter';
 import { Icon } from './GitPanel';
+import { shortcut } from './ui';
 
 export const RIGHT_PANELS = {
   git: { title: 'Cambios', icon: 'changes', keys: '⌘G' },
@@ -48,7 +49,7 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ch
           </button>
         )}
         {editing && (
-          <button className="tb-btn" onClick={onCloseEditor} aria-label={`Cerrar ${editor.name}`} title="cerrar archivo · ⌘W">
+          <button className="tb-btn" onClick={onCloseEditor} aria-label={`Cerrar ${editor.name}`} title={shortcut('cerrar archivo · ⌘W')}>
             <Icon name="close" size={12} />
           </button>
         )}

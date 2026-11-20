@@ -484,6 +484,8 @@ mod tests {
         run(&["init", "-q", "-b", "main"]);
         run(&["config", "user.email", "t@t"]);
         run(&["config", "user.name", "t"]);
+        // Sin conversión de finales de línea: el resultado no depende de la configuración global (Windows).
+        run(&["config", "core.autocrlf", "false"]);
         std::fs::write(project.join("a.txt"), "uno\n").unwrap();
         std::fs::write(project.join("b.txt"), "b\n").unwrap();
         run(&["add", "."]);

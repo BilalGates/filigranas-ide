@@ -15,5 +15,11 @@
         "theme": "Dark"
       }
     ]
+  },
+  "bundle": {
+    "windows": {
+      "wix": { "language": "es-ES" },
+      "nsis": { "languages": ["Spanish"] }
+    }
   }
 }

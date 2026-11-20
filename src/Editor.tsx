@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './ipc';
+import { shortcut } from './ui';
 import { loadMonaco, themeName } from './monacoLoader';
 
 // Los modelos de Monaco sobreviven al componente para conservar el historial
@@ -168,7 +169,7 @@ export default function Editor({ path, root, session = null, onError }: { path: 
       <div className="viewer-head">
         <span className="muted">{rel.slice(0, sep)}</span>
         <span>{rel.slice(sep)}</span>
-        {dirty && <span className="dirty" role="img" aria-label="sin guardar" title="sin guardar · ⌘S" />}
+        {dirty && <span className="dirty" role="img" aria-label="sin guardar" title={shortcut('sin guardar · ⌘S')} />}
       </div>
       {conflict && <details className="share-file-conflict">
         <summary>Hay cambios guardados. Ver versión actual</summary>

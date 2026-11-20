@@ -349,7 +349,14 @@ export const pr = {
 
 // Herramientas externas que usa el IDE.
 export type Tool = { id: string; name: string; role: string; installed: boolean; loggedIn: boolean | null; detail: string; login: string | null; account?: string | null };
-export const tools = { status: () => invoke<Tool[]>('tools_status') };
+/** Resultado de actualizar la CLI de un proveedor de IA. */
+export type CliUpdate = { id: string; name: string; outcome: 'updated' | 'current' | 'busy' | 'failed'; from: string; to: string | null; detail: string };
+export const tools = {
+  status: () => invoke<Tool[]>('tools_status'),
+  update: () => invoke<CliUpdate[]>('tools_update'),
+  /** Sin argumento lee el ajuste; con él lo cambia. */
+  autoUpdate: (enabled?: boolean) => invoke<boolean>('tools_auto_update', { enabled: enabled ?? null }),
+};
 
 export type GithubLoginStatus =
   | { state: 'waiting'; code: string | null }

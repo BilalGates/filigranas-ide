@@ -89,7 +89,7 @@ fn write_line(stdin: &Mutex<ChildStdin>, msg: &Value) -> CmdResult<()> {
 
 /// Carpeta de proyectos de Claude Code (`CLAUDE_CONFIG_DIR` o `~/.claude`).
 fn claude_projects() -> Option<PathBuf> {
-    let base = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))?;
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| PathBuf::from(h).join(".claude")))?;
     Some(base.join("projects"))
 }
 
@@ -155,6 +155,11 @@ impl Claude {
     /// Permisos sin contestar de una sesión.
     pub fn pending_for(&self, id: i64) -> usize {
         self.pending.lock().map(|p| p.values().filter(|(sid, _)| *sid == id).count()).unwrap_or(0)
+    }
+
+    /// Si hay algún proceso de Claude vivo o arrancando (cerrojo ocupado).
+    pub fn running(&self) -> bool {
+        self.procs.try_lock().map(|p| p.values().any(|p| p.alive.load(Ordering::SeqCst))).unwrap_or(true)
     }
 
     /// Proceso de la sesión con el esfuerzo pedido. Si el esfuerzo cambia,

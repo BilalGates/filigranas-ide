@@ -1,6 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import GithubConnect from './GithubConnect';
-import { jev, type JevSettings, type JevStatus, type Tool } from './ipc';
+import { Icon } from './GitPanel';
+import { jev, tools as toolsApi, type CliUpdate, type JevSettings, type JevStatus, type Tool } from './ipc';
+
+/** Resultado de una actualización en pocas palabras. */
+export const UPDATE_LABEL: Record<CliUpdate['outcome'], string> = {
+  updated: 'actualizada',
+  current: 'al día',
+  busy: 'en uso',
+  failed: 'no se actualizó',
+};
 
 type Props = {
   tools: Tool[] | null;
@@ -9,6 +18,8 @@ type Props = {
   /** Abre un terminal del proyecto con la orden; `null` sin proyecto abierto. */
   onLogin: ((command: string) => void) | null;
   onRefresh: () => void;
+  /** Último resultado de la actualización automática, si la hubo. */
+  autoUpdates?: CliUpdate[] | null;
 };
 
 /** Estado de una herramienta en una palabra. */
@@ -19,7 +30,7 @@ export function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada'
 }
 
 /** Estado y acceso a las herramientas del IDE. */
-export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: Props) {
+export default function Tools({ tools, checking, hidden, onLogin, onRefresh, autoUpdates }: Props) {
   const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh', 'node'].includes(id));
   return (
     <section className="coach" aria-label="Herramientas" hidden={hidden}>
@@ -60,8 +71,96 @@ export default function Tools({ tools, checking, hidden, onLogin, onRefresh }: P
         {visible?.some((t) => !t.installed) && (
           <div className="co-aside">Instala las que faltan con su instalador habitual y vuelve a comprobar; la app las busca con el PATH de tu shell.</div>
         )}
+        {!hidden && <CliUpdates onRefresh={onRefresh} last={autoUpdates ?? null} />}
         {!hidden && <JevRouting />}
       </div>
+    </section>
+  );
+}
+
+/** Aviso emergente de las CLI actualizadas o que fallaron en segundo plano. */
+export function CliNotice({ updates, onOpen, onClose }: { updates: CliUpdate[]; onOpen: () => void; onClose: () => void }) {
+  const done = updates.filter((u) => u.outcome === 'updated');
+  const failed = updates.filter((u) => u.outcome === 'failed');
+  const title = !failed.length
+    ? done.length === 1 ? `${done[0].name} se ha actualizado` : `Se han actualizado ${done.length} CLI`
+    : !done.length
+      ? failed.length === 1 ? `No se pudo actualizar ${failed[0].name}` : `No se pudieron actualizar ${failed.length} CLI`
+      : `${done.length} CLI actualizadas · ${failed.length} con errores`;
+  const items = [...done, ...failed];
+  return (
+    <div className={`toast cli-toast${failed.length ? '' : ' is-ok'}`} role={failed.length ? 'alert' : 'status'}>
+      <Icon name={failed.length ? 'warn' : 'check'} size={13} />
+      <div className="cli-toast-body">
+        <span className="cli-toast-title">{title}</span>
+        <ul>
+          {items.map((u) => (
+            <li key={u.id}>
+              {items.length > 1 && <span>{u.name}</span>}
+              <span className="cli-toast-detail" title={u.detail}>{u.outcome === 'updated' ? u.to ?? u.detail : u.detail}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <button className="co-link" onClick={onOpen}>detalles</button>
+      <button className="icon" aria-label="Cerrar aviso" onClick={onClose}><Icon name="close" size={12} /></button>
+    </div>
+  );
+}
+
+/** Actualización de las CLI de IA: ajuste automático y último resultado. */
+function CliUpdates({ onRefresh, last }: { onRefresh: () => void; last: CliUpdate[] | null }) {
+  const [auto, setAuto] = useState<boolean | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [checked, setChecked] = useState<CliUpdate[] | null>(null);
+  // Lo buscado a mano manda sobre el último resultado automático.
+  const updates = checked ?? last;
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const update = () => {
+    setUpdating(true);
+    setError(null);
+    toolsApi.update().then(
+      (list) => { setChecked(list); if (list.some((u) => u.outcome === 'updated')) onRefresh(); },
+      (e) => setError(String(e)),
+    ).finally(() => setUpdating(false));
+  };
+  useEffect(() => {
+    let mounted = true;
+    toolsApi.autoUpdate().then((on) => { if (mounted) setAuto(on); }, (e) => { if (mounted) setSaveError(String(e)); });
+    return () => { mounted = false; };
+  }, []);
+  const toggle = (on: boolean) => {
+    setSaveError(null);
+    setAuto(on);
+    toolsApi.autoUpdate(on).then(setAuto, (e) => { setAuto(!on); setSaveError(String(e)); });
+  };
+  return (
+    <section className="cli-updates" aria-label="Actualización de las CLI" aria-busy={updating}>
+      <div className="cli-updates-head">
+        <h2>Actualización de las CLI</h2>
+        <button className="co-link" onClick={update} disabled={updating} title="ejecuta la orden de actualización de cada CLI de IA instalada">
+          {updating ? 'actualizando…' : 'buscar ahora'}
+        </button>
+      </div>
+      <label className="pub-check">
+        <input type="checkbox" checked={auto ?? false} disabled={auto === null} onChange={(e) => toggle(e.target.checked)} />
+        Actualizar automáticamente las CLI de IA
+      </label>
+      <p className="co-aside">Al abrir el IDE y cada 6 h se usa la orden de actualización de cada CLI. Si una está en uso, se espera a que quede libre.</p>
+      {updates && (
+        updates.length ? <ul className="cli-update-list" role="status">
+          {updates.map((u) => (
+            <li key={u.id}>
+              <span className={`tool-dot is-${u.outcome}`} aria-hidden="true" />
+              <span className="tool-name">{u.name}</span>
+              <span className={`cli-update-state is-${u.outcome}`}>{UPDATE_LABEL[u.outcome]}</span>
+              <span className="tool-detail" title={u.detail}>{u.outcome === 'current' ? u.from : u.detail}</span>
+            </li>
+          ))}
+        </ul> : <p className="muted" role="status">No hay CLI de IA instaladas que se puedan actualizar.</p>
+      )}
+      {(error || saveError) && <p role="alert" className="co-error">{error ?? saveError}</p>}
     </section>
   );
 }

@@ -4,7 +4,7 @@ import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, typ
 import ApprovalForm from './ApprovalForm';
 import Splitter, { SIZES } from './Splitter';
 import GitGraph, { GIT_ROW_HEIGHT, layoutGraph, parseRefs } from './GitGraph';
-import { beep, useCommand } from './ui';
+import { beep, shortcut, useCommand } from './ui';
 
 const STATUS_COLOR: Record<string, string> = { A: 'var(--ok)', U: 'var(--ok)', D: 'var(--err)', '!': 'var(--err)' };
 const LOG_DATE = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -48,6 +48,7 @@ const ICON: Record<string, JSX.Element> = {
   pm: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 2.7-4 5-4s4.2 1.4 5 4" /></>,
   wand: <><path d="M3 13 11 5" /><path d="M11 2v2M13 4h-2M12.5 7.5l1 1M7.5 2.5l1 1" /></>,
   merge: <><circle cx="4" cy="3.5" r="1.7" /><circle cx="4" cy="12.5" r="1.7" /><circle cx="12" cy="12.5" r="1.7" /><path d="M4 5.2v5.6M4 6c0 4 8 2 8 4.8" /></>,
+  check: <path d="M3 8.5 6.5 12 13 4.5" />,
   warn: <><path d="M8 2 14.5 13.5h-13z" /><path d="M8 6.5v3M8 11.5v.2" /></>,
 };
 
@@ -383,7 +384,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
                   }
                 }}
               />
-              <button className={`regen${draft.loading ? ' is-busy' : ''}`} aria-label="Que Larry proponga de nuevo" title="larry propone de nuevo · ⌘⇧G" disabled={!dirty || draft.loading} onClick={() => propose(true)}>
+              <button className={`regen${draft.loading ? ' is-busy' : ''}`} aria-label="Que Larry proponga de nuevo" title={shortcut('larry propone de nuevo · ⌘⇧G')} disabled={!dirty || draft.loading} onClick={() => propose(true)}>
                 <Icon name="regen" size={12} />
               </button>
             </div>
@@ -400,7 +401,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
               </div>
             )}
             <div className="split">
-              <button className="act" onClick={() => commit(false)} disabled={!ready || !!op} title="crea los commits en local · ⌘⇧C">
+              <button className="act" onClick={() => commit(false)} disabled={!ready || !!op} title={shortcut('crea los commits en local · ⌘⇧C')}>
                 {op === 'commit' ? 'creando…' : commits.length > 1 ? `commit · ${commits.length}` : 'commit'}
               </button>
               <button className="act dd" aria-label="Más formas de hacer commit" aria-expanded={menu === 'commit'} disabled={!ready || !!op} onClick={() => setMenu((m) => (m === 'commit' ? null : 'commit'))}>
@@ -410,11 +411,11 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
                 <div className="menu split-menu" role="menu">
                   <button role="menuitem" className="menu-item" onClick={() => commit(false)}>
                     <span className="grow">commit</span>
-                    <span className="kbd">⌘⇧C</span>
+                    <span className="kbd">{shortcut('⌘⇧C')}</span>
                   </button>
                   <button role="menuitem" className="menu-item" onClick={() => commit(true)}>
                     <span className="grow">commit y push</span>
-                    <span className="kbd">⌘⇧P</span>
+                    <span className="kbd">{shortcut('⌘⇧P')}</span>
                   </button>
                 </div>
               )}

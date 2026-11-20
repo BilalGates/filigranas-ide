@@ -3,6 +3,7 @@ import { Icon } from './GitPanel';
 import { CANVAS_ENGINES, canvasRuns, generateCanvas } from './designCanvasAgent';
 import type { ChatEngine } from './ipc';
 import { CANVAS_CONSTRAINT, loadCanvas, saveCanvas, starterFrames, type CanvasFrame, type CanvasPair, type CanvasRow } from './designCanvasModel';
+import { shortcut } from './ui';
 import './designCanvas.css';
 
 type Props = { project: string; reference: CanvasFrame; archived: number; navigation: ReactNode; conversation: ReactNode };
@@ -244,7 +245,7 @@ function SidebarFrame({ frame, index, archived, selected, rowId, onSelect }: {
     <div className={`design-frame-card${selected ? ' is-selected' : ''}`} style={{ height: frame.height }}>
       {selected && <span className="design-frame-handles" aria-hidden="true"><i /><i /><i /><i /></span>}
       <div className="design-frame-chrome" aria-hidden="true"><span /><span /><span /><Icon name="sidebar" size={14} /></div>
-      <div className="design-frame-new" aria-hidden="true"><Icon name="plus" />Nueva sesión <kbd>⌘ T</kbd></div>
+      <div className="design-frame-new" aria-hidden="true"><Icon name="plus" />Nueva sesión <kbd>{shortcut('⌘').replace('+', '')} T</kbd></div>
       {index === 0 && <div className="design-frame-search">Proyectos<span><Icon name="search" size={11} />buscar</span></div>}
       <div className="design-frame-scroll">
         {frame.groups.map((group, groupIndex) => <section key={groupIndex}

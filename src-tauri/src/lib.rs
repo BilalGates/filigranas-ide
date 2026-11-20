@@ -109,6 +109,7 @@ pub fn run() {
                 jev_gate: Default::default(),
                 chat_gate: Default::default(),
             });
+            tools::start_auto(app.handle().clone());
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
                     eprintln!("no se pudo observar {root}: {e}");
@@ -244,6 +245,8 @@ pub fn run() {
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            tools::tools_update,
+            tools::tools_auto_update,
             github_login::github_login_start,
             github_login::github_login_status,
             github_login::github_login_cancel,

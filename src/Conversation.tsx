@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { chats, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
 import Splitter, { SIZES } from './Splitter';
-import { beep } from './ui';
+import { beep, shortcut } from './ui';
 
 // Piezas comunes a las conversaciones del coordinador y de las sesiones de
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
@@ -491,7 +491,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
           {efforts.length > 0 && (
             <button
               className="chip"
-              title="esfuerzo · ⌘⇧E"
+              title={shortcut('esfuerzo · ⌘⇧E')}
               disabled={disabled}
               onClick={() => {
                 beep('tick');
@@ -503,13 +503,13 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
           )}
         </div>
         {running ? (
-          <button className="send" aria-label="Detener" title="detener · ⌘." onClick={onInterrupt}>
+          <button className="send" aria-label="Detener" title={shortcut('detener · ⌘.')} onClick={onInterrupt}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
               <rect x="1" y="1" width="8" height="8" rx="1.5" fill="currentColor" />
             </svg>
           </button>
         ) : (
-          <button className="send" aria-label="Enviar" title="enviar · ⌘↩" onClick={send} disabled={disabled || submitting}>
+          <button className="send" aria-label="Enviar" title={shortcut('enviar · ⌘↩')} onClick={send} disabled={disabled || submitting}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" />
             </svg>

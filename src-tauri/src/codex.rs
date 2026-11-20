@@ -194,7 +194,14 @@ fn thread_params(cwd: &str, direct: bool, rules: &str) -> Value {
 /// Programa externo listo para lanzar. En Windows, `Command` solo busca
 /// `.exe` en el PATH y las CLI instaladas con npm son `.cmd`: se resuelve la
 /// ruta completa a mano. En macOS basta el nombre con el PATH de login.
+/// Si la CLI se está actualizando, espera a que termine antes de lanzarla.
 pub(crate) fn program(name: &str) -> std::path::PathBuf {
+    crate::tools::wait_update(name);
+    resolve(name)
+}
+
+/// Como [`program`], sin esperar a una actualización en curso.
+pub(crate) fn resolve(name: &str) -> std::path::PathBuf {
     #[cfg(windows)]
     {
         let path = login_path().map(std::ffi::OsString::from).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
@@ -408,6 +415,11 @@ impl Codex {
     /// El proceso en marcha, sin arrancar otro.
     pub fn current(&self) -> Option<Arc<Rpc>> {
         self.server.lock().ok()?.as_ref().filter(|s| s.rpc.alive()).map(|s| s.rpc.clone())
+    }
+
+    /// Si el app-server está vivo o arrancando (cerrojo ocupado).
+    pub fn running(&self) -> bool {
+        self.server.try_lock().map(|s| s.as_ref().is_some_and(|s| s.rpc.alive())).unwrap_or(true)
     }
 
     /// El proceso en marcha, o uno nuevo si no hay o terminó.

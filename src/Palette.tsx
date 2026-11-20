@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { shortcut } from './ui';
 
 export type Command = { id: string; label: string; keys?: string; run: () => void; group?: string };
 
@@ -53,7 +54,7 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
           {hits.map((c, i) => (
             <button key={c.id} role="option" aria-selected={i === at} className={`pal-item${i === at ? ' is-sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => run(c)}>
               <span className="grow">{c.label}</span>
-              {c.keys && <span className="kbd">{c.keys}</span>}
+              {c.keys && <span className="kbd">{shortcut(c.keys)}</span>}
             </button>
           ))}
           {hits.length === 0 && <div className="pal-empty">nada coincide</div>}
@@ -78,7 +79,7 @@ export function Cheatsheet({ commands, onClose }: { commands: Command[]; onClose
           .map((c) => (
             <div className="cheat-row" key={c.id}>
               <span>{c.label}</span>
-              <kbd>{c.keys}</kbd>
+              <kbd>{shortcut(c.keys!)}</kbd>
             </div>
           ))}
       </div>

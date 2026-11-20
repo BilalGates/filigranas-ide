@@ -139,6 +139,16 @@ pub fn git_status(state: State<AppState>, project: String) -> CmdResult<Status> 
     status_at(&repo(&state, &project)?, "HEAD")
 }
 
+#[tauri::command]
+pub fn git_head(state: State<AppState>, project: String) -> CmdResult<String> {
+    let repo = repo(&state, &project)?;
+    match git(&repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+        Ok(branch) => Ok(String::from_utf8_lossy(&branch).trim().to_owned()),
+        Err(_) => git(&repo, &["rev-parse", "--short", "HEAD"])
+            .map(|head| format!("HEAD · {}", String::from_utf8_lossy(&head).trim())),
+    }
+}
+
 /// Estado de una rama de sesión: archivos que difieren del commit del que
 /// partió, estén o no en commits (`git diff <base>` sobre el árbol de
 /// trabajo). Añade los archivos sin seguimiento del estado de Git.

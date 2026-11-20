@@ -9,6 +9,7 @@ IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo sob
 - Cada sesión trabaja en su propia rama y worktree; integración guiada, pausa por cuota, reanudación y relevo entre motores.
 - Larry comprueba el diff y crea commits locales. El tablero vincula ramas, commits y PR. La publicación y el merge en GitHub requieren aprobaciones separadas.
 
+- [Compartir proyectos en solo lectura y configurar el servicio de conexión](relay/README.md)
 - [Plan de implementación](PLAN.md)
 - [Mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) — datos de ejemplo, sin conexión a agentes ni repositorios.
 

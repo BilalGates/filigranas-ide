@@ -1,7 +1,10 @@
 mod acp;
 mod approval;
+mod attachments;
 mod brain;
 mod brain_graph;
+mod browser;
+mod chat;
 mod claude;
 mod codex;
 mod containers;
@@ -11,6 +14,7 @@ mod design;
 mod files;
 mod git;
 mod github;
+mod github_login;
 mod handoff;
 mod health;
 mod isolate;
@@ -21,6 +25,9 @@ mod paths;
 mod pr;
 mod pty;
 mod runs;
+mod services;
+mod sharing;
+mod system_curl;
 mod skills;
 mod tasks;
 mod tools;
@@ -42,6 +49,9 @@ pub(crate) struct AppState {
     /// Observa el proyecto abierto (recursivo) para refrescar Git y archivos.
     pub project_watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub ptys: pty::Ptys,
+    pub services: services::ServiceProcesses,
+    pub sharing: sharing::Sharing,
+    pub github_login: github_login::GithubLogin,
     pub codex: codex::Codex,
     pub claude: claude::Claude,
     pub acp: acp::Acp,
@@ -49,6 +59,7 @@ pub(crate) struct AppState {
     pub publication: Mutex<()>,
     pub approvals: approval::Approvals,
     pub jev_gate: Mutex<()>,
+    pub chat_gate: Mutex<()>,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -56,6 +67,18 @@ pub(crate) type CmdResult<T> = Result<T, String>;
 
 pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
+}
+
+fn main_webview_only(
+    handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool,
+) -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool {
+    move |request| {
+        if request.message.webview().label() != "main" {
+            request.resolver.reject("vista sin acceso a los comandos del IDE");
+            return true;
+        }
+        handler(request)
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -73,6 +96,9 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 project_watcher: Mutex::new(None),
                 ptys: Default::default(),
+                services: Default::default(),
+                sharing: Default::default(),
+                github_login: Default::default(),
                 codex: Default::default(),
                 claude: Default::default(),
                 acp: Default::default(),
@@ -80,6 +106,7 @@ pub fn run() {
                 publication: Default::default(),
                 approvals: Default::default(),
                 jev_gate: Default::default(),
+                chat_gate: Default::default(),
             });
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -91,7 +118,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(main_webview_only(tauri::generate_handler![
             brain::brain_search,
             brain::brain_entry,
             brain_graph::brain_graph,
@@ -132,10 +159,26 @@ pub fn run() {
             workspace::move_project,
             workspace::set_archived,
             workspace::create_project,
+            workspace::reveal_project,
+            browser::browser_open,
+            browser::browser_place,
+            browser::browser_action,
+            browser::browser_location,
+            sharing::share_start,
+            sharing::share_current,
+            sharing::share_stop,
+            sharing::share_access,
+            sharing::share_join,
+            sharing::share_status,
+            sharing::share_list,
+            sharing::share_read,
+            sharing::share_write,
+            sharing::share_leave,
             files::list_dir,
             files::read_text,
             files::write_text,
             git::git_status,
+            git::git_head,
             git::git_diff_texts,
             git::git_log,
             git::git_branches,
@@ -149,13 +192,16 @@ pub fn run() {
             codex::coordinator_send,
             codex::coordinator_interrupt,
             codex::coordinator_respond,
-            codex::coordinator_set_profile,
+            codex::codex_rate_limits,
             codex::codex_pin_model,
             tasks::tasks_list,
             tasks::task_save,
             tasks::task_link,
             tasks::task_runs,
             tasks::task_parallel_limit,
+            chat::chat_pm,
+            chat::chat_history,
+            chat::chat_switch,
             claude::session_list,
             claude::session_create,
             claude::session_history,
@@ -186,13 +232,27 @@ pub fn run() {
             pr::open_pr_url,
             pr::pr_status,
             tools::tools_status,
+            github_login::github_login_start,
+            github_login::github_login_status,
+            github_login::github_login_cancel,
+            github_login::github_login_open,
             jev::jev_status,
+            jev::jev_usage,
+            jev::jev_euro_rate,
             jev::jev_configure,
+            services::services_list,
+            services::service_save,
+            services::service_action,
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,
             window::window_backdrop,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error al iniciar Filigranas");
+        ]))
+        .build(tauri::generate_context!())
+        .expect("error al iniciar Filigranas")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<AppState>().services.shutdown();
+            }
+        });
 }

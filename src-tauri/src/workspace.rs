@@ -220,6 +220,20 @@ pub fn create_project(state: State<AppState>, name: String) -> CmdResult<Workspa
     load(&conn)
 }
 
+#[tauri::command]
+pub fn reveal_project(state: State<AppState>, path: String) -> CmdResult<()> {
+    let path = project_path(&*state.db.lock().map_err(err)?, &path)?;
+    #[cfg(target_os = "macos")]
+    let program = "open";
+    #[cfg(windows)]
+    let program = "explorer.exe";
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let program = "xdg-open";
+    let mut child = std::process::Command::new(program).arg(path).spawn().map_err(err)?;
+    std::thread::spawn(move || { let _ = child.wait(); });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -806,6 +806,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "dunce",
+ "libc",
  "notify",
  "objc2",
  "objc2-app-kit",
@@ -821,6 +822,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "uuid",
  "window-vibrancy",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

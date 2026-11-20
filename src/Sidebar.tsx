@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { api, type Project, type Workspace } from './ipc';
 import type { ReactNode } from 'react';
 import { Icon } from './GitPanel';
+import { shortcut } from './ui';
 
 type Props = {
   ws: Workspace;
@@ -71,10 +72,10 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
 
   return (
     <aside className="sidebar" aria-label="Proyectos">
-      <button className="side-new" onClick={onNewSession} disabled={!project} title="nueva sesión de agente · ⌘T">
+      <button className="side-new" onClick={onNewSession} disabled={!project} title={shortcut('nueva sesión de agente · ⌘T')}>
         <Icon name="plus" size={14} />
         <span className="grow">Nueva sesión</span>
-        <kbd>⌘</kbd>
+        <kbd>{shortcut('⌘').replace('+', '')}</kbd>
         <kbd>T</kbd>
       </button>
       <div className="side-head">

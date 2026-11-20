@@ -89,7 +89,7 @@ fn write_line(stdin: &Mutex<ChildStdin>, msg: &Value) -> CmdResult<()> {
 
 /// Carpeta de proyectos de Claude Code (`CLAUDE_CONFIG_DIR` o `~/.claude`).
 fn claude_projects() -> Option<PathBuf> {
-    let base = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))?;
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(|h| PathBuf::from(h).join(".claude")))?;
     Some(base.join("projects"))
 }
 

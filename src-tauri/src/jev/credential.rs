@@ -103,9 +103,9 @@ pub fn read(_: bool) -> Option<String> {
         let entry = &*credential;
         let secret = if (2..=4096).contains(&entry.size) && !entry.blob.is_null() {
             let data = slice::from_raw_parts(entry.blob, entry.size as usize);
-            let mut characters = data.chunks_exact(2);
-            let wide: Vec<u16> = characters.by_ref().map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-            if characters.remainder().is_empty() {
+            let (characters, remainder) = data.as_chunks::<2>();
+            let wide: Vec<u16> = characters.iter().map(|c| u16::from_le_bytes(*c)).collect();
+            if remainder.is_empty() {
                 String::from_utf16(wide.strip_suffix(&[0]).unwrap_or(&wide)).ok()
             } else {
                 None

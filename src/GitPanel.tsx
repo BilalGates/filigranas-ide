@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
+import { Icon } from './trama/icons';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, type LarryCommit, type LogRow, type Review, type Stash } from './ipc';
 import ApprovalForm from './ApprovalForm';
@@ -17,48 +18,8 @@ const STATUS_LABEL: Record<string, string> = {
   '!': 'en conflicto',
 };
 
-// Iconos de trazo fino, de la misma familia.
-const ICON: Record<string, JSX.Element> = {
-  branch: <><circle cx="4" cy="3.5" r="1.7" /><circle cx="4" cy="12.5" r="1.7" /><circle cx="12" cy="5.5" r="1.7" /><path d="M4 5.2v5.6M12 7.2c0 3-8 2-8 3.6" /></>,
-  box: <><path d="M8 1.5 14 4.8v6.4L8 14.5 2 11.2V4.8z" /><path d="M2 4.8 8 8l6-3.2M8 8v6.5" /></>,
-  pull: <><path d="M8 2v9M4.5 7.5 8 11l3.5-3.5" /><path d="M3 14h10" /></>,
-  push: <><path d="M8 13V4M4.5 7.5 8 4l3.5 3.5" /><path d="M3 2h10" /></>,
-  more: <><circle cx="3" cy="8" r=".9" /><circle cx="8" cy="8" r=".9" /><circle cx="13" cy="8" r=".9" /></>,
-  regen: <><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" /><path d="M13.5 2.5v3h-3" /></>,
-  down: <path d="M4 6l4 4 4-4" />,
-  terminal: <><path d="M3 4.5 6.5 8 3 11.5" /><path d="M8.5 12h4.5" /></>,
-  mute: <><path d="M2 6h3l4-3v10l-4-3H2z" /><path d="M11 6l4 4M15 6l-4 4" /></>,
-  close: <path d="M4 4l8 8M12 4l-8 8" />,
-  plus: <path d="M8 3v10M3 8h10" />,
-  folder: <path d="M1.5 4h4.5l1.5 1.5h7V13h-13z" />,
-  file: <><path d="M4 1.5h5.5L13 5v9.5H4z" /><path d="M9.5 1.5V5H13" /></>,
-  changes: <><path d="M8 2v6M5 5h6" /><path d="M5 12h6" /></>,
-  tasks: <><path d="m2 4 1.5 1.5L6 3M2 9l1.5 1.5L6 8M8 4.5h6M8 9.5h6M8 13h6" /></>,
-  health: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M2 8h3l1.5-3 2 6L10 8h4" /></>,
-  design: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M1.5 6h13m-5 0v7.5" /></>,
-  brain: <><path d="M8 4a2.3 2.3 0 0 0-4.5-.4A2.5 2.5 0 0 0 2.7 8a2.7 2.7 0 0 0 1.8 4.5A1.8 1.8 0 0 0 8 12m0-8a2.3 2.3 0 0 1 4.5-.4 2.5 2.5 0 0 1 .8 4.4 2.7 2.7 0 0 1-1.8 4.5A1.8 1.8 0 0 1 8 12m0-8v8M4.5 7 6 8m5.5-1L10 8" /></>,
-  graph: <><circle cx="8" cy="3" r="1.5" /><circle cx="3" cy="12" r="1.5" /><circle cx="13" cy="12" r="1.5" /><path d="m7.2 4.3-3.4 6.4m5-6.4 3.4 6.4m-7.7 1.3h7" /></>,
-  tools: <path d="M9.5 2a3.5 3.5 0 0 0-4.4 4.5L2 9.6a2 2 0 1 0 2.8 2.8l3.1-3.1A3.5 3.5 0 0 0 12.5 5l-2.1 2.1L8 4.7z" />,
-  sidebar: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M6 2.5v11" /></>,
-  panel: <><rect x="1.5" y="2.5" width="13" height="11" rx="2" /><path d="M10 2.5v11" /></>,
-  gauge: <><path d="M2.5 11a5.5 5.5 0 1 1 11 0" /><path d="M8 11l2.5-3" /></>,
-  globe: <><circle cx="8" cy="8" r="6" /><ellipse cx="8" cy="8" rx="2.5" ry="6" /><path d="M2 8h12" /></>,
-  search: <><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></>,
-  chat: <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" />,
-  pm: <><circle cx="8" cy="5.5" r="2.5" /><path d="M3 13.5c.8-2.6 2.7-4 5-4s4.2 1.4 5 4" /></>,
-  wand: <><path d="M3 13 11 5" /><path d="M11 2v2M13 4h-2M12.5 7.5l1 1M7.5 2.5l1 1" /></>,
-  merge: <><circle cx="4" cy="3.5" r="1.7" /><circle cx="4" cy="12.5" r="1.7" /><circle cx="12" cy="12.5" r="1.7" /><path d="M4 5.2v5.6M4 6c0 4 8 2 8 4.8" /></>,
-  check: <path d="M3 8.5 6.5 12 13 4.5" />,
-  warn: <><path d="M8 2 14.5 13.5h-13z" /><path d="M8 6.5v3M8 11.5v.2" /></>,
-};
-
-export function Icon({ name, size = 14 }: { name: string; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {ICON[name]}
-    </svg>
-  );
-}
+// Iconografía Trama compartida (antes vivía aquí).
+export { Icon };
 
 type Props = {
   project: string;

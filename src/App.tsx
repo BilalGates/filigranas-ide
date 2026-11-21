@@ -27,6 +27,9 @@ import Browser from './Browser';
 import Splitter, { SIZES } from './Splitter';
 import GithubProfile from './GithubProfile';
 import Sharing, { type ShareTarget } from './Sharing';
+import AmbientField from './trama/AmbientField';
+import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest } from './trama/nav';
+import Home from './trama/Home';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -111,6 +114,8 @@ export default function App() {
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
   const [noRight, setNoRight] = useState(false);
+  const [dest, setDestState] = useState<Dest>(loadDest);
+  const setDest = useCallback((d: Dest) => { setDestState(d); saveDest(d); }, []);
   const { activity, muted } = useUi();
   const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
   const pmReady = !!project && pmChat?.project === project;
@@ -417,6 +422,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', on);
   }, []);
 
+  // «Retomar»: último punto de trabajo real (proyecto y vista del Workspace).
+  useEffect(() => {
+    if (project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
+  }, [project, view, dest]);
+
   const closeFile = () => {
     setFile(null);
     setDiff(null);
@@ -503,7 +513,7 @@ export default function App() {
     else if (typeof view === 'number') closeSession(view);
   };
 
-  const commands: Command[] = [
+  const baseCommands: Command[] = [
     { id: 'palette', label: 'órdenes', keys: '⌘K', run: () => setOverlay('palette') },
     { id: 'cheat', label: 'atajos de teclado', keys: '⌘/', run: () => setOverlay('cheat') },
     { id: 'new', label: 'nueva sesión', keys: '⌘T', run: () => newSession() },
@@ -539,9 +549,15 @@ export default function App() {
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
     { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
   ];
+  // Las órdenes del Workspace llevan a él; las globales no cambian de destino.
+  const GLOBAL = new Set(['palette', 'cheat', 'usage', 'mute', 'theme', 'send', 'stop', 'model', 'effort', 'allow', 'deny']);
+  const commands: Command[] = [
+    ...DESTS.map((d) => ({ id: `dest-${d.id}`, label: d.label, keys: d.keys, run: () => setDest(d.id) })),
+    ...baseCommands.map((c) => GLOBAL.has(c.id) ? c : { ...c, run: () => { setDest('workspace'); c.run(); } }),
+  ];
   // Atajos que resuelve la vista visible (conversación, editor).
   const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
-  const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`' };
+  const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`', Comma: ',' };
   keys.current = (e) => {
     if (shareMode) return;
     if (!(e.metaKey || e.ctrlKey) || e.altKey) {
@@ -636,6 +652,9 @@ export default function App() {
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
   });
+  const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
+  const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
+  const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
   const errorToast = error && (
     <button className="toast" onClick={() => setError(null)} title="cerrar">
       <Icon name="warn" size={13} />
@@ -644,7 +663,8 @@ export default function App() {
   );
 
   return (
-    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}`}>
+    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}`}>
+      <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
           <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title={shortcut('barra lateral · ⌘B')}>
@@ -674,6 +694,20 @@ export default function App() {
         </div>
       </header>
 
+      <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive} />
+      {dest === 'inicio' && (
+        <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
+          onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
+          onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
+          onWork={(path, task) => { if (path !== project) selectProject(path); if (task) setWorkTarget({ project: path, task, section: 'summary' }); setView('work'); setDest('workspace'); }}
+          onResume={() => {
+            const r = loadResume();
+            if (!r || !ws.projects.some((p) => p.path === r.project)) return;
+            if (r.project !== project) selectProject(r.project);
+            if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
+            setDest('workspace');
+          }} />
+      )}
       <Sidebar
         ws={ws}
         project={project}
@@ -856,7 +890,7 @@ export default function App() {
       </nav>
 
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
-        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen} target={browserTarget} />
+        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {panelOpen && rightView === 'brain' && <>
           <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>
             <option value="">Memoria global</option>

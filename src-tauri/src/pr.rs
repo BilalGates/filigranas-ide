@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -20,18 +20,25 @@ pub fn run(repo: &Path, program: &str, args: &[&str]) -> CmdResult<String> {
     let mut cmd = Command::new(crate::codex::program(program));
     cmd.args(args).current_dir(repo).env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1");
     if let Some(path) = login_path() { cmd.env("PATH", path); }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
+    cmd.env_remove("GH_DEBUG").env_remove("GIT_CURL_VERBOSE");
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().to_ascii_uppercase().starts_with("GIT_TRACE") {
+            cmd.env_remove(name);
+        }
     }
-    let out = cmd.output().map_err(|e| format!("no se pudo ejecutar {program}: {e}"))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    let (out, diagnostics) = crate::p5_process::capture(cmd, Stdio::null(), 90, 8 * 1024 * 1024, 16 * 1024)
+        .map_err(|e| format!("{program}: {e}"))?;
+    if out.truncated {
+        return Err(format!("{program} superó el límite de respuesta"));
+    }
+    if out.success {
+        Ok(String::from_utf8_lossy(&out.bytes).into_owned())
+    } else if program == "git" && matches!(args.first(), Some(&("push" | "ls-remote"))) {
+        Err("el remoto de Git no respondió correctamente. Comprueba el acceso y el estado de la rama".into())
     } else {
-        let message = String::from_utf8_lossy(&out.stderr);
+        let message = String::from_utf8_lossy(&diagnostics);
         if message.trim().is_empty() {
-            return Err(format!("{program} terminó con {}", out.status));
+            return Err(format!("{program} terminó con un error"));
         }
         Err(message.trim().to_string())
     }
@@ -45,6 +52,11 @@ pub fn push_url(repo: &Path, remote: &str) -> CmdResult<String> {
     let urls = value(repo, &["remote", "get-url", "--push", "--all", "--", remote])?;
     if urls.is_empty() || urls.lines().count() != 1 {
         return Err("la publicación requiere un único destino de push".into());
+    }
+    if let Ok(url) = tauri::Url::parse(&urls) {
+        if matches!(url.scheme(), "http" | "https") && (!url.username().is_empty() || url.password().is_some()) {
+            return Err("configura las credenciales HTTP en el gestor de Git en lugar de incluirlas en la URL de push".into());
+        }
     }
     Ok(urls)
 }
@@ -406,13 +418,17 @@ fn existing(pulls: &[Pull], base: &str, head: &str) -> CmdResult<Option<Pull>> {
     Ok(pulls.iter().find(|p| p.base == base && p.head == head).cloned())
 }
 
+fn publication_attempt<'a>(project: &'a str, target: &'a Target, base: &'a str) -> Publication<'a> {
+    Publication { project, repository: &target.repository, branch: &target.branch, base, oid: &target.head }
+}
+
 fn publish(repo: &Path, remote: &Github<'_>, edit: &Publish, confirm: impl FnOnce(String) -> bool) -> CmdResult<Pull> {
     let target = remote.target;
     let d = local_draft(repo, Some(edit.base.clone()))?;
     if d.base != edit.base || d.head != edit.expected_head || d.branch != edit.expected_branch || target.repository != edit.expected_repository {
         return Err("la base, el commit o el repositorio cambió. Vuelve a revisar el borrador".into());
     }
-    let journal = Publication { project: remote.project, repository: &target.repository, branch: &target.branch, base: &edit.base, oid: &target.head };
+    let journal = publication_attempt(remote.project, target, &edit.base);
     let query = || existing(&remote.list()?, &edit.base, &target.head);
     let known = query()?;
     if let Some(pull) = &known {
@@ -424,9 +440,6 @@ fn publish(repo: &Path, remote: &Github<'_>, edit: &Publish, confirm: impl FnOnc
         }
     }
     if let Some(why) = d.blocked { return Err(why); }
-    if known.is_none() && journal.pending(&*remote.db.lock().map_err(err)?)? {
-        return Err("GitHub todavía no confirma el intento anterior. Actualiza el estado antes de volver a publicar este commit".into());
-    }
     if edit.title.trim().is_empty() && known.is_none() { return Err("la PR necesita título".into()); }
     let intent = if let Some(pull) = &known { format!("Actualizar PR #{}", pull.number) }
         else { format!("Abrir PR «{}»{}", edit.title, if edit.draft_pr { " como borrador" } else { "" }) };
@@ -434,6 +447,7 @@ fn publish(repo: &Path, remote: &Github<'_>, edit: &Publish, confirm: impl FnOnc
         return Err("publicación cancelada".into());
     }
     target.confirm_unchanged(repo)?;
+    crate::work::check_merge(repo, &edit.base, &target.head)?;
     let fresh = query()?;
     if known.as_ref().map(|p| (&p.state,p.number)) != fresh.as_ref().map(|p| (&p.state,p.number)) {
         return Err("la PR cambió durante la confirmación. Revisa el estado antes de continuar".into());
@@ -482,8 +496,12 @@ pub fn pr_review_publish(state: tauri::State<AppState>, path: String, session: O
     if target.branch != edit.expected_branch || target.head != edit.expected_head || target.repository != edit.expected_repository {
         return Err("la rama, el commit o el repositorio cambió. Vuelve a revisar el borrador".into());
     }
-    state.approvals.prepare(("pr_publish", &project, session, &target, &edit),
-        format!("Publicar en {} · {} → {} · {}", target.repository, target.branch, edit.base, target.head), &target.head)
+    let pending = publication_attempt(&project, &target, &edit.base).pending(&*state.db.lock().map_err(err)?)?;
+    let mut message = format!("Publicar en {} · {} → {} · {}", target.repository, target.branch, edit.base, target.head);
+    if pending {
+        message.push_str("\nEl intento anterior quedó sin confirmar. Se buscará la PR en GitHub antes de intentar abrirla de nuevo.");
+    }
+    state.approvals.prepare(("pr_publish", &project, session, &target, &edit, pending), message, &target.head)
 }
 
 #[tauri::command]
@@ -496,7 +514,8 @@ pub async fn pr_publish(app: AppHandle, path: String, session: Option<i64>, edit
         let target = Target::read(&dir)?;
         let exec = |program: &str, args: &[&str]| run(&dir, program, args);
         let remote = Github { target: &target, project: &project, db: &state.db, exec: &exec };
-        state.approvals.consume(("pr_publish", &project, session, &target, &edit), &proof)?;
+        let pending = publication_attempt(&project, &target, &edit.base).pending(&*state.db.lock().map_err(err)?)?;
+        state.approvals.consume(("pr_publish", &project, session, &target, &edit, pending), &proof)?;
         let work = crate::work::publication(&*state.db.lock().map_err(err)?, &project, &dir, &edit.base)?;
         let result = publish(&dir, &remote, &edit, |_| true).and_then(|pull| {
             if let Some(id) = work {
@@ -787,7 +806,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_create_is_not_repeated_while_github_cannot_reconcile_it() {
+    fn an_unreceived_create_can_be_retried_after_a_fresh_confirmation() {
         let fixture = Fixture::new();
         let target = Target::read(&fixture.0).unwrap();
         let edit = fixture.edit();
@@ -797,8 +816,15 @@ mod tests {
         let server = RefCell::new(Server::default());
         let exec = |program: &str, args: &[&str]| server.borrow_mut().exec(program, args);
         let remote = Github { target: &target, project: "repo", db: &db, exec: &exec };
-        assert!(publish(&fixture.0, &remote, &edit, |_| panic!("estado incierto")).unwrap_err().contains("intento anterior"));
+        server.borrow_mut().offline = true;
+        assert!(publish(&fixture.0, &remote, &edit, |_| panic!("GitHub sigue sin responder")).is_err());
+        server.borrow_mut().offline = false;
+        assert_eq!(publish(&fixture.0, &remote, &edit, |_| false).unwrap_err(), "publicación cancelada");
         assert_eq!((server.borrow().pushes,server.borrow().creates), (0,0));
+        let pull = publish(&fixture.0, &remote, &edit, |_| true).unwrap();
+        assert_eq!(pull.number, 7);
+        assert_eq!((server.borrow().pushes,server.borrow().creates), (1,1));
+        assert!(!journal.pending(&db.lock().unwrap()).unwrap());
     }
 
     #[test]
@@ -845,16 +871,29 @@ mod tests {
     }
 
     #[test]
+    fn push_rejects_http_credentials_without_echoing_them() {
+        let fixture = Fixture::new();
+        value(&fixture.0, &["remote", "set-url", "--push", "origin", "https://example:fixture-secret@github.com/owner/repo.git"]).unwrap();
+        let error = push_url(&fixture.0, "origin").unwrap_err();
+        assert!(error.contains("gestor de Git"));
+        assert!(!error.contains("fixture-secret"));
+    }
+
+    #[test]
     fn remote_identity_and_missing_checks_fail_closed() {
         assert_eq!(repository("git@github.com:Owner/Repo.git").as_deref(), Some("owner/repo"));
         assert_eq!(repository("https://github.com.evil.test/Owner/Repo.git"), None);
         assert_eq!(repository("https://github.com/../../Owner/Repo.git"), None);
-        let missing = details(&json!({
+        let mut data = json!({
             "number":7,"url":"https://github.com/owner/repo/pull/7","state":"OPEN",
             "headRefName":"ide/task","headRefOid":"oid","baseRefName":"main","isDraft":false,"mergeStateStatus":"CLEAN"
-        })).unwrap();
-        assert_eq!(missing.checks_state, "unknown");
-        assert!(!missing.merge_ready());
+        });
+        for rollup in [Value::Null, json!([])] {
+            data["statusCheckRollup"] = rollup;
+            let missing = details(&data).unwrap();
+            assert_eq!(missing.checks_state, "unknown");
+            assert!(!missing.merge_ready());
+        }
     }
 
     #[test]

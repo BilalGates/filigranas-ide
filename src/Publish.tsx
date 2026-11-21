@@ -36,7 +36,7 @@ export default function Publish({ project, session, hidden, workClosure = false 
     setConfirm(null);
   }, [hidden, discardApproval]);
 
-  const load = useCallback(async (base: string | null) => {
+  const load = useCallback(async (base: string | null, keepEdits = false) => {
     const request = ++sequence.current;
     setError(null);
     setConfirm(null);
@@ -45,8 +45,10 @@ export default function Publish({ project, session, hidden, workClosure = false 
       const d = await pr.draft(project, session, workClosure ? 'main' : base);
       if (request !== sequence.current) return;
       setDraft(d);
-      setTitle(d.title);
-      setBody(d.body);
+      if (!keepEdits) {
+        setTitle(d.title);
+        setBody(d.body);
+      }
       setInfo(d.existing);
       setRemoteError(d.remoteError);
       setPublished(false);
@@ -126,7 +128,7 @@ export default function Publish({ project, session, hidden, workClosure = false 
 
   const eligible = !!(info && !remoteError && draft?.head === info.head && info.state === 'OPEN'
     && !info.isDraft && info.mergeState === 'CLEAN' && (!info.review || info.review === 'APPROVED')
-    && info.checksKnown && !info.checks[1] && !info.checks[2]);
+    && info.checksKnown && info.checks[0] > 0 && !info.checks[1] && !info.checks[2]);
 
   return (
     <section className="coach publish" aria-label="Publicar" hidden={hidden}>
@@ -135,7 +137,11 @@ export default function Publish({ project, session, hidden, workClosure = false 
         <span className="muted">{draft ? `${draft.branch} → ${draft.base || '…'}` : 'cargando…'}</span>
       </div>
       <div className="co-log">
-        {remoteError && <div className="co-error" role="status">Estado remoto sin actualizar. {remoteError}</div>}
+        {remoteError && <div className="co-error" role="status">
+          Estado remoto sin actualizar. {remoteError}
+          {!info && draft && <button className="co-btn" disabled={busy || !!confirm}
+            onClick={() => void load(draft.base, true)}>actualizar estado</button>}
+        </div>}
         {info && <div className="co-msg">
           <div className="co-by">PR #{info.number} · {info.state.toLowerCase()}{info.isDraft ? ' · borrador' : ''}</div>
           <button className="co-link" onClick={() => pr.open(info.url).catch((e) => setError(String(e)))}>{info.url}</button>

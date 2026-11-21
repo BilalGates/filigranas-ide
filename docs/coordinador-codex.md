@@ -1,6 +1,6 @@
-# Coordinador Codex
+# Coordinador Codex · decisiones históricas
 
-> Política vigente desde el 20 de noviembre de 2026: los nuevos chats comparten la rama descriptiva y el checkout de una sesión de trabajo. El reparto se hace por rutas con `delegar.archivos`, `asignar_archivos` y `continuar_sesion`; los ámbitos solapados esperan. La sesión termina con PR hacia `main` desde Trabajo. Las referencias a aislamiento por agente de este documento describen el flujo histórico, conservado para sesiones con worktree. Véase el [flujo actual](../README.md#sesiones-de-trabajo).
+> En el flujo vigente, **Project manager** es el rol de coordinación y Jev puede recomendar modelo y esfuerzo. Consulta el [flujo de sesiones](../README.md#sesiones-de-trabajo) y la [auditoría técnica](auditoria-tecnica.md) para la implementación actual. El resto de este documento conserva el diseño de la primera versión y sus perfiles.
 
 **Decisión (2026-11-16):** Codex es el motor coordinador principal de la primera versión y también puede ejecutar tareas. Si se agota su cuota, otro motor disponible puede asumir temporalmente la coordinación mediante un relevo. Hansi Flick, Pep Guardiola, Luis Enrique y Johan Cruyff son perfiles de instrucciones del coordinador activo. Claude Code, OpenCode, Antigravity y Devin siguen disponibles como agentes ejecutores.
 
@@ -41,10 +41,29 @@ Solo hay un coordinador activo por proyecto. Cuando Codex informa un límite, el
 
 El coordinador no trata la salida textual de un agente como prueba de que una tarea terminó: contrasta diff, comandos y resultados de pruebas con los criterios de terminado.
 
-## Prompt de preparación solicitado para Codex
+## Prompt histórico de preparación para Codex
 
-Se entrega una sola vez al preparar el entorno del coordinador, no en cada turno de cada proyecto. Codex es «another agent» en este texto, por lo que corresponde únicamente el método `npx`; no se ejecuta el método de Claude Code.
+Prompt original del 16 de noviembre de 2026, conservado como referencia de diseño.
 
 > Install the TypeSafe skill. If you're in Claude Code, run `claude plugin marketplace add typesafe-ai/skills`, then `claude plugin install typesafe@typesafe-ai`. If you're in another agent, run `npx skills add typesafe-ai/skills --skill typesafe-ai` and select your agent. Use one installation method. You can read the skill directly at https://github.com/typesafe-ai/skills/blob/main/skills/typesafe-ai/SKILL.md (raw: https://raw.githubusercontent.com/typesafe-ai/skills/main/skills/typesafe-ai/SKILL.md). Then use the TypeSafe skill when working on this project.
 
 La skill documenta patrones para integrar la API de TypeSafe. Su uso en este proyecto se limita a consultar esos patrones cuando sean pertinentes. La aplicación no configura credenciales de TypeSafe ni llama a Jev sin una decisión posterior del usuario. La instalación tampoco debe escribir archivos en repositorios de proyectos abiertos por el IDE.
+
+
+## Perfiles retirados
+
+### Hansi Flick
+
+Directo y eficaz. Pocas palabras, decisiones claras y ritmo alto. Propones un plan breve solo cuando el encargo tiene varias partes; si es sencillo, lo haces. Delegas con confianza y revisas los resultados, no el proceso.
+
+### Pep Guardiola
+
+Perfeccionista y controlador. Para cambios complejos, fija riesgos y criterios de terminado antes de actuar. Revisa cada resultado a fondo y pide verificación independiente según el riesgo.
+
+### Luis Enrique
+
+Innovador y con identidad propia. Cuestionas el planteamiento cuando hay una forma mejor y la propones con argumentos, sin imponerla. Te gustan las soluciones simples y valientes, y aceptas un riesgo controlado si el beneficio lo justifica.
+
+### Johan Cruyff
+
+Completo, el mejor en todos los terrenos. Ves el conjunto: producto, código, diseño y operación. Explicas el porqué de cada decisión con claridad y buscas la solución más elegante, que suele ser la más sencilla.

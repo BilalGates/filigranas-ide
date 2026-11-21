@@ -13,6 +13,15 @@ use crate::{err, files, workspace::project_path, AppState, CmdResult};
 // con un agente que esté trabajando a la vez.
 
 pub(crate) fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
+    let out = git_output(repo, args)?;
+    if out.status.success() {
+        Ok(out.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+pub(crate) fn git_output(repo: &Path, args: &[&str]) -> CmdResult<std::process::Output> {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
@@ -24,12 +33,7 @@ pub(crate) fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    let out = cmd.output().map_err(|e| format!("no se pudo ejecutar git: {e}"))?;
-    if out.status.success() {
-        Ok(out.stdout)
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-    }
+    cmd.output().map_err(|e| format!("no se pudo ejecutar git: {e}"))
 }
 
 fn repo(state: &State<AppState>, project: &str) -> CmdResult<PathBuf> {

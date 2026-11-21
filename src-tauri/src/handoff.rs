@@ -43,11 +43,13 @@ pub fn relevo(from: &db::Session, from_engine: &str, stat: &str, log: &str, last
     out.push_str(&format!("## Objetivo\n{}\n\n", from.task.as_deref().unwrap_or("(sin encargo registrado; pregunta al usuario si no queda claro por el estado del código)")));
     match (&from.branch, &from.worktree, &from.base) {
         (Some(b), Some(w), Some(base)) => out.push_str(&format!("## Rama\n{b} (parte de {base}), en {w}\n\n")),
-        _ => out.push_str("## Carpeta\nLa carpeta del proyecto (sin rama propia).\n\n"),
+        (Some(branch), None, _) => out.push_str(&format!("## Rama compartida\n{branch}, en la carpeta del proyecto.\n\n")),
+        _ => out.push_str("## Carpeta\nLa carpeta del proyecto.\n\n"),
     }
-    out.push_str(&format!("## Cambios hasta ahora\n{}\n\n", if stat.trim().is_empty() { "Ninguno." } else { stat.trim() }));
+    let stat = stat.trim();
+    out.push_str(&format!("## Cambios hasta ahora\n{}\n\n", if stat.is_empty() { "Ninguno.".into() } else { clip(stat, 6000) }));
     if !log.trim().is_empty() {
-        out.push_str(&format!("## Commits de la sesión\n{}\n\n", log.trim()));
+        out.push_str(&format!("## Commits de la sesión\n{}\n\n", clip(log.trim(), 3000)));
     }
     if !last.trim().is_empty() {
         out.push_str(&format!("## Último informe del agente anterior\n{}\n\n", clip(last.trim(), 3000)));
@@ -139,21 +141,25 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
         if engine != "claude" && engine != "codex" && !crate::acp::ENGINES.contains(&engine.as_str()) {
             return Err(format!("motor desconocido: {engine}"));
         }
-        let (stat, log) = progress(&from);
-        let text = relevo(&from, engine_label(&from.engine), &stat, &log, &state.tracker.get(id).last);
-        // Un solo agente por carpeta: el anterior termina antes de empezar.
+        // Conserva la reserva del origen hasta que Codex confirme la interrupción.
         stop(&app, &state, &from)?;
+        if from.engine == "codex" && crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+            return Err("Codex aún está parando. Reintenta el relevo cuando termine el turno".into());
+        }
         state.claude.forget(id);
         state.acp.close(id)?;
+        let (stat, log) = progress(&from);
+        let text = relevo(&from, engine_label(&from.engine), &stat, &log, &state.tracker.get(id).last);
         let provider = if engine == "claude" { uuid::Uuid::new_v4().to_string() } else { String::new() };
         let to = {
             let mut conn = state.db.lock().map_err(err)?;
-            db::create_handoff(&mut conn, id, &engine, &provider, &NAMES).map_err(err)?
+            db::create_handoff(&mut conn, id, &engine, &provider, &NAMES, &text).map_err(err)?
         };
         drop(gate);
         let _ = app.emit("sessions-changed", json!({ "project": from.project, "focus": to.id }));
         crate::tasks::changed(&app);
-        send_message(&app, to.id, text, None)?;
+        send_message(&app, to.id, "Continúa desde el resumen del relevo.".into(), None)
+            .map_err(|error| format!("Relevo guardado en «{}». El turno no se inició: {error}", to.name))?;
         Ok(to)
     })
     .await
@@ -212,7 +218,7 @@ mod tests {
 
         let from = db::session(&conn, from.id).unwrap().unwrap();
         let (stat, _) = progress(&from);
-        let to = db::create_handoff(&mut conn, from.id, "opencode", "", &["xavi", "iniesta"]).unwrap();
+        let to = db::create_handoff(&mut conn, from.id, "opencode", "", &["xavi", "iniesta"], "resumen guardado").unwrap();
         drop(conn);
 
         let conn = db::open(&dir.join("test.db")).unwrap();

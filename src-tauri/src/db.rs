@@ -85,6 +85,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("integrated", "TEXT"),
         ("task", "TEXT"),
         ("handoff_from", "INTEGER"),
+        ("handoff_context", "TEXT"),
         ("paused", "TEXT"),
         // Opciones elegidas en un agente ACP (JSON: id de opción → valor).
         ("options", "TEXT"),
@@ -192,13 +193,13 @@ pub fn set_session_paused(conn: &Connection, id: i64, reason: Option<&str>) -> r
 }
 
 /// Transfiere la rama y el worktree a una única sesión abierta.
-pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_session: &str, names: &[&str]) -> rusqlite::Result<Session> {
+pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_session: &str, names: &[&str], context: &str) -> rusqlite::Result<Session> {
     let tx = conn.transaction()?;
     let from = session(&tx, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     let new = create_session(&tx, &from.project, engine, provider_session, names)?;
     tx.execute(
-        "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5, integrated = ?6, task = ?7, handoff_from = ?8 WHERE id = ?1",
-        params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id],
+        "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5, integrated = ?6, task = ?7, handoff_from = ?8, handoff_context = ?9 WHERE id = ?1",
+        params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id, context],
     )?;
     tx.execute("INSERT INTO task_sessions(session_id,task_id) SELECT ?1,task_id FROM task_sessions WHERE session_id=?2", [new.id,from.id])?;
     tx.execute("INSERT INTO work_agents(session_id,work_id,paths) SELECT ?1,work_id,paths FROM work_agents WHERE session_id=?2", [new.id,from.id])?;
@@ -418,14 +419,14 @@ mod tests {
         conn.execute_batch("CREATE TEMP TRIGGER reject_close BEFORE UPDATE OF closed ON sessions
             BEGIN SELECT RAISE(ABORT, 'fallo al cerrar'); END;").unwrap();
         let open_before = sessions(&conn, "/r/p").unwrap().len();
-        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names).is_err());
+        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names, "contexto persistido").is_err());
         assert_eq!(sessions(&conn, "/r/p").unwrap().len(), open_before);
         assert!(session(&conn, b.id).unwrap().is_some());
         conn.execute_batch("DROP TRIGGER reject_close").unwrap();
-        let to = create_handoff(&mut conn, b.id, "opencode", "", &names).unwrap();
+        let to = create_handoff(&mut conn, b.id, "opencode", "", &names, "contexto persistido").unwrap();
         assert_eq!((to.worktree.as_deref(), to.branch.as_deref(), to.task.as_deref(), to.handoff_from), (Some("/w"), Some("ide/iniesta-2"), Some("arregla la cola"), Some(b.id)));
         assert!(session(&conn, b.id).unwrap().is_none());
-        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names).is_err());
+        assert!(create_handoff(&mut conn, b.id, "opencode", "", &names, "contexto persistido").is_err());
         set_session_paused(&conn, to.id, Some("cuota")).unwrap();
 
         // Pendientes: la sesión relevada no cuenta mientras la nueva siga

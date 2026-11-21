@@ -61,6 +61,8 @@ pub(crate) struct AppState {
     pub approvals: approval::Approvals,
     pub jev_gate: Mutex<()>,
     pub chat_gate: Mutex<()>,
+    // Se libera después de destruir los recursos del perfil.
+    _profile_lock: std::fs::File,
 }
 
 /// Los comandos devuelven errores como texto legible para la interfaz.
@@ -82,6 +84,19 @@ fn main_webview_only(
     }
 }
 
+fn lock_profile(dir: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::fs::{OpenOptions, TryLockError};
+    use std::io::{Error, ErrorKind};
+
+    let lock = OpenOptions::new().create(true).truncate(false).write(true)
+        .open(dir.join("filigranas.lock"))?;
+    match lock.try_lock() {
+        Ok(()) => Ok(lock),
+        Err(TryLockError::WouldBlock) => Err(Error::new(ErrorKind::WouldBlock, "Filigranas ya está abierto con este perfil")),
+        Err(TryLockError::Error(error)) => Err(error),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -89,10 +104,20 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            let profile_lock = match lock_profile(&data_dir) {
+                Ok(lock) => lock,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    eprintln!("{error}");
+                    app.handle().exit(0);
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
             let conn = db::open(&data_dir.join("filigranas.db"))?;
             runs::recovery(&conn)?;
             let root = db::get_setting(&conn, "root")?;
             app.manage(AppState {
+                _profile_lock: profile_lock,
                 db: Mutex::new(conn),
                 watcher: Mutex::new(None),
                 project_watcher: Mutex::new(None),
@@ -267,7 +292,25 @@ pub fn run() {
         .expect("error al iniciar Filigranas")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<AppState>().services.shutdown();
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.services.shutdown();
+                }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_open_profile_cannot_be_recovered_by_another_instance() {
+        let dir = std::env::temp_dir().join(format!("filigranas-profile-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&dir).unwrap();
+        let first = lock_profile(&dir).unwrap();
+        assert_eq!(lock_profile(&dir).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        drop(first);
+        assert!(lock_profile(&dir).is_ok());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

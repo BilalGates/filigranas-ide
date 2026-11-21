@@ -91,7 +91,14 @@ pub fn task_input(tx: &rusqlite::Transaction<'_>, run: i64, project: &str, task:
         }
         None => text.into(),
     };
-    let session = tx.query_row("SELECT session_id FROM task_runs WHERE id=?1", [run], |r| r.get(0)).map_err(err)?;
+    let (session, handoff): (Option<i64>, Option<String>) = tx.query_row(
+        "SELECT session_id,(SELECT handoff_context FROM sessions WHERE id=task_runs.session_id) FROM task_runs WHERE id=?1",
+        [run], |r| Ok((r.get(0)?,r.get(1)?)),
+    ).map_err(err)?;
+    let input = match handoff {
+        Some(context) => format!("{input}\n\n{context}"),
+        None => input,
+    };
     crate::work::context(tx, project, session, input)
 }
 
@@ -110,7 +117,11 @@ pub fn finish(conn: &Connection, run: i64, outcome: &str) -> rusqlite::Result<()
         params![run,now(),outcome])? > 0
     {
         let next = match outcome {
-            "completed" => "verifying",
+            "completed" => {
+                tx.execute("UPDATE sessions SET handoff_context=NULL WHERE handoff_context IS NOT NULL
+                    AND id=(SELECT session_id FROM task_runs WHERE id=?1)", [run])?;
+                "verifying"
+            }
             "paused_quota" => "paused_quota",
             "cancelled" | "interrupted" => "ready",
             _ => "failed",

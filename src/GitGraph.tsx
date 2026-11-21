@@ -11,7 +11,7 @@ const curve = (x1: number, y1: number, x2: number, y2: number) =>
 
 type Segment = { d: string; color: string };
 type Dot = { x: number; y: number; color: string; kind: 'head' | 'merge' | 'commit'; inset: number };
-export type Graph = { lines: Segment[]; dots: Dot[]; width: number; height: number };
+type Graph = { lines: Segment[]; dots: Dot[]; width: number; height: number };
 
 /** Un carril espera a un commit; `from` es la columna de la que sale su tramo hacia la fila siguiente. */
 type Lane = { hash: string; color: string; from: number } | null;

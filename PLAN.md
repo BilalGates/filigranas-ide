@@ -66,7 +66,7 @@ El usuario selecciona una carpeta raíz de proyectos en el primer arranque; `~/r
    - **Ramas de sesión (hecho):** desde una sesión aislada se abren sus archivos en el editor, un terminal en su carpeta, Larry sobre su rama y la publicación de su rama con PR. Sus cambios cuentan lo que difiere del commit de partida, con o sin commit.
    - **Herramientas (hecho):** al arrancar se comprueba qué CLI están instaladas y con sesión (Codex, Claude Code, OpenCode, Devin, `gh`; Antigravity y Node solo instalación); «iniciar sesión» abre un terminal con la orden.
    - **Mejoras (hecho):** vista de resolución de conflictos por bloques (proyecto, sesión o ambas); modelo y razonamiento elegibles en OpenCode, Antigravity y Devin (el modo no se expone porque puede saltarse los permisos), guardados por sesión; uso de cuota de Claude en la cabecera y pausa en cuanto Claude rechaza por límite; checks de la PR refrescados cada 20 s mientras haya pendientes.
-   - **Empaquetado:** `npm run tauri build` genera el `.dmg` en macOS; el `.msi` se genera en Windows. Las CLI externas se resuelven en Windows por su `.exe`/`.cmd` en el PATH.
+   - **Empaquetado:** `pnpm tauri build` genera el `.dmg` en macOS; el `.msi` se genera en Windows. Las CLI externas se resuelven en Windows por su `.exe`/`.cmd` en el PATH.
 
 ## 6. Comprobaciones de aceptación
 

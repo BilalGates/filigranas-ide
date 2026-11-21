@@ -68,10 +68,10 @@ export function toggleMute() {
 // Cada vista informa de su estado; la barra de pestañas lo pinta
 // (borde animado si trabaja, punto rojo si pide permiso).
 
-export type Activity = 'trabajando' | 'permiso' | null;
+type Activity = 'trabajando' | 'permiso' | null;
 let activity: Record<string, Activity> = {};
 
-export function reportActivity(key: string, state: Activity) {
+function reportActivity(key: string, state: Activity) {
   if (activity[key] === state) return;
   const prev = activity[key];
   activity = { ...activity, [key]: state };

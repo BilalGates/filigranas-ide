@@ -1,12 +1,13 @@
 // Monaco se carga solo al abrir el primer archivo o diff (import dinámico
 // desde monacoLoader.ts), para que el arranque de la app no pague su peso.
 import * as monaco from 'monaco-editor';
-import { themeName } from './monacoLoader';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import JsonWorker from 'monaco-editor/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker';
+
+const THEME = 'filigranas-dark';
 
 self.MonacoEnvironment = {
   getWorker(_id: string, label: string) {
@@ -38,7 +39,7 @@ for (const defaults of [monaco.typescript.typescriptDefaults, monaco.typescript.
 
 // Paleta sobria: casi todo en grises; solo cadenas y números llevan un
 // tinte apagado. El fondo es transparente: se ve el negro del panel.
-monaco.editor.defineTheme('filigranas-dark', {
+monaco.editor.defineTheme(THEME, {
   base: 'vs-dark',
   inherit: true,
   rules: [
@@ -130,7 +131,7 @@ export function languageFor(path: string): string {
 /** Opciones comunes del editor y del diff, con el tema del sistema. */
 export function baseOptions() {
   return {
-    theme: themeName(),
+    theme: THEME,
     fontFamily: "Iosevka, Menlo, Consolas, monospace",
     fontSize: 12.5,
     lineHeight: 22,

@@ -7,7 +7,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::codex::{login_path, Incoming, Rpc};
+use crate::cli::{login_path, program};
+use crate::rpc::{Incoming, Rpc};
 use crate::{db, err, AppState, CmdResult};
 
 // Agentes por ACP (Agent Client Protocol): OpenCode, Antigravity y Devin.
@@ -135,7 +136,7 @@ impl Acp {
         *guard = None;
 
         let engine = session.engine.as_str();
-        let mut cmd = Command::new(crate::codex::program(engine));
+        let mut cmd = Command::new(program(engine));
         cmd.arg("acp").current_dir(session.cwd()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);

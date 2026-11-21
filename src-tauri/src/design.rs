@@ -326,14 +326,14 @@ fn generate_with_claude(scratch: &Scratch, prompt: &str) -> CmdResult<String> {
     let path = scratch.0.join("prompt.txt");
     std::fs::write(&path, prompt).map_err(err)?;
     let input = std::fs::File::open(path).map_err(err)?;
-    let mut command = Command::new(crate::codex::program("claude"));
+    let mut command = Command::new(crate::cli::program("claude"));
     command.current_dir(&scratch.0).args([
         "--print", "--output-format", "json", "--no-session-persistence",
         "--tools", "", "--setting-sources", "", "--strict-mcp-config",
         "--mcp-config", r#"{"mcpServers":{}}"#,
         "--system-prompt", CANVAS_INSTRUCTIONS,
     ]);
-    if let Some(path) = crate::codex::login_path() {
+    if let Some(path) = crate::cli::login_path() {
         command.env("PATH", path);
     }
     let output = p5_process::run_with_stdin(command, Stdio::from(input), 180).map_err(|error| {

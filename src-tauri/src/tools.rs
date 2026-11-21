@@ -1,12 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::{Command, Stdio};
-use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::codex::{login_path, resolve};
+use crate::cli::{login_path, resolve, UpdateGate, UPDATE_LIMIT};
 use crate::{db, err, AppState, CmdResult};
 
 // Estado de las CLI que usa el IDE: si están instaladas y si tienen la
@@ -201,49 +200,11 @@ pub async fn tools_status() -> CmdResult<Vec<Tool>> {
 // con su propia orden y se compara `--version` antes y después. No se toca
 // una CLI que el IDE tenga abierta: en Windows su ejecutable está bloqueado.
 
-/// Plazo de una actualización (descarga incluida).
-const UPDATE_LIMIT: Duration = Duration::from_secs(300);
 /// Cada cuánto se vuelve a buscar una versión nueva de cada CLI.
 const RECHECK: Duration = Duration::from_secs(6 * 3600);
 /// Cada cuánto despierta el bucle para reintentar las CLI que estaban en uso.
 const TICK: Duration = Duration::from_secs(30 * 60);
 const AUTO_KEY: &str = "cli_auto_update";
-
-fn updating() -> &'static (Mutex<HashSet<&'static str>>, Condvar) {
-    static UPDATING: OnceLock<(Mutex<HashSet<&'static str>>, Condvar)> = OnceLock::new();
-    UPDATING.get_or_init(Default::default)
-}
-
-/// Bloquea hasta que termine la actualización en curso de `name`, si la hay,
-/// para no lanzar la CLI mientras se reemplaza su ejecutable.
-pub(crate) fn wait_update(name: &str) {
-    let (lock, done) = updating();
-    if let Ok(guard) = lock.lock() {
-        let _ = done.wait_timeout_while(guard, UPDATE_LIMIT + Duration::from_secs(30), |set| set.contains(name));
-    }
-}
-
-/// Marca de actualización en curso; se retira al soltarla.
-struct Gate(&'static str);
-
-impl Gate {
-    fn take(id: &'static str) -> Option<Self> {
-        // Sin `then_some`: crearía la marca aunque ya hubiera otra, y al
-        // soltarla, con el cerrojo aún tomado, se bloquearía y borraría la ajena.
-        let fresh = updating().0.lock().ok()?.insert(id);
-        if fresh { Some(Self(id)) } else { None }
-    }
-}
-
-impl Drop for Gate {
-    fn drop(&mut self) {
-        let (lock, done) = updating();
-        if let Ok(mut set) = lock.lock() {
-            set.remove(self.0);
-        }
-        done.notify_all();
-    }
-}
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -286,7 +247,7 @@ fn update_one(app: &AppHandle, spec: &'static Spec) -> Option<Update> {
     let args = spec.update?;
     let busy = |detail: &str| Update { id: spec.id, name: spec.name, outcome: "busy", from: String::new(), to: None, detail: detail.into() };
     // La marca va antes de mirar si está en uso: un arranque posterior espera.
-    let Some(gate) = Gate::take(spec.id) else { return Some(busy("ya se está actualizando")) };
+    let Some(gate) = UpdateGate::take(spec.id) else { return Some(busy("ya se está actualizando")) };
     if in_use(app, spec.id) {
         return Some(busy("se actualizará cuando quede libre"));
     }
@@ -402,18 +363,7 @@ mod tests {
         assert!(SPECS.iter().filter(|s| s.update.is_some()).all(|s| matches!(s.id, "codex" | "claude" | "opencode" | "agy")));
     }
 
-    #[test]
-    fn a_launch_waits_for_the_update_in_progress() {
-        let gate = Gate::take("fixture-cli").unwrap();
-        assert!(Gate::take("fixture-cli").is_none(), "dos actualizaciones a la vez");
-        let start = Instant::now();
-        let waiter = std::thread::spawn(|| wait_update("fixture-cli"));
-        std::thread::sleep(Duration::from_millis(200));
-        drop(gate);
-        waiter.join().unwrap();
-        assert!(start.elapsed() >= Duration::from_millis(200) && start.elapsed() < Duration::from_secs(5));
-        wait_update("otra-cli"); // sin actualización en curso no espera
-    }
+
 
     #[test]
     fn strips_terminal_colors() {

@@ -28,10 +28,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
-          cache: npm
-      - run: npm ci
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          cache: true
+      - run: pnpm install --frozen-lockfile
       - name: TypeScript and Vite
-        run: npm run build
+        run: pnpm build
       - name: Install Rust and Clippy
         run: rustup toolchain install stable --profile minimal --component clippy
       - name: Rust and Tauri tests
@@ -50,8 +52,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
-      - name: npm audit
-        run: npm audit --audit-level=high
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - name: pnpm audit
+        run: pnpm audit --audit-level=high
       - name: RustSec audit
         if: ${{ !cancelled() }}
         run: |

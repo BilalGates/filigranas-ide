@@ -131,7 +131,7 @@ fn start(project: &str, service: &Service) -> CmdResult<ProcessRef> {
             .creation_flags(0x0800_0000);
         command
     };
-    if let Some(path) = crate::codex::login_path() {
+    if let Some(path) = crate::cli::login_path() {
         command.env("PATH", path);
     }
     if let Some(port) = service.port {

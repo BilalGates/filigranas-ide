@@ -1,0 +1,5 @@
+overrides:
+  monaco-editor>dompurify: 3.4.18
+
+allowBuilds:
+  fsevents: true

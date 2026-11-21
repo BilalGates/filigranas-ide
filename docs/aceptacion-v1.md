@@ -2,6 +2,8 @@
 
 18 de noviembre de 2026 · macOS arm64 · base local `5d8f4cc`. El commit de Windows `5499d61` de `origin/main` queda fuera de esta ejecución. La compilación del árbol de trabajo incluyó dos cambios locales previos de guardado (`src/Editor.tsx` y `src-tauri/src/files.rs`), que se revisan por separado de P0.
 
+Para reproducir las pruebas en el árbol actual, usa los [comandos de desarrollo](../README.md#desarrollo). Las referencias a npm en resultados fechados identifican la herramienta usada en esa ejecución.
+
 ## Inventario
 
 | Área | Implementación y puntos de extensión |
@@ -32,7 +34,7 @@
 
 ## Reproducción
 
-- Ejecutar `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
+- Ejecutar `pnpm build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
 - Con las CLI autenticadas, repetir `cargo test --manifest-path src-tauri/Cargo.toml --lib -- --ignored <nombre> --nocapture` para cada prueba real de la tabla. Los turnos de proveedor se ejecutaron con acceso a red. En el entorno restringido, Codex se cerró y `gh` no alcanzó la API.
 - Para repetir el recorrido nativo, crear un repositorio Git desechable como hijo de una carpeta raíz de pruebas y arrancar un bundle con identificador distinto de `com.filigranas.ide`. Seleccionar el repositorio, abrir Claude, pedir una respuesta breve de solo lectura y relevar a OpenCode. Reiniciar y, en la sesión recuperada, crear un Markdown desde su terminal. Debe aparecer inmediatamente entre los cambios. Abrir Larry en esa sesión, revisar rutas y crear el commit local. Abrir Publicar sobre el repo sin `origin` y comprobar el bloqueo.
 
@@ -71,7 +73,7 @@ El tablero usa `tasks`, `task_dependencies`, `task_sessions` y `task_runs`. La m
 | Cierre | `closing_requires_user_evidence_and_current_worktree_integration` comprueba que un turno exitoso deja la tarea en verificación. Para cerrar se registra el resultado de pruebas y evidencia, y se valida la huella de los worktrees con cambios. |
 | Métricas | Se observaron duración, modelo, tokens y cuota en las respuestas de Codex y Claude. Se registró el coste estimado que devolvió Claude y el coste de Codex quedó desconocido. ACP conserva la ocupación de contexto cuando la informa, con consumo API desconocido. |
 
-Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el PM**, **nuevo chat Codex** y **vincular sesión**. En Claude, solicitar una escritura en el worktree de prueba y cerrar la app con la tarjeta de permiso pendiente. Reabrir el proyecto y comprobar el turno interrumpido en **Últimos turnos**. Ejecutar también `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
+Para repetir, abrir **tareas**, crear una tarea **lista**, usar **hablar con el PM**, **nuevo chat Codex** y **vincular sesión**. En Claude, solicitar una escritura en el worktree de prueba y cerrar la app con la tarjeta de permiso pendiente. Reabrir el proyecto y comprobar el turno interrumpido en **Últimos turnos**. Ejecutar también `pnpm build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y `cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
 
 ## Aceptación de P3
 
@@ -108,7 +110,7 @@ En el repaso previo (2026-11-19, `b8c49a0`) se ejecutaron en macOS cuatro prueba
 - **Code Health.** En un repositorio temporal, `git diff --check` detectó espacios sobrantes en `style.txt:2`. El panel mostró la regla, la versión de Git y el SHA base, y guardó una resolución explícita. La importación SARIF 2.1.0 conserva regla, severidad, ubicación y huella de informe. Los tests comprueban la deduplicación y el descarte de mensajes y fragmentos que podrían contener secretos. El CI usa las observaciones de P3 por rama, SHA y fecha. Las comprobaciones locales de npm y Cargo son de ejecución explícita.
 - **Design Loop.** En el bundle aislado se capturaron dos versiones reales de una página local a 1280 × 800, se verificó la superposición con el deslizador y se aprobó la candidata tras confirmar las restricciones. La comparación de los PNG persistidos confirmó que la cabecera bloqueada seguía idéntica píxel a píxel y el panel había cambiado. Para repetir, guardar una pantalla, abrir su URL local y capturar en Chrome o importar un PNG de una app nativa. Aprobar la referencia, capturar con el mismo tamaño y seleccionar una región. SQLite conserva versiones aprobadas y descartadas. [Capturas de Chrome](https://developer.chrome.com/docs/chromium/headless)
 - **Semáforo.** En el bundle aislado se midieron los marcos de los tres controles nativos en AppKit. Los bordes izquierdos quedaron a 16, 39 y 62 puntos, con margen superior de 16 puntos y botones de 14 × 14. La cabecera lateral reserva 48 puntos.
-- **Verificación.** Ejecutar `npm run build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y Clippy con `--all-targets -- -D warnings`. Para comprobar la captura real, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml captures_real_local_page_at_the_requested_size -- --ignored` con Chrome instalado y acceso a loopback.
+- **Verificación.** Ejecutar `pnpm build`, `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml` y Clippy con `--all-targets -- -D warnings`. Para comprobar la captura real, ejecutar `cargo test --locked --offline --manifest-path src-tauri/Cargo.toml captures_real_local_page_at_the_requested_size -- --ignored` con Chrome instalado y acceso a loopback.
 - **Comparación con Claude desde la interfaz (2026-11-19).** En macOS 27.2.1 arm64, con un bundle aislado de `c90da8f`, se seleccionaron una referencia y una candidata sintéticas de 1280 × 800. Desde **Abrir sesión Claude** se creó una sesión con worktree propio. Con el encargo escrito y la sesión seleccionada, **Pedir comparación visual** se mantuvo deshabilitado hasta marcar el consentimiento de envío. Al pulsar el botón, Filigranas abrió la sesión Claude y mostró la respuesta. El panel había pasado de azul claro a verde menta y la cabecera azul se conservaba. Queda pendiente la verificación nativa en Windows.
 
 

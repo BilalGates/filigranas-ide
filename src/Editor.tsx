@@ -3,7 +3,7 @@ import type * as Monaco from 'monaco-editor';
 import { listen } from '@tauri-apps/api/event';
 import { api } from './ipc';
 import { shortcut } from './ui';
-import { loadMonaco, themeName } from './monacoLoader';
+import { loadMonaco } from './monacoLoader';
 
 // Los modelos de Monaco sobreviven al componente para conservar el historial
 // de deshacer. La versión guardada también debe pertenecer a cada modelo.
@@ -32,11 +32,8 @@ export default function Editor({ path, root, session = null, onError }: { path: 
       editor.current = monaco.editor.create(host.current, { ...baseOptions(), model: null });
       setReady(true);
     }, (e) => !disposed && setError(String(e)));
-    const onScheme = () => loadMonaco().then(({ monaco }) => monaco.editor.setTheme(themeName()));
-    window.addEventListener('filigranas-theme-changed', onScheme);
     return () => {
       disposed = true;
-      window.removeEventListener('filigranas-theme-changed', onScheme);
       editor.current?.dispose();
       editor.current = null;
     };

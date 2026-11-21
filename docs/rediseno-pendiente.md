@@ -1,7 +1,7 @@
-# Rediseño · funcionalidad pendiente
+# Rediseño · propuesta original
 
 Diseño de referencia: artefacto «Filigranas — rediseño» (https://claude.ai/artifact/C3VRYTr5qHv7TrvCnhJcL3).
-Aquí va solo lo que necesita lógica nueva en la app; lo visual se toma del artefacto.
+Lista original del rediseño, conservada como referencia. El [inventario de aceptación](aceptacion-v1.md) y la [auditoría técnica](auditoria-tecnica.md) recogen el estado comprobado.
 
 ## Agentes
 - [ ] **Respuestas escuetas.** Añadir a las instrucciones de todos los perfiles: «responde lo justo: resultado primero, sin repetir el encargo ni narrar pasos; máximo 2–3 frases salvo que se pida detalle».

@@ -6,7 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 
-use crate::codex::{login_path, program};
+use crate::cli::{login_path, program};
 use crate::{db, err, workspace::project_path, AppState, CmdResult};
 
 // Contenedores Docker del proyecto (PLAN.md §2), solo lectura con la CLI

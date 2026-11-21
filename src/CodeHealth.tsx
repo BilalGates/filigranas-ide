@@ -3,7 +3,7 @@ import { health, pr, type HealthCheck, type HealthFinding, type HealthRun, type 
 import { CHECK_STATE } from './Publish';
 
 const CHECKS: Record<HealthCheck, string> = {
-  diff: 'git diff --check', build: 'npm run build', typecheck: 'npm run typecheck', lint: 'npm run lint', test: 'npm run test',
+  diff: 'git diff --check', build: 'build', typecheck: 'typecheck', lint: 'lint', test: 'test',
   cargo_check: 'cargo check', cargo_test: 'cargo test', cargo_clippy: 'cargo clippy',
 };
 const OUTCOMES: Record<string, string> = {

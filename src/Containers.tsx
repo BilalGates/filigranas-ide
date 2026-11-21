@@ -100,7 +100,7 @@ export default function Containers({ project, onOpen }: Props) {
         <form className="service-form" onSubmit={(e) => { e.preventDefault(); save(form); }}>
           <h3>{form.id ? 'Editar servicio' : 'Nuevo servicio'}</h3>
           <label>Nombre<input required maxLength={120} autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label>Comando<textarea required rows={2} maxLength={8192} value={form.command} placeholder="npm run dev" onChange={(e) => setForm({ ...form, command: e.target.value })} /></label>
+          <label>Comando<textarea required rows={2} maxLength={8192} value={form.command} placeholder="pnpm dev" onChange={(e) => setForm({ ...form, command: e.target.value })} /></label>
           <label>Puerto (opcional)<input type="number" min={1} max={65535} value={form.port ?? ''} placeholder="3000" onChange={(e) => setForm({ ...form, port: e.target.value ? Number(e.target.value) : null })} /></label>
           <p className="muted">El comando se ejecuta en la carpeta del proyecto con tus permisos. Si indicas un puerto, se pasa como <code>PORT</code> y se habilita el acceso desde el navegador.</p>
           <div className="service-actions">

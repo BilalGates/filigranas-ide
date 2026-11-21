@@ -60,7 +60,7 @@ pub struct Run {
 struct Evidence {
     tool: String,
     version: Option<String>,
-    source: &'static str,
+    source: String,
     revision: Option<String>,
     digest: Option<String>,
     outcome: &'static str,
@@ -159,7 +159,7 @@ fn parse_sarif(report: &str, cwd: &Path) -> CmdResult<Vec<Evidence>> {
             .map(|items| items.iter().all(|item| item["executionSuccessful"] == true));
         let outcome = if success == Some(false) { "incomplete" } else if !findings.is_empty() { "findings" }
             else if success == Some(true) { "passed" } else { "unknown" };
-        evidence.push(Evidence { tool: tool.into(), version, source: "SARIF 2.1.0", revision: rev,
+        evidence.push(Evidence { tool: tool.into(), version, source: "SARIF 2.1.0".into(), revision: rev,
             digest: Some(format!("{hash}:{index}")), outcome, findings });
     }
     Ok(evidence)
@@ -288,7 +288,7 @@ fn git_evidence(cwd: &Path) -> CmdResult<Evidence> {
     let version = crate::pr::run(cwd, "git", &["--version"]).ok().and_then(|s| identifier(s.trim()).map(str::to_owned));
     let outcome = if output.truncated { "incomplete" } else if !findings.is_empty() { "findings" }
         else if output.success { "passed" } else { "failed" };
-    Ok(Evidence { tool: "git".into(), version, source: "diff --check · árbol de trabajo",
+    Ok(Evidence { tool: "git".into(), version, source: "diff --check · árbol de trabajo".into(),
         revision: head.as_deref().and_then(revision), digest: None, outcome, findings })
 }
 
@@ -296,30 +296,43 @@ fn git_evidence(cwd: &Path) -> CmdResult<Evidence> {
 #[serde(rename_all = "snake_case")]
 pub enum LocalCheck { Diff, Build, Typecheck, Lint, Test, CargoCheck, CargoTest, CargoClippy }
 
+fn package_manager(manifest: &Value, pnpm_lock: bool) -> &'static str {
+    match manifest["packageManager"].as_str().and_then(|value| value.split_once('@')) {
+        Some(("pnpm", _)) => "pnpm",
+        Some(("npm", _)) => "npm",
+        _ if pnpm_lock => "pnpm",
+        _ => "npm",
+    }
+}
+
 fn run_check(cwd: &Path, check: LocalCheck) -> CmdResult<Evidence> {
     let (program, args, source) = match check {
         LocalCheck::Diff => return git_evidence(cwd),
         LocalCheck::CargoCheck | LocalCheck::CargoTest | LocalCheck::CargoClippy => {
-            let manifest = ["Cargo.toml","src-tauri/Cargo.toml"].into_iter()
+            let manifest = ["Cargo.toml", "src-tauri/Cargo.toml"].into_iter()
                 .find(|name| cwd.join(name).is_file()).ok_or("no se encontró Cargo.toml")?;
-            let (subcommand, source) = match check {
-                LocalCheck::CargoCheck => ("check", "cargo check"),
-                LocalCheck::CargoTest => ("test", "cargo test"),
-                _ => ("clippy", "cargo clippy"),
+            let subcommand = match check {
+                LocalCheck::CargoCheck => "check",
+                LocalCheck::CargoTest => "test",
+                _ => "clippy",
             };
-            ("cargo", vec![subcommand,"--locked","--offline","--manifest-path",manifest], source)
+            ("cargo", vec![subcommand, "--locked", "--offline", "--manifest-path", manifest],
+                format!("cargo {subcommand}"))
         }
         check => {
-            let (script, source) = match check {
-                LocalCheck::Build => ("build", "npm run build"), LocalCheck::Typecheck => ("typecheck", "npm run typecheck"),
-                LocalCheck::Lint => ("lint", "npm run lint"), _ => ("test", "npm run test"),
+            let script = match check {
+                LocalCheck::Build => "build",
+                LocalCheck::Typecheck => "typecheck",
+                LocalCheck::Lint => "lint",
+                _ => "test",
             };
             let manifest = std::fs::read(cwd.join("package.json")).map_err(|_| "no se encontró package.json")?;
             let data: Value = serde_json::from_slice(&manifest).map_err(|_| "package.json inválido")?;
             if data["scripts"][script].as_str().is_none() {
                 return Err(format!("el proyecto no declara el script {script}"));
             }
-            ("npm", vec!["run",script], source)
+            let program = package_manager(&data, cwd.join("pnpm-lock.yaml").is_file());
+            (program, vec!["run", script], format!("{program} run {script}"))
         }
     };
     let command = |args: &[&str]| {
@@ -390,6 +403,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn selects_pnpm_with_a_pin_or_lock_and_preserves_npm_projects() {
+        assert_eq!(package_manager(&json!({"packageManager":"pnpm@11.13.1"}), false), "pnpm");
+        assert_eq!(package_manager(&json!({}), true), "pnpm");
+        assert_eq!(package_manager(&json!({"packageManager":"npm@11.0.0"}), true), "npm");
+        assert_eq!(package_manager(&json!({}), false), "npm");
+    }
+
+    #[test]
     fn imports_traceable_sarif_and_deduplicates_without_saving_secret_content() {
         let report = json!({"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Semgrep","version":"1.2.3"}},
             "results":[{"ruleId":"example.rule","level":"error","message":{"text":"SECRET SAMPLE"},
@@ -421,7 +442,7 @@ mod tests {
         let id = crate::db::create_session(&conn, project, "claude", "", &["xavi"]).unwrap().id;
         let (canonical, _) = stored_scope(&conn, project, Some(id)).unwrap();
         save(&conn, &canonical, Some(id), None, vec![Evidence {
-            tool: "git".into(), version: None, source: "local", revision: None,
+            tool: "git".into(), version: None, source: "local".into(), revision: None,
             digest: None, outcome: "passed", findings: vec![],
         }]).unwrap();
         crate::db::close_session(&conn, id).unwrap();

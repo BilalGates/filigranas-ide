@@ -1,4 +1,4 @@
-// Núcleo simulado para trabajar la interfaz en el navegador (`npm run dev`)
+// Núcleo simulado para trabajar la interfaz en el navegador (`pnpm dev`)
 // cuando no se puede compilar Rust. Solo se carga en desarrollo y fuera de
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -646,7 +646,7 @@ async function demoTurn(text: string, session: number | null) {
     await wait(40);
     await ev('item/agentMessage/delta', { itemId: `a${n}`, delta: word + ' ' });
   }
-  const cmd = { id: `c${n}`, type: 'commandExecution', command: 'npm test -- queue', status: 'inProgress', aggregatedOutput: null, exitCode: null };
+  const cmd = { id: `c${n}`, type: 'commandExecution', command: 'pnpm test -- queue', status: 'inProgress', aggregatedOutput: null, exitCode: null };
   await ev('item/started', { item: cmd });
   const decision = await new Promise<string>((resolve) => {
     pendingApproval = resolve;

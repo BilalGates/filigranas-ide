@@ -270,7 +270,8 @@ impl Signals {
     fn floor(&self, policy: Policy) -> usize {
         if matches!(self.risk, "high" | "critical") || policy == Policy::Quality {
             2
-        } else if self.risk == "normal" || matches!(self.priority, "high" | "urgent") {
+        } else if self.risk == "normal" || self.scope == "large" || self.ambiguous_failure
+            || matches!(self.priority, "high" | "urgent") {
             1
         } else {
             0
@@ -397,8 +398,20 @@ fn decide(
 ) -> Trace {
     let floor = signals.floor(settings.policy);
     let target = if settings.policy == Policy::Economy { floor } else { floor.max(1) };
+    let high_risk = matches!(signals.risk, "high" | "critical");
+    let complexity = match (signals.risk, signals.scope) {
+        ("critical", _) => "critical",
+        ("high", _) | (_, "large") => "complex",
+        ("low", "small") if !signals.ambiguous_failure => "simple",
+        _ => "standard",
+    };
     let mut trace = Trace {
-        source: "local".into(), effort: best_effort(available, target, floor), ..Trace::default()
+        source: "local".into(),
+        effort: best_effort(available, target, floor),
+        complexity: Some(complexity.into()),
+        review: Some(if high_risk { "independent" } else { "standard" }.into()),
+        event_advice: signals.ambiguous_failure.then(|| "inspect".into()),
+        ..Trace::default()
     };
     let Some(model) = settings.model.as_deref().filter(|m| valid_model(m)) else { return trace };
     if settings.mode == Mode::Local {
@@ -425,15 +438,18 @@ fn decide(
     trace.output_tokens = answer["usage"]["output_tokens"].as_u64();
     trace.cost_estimate_usd = trace.model.as_deref().zip(trace.input_tokens)
         .and_then(|(model, input)| estimate_usd(model, input));
+    let mut supports_lightweight = false;
     if trace.model.is_some() {
-        trace.complexity = advice(&answer, "complexity", &["simple", "standard", "complex", "critical"]);
-        trace.review = advice(&answer, "review", &["standard", "independent"]);
-        if matches!(signals.risk, "high" | "critical") {
-            trace.review = Some("independent".into());
+        let remote_complexity = advice(&answer, "complexity", &["simple", "standard", "complex", "critical"]);
+        let remote_review = advice(&answer, "review", &["standard", "independent"]);
+        supports_lightweight = remote_complexity.as_deref() == Some("simple") && remote_review.as_deref() == Some("standard");
+        if !high_risk {
+            trace.complexity = remote_complexity.or(trace.complexity);
+            trace.review = remote_review.or(trace.review);
         }
         trace.context = advice(&answer, "context", &["reuse", "recover", "summarize", "handoff"]);
         if signals.ambiguous_failure {
-            trace.event_advice = advice(&answer, "event", &["inspect", "retry_after_checks", "ask_user"]);
+            trace.event_advice = advice(&answer, "event", &["inspect", "retry_after_checks", "ask_user"]).or(trace.event_advice);
         }
     }
     let route = &answer["answers"]["route"];
@@ -456,8 +472,7 @@ fn decide(
         trace.source = "jev".into();
         trace.effort = trace.recommended_effort.clone();
         trace.lightweight = lightweight && chosen == 0
-            && trace.complexity.as_deref() == Some("simple")
-            && trace.review.as_deref() == Some("standard")
+            && supports_lightweight
             && advice(&answer, "model_tier", &["lightweight", "standard"]).as_deref() == Some("lightweight");
     }
     trace
@@ -593,6 +608,23 @@ mod tests {
             ("shadow", Some("medium"), Some("low")));
         let local = Settings { mode: Mode::Local, ..shadow };
         assert_eq!(decide(&local, &normal, &modes(), false, |_| panic!("local connects")).source, "local");
+    }
+
+    #[test]
+    fn fallback_triages_large_and_ambiguous_tasks_within_the_local_policy() {
+        let settings = Settings { mode: Mode::Active, model: Some("jev-latest".into()),
+            policy: Policy::Economy, ..Settings::default() };
+        let signals = Signals { risk: "low", priority: "normal", scope: "large", history: "incomplete", ambiguous_failure: true };
+        let trace = decide(&settings, &signals, &modes(), true, |_| Err("unavailable"));
+        assert_eq!((trace.source.as_str(), trace.effort.as_deref()), ("local", Some("medium")));
+        assert_eq!(trace.complexity.as_deref(), Some("complex"));
+        assert_eq!(trace.event_advice.as_deref(), Some("inspect"));
+        assert!(!trace.lightweight);
+        assert_eq!(trace.cost_estimate_usd, None);
+        let critical = Signals { risk: "critical", ..signals };
+        let trace = decide(&settings, &critical, &modes(), true, |_| Ok(response("low", 0.99)));
+        assert_eq!(trace.effort.as_deref(), Some("high"));
+        assert_eq!(trace.review.as_deref(), Some("independent"));
     }
 
     #[test]

@@ -46,11 +46,11 @@ impl Pull {
     pub fn merge_ready(&self) -> bool {
         self.state == "OPEN" && !self.is_draft && self.merge_state == "CLEAN"
             && matches!(self.review.as_deref(), None | Some("APPROVED"))
-            && self.checks_known && self.checks.1 == 0 && self.checks.2 == 0
+            && self.checks_known && self.checks.0 > 0 && self.checks.1 == 0 && self.checks.2 == 0
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Commit {
     pub oid: String,
@@ -85,7 +85,7 @@ pub fn pulls(conn: &Connection, project: &str, repository: Option<&str>, branch:
     rows.map(|row| serde_json::from_str(&row.map_err(err)?).map_err(err)).collect()
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Branch {
     pub commits: Vec<Commit>,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -107,6 +109,7 @@ pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
          JOIN sessions s ON s.id=t.session_id WHERE t.task_id=?1 ORDER BY s.id"
     ).map_err(err)?;
     let mut deps = conn.prepare("SELECT requires_id FROM task_dependencies WHERE task_id=?1 ORDER BY requires_id").map_err(err)?;
+    let mut branches = HashMap::new();
     for task in &mut tasks {
         task.dependencies = deps.query_map([task.id], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
         task.waiting_for = waiting_for(conn, task.id).map_err(err)?;
@@ -116,7 +119,11 @@ pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
         })).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
         for link in &mut task.sessions {
             if let Some(branch) = &link.branch {
-                link.github = Some(crate::github::branch(conn, project, branch)?);
+                let snapshot = match branches.entry(branch.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(crate::github::branch(conn, project, branch)?),
+                };
+                link.github = Some(snapshot.clone());
             }
         }
     }
@@ -460,7 +467,7 @@ mod tests {
         runs::finish(&conn, retry, "completed").unwrap();
         let history = serde_json::to_value(runs::recent(&conn, a).unwrap()).unwrap();
         assert_eq!(history[0]["retry"], true);
-        let next = db::create_handoff(&mut conn, 41, "codex", "", &["puyol"]).unwrap();
+        let next = db::create_handoff(&mut conn, 41, "codex", "", &["puyol"], "resumen guardado").unwrap();
         assert_eq!(linked(&conn, next.id).unwrap(), Some(a));
         assert_eq!(next.worktree.as_deref(), Some(first_wt.worktree.as_str()));
         assert_eq!(std::fs::read_to_string(Path::new(next.cwd()).join("first.txt")).unwrap(), "resultado");

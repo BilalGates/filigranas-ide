@@ -168,7 +168,7 @@ fn normalize_paths(paths: Vec<String>) -> CmdResult<Vec<String>> {
     for path in paths {
         let path = path.trim().trim_end_matches('/');
         if path != "." && (path.is_empty() || path.contains(['\\', '*', '\0']) || !Path::new(path).components().all(|c| matches!(c, Component::Normal(_)))
-            || path.split('/').any(|p| p == ".git" || p == "." || p == "..")) {
+            || path.split('/').any(|p| p.eq_ignore_ascii_case(".git") || p == "." || p == "..")) {
             return Err(format!("asignación no válida: {path}. Usa rutas relativas sin comodines"));
         }
         if !result.iter().any(|p| p == path) { result.push(path.to_string()); }
@@ -177,7 +177,9 @@ fn normalize_paths(paths: Vec<String>) -> CmdResult<Vec<String>> {
 }
 
 fn overlap(a: &str, b: &str) -> bool {
-    a == "." || b == "." || Path::new(a).starts_with(b) || Path::new(b).starts_with(a)
+    // Conservador también para volúmenes insensibles a mayúsculas.
+    let (a, b) = (a.to_lowercase(), b.to_lowercase());
+    a == "." || b == "." || Path::new(&a).starts_with(&b) || Path::new(&b).starts_with(&a)
 }
 
 pub fn assign(conn: &Connection, project: &str, session: i64, paths: Vec<String>) -> CmdResult<()> {
@@ -188,7 +190,6 @@ pub fn assign(conn: &Connection, project: &str, session: i64, paths: Vec<String>
     if s.project != project || s.worktree.is_some() || crate::chat::is_pm(conn, session).map_err(err)? {
         return Err("el agente no pertenece al checkout compartido de este proyecto".into());
     }
-    join(conn, project, session)?;
     let paths = normalize_paths(paths)?;
     for path in &paths {
         let mut ancestor = std::path::PathBuf::from(project);
@@ -199,10 +200,21 @@ pub fn assign(conn: &Connection, project: &str, session: i64, paths: Vec<String>
             }
         }
     }
-    conn.execute("INSERT INTO work_agents(session_id,work_id,paths) VALUES(?1,?2,?3)
-                  ON CONFLICT(session_id) DO UPDATE SET work_id=excluded.work_id,paths=excluded.paths",
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    join(&tx, project, session)?;
+    tx.execute("UPDATE work_agents SET paths=?3 WHERE session_id=?1 AND work_id=?2",
         params![session,work.id,serde_json::to_string(&paths).map_err(err)?]).map_err(err)?;
-    Ok(())
+    tx.commit().map_err(err)
+}
+
+pub fn check_merge(repo: &Path, base: &str, head: &str) -> CmdResult<()> {
+    let base_ref = format!("refs/remotes/origin/{base}");
+    let out = crate::git::git_output(repo, &["merge-tree", "--write-tree", "--no-messages", &base_ref, head])?;
+    match out.status.code() {
+        Some(0) => Ok(()),
+        Some(1) => Err(format!("hay conflictos con origin/{base}. Resuélvelos en la rama de trabajo y vuelve a ejecutar las pruebas")),
+        _ => Err(format!("no se pudo comprobar la integración con origin/{base}. Comprueba la referencia y la versión de Git (2.38 o posterior)")),
+    }
 }
 
 /// Se llama dentro de la misma transacción que registra el turno.
@@ -264,6 +276,7 @@ fn prepare(conn: &Connection, project: &str, tests: &str, evidence: &str) -> Cmd
     let commits = pr::value(repo, &["rev-list", "--count", "refs/remotes/origin/main..HEAD"])?;
     if commits == "0" { return Err("no hay commits nuevos hacia main; la sesión se conserva abierta".into()); }
     let head = pr::value(repo, &["rev-parse", "HEAD"])?;
+    check_merge(repo, "main", &head)?;
     conn.execute("UPDATE work_sessions SET state='review',tests=?2,evidence=?3,reviewed_head=?4 WHERE id=?1",
         params![work.id,tests,evidence.trim(),head]).map_err(err)?;
     Ok(())
@@ -406,7 +419,7 @@ mod tests {
             assert_eq!(s.branch.as_deref(), Some(work.branch.as_str()));
         }
         assign(&conn, &project, a.id, vec!["src".into()]).unwrap();
-        assign(&conn, &project, b.id, vec!["src/api.rs".into()]).unwrap();
+        assign(&conn, &project, b.id, vec!["SRC/api.rs".into()]).unwrap();
         assign(&conn, &project, c.id, vec!["docs".into()]).unwrap();
         let first = begin(&mut conn, &project, a.id).unwrap();
         assert!(begin(&mut conn, &project, b.id).unwrap_err().contains("solapan"));
@@ -420,7 +433,7 @@ mod tests {
         runs::finish(&conn, third, "completed").unwrap();
         let second = begin(&mut conn, &project, b.id).unwrap();
         runs::finish(&conn, second, "completed").unwrap();
-        let next = db::create_handoff(&mut conn, a.id, "codex", "next", &["relevo"]).unwrap();
+        let next = db::create_handoff(&mut conn, a.id, "codex", "next", &["relevo"], "Decisión pendiente del relevo").unwrap();
         let after = current(&conn, &project).unwrap().unwrap();
         assert_eq!(after.agents.iter().find(|a| a.session_id == next.id).unwrap().paths, vec!["src"]);
         drop(conn);
@@ -432,6 +445,17 @@ mod tests {
         runs::recovery(&conn).unwrap();
         assert_eq!(runs::active(&conn, &runs::session_scope(next.id)).unwrap(), None);
         assert!(interrupted > 0);
+        let tx = conn.transaction().unwrap();
+        let retry = runs::begin(&tx, &project, &runs::session_scope(next.id), "codex", Some(next.id), None).unwrap();
+        let input = runs::task_input(&tx, retry, &project, None, None, "Continúa").unwrap();
+        assert!(input.contains("Decisión pendiente del relevo"));
+        tx.commit().unwrap();
+        runs::finish(&conn, retry, "completed").unwrap();
+        let tx = conn.transaction().unwrap();
+        let resumed = runs::begin(&tx, &project, &runs::session_scope(next.id), "codex", Some(next.id), None).unwrap();
+        let input = runs::task_input(&tx, resumed, &project, None, None, "Nueva orden").unwrap();
+        assert!(!input.contains("Decisión pendiente del relevo"));
+        tx.rollback().unwrap();
         assert_eq!(pr::value(Path::new(&project), &["worktree", "list", "--porcelain"]).unwrap().matches("worktree ").count(), 1);
         drop(conn); // Windows no borra la base mientras siga abierta.
         std::fs::remove_dir_all(dir).unwrap();
@@ -477,6 +501,28 @@ mod tests {
     }
 
     #[test]
+    fn review_rejects_conflicts_without_changing_the_checkout() {
+        let (dir, project, mut conn) = fixture();
+        let repo = Path::new(&project);
+        start(&mut conn, &project, "Entrega", "feat", "entrega", false).unwrap();
+        commit(&project);
+        let head = pr::value(repo, &["rev-parse", "HEAD"]).unwrap();
+        pr::value(repo, &["switch", "main"]).unwrap();
+        std::fs::write(repo.join("feature.txt"), "otro resultado\n").unwrap();
+        pr::value(repo, &["add", "feature.txt"]).unwrap();
+        pr::value(repo, &["commit", "-qm", "cambio de main"]).unwrap();
+        pr::value(repo, &["update-ref", "refs/remotes/origin/main", "HEAD"]).unwrap();
+        pr::value(repo, &["switch", "feat/entrega"]).unwrap();
+
+        assert!(prepare(&conn, &project, "passed", "pruebas").unwrap_err().contains("conflictos"));
+        assert_eq!(current(&conn, &project).unwrap().unwrap().state, "active");
+        assert_eq!(pr::value(repo, &["rev-parse", "HEAD"]).unwrap(), head);
+        assert_eq!(pr::value(repo, &["status", "--porcelain"]).unwrap(), "");
+        drop(conn);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn dirty_start_is_explicit_and_failed_start_preserves_work() {
         let (dir, project, mut conn) = fixture();
         let repo = Path::new(&project);
@@ -496,7 +542,7 @@ mod tests {
         assert_eq!(branch_name("fix", "Guardado del éditor").unwrap(), "fix/guardado-del-editor");
         assert!(branch_name("ide", "xavi 1").is_err());
         assert!(branch_name("feat", "---").is_err());
-        for invalid in ["/tmp", "../src", ".git/config", "src/../docs", "src/*.rs", "src\\api"] {
+        for invalid in ["/tmp", "../src", ".git/config", ".GIT/config", "src/../docs", "src/*.rs", "src\\api"] {
             assert!(normalize_paths(vec![invalid.into()]).is_err(), "{invalid}");
         }
         assert!(overlap("src", "src/api.rs"));

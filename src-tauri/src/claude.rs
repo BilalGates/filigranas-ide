@@ -66,12 +66,29 @@ impl Drop for Proc {
     }
 }
 
+struct PermissionRequest {
+    session: i64,
+    provider_id: String,
+    request: Value,
+    process: Arc<AtomicBool>,
+}
+
+impl PermissionRequest {
+    fn register(pending: &mut HashMap<String, Self>, session: i64, msg: &mut Value, process: &Arc<AtomicBool>) -> Option<()> {
+        let provider_id = msg["request_id"].as_str()?.to_owned();
+        let id = uuid::Uuid::new_v4().to_string();
+        pending.insert(id.clone(), Self { session, provider_id, request: msg["request"].clone(), process: process.clone() });
+        msg["request_id"] = json!(id);
+        Some(())
+    }
+}
+
 #[derive(Default)]
 pub struct Claude {
     procs: Mutex<HashMap<i64, Proc>>,
     models: Arc<Mutex<Vec<ModelOption>>>,
-    /// Permisos sin contestar: id de la petición → (sesión, petición).
-    pending: Arc<Mutex<HashMap<String, (i64, Value)>>>,
+    /// Identificadores del IDE, independientes para cada petición de cada proceso.
+    pending: Arc<Mutex<HashMap<String, PermissionRequest>>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -148,13 +165,13 @@ impl Claude {
             procs.remove(&id);
         }
         if let Ok(mut pending) = self.pending.lock() {
-            pending.retain(|_, (sid, _)| *sid != id);
+            pending.retain(|_, request| request.session != id);
         }
     }
 
     /// Permisos sin contestar de una sesión.
     pub fn pending_for(&self, id: i64) -> usize {
-        self.pending.lock().map(|p| p.values().filter(|(sid, _)| *sid == id).count()).unwrap_or(0)
+        self.pending.lock().map(|p| p.values().filter(|request| request.session == id).count()).unwrap_or(0)
     }
 
     /// Si hay algún proceso de Claude vivo o arrancando (cerrojo ocupado).
@@ -224,7 +241,7 @@ impl Claude {
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
-                let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
+                let Ok(mut msg) = serde_json::from_str::<Value>(&line) else { continue };
                 if let Some(models) = model_catalog(&msg) {
                     if let Ok(mut saved) = catalog.lock() {
                         *saved = models.clone();
@@ -266,8 +283,9 @@ impl Claude {
                         );
                         continue;
                     }
-                    if let Ok(mut p) = pending.lock() {
-                        p.insert(request_id, (id, msg["request"].clone()));
+                    let Ok(mut requests) = pending.lock() else { break };
+                    if !flag.load(Ordering::SeqCst) || PermissionRequest::register(&mut requests, id, &mut msg, &flag).is_none() {
+                        continue;
                     }
                 }
                 if msg["type"] == json!("rate_limit_event") && msg.pointer("/rate_limit_info/status") == Some(&json!("rejected")) {
@@ -290,10 +308,10 @@ impl Claude {
             if let Some(run) = active_run.lock().ok().and_then(|mut run| run.take()) {
                 runs::record(&handle, |conn| runs::finish(conn, run, "interrupted").map_err(err));
             }
+            if let Ok(mut p) = pending.lock() {
+                p.retain(|_, request| !Arc::ptr_eq(&request.process, &flag));
+            }
             if unexpected_exit {
-                if let Ok(mut p) = pending.lock() {
-                    p.retain(|_, (sid, _)| *sid != id);
-                }
                 handle.state::<AppState>().tracker.exited(id);
                 let _ = handle.emit("session", Event { id, msg: json!({ "type": "exit" }) });
             }
@@ -531,17 +549,22 @@ pub fn session_respond(app: AppHandle, state: State<AppState>, request_id: Strin
         return Err("decisión no válida".into());
     }
     let claimed = state.claude.pending.lock().map_err(err)?.remove(&request_id);
-    let Some((id, request)) = claimed else {
+    let Some(claimed) = claimed else {
         return if state.acp.respond(&app, &request_id, &decision)? { Ok(()) } else { Err("esa petición ya no está pendiente".into()) };
     };
     let procs = state.claude.procs.lock().map_err(err)?;
-    let p = procs.get(&id).ok_or("la sesión ya no está en marcha")?;
+    let p = procs.get(&claimed.session)
+        .filter(|p| Arc::ptr_eq(&p.alive, &claimed.process) && p.alive.load(Ordering::SeqCst))
+        .ok_or("el proceso que pidió el permiso ya no está en marcha")?;
     write_line(
         &p.input.stdin,
-        &json!({ "type": "control_response", "response": { "subtype": "success", "request_id": request_id, "response": permission(&request, &decision) } }),
+        &json!({ "type": "control_response", "response": { "subtype": "success",
+            "request_id": claimed.provider_id, "response": permission(&claimed.request, &decision) } }),
     )?;
     drop(procs);
-    runs::on_active(&app, id, |conn, run| runs::phase(conn, run, "running"));
+    if state.claude.pending_for(claimed.session) == 0 {
+        runs::on_active(&app, claimed.session, |conn, run| runs::phase(conn, run, "running"));
+    }
     Ok(())
 }
 
@@ -616,8 +639,7 @@ pub async fn session_close(app: AppHandle, id: i64) -> CmdResult<()> {
         if session.engine == "codex" && runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
             crate::codex::interrupt(&app, &session.provider_session)?;
         }
-        state.claude.procs.lock().map_err(err)?.remove(&id);
-        state.claude.pending.lock().map_err(err)?.retain(|_, (sid, _)| *sid != id);
+        state.claude.forget(id);
         state.acp.close(id)?;
         db::close_session(&*state.db.lock().map_err(err)?, id).map_err(err)?;
         tasks::changed(&app);
@@ -628,6 +650,25 @@ pub async fn session_close(app: AppHandle, id: i64) -> CmdResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permission_requests_keep_their_process_when_provider_ids_match() {
+        let mut pending = HashMap::new();
+        let first_process = Arc::new(AtomicBool::new(true));
+        let second_process = Arc::new(AtomicBool::new(true));
+        let mut first = json!({ "request_id": "1", "request": { "input": "first" } });
+        let mut second = json!({ "request_id": "1", "request": { "input": "second" } });
+        PermissionRequest::register(&mut pending, 10, &mut first, &first_process).unwrap();
+        PermissionRequest::register(&mut pending, 20, &mut second, &second_process).unwrap();
+
+        let first = pending.remove(first["request_id"].as_str().unwrap()).unwrap();
+        let second = pending.remove(second["request_id"].as_str().unwrap()).unwrap();
+        assert!(Arc::ptr_eq(&first.process, &first_process));
+        assert!(Arc::ptr_eq(&second.process, &second_process));
+        assert_eq!((first.session, first.provider_id.as_str(), &first.request["input"]), (10, "1", &json!("first")));
+        assert_eq!((second.session, second.provider_id.as_str(), &second.request["input"]), (20, "1", &json!("second")));
+    }
+
 
     #[test]
     fn history_keeps_user_and_assistant_messages() {

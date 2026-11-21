@@ -785,6 +785,14 @@ fn pinned(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<Op
     }
 }
 
+fn failed_start_outcome(error: &str, provider_alive: bool) -> Option<&'static str> {
+    match (error, provider_alive) {
+        (_, false) => Some("interrupted"),
+        ("codex no respondió a turn/start", true) => None,
+        _ => Some("failed"),
+    }
+}
+
 /// Usa el mismo app-server para el PM y las conversaciones directas.
 pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
     mut message: crate::attachments::Message, effort: Option<String>,
@@ -883,12 +891,16 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
     }
     // El servidor puede haber aceptado el turno aunque no llegue su respuesta.
     message.retain_files();
-    let result = rpc.request("turn/start", params, LONG);
-    if result.is_err() {
-        let outcome = if rpc.alive() { "failed" } else { "interrupted" };
-        runs::record(app, |conn| runs::finish(conn, run, outcome).map_err(err));
-    }
-    result.map(|_| ())
+    rpc.request("turn/start", params, LONG).map(|_| ()).map_err(|error| {
+        match failed_start_outcome(&error, rpc.alive()) {
+            Some(outcome) => {
+                runs::record(app, |conn| runs::finish(conn, run, outcome).map_err(err));
+                error
+            }
+            // Los eventos del turno o el cierre del proveedor liquidarán la reserva.
+            None => "Codex no confirmó el inicio. El ámbito sigue reservado hasta que termine el turno o se reinicie el proveedor.".into(),
+        }
+    })
 }
 
 #[tauri::command]
@@ -1020,6 +1032,23 @@ mod tests {
 
     fn write(w: &mut PipeWriter, v: Value) {
         writeln!(w, "{v}").unwrap();
+    }
+
+    #[test]
+    fn a_late_codex_start_keeps_the_reservation_until_completion() {
+        let mut conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let tx = conn.transaction().unwrap();
+        let run = runs::begin(&tx, "/repo", "thread", "codex", None, None).unwrap();
+        tx.commit().unwrap();
+
+        let timeout = "codex no respondió a turn/start";
+        assert_eq!(failed_start_outcome(timeout, true), None);
+        assert_eq!(failed_start_outcome(timeout, false), Some("interrupted"));
+        assert_eq!(failed_start_outcome("modelo no disponible", true), Some("failed"));
+        assert_eq!(runs::active(&conn, "thread").unwrap(), Some(run));
+        Observation::Started("thread".into(), "turn".into()).store(&conn).unwrap();
+        Observation::Completed("thread".into(), "turn".into(), "completed", false).store(&conn).unwrap();
+        assert_eq!(runs::active(&conn, "thread").unwrap(), None);
     }
 
     #[test]

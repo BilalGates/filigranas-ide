@@ -29,8 +29,9 @@ Tauri 2 · Rust y SQLite (`src-tauri/`) · React y TypeScript (`src/`) · Git me
 
 ## Requisitos
 
-- Node.js 20+ y npm
+- Node.js 20.19 o 22.12 en adelante y npm (CI usa Node 26)
 - Rust estable (`rustup`)
+- Git 2.38 o posterior para comprobar conflictos antes de publicar
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 - Windows: Visual Studio Build Tools con «Desarrollo para el escritorio con C++» y WebView2 (incluido en Windows 11)
 
@@ -46,7 +47,7 @@ cd src-tauri && cargo test
 
 `npm run app` usa el identificador `com.filigranas.ide.dev`, así que su base SQLite y sus worktrees no se mezclan con los de la app instalada. Los cambios de la interfaz (`src/`) se ven al guardar; los de Rust (`src-tauri/src/`) recompilan y reinician la app solos. El instalador solo hace falta para distribuir o probar la instalación.
 
-Las CLI de los agentes (`codex`, `claude`, `opencode`, `agy`, `devin`), `node` y `gh` deben estar instaladas y con la sesión iniciada; la app las busca con el PATH del shell de login. Los tests marcados `#[ignore]` hablan con esas CLI de verdad y gastan un turno corto: `cargo test -- --ignored`.
+Las CLI de los agentes (`codex`, `claude`, `opencode`, `agy`, `devin`), `node` y `gh` deben estar instaladas y con la sesión iniciada; la app las busca con el PATH del shell de login. Las pruebas marcadas `#[ignore]` requieren comprobaciones externas o servicios locales. Algunas usan CLI autenticadas y consumen un turno. Ejecuta por nombre las que correspondan.
 
 Los worktrees de las sesiones también viven en el directorio de datos de la app (`worktrees/`), fuera de la carpeta de proyectos.
 

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::codex::login_path;
+use crate::cli::login_path;
 use crate::git::git;
 use crate::{err, AppState, CmdResult};
 
@@ -62,7 +62,7 @@ fn parse_script(out: &str) -> CmdResult<Vec<ScriptGroup>> {
 }
 
 fn run_script(repo: &Path) -> CmdResult<String> {
-    let mut cmd = Command::new(crate::codex::program("node"));
+    let mut cmd = Command::new(crate::cli::program("node"));
     cmd.args(["--input-type=module", "-", "--json"]).current_dir(repo).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(path) = login_path() {
         cmd.env("PATH", path);

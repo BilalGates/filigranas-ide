@@ -9,7 +9,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::approval::{Proof, Review};
-use crate::codex::login_path;
+use crate::cli::login_path;
 use crate::git::git;
 use crate::github::{self, Publication, Pull};
 use crate::{err, AppState, CmdResult};
@@ -17,7 +17,7 @@ use crate::{err, AppState, CmdResult};
 type Exec<'a> = dyn Fn(&str, &[&str]) -> CmdResult<String> + 'a;
 
 pub fn run(repo: &Path, program: &str, args: &[&str]) -> CmdResult<String> {
-    let mut cmd = Command::new(crate::codex::program(program));
+    let mut cmd = Command::new(crate::cli::program(program));
     cmd.args(args).current_dir(repo).env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1");
     if let Some(path) = login_path() { cmd.env("PATH", path); }
     cmd.env_remove("GH_DEBUG").env_remove("GIT_CURL_VERBOSE");

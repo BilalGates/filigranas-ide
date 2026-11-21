@@ -323,9 +323,9 @@ fn run_check(cwd: &Path, check: LocalCheck) -> CmdResult<Evidence> {
         }
     };
     let command = |args: &[&str]| {
-        let mut cmd = Command::new(crate::codex::program(program));
+        let mut cmd = Command::new(crate::cli::program(program));
         cmd.current_dir(cwd).args(args).env("CI", "true");
-        if let Some(path) = crate::codex::login_path() { cmd.env("PATH", path); }
+        if let Some(path) = crate::cli::login_path() { cmd.env("PATH", path); }
         cmd
     };
     let head = crate::pr::value(cwd, &["rev-parse", "--verify", "HEAD"]).ok();

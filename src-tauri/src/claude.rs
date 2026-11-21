@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::{codex::login_path, db, err, runs, tasks, workspace::project_path, AppState, CmdResult};
+use crate::{cli::login_path, db, err, runs, tasks, workspace::project_path, AppState, CmdResult};
 
 // Sesiones de Claude Code como agentes ejecutores: un proceso
 // `claude -p` con entrada y salida stream-json por sesión. Los permisos
@@ -205,7 +205,7 @@ impl Claude {
         } else {
             system_prompt(&session.name, &rules)
         };
-        let mut cmd = Command::new(crate::codex::program("claude"));
+        let mut cmd = Command::new(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
             .args(["--append-system-prompt", &prompt]);

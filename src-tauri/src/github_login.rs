@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::{codex::{login_path, program}, err, AppState, CmdResult};
+use crate::{cli::{login_path, program}, err, AppState, CmdResult};
 
 const DEVICE_URL: &str = "https://github.com/login/device";
 

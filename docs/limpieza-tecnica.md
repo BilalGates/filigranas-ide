@@ -21,11 +21,11 @@ Filigranas, Tauri y CI usan pnpm 11.13.1 con Node 26. Code Health elige el gesto
 - `pnpm install --frozen-lockfile` desde un almacén vacío y repetición con `--offline` tras retirar `node_modules`. El lockfile quedó idéntico.
 - `pnpm build`, `pnpm typecheck`, `pnpm audit --audit-level=high` y comprobación de sintaxis de Relay y Larry. La auditoría de pnpm devolvió cero vulnerabilidades conocidas. El proyecto carece de scripts `test` y `lint` para JavaScript.
 - 119 pruebas Rust ordinarias y Clippy con `--all-targets -- -D warnings`. Pasaron también siete pruebas optativas de relay, Jev local, captura de Design Loop, borrador de PR, lectura en GitHub, detección de herramientas y Docker.
+- Tras la autorización, pasaron las tres pruebas con proveedores autenticados. Codex completó un turno de solo lectura, Claude respetó el rechazo de escritura y retomó la conversación, y OpenCode completó un turno y recuperó el historial por ACP. Pasaron así las diez pruebas optativas.
 - `pnpm tauri dev` arrancó con un perfil SQLite aislado. Desde una ventana nativa se abrió un proyecto y un archivo en Monaco, el terminal devolvió la carpeta esperada y Code Health registró `pnpm run typecheck` como correcto en SQLite.
 - `pnpm tauri build` produjo la app y el DMG arm64. `hdiutil verify` validó la imagen. Se revisó el marco en la ventana nativa. El indicador de macOS cubrió el semáforo y el diff de Tauri solo afecta a los comandos de Vite.
 
 ## Pendiente
 
 - CI de GitHub y recorrido nativo en Windows sobre esta rama. La configuración conserva las tres comprobaciones de rama.
-- Turnos con Codex, Claude y OpenCode. La revisión automática bloqueó la ejecución por el posible consumo de cuota sin autorización específica.
 - Problema preexistente observado durante la prueba. El panel Cambios muestra un error de Git en repositorios sin commit inicial. `git_log` ya consultaba `HEAD` en `4d01e9d`.

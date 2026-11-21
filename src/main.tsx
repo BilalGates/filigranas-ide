@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import './styles.css';
+import './trama/trama.css';
 import App from './App';
 import WindowControls from './WindowControls';
 import { restoreLayout } from './Splitter';

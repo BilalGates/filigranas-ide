@@ -30,6 +30,7 @@ import Sharing, { type ShareTarget } from './Sharing';
 import AmbientField from './trama/AmbientField';
 import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest } from './trama/nav';
 import Home from './trama/Home';
+import { Seg } from './trama/ui';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -115,6 +116,9 @@ export default function App() {
   const [noSide, setNoSide] = useState(false);
   const [noRight, setNoRight] = useState(false);
   const [dest, setDestState] = useState<Dest>(loadDest);
+  const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
+    try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
+  });
   const setDest = useCallback((d: Dest) => { setDestState(d); saveDest(d); }, []);
   const { activity, muted } = useUi();
   const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
@@ -507,6 +511,16 @@ export default function App() {
     revealRight('browser');
   };
   const editorOpen = !!(current && (diff || file));
+  // Disposición del Workspace. Chat: conversación con la columna derecha
+  // libre. Dividida: conversación + editor ancho. Código: el editor ocupa
+  // el centro (la conversación y los terminales siguen montados).
+  const setLayout = (next: 'chat' | 'split' | 'code') => {
+    setLayoutState(next);
+    try { localStorage.setItem('filigranas.disposicion', next); } catch { /* sin almacenamiento */ }
+    if (next === 'chat') return;
+    setNoRight(false);
+    setRightView(editorOpen ? 'editor' : 'files');
+  };
   const closeActive = () => {
     if (editorOpen && rightView === 'editor' && !noRight) closeFile();
     else if (!noRight && document.activeElement?.closest('#workspace-right-panel, .rail')) setNoRight(true);
@@ -524,6 +538,9 @@ export default function App() {
     { id: 'files', label: 'archivos', keys: '⌘P', run: () => showRight('files') },
     { id: 'term', label: termOpen ? 'ocultar terminal' : 'abrir terminal', keys: '⌘J', run: toggleTerminal },
     { id: 'side', label: noSide ? 'mostrar barra lateral' : 'ocultar barra lateral', keys: '⌘B', run: toggleSidebar },
+    { id: 'layout-chat', label: 'disposición · chat', keys: '⌘⌥1', run: () => setLayout('chat') },
+    { id: 'layout-split', label: 'disposición · dividida', keys: '⌘⌥2', run: () => setLayout('split') },
+    { id: 'layout-code', label: 'disposición · código', keys: '⌘⌥3', run: () => setLayout('code') },
     { id: 'right', label: noRight ? 'mostrar columna derecha' : 'ocultar columna derecha', keys: '⌘I', run: () => setNoRight((v) => !v) },
     ...(current ? [
       { id: 'tasks', label: 'Trabajo · tareas', run: () => openWork() },
@@ -560,12 +577,12 @@ export default function App() {
   const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`', Comma: ',' };
   keys.current = (e) => {
     if (shareMode) return;
-    if (!(e.metaKey || e.ctrlKey) || e.altKey) {
+    if (!(e.metaKey || e.ctrlKey)) {
       if (e.ctrlKey && e.code === 'Backquote') toggleTerminal();
       return;
     }
     const k = KEY[e.code] ?? e.code.replace(/^Key|^Digit/, '');
-    const combo = `⌘${e.shiftKey ? '⇧' : ''}${k}`;
+    const combo = `⌘${e.altKey ? '⌥' : ''}${e.shiftKey ? '⇧' : ''}${k}`;
     if (combo === '⌘`') return;
     const c = commands.find((x) => x.keys === combo && !LOCAL.has(x.id));
     if (!c) return;
@@ -663,7 +680,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}`}>
+    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
@@ -765,6 +782,8 @@ export default function App() {
             {!providerPicker && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
             {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
             <span className="grow" />
+            <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
+              { id: 'chat', label: 'Chat', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
             {activeSession && (
               <button className="tb-btn" onClick={() => closeSession(activeSession.id)} aria-label="Cerrar sesión" title="cerrar sesión">
                 <Icon name="close" size={11} />
@@ -889,6 +908,11 @@ export default function App() {
         })}
       </nav>
 
+      {layout === 'code' && panelOpen && dest === 'workspace' && (
+        <button className="tr-btn sm ws-back" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
+          <Icon name="chat" size={13} /> Conversación
+        </button>
+      )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {panelOpen && rightView === 'brain' && <>

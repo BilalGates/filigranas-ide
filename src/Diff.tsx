@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type * as Monaco from 'monaco-editor';
 import { git, sessions, type DiffTarget } from './ipc';
-import { darkQuery, loadMonaco, themeName } from './monacoLoader';
+import { loadMonaco } from './monacoLoader';
 
 /**
  * Diff de un archivo cambiado: versión en HEAD frente a la del disco, o, en
@@ -50,14 +50,11 @@ export default function Diff({ project, change }: { project: string; change: Dif
     const unlistenSession = listen<{ id: number; msg: any }>('session', ({ payload }) => {
       if (payload.id === change.session && ['result', 'turn_end'].includes(payload.msg?.type)) later();
     });
-    const onScheme = () => loadMonaco().then(({ monaco }) => monaco.editor.setTheme(themeName()));
-    darkQuery.addEventListener('change', onScheme);
     return () => {
       alive = false;
       window.clearTimeout(timer);
       unlisten.then((off) => off());
       unlistenSession.then((off) => off());
-      darkQuery.removeEventListener('change', onScheme);
       diff?.dispose();
       models.forEach((m) => m.dispose());
     };

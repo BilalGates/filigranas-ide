@@ -403,12 +403,6 @@ html:not([data-browser])[data-platform='other'] .titlebar {
   font-weight: 500;
   color: var(--tx);
 }
-.tb-sep {
-  width: 1px;
-  height: 12px;
-  margin: 0 3px;
-  background: var(--line-2);
-}
 .tb-pill kbd {
   color: var(--tx4);
 }
@@ -872,25 +866,6 @@ html[data-resizing] .right {
 }
 .side-usage > svg {
   flex: none;
-}
-.side-usage .is-out {
-  color: var(--grana-tx);
-}
-.mtr {
-  width: 26px;
-  height: 3px;
-  flex: none;
-  border-radius: 2px;
-  background: var(--line-2);
-  overflow: hidden;
-}
-.mtr > i {
-  display: block;
-  height: 100%;
-  background: var(--tx2);
-}
-.mtr > i.is-hot {
-  background: var(--grana-hi);
 }
 .archive-list {
   max-height: min(32vh, 210px);
@@ -1617,7 +1592,6 @@ button.co-file:hover {
 
 /* Larry, publicar, ramas sin integrar, conflictos y herramientas. */
 .larry-commit,
-.pending-row,
 .conflict-file,
 .tool-row {
   display: flex;
@@ -1639,9 +1613,6 @@ button.co-file:hover {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-}
-.pending-task {
-  color: var(--tx2);
 }
 .pub-field {
   display: flex;

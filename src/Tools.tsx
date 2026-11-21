@@ -4,7 +4,7 @@ import { Icon } from './GitPanel';
 import { jev, tools as toolsApi, type CliUpdate, type JevSettings, type JevStatus, type Tool } from './ipc';
 
 /** Resultado de una actualización en pocas palabras. */
-export const UPDATE_LABEL: Record<CliUpdate['outcome'], string> = {
+const UPDATE_LABEL: Record<CliUpdate['outcome'], string> = {
   updated: 'actualizada',
   current: 'al día',
   busy: 'en uso',
@@ -23,7 +23,7 @@ type Props = {
 };
 
 /** Estado de una herramienta en una palabra. */
-export function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada' {
+function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada' {
   if (!t.installed) return 'falta';
   if (t.loggedIn === false) return 'sin sesión';
   return t.loggedIn ? 'ok' : 'instalada';

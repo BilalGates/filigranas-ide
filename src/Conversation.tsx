@@ -43,7 +43,7 @@ export type Ask = {
 };
 
 /** Texto con bloques ``` como código; el resto conserva los saltos de línea. */
-export function Prose({ text }: { text: string }) {
+function Prose({ text }: { text: string }) {
   return (
     <>
       {text.split(/```[^\n]*\n?/).map((part, i) =>

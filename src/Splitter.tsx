@@ -2,7 +2,7 @@ import { useRef } from 'react';
 
 // Tamaños de las secciones redimensionables. Se guardan como variables CSS
 // en <html> y en localStorage, así que sobreviven a reinicios.
-export type Size = { name: string; def: number; min: number; max: number };
+type Size = { name: string; def: number; min: number; max: number };
 
 export const SIZES = {
   side: { name: '--side-w', def: 232, min: 180, max: 420 },

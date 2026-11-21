@@ -28,7 +28,7 @@ export const api = {
 
 export type GuestShare = { name: string; editable: boolean };
 export type HostedShare = GuestShare & { invitation: string; expiresAt: number };
-export type SharedFile = { text: string; revision: string };
+type SharedFile = { text: string; revision: string };
 export const sharing = {
   start: (project: string, session: number | null, relay: string, key: string, editable: boolean) =>
     invoke<HostedShare>('share_start', { project, session, relay, key, editable }),
@@ -61,7 +61,7 @@ export const browser = {
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
 export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
 export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
-export type DiffTexts = { old: string; new: string };
+type DiffTexts = { old: string; new: string };
 
 export const git = {
   head: (project: string) => invoke<string>('git_head', { project }),
@@ -122,8 +122,8 @@ export type CItem = {
   success?: boolean | null;
   by?: string;
 };
-export type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
-export type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
+type CTurn = { id: string; items: CItem[]; status: string; error: { message: string } | null };
+type RateWindow = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
 export type RateLimits = { primary: RateWindow | null; secondary: RateWindow | null; rateLimitReachedType: string | null; ordinaryUsageAllowed?: boolean | null; spendControlReached?: boolean | null };
 export type Opened = {
   threadId: string;
@@ -168,7 +168,7 @@ export type Session = {
   handoffFrom: number | null;
   paused: string | null;
 };
-export type CreatedSession = Session & { notice: string | null };
+type CreatedSession = Session & { notice: string | null };
 /** Archivo a comparar: del proyecto, o de una sesión aislada. */
 export type DiffTarget = Change & { session?: number; label?: string };
 export type SessionEvent = { id: number; msg: any };
@@ -416,11 +416,11 @@ export type BrainDraft = {
 };
 export type BrainEntry = BrainDraft & { created: number; updated: number };
 export type BrainNodeKind = BrainKind | 'task' | 'pr' | 'project';
-export type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean; project: string | null; body: string | null; source: string | null };
+type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean; project: string | null; body: string | null; source: string | null };
 export type BrainEdge = { from: string; to: string; kind: 'project_member' | 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
 export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
 export type BrainGraphFilter = { query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
-export type BrainReference = { id: number; version: number; source: string };
+type BrainReference = { id: number; version: number; source: string };
 export const brain = {
   graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
   entry: (project: string | null, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),

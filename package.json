@@ -9,6 +9,7 @@
     "app": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {

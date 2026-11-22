@@ -31,6 +31,7 @@ import AmbientField from './trama/AmbientField';
 import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest } from './trama/nav';
 import Home from './trama/Home';
 import Flow from './trama/Flow';
+import Studio from './trama/Studio';
 import { Seg } from './trama/ui';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -732,6 +733,11 @@ export default function App() {
           onEditTask={(id) => { if (project && id) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }}
           onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); setView('coach'); setDest('workspace'); }}
           onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }} />
+      )}
+      {dest === 'studio' && (
+        <Studio project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          onOpenSession={(id) => { setView(id); setDest('workspace'); }}
+          onBrowser={() => { setDest('workspace'); revealRight('browser'); }} />
       )}
       <Sidebar
         ws={ws}

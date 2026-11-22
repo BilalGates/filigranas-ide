@@ -36,6 +36,7 @@ import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
 import TitleSwitch from './trama/TitleSwitch';
 import EngineUsage, { type Engine } from './trama/EngineUsage';
+import JevUsage from './trama/JevUsage';
 import Settings from './trama/Settings';
 import JevStatusButton from './trama/StatusMeters';
 import { Seg } from './trama/ui';
@@ -90,7 +91,7 @@ export default function App() {
   const [switching, setSwitching] = useState<number | string | null>(null);
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
-  const [engineOpen, setEngineOpen] = useState<Engine | null>(null);
+  const [engineOpen, setEngineOpen] = useState<Engine | 'jev' | null>(null);
   // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
   const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
   // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
@@ -691,7 +692,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
@@ -719,7 +720,7 @@ export default function App() {
       </header>
 
       <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
-        browser={{ open: dest === 'workspace' && browserOpen, run: () => { setDest('workspace'); showRight('browser'); } }}
+        browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
         github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
           onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
       {dest === 'inicio' && (
@@ -893,7 +894,7 @@ export default function App() {
                   setDiff(null);
                   openEditor();
                 }}
-                onConflicts={showConflicts}
+                onConflicts={showConflicts} onStartWork={() => openWork()}
                 onModel={reportModel}
               />
             ))}
@@ -1049,8 +1050,9 @@ export default function App() {
             setGithubOpen(false); setEngineOpen(null); setUsageOpen((open) => !open);
           }} />
           <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
-            open={engineOpen} onOpen={(engine) => { setEngineOpen(engine); if (engine) { setGithubOpen(false); setUsageOpen(false); } }}
+            open={engineOpen === 'jev' ? null : engineOpen} onOpen={(engine) => { setEngineOpen(engine); if (engine) { setGithubOpen(false); setUsageOpen(false); } }}
             onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
+          <JevUsage open={engineOpen === 'jev'} onOpen={(o) => { setEngineOpen(o ? 'jev' : null); if (o) { setGithubOpen(false); setUsageOpen(false); } }} onSettings={() => setDest('ajustes')} />
         </div>
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}

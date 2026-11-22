@@ -54,7 +54,9 @@ let nextPty = 1;
 let nextSession = 1;
 const mockServices = new Map<string, LocalService[]>();
 const mockBranches = new Map<string, string>();
-const mockSessions: any[] = [];
+const mockSessions: any[] = [
+  { id: 900, project: '/Users/demo/repositorios/calaix', engine: 'claude', name: 'diseño', providerSession: 'm', effort: null, worktree: '/tmp/wt/diseno', branch: 'ide/diseno', base: 'main', baseCommit: '84ab176', integrated: null, task: null, handoffFrom: null, paused: null },
+];
 const mockManagers = new Map<string, any>();
 let mockShare: (HostedShare & { project: string }) | null = null;
 let mockShareGuest = false;
@@ -552,6 +554,13 @@ mockIPC(
         return mockBrainEntries.filter(e => (e.project === a.project || e.global) && (!a.kind || e.kind === a.kind) && e.title.toLocaleLowerCase().includes(a.query.toLocaleLowerCase()));
       case 'task_parallel_limit':
         return a.limit ?? 2;
+      case 'design_save': {
+        const scr = a.screen;
+        if (scr.id == null) { const id = mockDesign.next++; mockDesign.screens.push({ ...scr, id, project: a.project, revision: 1, approved: null }); return id; }
+        const at = mockDesign.screens.findIndex((x) => x.id === scr.id);
+        mockDesign.screens[at] = { ...mockDesign.screens[at], name: scr.name, url: scr.url, constraints: scr.constraints, revision: (mockDesign.screens[at].revision ?? 0) + 1 };
+        return scr.id;
+      }
       case 'tasks_list':
         return mockTasks();
       case 'task_runs':
@@ -560,12 +569,33 @@ mockIPC(
       case 'health_list':
       case 'health_ci':
       case 'design_list':
-        return [];
+        return mockDesign.screens.filter((x) => x.project === a.project).map(({ project: _p, ...x }) => x);
+      case 'design_shots':
+        return mockDesign.shots.filter((x) => x.screen === a.screen).map(({ screen: _s, ...x }) => x).reverse();
+      case 'design_image':
+        return mockPng(Number(a.shot));
+      case 'design_review': {
+        const scr = mockDesign.screens.find((x) => x.id === a.screen)!;
+        if (scr.revision !== a.review.revision || scr.approved !== a.review.baseline) fail('la referencia o las restricciones cambiaron. Compara de nuevo');
+        const shot = mockDesign.shots.find((x) => x.id === a.review.shot)!;
+        if (a.review.approve) { if (!a.review.confirmed) fail('confirma la revisión'); shot.status = 'approved'; scr.approved = shot.id; } else shot.status = 'discarded';
+        return null;
+      }
+      case 'design_capture':
+      case 'design_import': {
+        const id = mockDesign.next++;
+        mockDesign.shots.push({ id, screen: a.screen, width: 1280, height: 800, source: cmd === 'design_capture' ? 'captura' : 'importada', url: null, note: a.note ?? '', status: 'candidate', observed: Date.now() });
+        return id;
+      }
+      case 'design_send':
+        if (!a.brief.confirmed) fail('confirma el envío');
+        return null;
+      case 'design_preview':
+        return null;
       case 'brain_save':
       case 'brain_forget':
       case 'health_run':
       case 'health_import':
-      case 'design_save':
         return fail('Este flujo necesita la app de escritorio de Filigranas');
       case 'jev_usage':
         return { tokens: 0, costUsd: 0 };
@@ -725,4 +755,28 @@ function mockRuns(task: number) {
   if (task !== 2) return [];
   return [{ id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],
     routing: { source: 'jev', reason: 'Cambio acotado con pruebas existentes', effort: 'medio', recommendedEffort: 'medio', confidence: 0.82, model: 'gpt-6-sol', inputTokens: null, outputTokens: null, costEstimateUsd: null, durationMs: null, complexity: 'media', review: null, context: null } }];
+}
+
+const mockDesign = {
+  next: 10,
+  screens: [{ id: 1, project: '/Users/demo/repositorios/calaix', name: 'Inicio de sesión', url: 'http://localhost:5173/login', constraints: '[bloqueo 0,0,100,12] Cabecera y logotipo\nTipografía SF Pro en toda la pantalla', revision: 3, approved: 2 as number | null }] as any[],
+  shots: [
+    { id: 2, screen: 1, width: 1280, height: 800, source: 'captura', url: 'http://localhost:5173/login', note: 'referencia', status: 'approved', observed: Date.now() - 86400e3 },
+    { id: 3, screen: 1, width: 1280, height: 800, source: 'captura', url: 'http://localhost:5173/login', note: 'botón principal más grande', status: 'candidate', observed: Date.now() - 3600e3 },
+  ] as any[],
+};
+function mockPng(seed: number) {
+  const c = document.createElement('canvas');
+  c.width = 1280; c.height = 800;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f4f5f7'; g.fillRect(0, 0, 1280, 800);
+  g.fillStyle = '#1d2330'; g.fillRect(0, 0, 1280, 96);
+  g.fillStyle = '#fff'; g.font = '600 30px sans-serif'; g.fillText('calaix', 48, 60);
+  g.fillStyle = '#fff'; g.fillRect(440, 200, 400, 380);
+  g.strokeStyle = '#d6d9df'; g.strokeRect(440, 200, 400, 380);
+  g.fillStyle = '#222'; g.font = '600 26px sans-serif'; g.fillText('Inicia sesión', 480, 260);
+  g.fillStyle = '#eceef2'; g.fillRect(480, 300, 320, 44); g.fillRect(480, 360, 320, 44);
+  g.fillStyle = seed % 2 ? '#2b5fd9' : '#3a3f4b';
+  const h = seed % 2 ? 60 : 44; g.fillRect(480, 440, 320, h);
+  return c.toDataURL('image/png').split(',')[1];
 }

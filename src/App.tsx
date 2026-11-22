@@ -16,7 +16,6 @@ import DesignCanvas from './DesignCanvas';
 import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
-import UsagePanel from './Usage';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
 import { emit, shortcut, toggleMute, useUi } from './ui';
@@ -35,10 +34,12 @@ import Entrega from './trama/Entrega';
 import Boundary from './trama/Boundary';
 import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
+import TitleSwitch from './trama/TitleSwitch';
+import EngineUsage, { type Engine } from './trama/EngineUsage';
 import Settings from './trama/Settings';
-import StatusMeters from './trama/StatusMeters';
+import JevStatusButton from './trama/StatusMeters';
 import { Seg } from './trama/ui';
-import { AgDot, Sigil, sessionAgents } from './trama/kit';
+import { AgDot, sessionAgents } from './trama/kit';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -89,7 +90,7 @@ export default function App() {
   const [switching, setSwitching] = useState<number | string | null>(null);
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
-  const [usageTools, setUsageTools] = useState(false);
+  const [engineOpen, setEngineOpen] = useState<Engine | null>(null);
   // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
   const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
   // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
@@ -505,9 +506,9 @@ export default function App() {
     else openTerminal(current.path);
   };
   const toggleUsage = () => {
-    setUsageTools(false);
+    setUsageOpen(false);
     setGithubOpen(false);
-    setUsageOpen((open) => !open || usageTools);
+    setEngineOpen((open) => open ? null : usageEngine === 'claude' ? 'claude' : 'codex');
   };
   const toggleSidebar = () => {
     setNoSide((v) => !v);
@@ -665,6 +666,8 @@ export default function App() {
   const browserOpen = panelOpen && rightView === 'browser';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
     if (tab === 'browser') return false;
+    // Studio es un destino propio: sin botón duplicado en el carril
+    if (tab === 'design') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
@@ -685,16 +688,11 @@ export default function App() {
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
-          <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title={shortcut('barra lateral · ⌘B')}>
-            <Icon name="sidebar" size={15} />
-          </button>
-          <button className="tb-project" onClick={() => { setLeftMode('projects'); setNoSide(false); setDest('workspace'); }}
-            aria-label={current ? `Proyectos · ${current.name}` : 'Proyectos'} title={current ? `${current.name} / ${branchLabel}` : 'Proyectos'}>
-            <Sigil name={current?.name ?? 'Filigranas'} />
-            <b>{current?.name ?? 'Filigranas'}</b>
-            {current && <span className="tb-branch"><span aria-hidden="true">/</span>{branchLabel}</span>}
-            <Icon name="down" size={12} />
-          </button>
+          <TitleSwitch ws={ws} project={project} branch={branchInfo} onError={setError}
+            onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
+            onBranched={() => { void emit('project-changed'); }}
+            onManage={() => { setLeftMode('projects'); setNoSide(false); setDest('workspace'); }}
+            onBranchTools={() => { setDest('workspace'); revealRight('git'); setChooseBranch(true); }} />
         </div>
         <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
           <Icon name="search" size={14} />
@@ -702,14 +700,6 @@ export default function App() {
           <kbd>{shortcut('⌘K')}</kbd>
         </button>
         <div className="tb-right" data-tauri-drag-region>
-          <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
-            onClick={() => { setDest('workspace'); showRight('browser'); }}
-            aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
-            title="Navegador">
-            <Icon name="globe" size={15} />
-          </button>
-          <GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
-            onOpenChange={open => { setGithubOpen(open); if (open) setUsageOpen(false); }} />
           {current && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
             {headerAgents.length === 0 && <><Icon name="agent" size={13} /><span>0</span></>}
             {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
@@ -721,7 +711,10 @@ export default function App() {
         </div>
       </header>
 
-      <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive} />
+      <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
+        browser={{ open: dest === 'workspace' && browserOpen, run: () => { setDest('workspace'); showRight('browser'); } }}
+        github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
+          onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
       {dest === 'inicio' && (
         <Boundary name="Inicio">
         <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
@@ -822,19 +815,13 @@ export default function App() {
       )}
       {shareDialog}
       {usageOpen && (
-        <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Uso de los modelos">
+        <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Herramientas y Jev">
           <header>
-            <h2>{usageTools ? 'Herramientas y Jev' : 'Uso'}</h2>
+            <h2>Herramientas y Jev</h2>
             <button className="icon" aria-label="Cerrar uso" onClick={() => { setUsageOpen(false); usageButton.current?.focus(); }}><Icon name="close" size={12} /></button>
           </header>
-          {usageTools ? <>
-            <button className="usage-tools" onClick={() => setUsageTools(false)}>‹ Volver a Uso</button>
-            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
-              onLogin={current ? (command) => { setUsageOpen(false); openTerminal(current.path, true, command); } : null} />
-          </> : <>
-            <UsagePanel engine={usageEngine} label={usageLabel} model={usageModel} quota={quota} />
-            <button className="usage-tools" onClick={() => setUsageTools(true)}><Icon name="tools" size={14} /> Herramientas y Jev</button>
-          </>}
+          <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
+            onLogin={current ? (command) => { setUsageOpen(false); setDest('workspace'); openTerminal(current.path, true, command); } : null} />
         </section>
       )}
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
@@ -954,7 +941,7 @@ export default function App() {
         </section>
         {errorToast}
         {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
-          onOpen={() => { setCliNotice(null); setUsageTools(true); setUsageOpen(true); }} />}
+          onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">
@@ -981,7 +968,7 @@ export default function App() {
         </button>
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
-        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
+        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -1034,13 +1021,6 @@ export default function App() {
       </Right>
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-project">
-          <button className="status-branch" disabled={!current} title={current ? `Rama del proyecto · ${branchLabel}` : 'Abre un proyecto para ver su rama'}
-            aria-label={current ? `Rama del proyecto: ${branchLabel}` : 'Sin proyecto'}
-            onClick={() => { setDest('workspace'); revealRight('git'); setChooseBranch(true); }}>
-            <Icon name="branch" size={13} />
-            <span>{current ? branchLabel : 'Sin proyecto'}</span>
-            {branchInfo?.upstream && <span className="status-branch-sync" title={branchInfo.upstream}>↑{branchInfo.ahead} ↓{branchInfo.behind}</span>}
-          </button>
           {current && <>
             <button className="status-action status-live" onClick={() => setDest(waiting > 0 ? 'inicio' : 'flow')} title="Actividad de los agentes">
               <Icon name="agent" size={13} />
@@ -1058,8 +1038,12 @@ export default function App() {
           </span>}
         </div>
         <div ref={statusMeters} className="status-meters">
-          <StatusMeters quota={quota} usage={usageOpen} tools={usageTools} usageButton={usageButton} onUsage={toggleUsage}
-            onJev={() => { setGithubOpen(false); setUsageTools(true); setUsageOpen((open) => !open || !usageTools); }} />
+          <JevStatusButton open={usageOpen} buttonRef={usageButton} onClick={() => {
+            setGithubOpen(false); setEngineOpen(null); setUsageOpen((open) => !open);
+          }} />
+          <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
+            open={engineOpen} onOpen={(engine) => { setEngineOpen(engine); if (engine) { setGithubOpen(false); setUsageOpen(false); } }}
+            onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
         </div>
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}

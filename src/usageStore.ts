@@ -135,11 +135,10 @@ export function useProviderQuota(engine: string | null, model: string | null, re
   const windows = snapshot.windows.filter((w) =>
     (w.resetsAt == null || w.resetsAt > now) &&
     (!['Opus', 'Sonnet'].includes(w.label) || model?.toLowerCase().includes(w.label.toLowerCase())));
-  const active = (provider: Engine) => snapshots[provider].windows.filter((window) => window.resetsAt == null || window.resetsAt > now);
   const remaining = windows.length ? Math.max(0, 100 - Math.max(...windows.map((w) => w.percent))) : null;
   const exhausted = (snapshot.blockedUntil ?? 0) > now || remaining === 0;
   const near = exhausted || (snapshot.warningUntil ?? 0) > now || (remaining !== null && remaining <= LOW_REMAINING);
-  return { windows, remaining, exhausted, near, loading: engine === 'codex' && codexLoading, providerWindows: { codex: active('codex'), claude: active('claude') } };
+  return { windows, remaining, exhausted, near, loading: engine === 'codex' && codexLoading };
 }
 
 export type ProviderQuota = ReturnType<typeof useProviderQuota>;

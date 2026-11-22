@@ -73,3 +73,7 @@ Pasaron la instalación congelada, la compilación del bundle, cinco pruebas de 
 Se probó el bundle de `ebeb6e9` en macOS 27.2.1 con el perfil aislado y una sesión de trabajo activa en un repositorio temporal. En Studio se seleccionó una captura de Chrome de 1440 × 900, se marcaron dos referencias PNG de ejemplo y se dejó una tercera desmarcada. El botón de envío se habilitó tras confirmar «Enviar captura y protecciones con 2 referencias».
 
 Claude Code completó el turno con Opus 5.5. Identificó tres imágenes, transcribió «Página de prueba» y «Confirmar diseño QA» de la captura y leyó los códigos `B39GWW5` y `9YKED82` de las dos láminas en orden. Los códigos solo figuraban en las imágenes. Los SHA-256 de los tres bloques de imagen del transcript coincidieron con la captura y las referencias seleccionadas. La referencia desmarcada quedó fuera. El turno no registró llamadas a herramientas.
+
+### Marco y cuotas por motor · 22 de noviembre de 2026
+
+Se incorporó el cambio de interfaz de `d8fc11d`. El selector de proyecto y el de rama ocupan la cabecera. El navegador y GitHub pasan a la columna de destinos, mientras que Agentes y Atención conservan su sitio en la esquina superior derecha. La barra inferior mantiene actividad, terminal y Jev. Cada motor tiene un acceso de cuota con las sesiones y el trabajo registrado en tareas de los últimos siete días. La sesión autenticada de Studio descrita arriba se probó antes de este cambio de marco.

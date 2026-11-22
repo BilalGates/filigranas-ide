@@ -235,9 +235,10 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .tv .studio-reference label { display: flex; align-items: center; gap: 3px; font-size: 10px; padding: 0 3px 4px; }
 .tv .studio-reference-preview { width: 100%; max-height: 55vh; object-fit: contain; }
 
-/* ── Barra superior opaca: proyecto y rama a la izquierda ─────────── */
-.app > .titlebar { z-index: 30; background: #08090b; border-bottom: 1px solid var(--line); backdrop-filter: none; }
-html.is-light .app > .titlebar { background: #eceef1; }
+/* ── Barra superior: proyecto y rama a la izquierda ──────────────── */
+/* translúcida, más oscura que el fondo para separarla del resto */
+.app > .titlebar { z-index: 30; background: rgb(0 0 0 / 0.7); border-bottom: 1px solid rgb(255 255 255 / 0.07); box-shadow: 0 1px 0 rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6); backdrop-filter: blur(24px) saturate(1.2); }
+html.is-light .app > .titlebar { background: rgb(0 0 0 / 0.1); }
 .titlebar .tb-left { display: flex; align-items: center; min-width: 0; }
 .tb-switch { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .tb-proj, .tb-branch { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; border-radius: 8px; color: var(--tx); font-size: 13px; white-space: nowrap; min-width: 0; max-width: 260px; }

@@ -691,7 +691,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
@@ -719,7 +719,7 @@ export default function App() {
       </header>
 
       <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
-        browser={{ open: dest === 'workspace' && browserOpen, run: () => { setDest('workspace'); showRight('browser'); } }}
+        browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
         github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
           onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
       {dest === 'inicio' && (

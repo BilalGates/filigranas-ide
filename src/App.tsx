@@ -667,6 +667,11 @@ export default function App() {
     </div>
   );
 
+  // Ruta que encabeza el panel derecho: el archivo abierto o la carpeta del proyecto.
+  const panelLocation = !current ? null
+    : rightView === 'editor' && (diff?.path ?? file)
+      ? (() => { const f = (diff?.path ?? file)!; const base = (fileSession != null ? fileRoot : null) ?? current.path; return /^([a-zA-Z]:)?[\\/]/.test(f) ? f : `${base.replace(/[\\/]+$/, '')}/${f}`; })()
+      : current.path;
   const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
   const isBrain = rightView === 'brain' || rightView === 'brain-graph';
   const panelOpen = !noRight && (!!current || rightView === 'browser' || isBrain);
@@ -770,7 +775,7 @@ export default function App() {
       )}
       {leftMode === 'threads' && current ? (
         <Threads projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} sessions={agentSessions}
-          onView={setView} onWork={() => openWork()} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
+          onView={setView} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
           onClose={closeSession} onProjects={() => setLeftMode('projects')}
           footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
       ) : (
@@ -967,7 +972,7 @@ export default function App() {
           <Icon name="chat" size={13} /> Conversación
         </button>
       )}
-      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
+      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile} root={ws.root} location={panelLocation}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {panelOpen && rightView === 'brain' && <>
           <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>

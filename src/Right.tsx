@@ -25,12 +25,38 @@ type Props = {
   onEditor: () => void;
   editor: { name: string; path: string; diff: boolean } | null;
   onCloseEditor: () => void;
+  /** Carpeta de repositorios elegida al abrir Filigranas y ruta que muestra el panel. */
+  root?: string | null;
+  location?: string | null;
   children: ReactNode;
 };
 
-export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, children }: Props) {
+// Paneles que trabajan sobre una carpeta: su cabecera es la ruta, no un título.
+const PATH_PANELS = new Set<RightTab>(['git', 'files', 'containers', 'conflicts', 'editor']);
+
+/** Ruta desde la carpeta de repositorios: «repositorios/grupo/proyecto/src/a.ts». */
+export function fromRoot(root: string, path: string) {
+  const norm = (v: string) => v.replace(/\\/g, '/').replace(/\/+$/, '');
+  const r = norm(root), p = norm(path);
+  const base = r.split('/').pop() || r;
+  if (p === r) return base;
+  return p.startsWith(r + '/') ? `${base}/${p.slice(r.length + 1)}` : p;
+}
+
+function Crumb({ path }: { path: string }) {
+  const cut = path.lastIndexOf('/');
+  return (
+    <span className="panel-crumb">
+      {cut > 0 && <span className="dir"><bdi>{path.slice(0, cut + 1)}</bdi></span>}
+      <span className="leaf">{path.slice(cut + 1)}</span>
+    </span>
+  );
+}
+
+export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, root, location, children }: Props) {
   const panel = RIGHT_PANELS[tab];
   const editing = tab === 'editor' && editor;
+  const crumb = root && location && PATH_PANELS.has(tab) ? fromRoot(root, location) : null;
 
   return (
     <aside id="workspace-right-panel" className="panel right"
@@ -40,7 +66,11 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ch
         label="Ancho del panel derecho" className="is-right" />
       {tab !== 'design' && <header className="panel-head">
         <Icon name={panel.icon} size={15} />
-        <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{editing ? editor.name : panel.title}</h2>
+        {crumb ? (
+          <h2 id="right-panel-title" className="is-path" title={`${panel.title} · ${location}`} aria-label={`${editing ? editor.name : panel.title} · ${crumb}`}><Crumb path={crumb} /></h2>
+        ) : (
+          <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{editing ? editor.name : panel.title}</h2>
+        )}
         {editing && editor.diff && <span className="right-panel-kind">diff</span>}
         <span className="grow" />
         {editor && !editing && (

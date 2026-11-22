@@ -1,154 +1,124 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
 import UsagePanel from '../Usage';
-import { skills as skillsApi, tasks as taskApi, type CliUpdate, type SkillInfo, type Tool } from '../ipc';
+import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type SkillInfo, type Tool } from '../ipc';
 import { shortcut } from '../ui';
+import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
 import { setFieldIntensity, setMotion, useMotion, type Motion } from './motion';
-import { ErrorNote, Seg } from './ui';
+import { Root } from './kit';
 
-// Ajustes: solo controles conectados a configuración real. Lo que vive en
-// otro sitio (modelo de cada sesión, aprobaciones por acción) se explica y
-// se enlaza en vez de duplicarse con selectores decorativos.
-type Section = 'visual' | 'herramientas' | 'uso' | 'proyecto' | 'skills' | 'permisos' | 'atajos';
-const SECTIONS: { id: Section; label: string; icon: string }[] = [
-  { id: 'visual', label: 'Visual y movimiento', icon: 'sun' },
-  { id: 'herramientas', label: 'Herramientas y Jev', icon: 'route' },
-  { id: 'uso', label: 'Uso y presupuesto', icon: 'gauge' },
-  { id: 'proyecto', label: 'Proyecto', icon: 'folder' },
-  { id: 'skills', label: 'Skills e instrucciones', icon: 'spark' },
-  { id: 'permisos', label: 'Permisos', icon: 'shield' },
-  { id: 'atajos', label: 'Atajos', icon: 'grid' },
-];
+// Ajustes de Trama v2 con configuración real: cada opción indica dónde está
+// definida (global, proyecto o sesión). Lo que no existe en el núcleo no se
+// presenta como un control: se explica dónde se gestiona.
+type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'apariencia' | 'atajos';
+const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['atajos', 'grid', 'Atajos']];
+const sc = (k: 'g' | 'p' | 's') => <span className={`scope ${k}`}>{{ g: 'global', p: 'proyecto', s: 'sesión' }[k]}</span>;
 
 export default function Settings({ project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
-  project: string | null;
-  projectName: string | null;
-  tools: Tool[] | null;
-  checking: boolean;
-  autoUpdates: CliUpdate[] | null;
-  onRefreshTools: () => void;
-  onLogin: ((command: string) => void) | null;
-  usage: Parameters<typeof UsagePanel>[0];
-  commands: { id: string; label: string; keys?: string }[];
+  project: string | null; projectName: string | null; tools: Tool[] | null; checking: boolean; autoUpdates: CliUpdate[] | null;
+  onRefreshTools: () => void; onLogin: ((command: string) => void) | null; usage: Parameters<typeof UsagePanel>[0]; commands: { id: string; label: string; keys?: string }[];
 }) {
-  const [section, setSection] = useState<Section>('visual');
+  const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'modelos'; } catch { return 'modelos'; } });
+  const pick = (s: Section) => { setSec(s); try { localStorage.setItem('filigranas.ajustes', s); } catch { /* */ } };
   return (
-    <section className="tr-dest tr-settings" aria-label="Ajustes">
-      <header className="tr-head"><div><h1>Ajustes</h1><div className="sub">Globales y de {projectName ?? 'ningún proyecto abierto'}</div></div></header>
-      <div className="settings-grid">
-        <nav className="settings-nav" aria-label="Secciones de ajustes">
-          {SECTIONS.map((s) => (
-            <button key={s.id} className="tr-li" aria-current={section === s.id ? 'page' : undefined} aria-selected={section === s.id} onClick={() => setSection(s.id)}>
-              <Icon name={s.icon} size={14} /><span className="t">{s.label}</span>
-            </button>
-          ))}
+    <Root label="Ajustes">
+      <div className="set">
+        <nav className="snav" aria-label="Secciones de ajustes">
+          {SECS.map(([id, ic, l]) => <button key={id} className={sec === id ? 'on' : ''} aria-current={sec === id ? 'page' : undefined} onClick={() => pick(id)}><Icon name={ic} size={15} /><span>{l}</span></button>)}
+          <p className="sample" style={{ padding: '14px 10px' }}>Cada opción indica dónde está definida. {projectName ? `Proyecto abierto: ${projectName}.` : 'Sin proyecto abierto.'}</p>
         </nav>
-        <div className="settings-body">
-          {section === 'visual' && <Visual />}
-          {section === 'herramientas' && (
-            <Block title="Herramientas, cuentas y Jev" note="Estado real de las CLI, inicio de sesión y enrutado de Jev. Los cambios se guardan en el núcleo.">
-              <div className="settings-embed legacy"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
-            </Block>
-          )}
-          {section === 'uso' && (
-            <Block title="Uso y presupuesto" note="Cuotas y consumo que informan los proveedores y Jev. Filigranas no inventa límites que el proveedor no publica.">
-              <div className="settings-embed legacy"><UsagePanel {...usage} /></div>
-            </Block>
-          )}
-          {section === 'proyecto' && <ProjectSettings project={project} projectName={projectName} />}
-          {section === 'skills' && <Skills />}
-          {section === 'permisos' && (
-            <Block title="Permisos" note="Filigranas pide aprobación en cada acción sensible; no existe un interruptor que los desactive en bloque.">
-              <ul className="settings-facts">
-                <li><Icon name="shield" size={14} /><span><b>Comandos y archivos de los agentes</b>: cada petición aparece en la conversación con Permitir o Rechazar (⌘↩ / ⌘⌫).</span></li>
-                <li><Icon name="push" size={14} /><span><b>Push</b>: se revisa el destino y los commits antes de publicar.</span></li>
-                <li><Icon name="pr" size={14} /><span><b>PR y merge</b>: borrador, revisión y prueba explícita antes de abrir o fusionar.</span></li>
-                <li><Icon name="studio" size={14} /><span><b>Studio y Brain</b>: los encargos de diseño y los recuerdos se envían o guardan solo con confirmación.</span></li>
-              </ul>
-            </Block>
-          )}
-          {section === 'atajos' && (
-            <Block title="Atajos de teclado">
-              <table className="flow-table settings-keys"><tbody>
-                {commands.filter((c) => c.keys).map((c) => <tr key={c.id}><td>{c.label}</td><td className="mono">{shortcut(c.keys!)}</td></tr>)}
-              </tbody></table>
-            </Block>
-          )}
+        <div className="sbody scr">
+          {sec === 'modelos' && <>
+            <h2 className="vt">Modelos y herramientas</h2>
+            <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. Solo Codex, Claude y Jev están activos. El modelo de cada conversación se elige en su propio selector.</p>
+            <div className="settings-embed legacy"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
+          </>}
+          {sec === 'skills' && <SkillsSec />}
+          {sec === 'permisos' && <>
+            <h2 className="vt">Permisos</h2>
+            <p className="lead">Las operaciones críticas no se pueden relajar desde aquí: siempre piden autorización explícita en el momento.</p>
+            {[['Push a remoto', 'Revisión del destino y los commits antes de publicar'], ['Publicar PR', 'Borrador revisable y prueba explícita'], ['Merge en main', 'Revisión y prueba explícita'], ['Comandos y archivos de los agentes', 'Cada petición aparece en la conversación con Permitir o Rechazar (⌘↩ / ⌘⌫)'], ['Encargos de diseño y recuerdos de Brain', 'Se envían o guardan solo con confirmación']].map(([t, d]) => (
+              <div key={t} className="srow"><div><div className="t">{t} {sc('g')}</div><div className="d">{d}</div></div><span className="chip"><Icon name="lock" size={11} /> fijo</span></div>
+            ))}
+          </>}
+          {sec === 'presupuestos' && <Budget usage={usage} />}
+          {sec === 'agentes' && <Agents project={project} projectName={projectName} />}
+          {sec === 'apariencia' && <Look />}
+          {sec === 'atajos' && <>
+            <h2 className="vt">Atajos de teclado</h2>
+            <p className="lead">Todo se puede hacer con el teclado. ⌘K abre la paleta con todas las órdenes.</p>
+            {commands.filter((c) => c.keys).map((c) => <div key={c.id} className="srow"><div><div className="t">{c.label}</div></div><span className="kbd">{shortcut(c.keys!)}</span></div>)}
+          </>}
         </div>
       </div>
-    </section>
+    </Root>
   );
 }
 
-function Block({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
-  return <section className="settings-block"><h2>{title}</h2>{note && <p className="mut">{note}</p>}{children}</section>;
-}
-
-function Visual() {
-  const m = useMotion();
-  const [light, setLight] = useState(document.documentElement.classList.contains('is-light'));
-  return (
-    <Block title="Visual y movimiento" note="El movimiento acompaña estados reales (agentes trabajando, permisos, transiciones). La preferencia del sistema «Reducir movimiento» siempre manda.">
-      <div className="settings-row">
-        <div><b>Movimiento</b><p className="mut">Completo anima estados y el campo ambiental. Sin ambiente deja el fondo quieto. Reducido elimina animaciones.</p></div>
-        <Seg label="Movimiento" value={m.motion} onChange={(v: Motion) => setMotion(v)} items={[{ id: 'completo', label: 'Completo' }, { id: 'sin-ambiente', label: 'Sin ambiente' }, { id: 'reducido', label: 'Reducido' }]} />
-      </div>
-      {m.systemReduced && <div className="tr-note"><Icon name="info" size={14} />El sistema tiene activado «Reducir movimiento»: se aplica el modo reducido.</div>}
-      <div className="settings-row">
-        <div><b>Intensidad del campo</b><p className="mut">Luz del fondo de puntos.</p></div>
-        <input type="range" min={0} max={1.6} step={0.1} value={m.intensity} onChange={(e) => setFieldIntensity(Number(e.currentTarget.value))} aria-label="Intensidad del campo" disabled={m.motion !== 'completo' || m.systemReduced} />
-      </div>
-      <div className="settings-row">
-        <div><b>Tema</b><p className="mut">Oscuro o claro ({shortcut('⌘⇧L')}).</p></div>
-        <Seg label="Tema" value={light ? 'claro' : 'oscuro'} onChange={(v) => { document.documentElement.classList.toggle('is-light', v === 'claro'); setLight(v === 'claro'); }} items={[{ id: 'oscuro', label: 'Oscuro' }, { id: 'claro', label: 'Claro' }]} />
-      </div>
-      <div className="settings-row">
-        <div><b>Tipografía</b><p className="mut">SF Pro en la interfaz e Iosevka en el código.</p></div>
-        <span className="mono mut">SF Pro · Iosevka</span>
-      </div>
-    </Block>
-  );
-}
-
-function ProjectSettings({ project, projectName }: { project: string | null; projectName: string | null }) {
-  const [limit, setLimit] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  useEffect(() => { if (project) taskApi.parallelLimit(project).then(setLimit, (e) => setError(String(e))); }, [project]);
-  if (!project) return <Block title="Proyecto" note="Abre un proyecto para ver sus ajustes."><span /></Block>;
-  return (
-    <Block title={`Proyecto · ${projectName}`} note="Ajustes guardados en el núcleo para este proyecto.">
-      <div className="settings-row">
-        <div><b>Tareas en paralelo</b><p className="mut">Cuántas tareas puede ejecutar el project manager a la vez.</p></div>
-        <div className="tr-row">
-          <input className="tr-input" type="number" min={1} max={8} value={limit ?? ''} style={{ width: 70 }} aria-label="Tareas en paralelo"
-            onChange={(e) => { setSaved(false); setLimit(Number(e.currentTarget.value)); }} />
-          <button className="tr-btn sm" disabled={limit == null || limit < 1} onClick={() => taskApi.parallelLimit(project, limit).then((v) => { setLimit(v); setSaved(true); }, (e) => setError(String(e)))}>Guardar</button>
-          {saved && <span className="tr-chip mint">guardado</span>}
-        </div>
-      </div>
-      <div className="settings-row">
-        <div><b>Modelo de cada sesión</b><p className="mut">Se elige en el selector de la propia conversación (Codex, Claude) y en Studio para las sesiones de diseño.</p></div>
-        <span className="mut">en cada sesión</span>
-      </div>
-      {error && <ErrorNote error={error} />}
-    </Block>
-  );
-}
-
-function Skills() {
+function SkillsSec() {
   const [list, setList] = useState<SkillInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { skillsApi.list().then(setList, (e) => setError(String(e))); }, []);
-  return (
-    <Block title="Skills e instrucciones" note="Skills incluidas en Filigranas. Los agentes reciben el catálogo junto a las reglas del proyecto y leen cada skill solo cuando el encargo la necesita.">
-      {error && <ErrorNote error={error} />}
-      {list === null ? <div className="tr-skel" style={{ height: 60 }} /> : (
-        <ul className="settings-facts">
-          {list.map((s) => <li key={s.name}><Icon name="spark" size={14} /><span><b className="mono">${s.name}</b> — {s.description}</span></li>)}
-        </ul>
-      )}
-    </Block>
-  );
+  return <>
+    <h2 className="vt">Skills y reglas</h2>
+    <p className="lead">Skills incluidas en Filigranas. Todos los agentes reciben el catálogo junto a las reglas globales y las del proyecto (AGENTS.md), y leen cada skill solo cuando su encargo la necesita.</p>
+    {error && <p className="mut2">{error}</p>}
+    {(list ?? []).map((s) => <div key={s.name} className="srow"><div><div className="t"><span className="mono">${s.name}</span> {sc('g')}</div><div className="d">{s.description}</div></div><span className="chip">todos los roles</span></div>)}
+    <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Se leen del repositorio en cada sesión</div></div><span className="chip">todos los roles</span></div>
+    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip">todos los roles</span></div>
+  </>;
+}
+
+function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
+  const codex = useProviderQuota('codex', null), claude = useProviderQuota('claude', null);
+  const [jv, setJv] = useState<JevStatus | null>(null);
+  useEffect(() => { jev.status().then(setJv, () => setJv(null)); }, []);
+  const q = (label: string, x: ReturnType<typeof useProviderQuota>) => x.windows.length ? x.windows.map((w) => (
+    <div key={label + w.label} className="srow"><div><div className="t">Cuota de {label} · {w.label} {sc('g')}</div><div className="d">Informada por la CLI{w.resetsAt ? ` · se renueva ${new Date(w.resetsAt * 1000).toLocaleString('es-ES', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</div></div><span className="mono">{Math.round(w.percent)}% usado</span></div>
+  )) : <div className="srow"><div><div className="t">Cuota de {label}</div><div className="d">La CLI no ha informado todavía</div></div><span className="chip dash">desconocida</span></div>;
+  return <>
+    <h2 className="vt">Presupuestos</h2>
+    <p className="lead">Solo se muestran cifras que el sistema conoce. Lo desconocido se indica como tal.</p>
+    {q('Codex', codex)}{q('Claude', claude)}
+    <div className="srow"><div><div className="t">Jev {sc('g')}</div><div className="d">{jv ? `Modo ${jv.settings.mode === 'local' ? 'local' : jv.settings.mode === 'shadow' ? 'sombra' : 'activo'} · política ${jv.settings.policy === 'economy' ? 'económica' : jv.settings.policy === 'quality' ? 'calidad' : 'equilibrada'}` : 'Sin estado'}</div></div><span className="chip">en Modelos y herramientas</span></div>
+    <div className="settings-embed legacy" style={{ marginTop: 14 }}><UsagePanel {...usage} /></div>
+  </>;
+}
+
+function Agents({ project, projectName }: { project: string | null; projectName: string | null }) {
+  const [limit, setLimit] = useState<number | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (project) taskApi.parallelLimit(project).then(setLimit, (e) => setError(String(e))); }, [project]);
+  return <>
+    <h2 className="vt">Agentes</h2>
+    <p className="lead">El Project manager reparte tareas a sesiones de Codex o Claude, cada una con su rama y su worktree cuando trabaja aislada.</p>
+    {project ? (
+      <div className="srow"><div><div className="t">Tareas en paralelo {sc('p')}</div><div className="d">Cuántas tareas puede ejecutar a la vez el PM de {projectName}</div></div>
+        <div className="row"><input className="in" type="number" min={1} max={8} value={limit ?? ''} style={{ width: 70 }} aria-label="Tareas en paralelo" onChange={(e) => { setSaved(false); setLimit(Number(e.currentTarget.value)); }} />
+          <button className="btn sm" disabled={limit == null || limit < 1} onClick={() => taskApi.parallelLimit(project, limit).then((v) => { setLimit(v); setSaved(true); }, (e) => setError(String(e)))}>Guardar</button>{saved && <span className="chip mint">guardado</span>}</div></div>
+    ) : <p className="mut2">Abre un proyecto para ajustar sus agentes.</p>}
+    <div className="srow"><div><div className="t">Modelo y esfuerzo {sc('s')}</div><div className="d">Se eligen en el selector de cada conversación y en Studio para las sesiones de diseño</div></div><span className="chip">en cada sesión</span></div>
+    {error && <p className="mut2">{error}</p>}
+  </>;
+}
+
+function Look() {
+  const m = useMotion();
+  const [light, setLight] = useState(document.documentElement.classList.contains('is-light'));
+  const ST: [string, string, string][] = [['idle', 'Reposo', 'Sin movimiento. El campo se queda quieto y el bucle se detiene.'], ['thinking', 'Razonamiento', 'Respiración profunda; la luz se difunde despacio.'], ['working', 'Ejecución', 'Halo que gira y energía que fluye hacia la tarea.'], ['waiting', 'Espera de permiso', 'Doble latido ámbar, focalizado en quien espera.'], ['blocked', 'Bloqueo', 'Quieto, contorno discontinuo.'], ['done', 'Finalización', 'Onda de resolución y reposo estable.']];
+  return <>
+    <h2 className="vt">Movimiento y apariencia</h2>
+    <p className="lead">El movimiento siempre comunica un estado real. Puedes reducirlo sin perder información: el estado se sigue leyendo por forma y color.</p>
+    <div className="srow"><div><div className="t">Movimiento {sc('g')}</div><div className="d">{m.systemReduced ? 'El sistema pide movimiento reducido: se respeta siempre.' : 'Completo, sin ambiente (estados animados, fondo quieto) o reducido.'}</div></div>
+      <div className="seg" role="radiogroup" aria-label="Movimiento">{([['completo', 'Completo'], ['sin-ambiente', 'Sin ambiente'], ['reducido', 'Reducido']] as [Motion, string][]).map(([id, l]) => <button key={id} className={m.motion === id ? 'on' : ''} role="radio" aria-checked={m.motion === id} onClick={() => setMotion(id)}>{l}</button>)}</div></div>
+    <div className="motiongrid">{ST.map(([st, t, d]) => (
+      <div key={st} className="mstate"><div className="mdemo"><span className={`ag st-${st}`} style={{ '--h': '#b09cff', '--s': '26px' } as CSSProperties}><i /></span><svg width="70" height="26" aria-hidden="true"><path className={`ge ${st === 'working' ? 'e-exec' : st === 'blocked' ? 'e-block' : st === 'done' ? 'e-done' : st === 'waiting' ? 'e-wait' : 'e-dep'} lg`} d="M2 13H68" style={st === 'working' ? { stroke: '#b09cff' } : undefined} /></svg></div><b>{t}</b><p>{d}</p></div>
+    ))}</div>
+    <div className="srow"><div><div className="t">Intensidad del campo ambiental {sc('g')}</div><div className="d">Luz de actividad tras el vidrio</div></div><input type="range" min={0} max={1.6} step={0.1} value={m.intensity} onChange={(e) => setFieldIntensity(Number(e.currentTarget.value))} aria-label="Intensidad del campo" disabled={m.motion !== 'completo' || m.systemReduced} /></div>
+    <div className="srow"><div><div className="t">Tema {sc('g')}</div><div className="d">Oscuro o claro ({shortcut('⌘⇧L')})</div></div>
+      <div className="seg" role="radiogroup" aria-label="Tema">{[['oscuro', 'Oscuro'], ['claro', 'Claro']].map(([id, l]) => <button key={id} className={(light ? 'claro' : 'oscuro') === id ? 'on' : ''} role="radio" aria-checked={(light ? 'claro' : 'oscuro') === id} onClick={() => { document.documentElement.classList.toggle('is-light', id === 'claro'); setLight(id === 'claro'); }}>{l}</button>)}</div></div>
+    <div className="srow"><div><div className="t">Tipografía</div><div className="d">SF Pro para la interfaz (13 px base, 14 px lectura) · Iosevka para código</div></div><span className="mono">Iosevka</span></div>
+  </>;
 }

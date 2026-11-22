@@ -494,7 +494,7 @@ html:not([data-motion='reducido']) .co-approval { animation: trPop var(--d2) var
 .ch-state.is-permiso { color: var(--amber); }
 .ws-layout .tr-seg button { height: 22px; padding: 0 8px; }
 .ws-layout .seg-l { display: none; }
-@container (min-width: 640px) { .ws-layout .seg-l { display: inline; } }
+/* iconos solos, como en el Artifact */
 .center { container-type: inline-size; }
 /* Código: el editor ocupa el área del chat; la conversación sigue montada. */
 .app.lay-code > .right { grid-column: 3; width: auto; margin: 0 0 8px; transition: none; }

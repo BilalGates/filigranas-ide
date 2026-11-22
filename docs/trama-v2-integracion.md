@@ -14,6 +14,13 @@ Rama `feat/trama-v2`, creada a partir de `codex/limpieza-pnpm` (pnpm 11, sin `pa
 | 6 · Brain y Ajustes | `e86087a` | Cuatro vistas de Brain, `brain_links` y `skills_list`; Ajustes reales |
 | 7 · Pulido | (este commit) | Ventanas pequeñas, rejilla de Inicio, documentación |
 
+## Corrección de fidelidad (segunda pasada)
+
+Los destinos se rehicieron con el marcado y el CSS del propio Artifact. Las comparaciones están en `docs/trama-paridad/`.
+
+- **Navegación duplicada eliminada.** El antiguo panel «Filigranas Brain» (Grafo y Recuerdos) ya no se abre: su botón en la barra de título y su orden llevan al destino Brain, que añade el ámbito «Todos» para la vista entre proyectos.
+- **Workspace.** La columna «Conversaciones» sustituye por defecto al árbol de proyectos. El árbol completo, con grupos, archivo y compartir, sigue disponible desde «Proyectos y grupos».
+
 ## Marco nativo
 
 No cambia. La barra de título conserva `data-tauri-drag-region` y su reserva de 84 px para el semáforo real de macOS. Los círculos que se ven en el navegador de desarrollo son los del simulador (`html[data-browser]`), igual que antes.

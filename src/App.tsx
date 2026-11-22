@@ -35,6 +35,7 @@ import Studio from './trama/Studio';
 import Entrega from './trama/Entrega';
 import Boundary from './trama/Boundary';
 import BrainView from './trama/BrainView';
+import Threads from './trama/Threads';
 import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
 
@@ -120,8 +121,10 @@ export default function App() {
   const [shareMode, setShareMode] = useState<ShareTarget | 'join' | null>(null);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
-  const [noRight, setNoRight] = useState(false);
+  const [noRight, setNoRight] = useState(() => { try { return (localStorage.getItem('filigranas.disposicion') ?? 'chat') === 'chat'; } catch { return true; } });
   const [dest, setDestState] = useState<Dest>(loadDest);
+  const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
+  const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
   const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
     try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
   });
@@ -525,7 +528,8 @@ export default function App() {
   const setLayout = (next: 'chat' | 'split' | 'code') => {
     setLayoutState(next);
     try { localStorage.setItem('filigranas.disposicion', next); } catch { /* sin almacenamiento */ }
-    if (next === 'chat') return;
+    // Conversación: el chat ocupa el centro sin panel lateral, como en Trama.
+    if (next === 'chat') { setNoRight(true); return; }
     setNoRight(false);
     setRightView(editorOpen ? 'editor' : 'files');
   };
@@ -769,6 +773,12 @@ export default function App() {
             usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
         </Boundary>
       )}
+      {leftMode === 'threads' && current ? (
+        <Threads projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} sessions={agentSessions}
+          onView={setView} onWork={() => openWork()} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
+          onClose={closeSession} onProjects={() => setLeftMode('projects')}
+          footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
+      ) : (
       <Sidebar
         ws={ws}
         project={project}
@@ -792,12 +802,16 @@ export default function App() {
         }}
         onError={setError}
         sessions={sessionList}
-        status={muted && (
-          <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
-            <Icon name="mute" size={13} /> Silenciado
-          </button>
-        )}
+        status={<>
+          {muted && (
+            <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
+              <Icon name="mute" size={13} /> Silenciado
+            </button>
+          )}
+          {current && <button className="side-usage" onClick={() => setLeftMode('threads')}><Icon name="chat" size={13} /> Conversaciones</button>}
+        </>}
       />
+      )}
       {shareDialog}
       {usageOpen && (
         <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Uso de los modelos">
@@ -827,7 +841,8 @@ export default function App() {
             {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
             <span className="grow" />
             <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
-              { id: 'chat', label: 'Chat', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
+              { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
+            <button className={`tb-btn ws-term${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label="Terminal" aria-pressed={termOpen} title={shortcut('terminal · ⌘J')}><Icon name="terminal" size={15} /></button>
             {activeSession && (
               <button className="tb-btn" onClick={() => closeSession(activeSession.id)} aria-label="Cerrar sesión" title="cerrar sesión">
                 <Icon name="close" size={11} />
@@ -1052,6 +1067,13 @@ export default function App() {
           <Icon name="branch" size={12} />
           <span>Sesión · {sessionWorktree.branch}</span>
         </span>}
+        {current && (destLive.workspace || waiting > 0) && (
+          <button className="status-action status-live" onClick={() => setDest('workspace')} title="Actividad de los agentes">
+            {destLive.workspace && <><span className="dot is-trabajando" /> {Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</>}
+            {destLive.workspace && waiting > 0 && <span className="mut"> · </span>}
+            {waiting > 0 && <span className="amb">{waiting} {waiting === 1 ? 'espera' : 'esperan'} permiso</span>}
+          </button>
+        )}
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}

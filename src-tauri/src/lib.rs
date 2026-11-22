@@ -3,6 +3,7 @@ mod approval;
 mod attachments;
 mod brain;
 mod brain_graph;
+mod brain_links;
 mod browser;
 mod chat;
 mod claude;
@@ -154,6 +155,10 @@ pub fn run() {
             brain::brain_preview,
             brain::brain_save,
             brain::brain_forget,
+            brain_links::brain_links,
+            brain_links::brain_link_save,
+            brain_links::brain_link_remove,
+            skills::skills_list,
             health::health_list,
             health::health_file,
             health::health_import,

@@ -50,6 +50,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     crate::work::migrate(&conn)?;
     crate::chat::migrate(&conn)?;
     crate::brain::migrate(&conn)?;
+    crate::brain_links::migrate(&conn)?;
     crate::jev::migrate(&conn)?;
     crate::health::migrate(&conn)?;
     crate::design::migrate(&conn)?;

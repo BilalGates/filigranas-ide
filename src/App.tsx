@@ -34,6 +34,8 @@ import Flow from './trama/Flow';
 import Studio from './trama/Studio';
 import Entrega from './trama/Entrega';
 import Boundary from './trama/Boundary';
+import BrainView from './trama/BrainView';
+import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -700,13 +702,13 @@ export default function App() {
         </button>
         <div className="tb-right" data-tauri-drag-region>
           <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
-            onClick={() => showRight('browser')}
+            onClick={() => { setDest('workspace'); showRight('browser'); }}
             aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
             title="Navegador">
             <Icon name="globe" size={15} />
           </button>
           <button className={`tb-brain${brainOpen ? ' is-on' : ''}`}
-            onClick={() => showRight(panelOpen && rightView === 'brain' ? 'brain' : 'brain-graph')}
+            onClick={() => { setDest('workspace'); showRight(panelOpen && rightView === 'brain' ? 'brain' : 'brain-graph'); }}
             aria-label="Filigranas Brain" title="Filigranas Brain" aria-controls="workspace-right-panel" aria-expanded={brainOpen}>
             <Icon name="brain" size={15} />
           </button>
@@ -752,6 +754,19 @@ export default function App() {
         <Entrega project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
           onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
+        </Boundary>
+      )}
+      {dest === 'brain' && (
+        <Boundary name="Brain">
+          <BrainView project={project} projectName={current?.name ?? null}
+            onOpenTask={(id) => { if (project) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }} />
+        </Boundary>
+      )}
+      {dest === 'ajustes' && (
+        <Boundary name="Ajustes">
+          <Settings project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
+            onRefreshTools={checkTools} onLogin={current ? (command) => { setDest('workspace'); openTerminal(current.path, true, command); } : null}
+            usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
         </Boundary>
       )}
       <Sidebar

@@ -55,6 +55,19 @@ pub fn instructions(app: &AppHandle) -> String {
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct SkillInfo {
+    name: String,
+    description: String,
+}
+
+/// Catálogo de skills incluidas (solo lectura).
+#[tauri::command]
+pub fn skills_list() -> Vec<SkillInfo> {
+    SKILLS.iter().filter_map(|skill| metadata(skill))
+        .map(|(name, description)| SkillInfo { name: name.into(), description: description.into() }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

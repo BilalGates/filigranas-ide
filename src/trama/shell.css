@@ -190,3 +190,10 @@ html.is-light .titlebar { background: #eceef1 !important; }
 .panel-crumb { display: flex; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; }
 .panel-crumb .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
 .panel-crumb .leaf { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }
+
+/* ── Navegador a pantalla completa: ocupa conversaciones y chat ────── */
+/* La conversación sigue montada debajo; el carril derecho sigue visible
+   para volver a Cambios o Archivos, y el botón del navegador lo cierra. */
+.app.is-browser > .right { grid-column: 2 / 4; width: auto !important; max-width: none; margin-left: 8px; transition: none; }
+.app.is-browser > .sidebar, .app.is-browser > .center, .app.is-browser > .splitter.is-side, .app.is-browser .ws-back { visibility: hidden; }
+.app.is-browser > .right > .splitter { display: none; }

@@ -37,12 +37,13 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   onSession: (path: string, view: 'coach' | number) => void;
   onWork: (path: string, task?: number) => void;
   onResume: () => void;
-  onFlow: () => void;
+  onFlow: (path: string) => void;
   onError: (e: string) => void;
 }) {
   const { activity } = useUi();
   const [snaps, setSnaps] = useState<Record<string, Snap>>({});
   const [creating, setCreating] = useState(false);
+  const [showAllAttention, setShowAllAttention] = useState(false);
   const projects = useMemo(() => ws.projects.filter((p) => !p.archived), [ws.projects]);
 
   useEffect(() => {
@@ -91,7 +92,9 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
       if (key !== 'coach' && !s) continue;
       out.push({ key: `p${key}`, st: 'waiting', title: `${s ? s.name : 'Project manager'} pide permiso`, text: ws.projects.find((p) => p.path === project)?.name ?? '', action: 'Ver la petición', warn: true, run: () => onSession(project, s ? s.id : 'coach') });
     }
-    for (const snap of Object.values(snaps)) {
+    for (const { path } of projects) {
+      const snap = snaps[path];
+      if (!snap) continue;
       for (const t of snap.tasks ?? []) {
         if (!ATTENTION.has(t.status)) continue;
         out.push({ key: `t${snap.project.path}:${t.id}`, st: t.status === 'paused_quota' ? 'paused' : t.status === 'waiting_approval' ? 'waiting' : 'blocked', title: `${STATUS[t.status]}: ${t.title}`, text: `${snap.project.name} · tarea #${t.id}`, action: 'Abrir tarea', run: () => onWork(snap.project.path, t.id) });
@@ -99,7 +102,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
       if (snap.work?.state === 'review') out.push({ key: `w${snap.project.path}`, st: 'waiting', title: 'Sesión de trabajo lista para revisar', text: `${snap.project.name} · ${snap.work.objective}`, action: 'Revisar', run: () => onWork(snap.project.path) });
     }
     return out;
-  }, [activity, snaps, agentSessions, project, ws.projects, onSession, onWork]);
+  }, [activity, snaps, agentSessions, project, projects, ws.projects, onSession, onWork]);
 
   const working = sessionAgents(agentSessions, activity, pm).filter((a) => a.state === 'working' || a.state === 'thinking');
   const groups = useMemo(() => {
@@ -148,7 +151,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
                 ) : null}
                 <div className="row" style={{ marginTop: 'auto' }}>
                   <button className="btn pearl" onClick={resumeAvailable ? onResume : () => focusPath && onProject(focusPath)}><Icon name="play" size={13} /> {resumeAvailable ? 'Retomar sesión' : 'Abrir proyecto'} <span className="kbd dark">↩</span></button>
-                  <button className="btn" onClick={onFlow}><Icon name="flow" size={14} /> Ver el equipo</button>
+                  <button className="btn" onClick={() => onFlow(focusPath)}><Icon name="flow" size={14} /> Ver el equipo</button>
                 </div>
               </div>
             </section>
@@ -181,10 +184,10 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
             <h3>Necesita tu atención</h3>
             {attention.length === 0 ? (
               <div className="home-calm"><EmptyArt /><p>Nada espera tu permiso ni está bloqueado.</p></div>
-            ) : attention.slice(0, 6).map((a) => (
+            ) : (showAllAttention ? attention : attention.slice(0, 6)).map((a) => (
               <div key={a.key} className="aitem"><StDot st={a.st} /><div><div className="t">{a.title}</div><p>{a.text}</p><button className={`btn sm${a.warn ? ' warn' : ''}`} onClick={a.run}>{a.action}</button></div></div>
             ))}
-            {attention.length > 6 && <button className="btn sm ghost" onClick={onFlow}>Ver {attention.length - 6} más en Flow</button>}
+            {attention.length > 6 && <button className="btn sm ghost" aria-expanded={showAllAttention} onClick={() => setShowAllAttention(!showAllAttention)}>{showAllAttention ? 'Ver menos' : `Ver ${attention.length - 6} más`}</button>}
           </section>
           <section className="pane attn" aria-label="Trabajando ahora">
             <h3>Trabajando ahora</h3>
@@ -321,7 +324,7 @@ function NewProject({ root, onClose, onDone }: { root: string; onClose: () => vo
   return (
     <Modal title="Nuevo proyecto" onClose={onClose}>
       <p>Se crea una carpeta nueva en {root}.</p>
-      <label className="tr-field-row">Nombre<input autoFocus value={name} onChange={(e) => setName(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && create()} /></label>
+      <label className="tr-field-row">Nombre<input value={name} onChange={(e) => setName(e.currentTarget.value)} onKeyDown={(e) => e.key === 'Enter' && !busy && create()} /></label>
       {error && <div className="tr-error" role="alert" style={{ marginTop: 10 }}>{error}</div>}
       <div className="acts">
         <button className="tr-btn ghost" onClick={onClose}>Cancelar</button>

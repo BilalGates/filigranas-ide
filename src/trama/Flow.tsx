@@ -15,7 +15,8 @@ const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
 type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string };
-type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: string; tokens: number | null; duration: number | null };
+type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null };
+const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
 type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean };
 const LANE_H = 58, COL_W = 186, NODE_W = 170, NODE_H = 50;
 const FS: Record<string, FStatus> = { running: 'running', verifying: 'running', waiting_approval: 'waiting', blocked: 'blocked', failed: 'blocked', paused_quota: 'blocked', done: 'done', cancelled: 'done' };
@@ -49,7 +50,7 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
     task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
-    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? 'local', tokens: r.inputTokens, duration: r.durationMs,
+    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs,
   })));
   const used = new Set(base.map((t) => t.agent));
   const lanesShown = agents.filter((a) => a.id === 'pm' || used.has(a.id) || a.state !== 'idle');
@@ -76,7 +77,7 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
   agentSessions: Session[];
   pm: { engine: string } | null;
   onOpenSession: (id: number | 'coach') => void;
-  onEditTask: (id: number) => void;
+  onEditTask: (id: number | null) => void;
   onAuto: (task: Task) => void;
   onDirect: (engine: string, task: number) => void;
   onStartPm: () => void;
@@ -92,22 +93,31 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
   const [demo, setDemo] = useState(false);
   const [help, setHelp] = useState(false);
   const [inspOpen, setInspOpen] = useState(false);
+  const request = useRef(0);
 
   const load = useCallback(async () => {
     if (!project) return;
+    const id = ++request.current;
     try {
       const t = await taskApi.list(project);
+      if (id !== request.current) return;
       setList(t); setError(null);
       const want = t.filter((x) => x.sessions.length || FS[x.status]).slice(0, 30);
       const got = await Promise.allSettled(want.map((x) => taskApi.runs(project, x.id)));
+      if (id !== request.current) return;
       const next: Record<number, TaskRun[]> = {};
       got.forEach((r, i) => { if (r.status === 'fulfilled' && r.value.length) next[want[i].id] = r.value; });
       setRuns(next);
-    } catch (e) { setError(String(e)); }
+    } catch (e) { if (id === request.current) setError(String(e)); }
   }, [project]);
-  useEffect(() => { setList(null); setSel(null); setDemo(false); void load(); const t = window.setInterval(load, 8000); return () => window.clearInterval(t); }, [load]);
+  useEffect(() => {
+    if (!project) return;
+    void load();
+    const timer = window.setInterval(load, 8000);
+    return () => { request.current++; window.clearInterval(timer); };
+  }, [project, load]);
 
-  const agents = useMemo(() => sessionAgents(agentSessions, activity, pm), [agentSessions, activity, pm]);
+  const agents = useMemo(() => sessionAgents(agentSessions.filter((session) => session.project === project), activity, pm), [agentSessions, activity, pm, project]);
   const model = useMemo<FModel | null>(() => demo ? demoModel() : list ? realModel(list, runs, agents) : null, [demo, list, runs, agents]);
   const c = useMemo(() => { const k: Record<FStatus, number> = { done: 0, running: 0, waiting: 0, blocked: 0, backlog: 0 }; model?.tasks.forEach((t) => k[t.status]++); return k; }, [model]);
   const pick = (id: string | null) => { setSel(id); if (id) setInspOpen(true); };
@@ -134,17 +144,17 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
           <span className="grow" />
           <div className="seg" role="group" aria-label="Vista">
             {([['exec', 'lanes', 'Ejecución'], ['deps', 'graph', 'Dependencias'], ['list', 'list', 'Lista']] as [Lens, string, string][]).map(([id, ic, l]) => (
-              <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} onClick={() => setLens(id)}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
+              <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} aria-label={l} onClick={() => setLens(id)}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
             ))}
           </div>
-          {demo ? <button className="btn sm" onClick={() => { setDemo(false); setSel(null); }}><Icon name="close" size={12} /> Salir de la demo</button>
-            : <button className="btn sm" onClick={() => onEditTask(0)}><Icon name="plus" size={12} /> Tarea</button>}
+          {demo ? <button className="btn sm" onClick={() => { setDemo(false); setSel(null); setFilter(null); }}><Icon name="close" size={12} /> Salir de la demo</button>
+            : <button className="btn sm" onClick={() => onEditTask(null)}><Icon name="plus" size={12} /> Tarea</button>}
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
         </div>
         <div className="stage" id="stage">
           {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => void load()}>Reintentar</button></div>}
-          {!model ? <div className="flow-loading"><span className="spin" /></div>
-            : empty ? <FlowStart agents={model.agents} onCreate={() => onEditTask(0)} onPm={onStartPm} onHelp={() => setHelp(true)} onDemo={() => { setDemo(true); setSel('t2'); }} />
+          {!model ? (!error && <div className="flow-loading" role="status" aria-label="Cargando tareas"><span className="spin" /></div>)
+            : empty ? <FlowStart agents={model.agents} onCreate={() => onEditTask(null)} onPm={onStartPm} onHelp={() => setHelp(true)} onDemo={() => { setDemo(true); setSel('t2'); setFilter(null); }} />
             : lens === 'list' ? <FlowList m={model} sel={sel} filter={filter} onSel={pick} />
             : <FlowGraph m={model} lens={lens} sel={sel} filter={filter} onSel={pick} onOpen={(id) => { const t = model.tasks.find((x) => x.id === id); if (t?.num) onEditTask(t.num); }} />}
         </div>
@@ -283,7 +293,8 @@ function FlowGraph({ m, lens, sel, filter, onSel, onOpen }: { m: FModel; lens: L
   mref.current = m;
   const cb = useRef({ onSel, onOpen });
   cb.current = { onSel, onOpen };
-  const sig = `${lens}|${m.demo}|${m.agents.map((a) => a.id).join(',')}|${m.tasks.map((t) => `${t.id}:${t.status}:${t.agent}:${t.deps.join('.')}`).join('|')}`;
+  const sig = JSON.stringify([lens, m.demo, m.agents.map((a) => [a.id, a.engine]), m.tasks.map((t) =>
+    [t.id, t.status, t.label, t.agent, t.deps, t.title, t.model])]);
   useEffect(() => {
     const { nodes, edges, under } = graphModel(mref.current, lens);
     if (!g.current) {
@@ -420,7 +431,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
       <div className="sec">
         <div className="row" style={{ marginBottom: 8 }}><Icon name="route" size={14} /><b>{last ? `Por qué ${last.model ?? last.provider}` : 'Decisión de Jev'}</b><span className="grow" />{last?.complexity && <span className="chip">{last.complexity}</span>}</div>
         <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}</div>
-        {last && <dl className="kv" style={{ marginTop: 10 }}><dt>Origen</dt><dd>{last.source === 'jev' ? 'Jev' : last.source === 'shadow' ? 'Jev en modo sombra' : 'reglas locales'}</dd><dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd><dt>Esfuerzo</dt><dd>{last.effort ?? '—'}</dd></dl>}
+        {last && <dl className="kv" style={{ marginTop: 10 }}><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd><dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd><dt>Esfuerzo</dt><dd>{last.effort ?? '—'}</dd></dl>}
       </div>
       <div className="sec"><span className="lab">Historial</span>
         {runs.length ? <ol className="tev">{runs.slice(0, 8).map((r, i) => <li key={i}><span className="mono mut2">{new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span><span>{r.provider}{r.model ? ` · ${r.model}` : ''} · {r.outcome}{r.tokens ? ` · ${r.tokens.toLocaleString('es-ES')} tokens` : ''}</span></li>)}</ol>
@@ -448,14 +459,15 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
   return (
     <div className="route">
       <div className="tl">
-        <div className="row"><span className="lab"><Icon name="route" size={13} /> Decisiones de Jev · hoy</span><span className="grow" /><span className="mut2" style={{ fontSize: 12 }}>{runs.length ? `${runs.length} ejecuciones` : 'sin ejecuciones hoy'}</span></div>
+        <div className="row"><span className="lab"><Icon name="route" size={13} /> Ejecuciones y decisiones de Jev · hoy</span><span className="grow" /><span className="mut2" style={{ fontSize: 12 }}>{runs.length ? `${runs.length} ejecuciones` : 'sin ejecuciones hoy'}</span></div>
         <svg ref={svg} role="img" aria-label="Línea temporal de ejecuciones y decisiones de Jev">
           <line x1="24" x2={w - 24} y1="44" y2="44" stroke="rgba(255,255,255,.1)" strokeDasharray="1 4" />
           {ticks.map((t, i) => <text key={i} x={X(t)} y={100} textAnchor="middle" className="tlt">{new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</text>)}
           {runs.map((r, i) => { const x = X(r.at), y = [28, 58, 82][i % 3], c = color(r), on = sel === r.task; return (
             <g key={i} className={`rt${on ? ' on' : ''}`} tabIndex={0} role="button" aria-label={`${r.task}: ${r.model ?? r.provider}`} onClick={() => onSel(r.task)} onKeyDown={(e) => e.key === 'Enter' && onSel(r.task)}>
               <line x1={x} x2={x} y1="44" y2={y} stroke={c} strokeOpacity=".45" />
-              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={r.source === 'local' ? '#0d0f12' : c} stroke={c} strokeWidth={on ? 2 : 1.2} />
+              <title>{r.source ? ROUTING_SOURCE[r.source] : 'Origen sin registrar'}</title>
+              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={r.source === 'jev' || r.source === 'shadow' ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
               <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.model ?? r.provider}</text>
             </g>); })}
         </svg>

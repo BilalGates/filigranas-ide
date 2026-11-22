@@ -490,7 +490,7 @@ function ScreenForm({ screen, onClose, onSave }: { screen: DesignScreen; onClose
   return (
     <Modal title={screen.id == null ? 'Nueva pantalla' : 'Editar pantalla'} onClose={onClose}>
       <div className="tr-col">
-        <label className="tr-field-row">Nombre<input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
+        <label className="tr-field-row">Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
         <label className="tr-field-row">URL local (opcional)<input value={form.url} placeholder="http://localhost:5173/" onChange={(e) => setForm({ ...form, url: e.currentTarget.value })} /></label>
       </div>
       <div className="acts"><button className="tr-btn ghost" onClick={onClose}>Cancelar</button><button className="tr-btn pearl" disabled={!form.name.trim()} onClick={() => onSave(form)}>Guardar</button></div>

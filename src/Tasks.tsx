@@ -41,7 +41,7 @@ const SECTIONS = {
 };
 
 export type WorkSection = keyof typeof SECTIONS;
-export type WorkTarget = { project: string; section: WorkSection; task?: number; session?: number | null; allPending?: boolean };
+export type WorkTarget = { project: string; section: WorkSection; task?: number; session?: number | null; allPending?: boolean; createTask?: boolean };
 
 type Props = {
   project: string;
@@ -174,7 +174,7 @@ export default function Tasks({
     setAllPending(!!focus.allPending);
     setFilter('');
     setSearch('');
-    setEdit(null);
+    setEdit(focus.createTask ? { ...EMPTY } : null);
     setError(null);
   }, [focus, appliedFocus, hidden, list, orphans, topology]);
 

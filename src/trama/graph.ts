@@ -50,6 +50,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
   let E = o.edges;
   let els = new Map<string, SVGGElement>();
   let eels: SVGPathElement[] = [];
+  let morphFrame = 0;
 
   const neighbors = (id: string) => {
     const s = new Set([id]);
@@ -69,12 +70,12 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
     const dn = b.y > a.y, x1 = a.x, y1 = a.y + (dn ? a.h / 2 : -a.h / 2), x2 = b.x, y2 = b.y + (dn ? -b.h / 2 - 3 : b.h / 2 + 3), my = (y1 + y2) / 2;
     return `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
   }
-  const cls = (n: GNode) => {
-    const s = st.sel ? neighbors(st.sel) : null;
+  const cls = (n: GNode, s: Set<string> | null) => {
     return `gn ${n.cls ?? ''} ${n.id === st.sel ? 'sel' : ''} ${(s && s.has(n.id)) || n.keep ? 'nb' : ''} ${st.hl && !st.hl.has(n.id) && !n.keep ? 'hlout' : ''}`;
   };
   function drawNodes() {
-    gN.innerHTML = o.nodes.map((n) => `<g class="${cls(n)}" data-gid="${escapeXml(n.id)}" transform="translate(${n.x},${n.y})" role="button" aria-label="${escapeXml(n.aria ?? n.id)}">${o.node(n, n.id === st.sel)}</g>`).join('');
+    const s = st.sel ? neighbors(st.sel) : null;
+    gN.innerHTML = o.nodes.map((n) => `<g class="${cls(n, s)}" data-gid="${escapeXml(n.id)}" transform="translate(${n.x},${n.y})" role="button" aria-label="${escapeXml(n.aria ?? n.id)}">${o.node(n, n.id === st.sel)}</g>`).join('');
     els = new Map();
     gN.querySelectorAll<SVGGElement>('[data-gid]').forEach((g) => els.set(g.dataset.gid!, g));
   }
@@ -93,7 +94,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
   }
   function restyle() {
     const s = st.sel ? neighbors(st.sel) : null;
-    for (const n of o.nodes) els.get(n.id)?.setAttribute('class', cls(n));
+    for (const n of o.nodes) els.get(n.id)?.setAttribute('class', cls(n, s));
     eels.forEach((p, i) => {
       const e = E[i];
       p.classList.toggle('nb', !!(s && s.has(e.from) && s.has(e.to)));
@@ -152,6 +153,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
   }
   /** Cambia la disposición conservando la posición de los nodos comunes (continuidad espacial). */
   function morph(nodes: GNode[], edges: GEdge[], under?: () => string, dur = 480) {
+    cancelAnimationFrame(morphFrame);
     const from = new Map(o.nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
     o.nodes = nodes; E = o.edges = edges; if (under) o.under = under;
     N = new Map(nodes.map((n) => [n.id, n]));
@@ -168,14 +170,14 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
         if (g) { g.setAttribute('transform', `translate(${t.n.x},${t.n.y})`); if (t.isNew) g.style.opacity = String(e); }
       }
       eels.forEach((pe, i) => pe.setAttribute('d', path(E[i])));
-      if (p < 1) requestAnimationFrame(step);
+      if (p < 1) morphFrame = requestAnimationFrame(step);
       else { for (const t of tg) { t.n.x = t.tx; t.n.y = t.ty; } drawEdges(); const to = fitTo(); if (to) anim(to, 420); }
     };
-    requestAnimationFrame(step);
+    morphFrame = requestAnimationFrame(step);
   }
   function update(id: string) {
     const n = N.get(id), g = els.get(id);
-    if (n && g) { g.innerHTML = o.node(n, id === st.sel); g.setAttribute('class', cls(n)); }
+    if (n && g) { g.innerHTML = o.node(n, id === st.sel); g.setAttribute('class', cls(n, st.sel ? neighbors(st.sel) : null)); }
   }
 
   let drag: { x: number; y: number; sx: number; sy: number; m: boolean } | null = null;
@@ -237,6 +239,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
     get nodes() { return o.nodes; },
     destroy() {
       cancelAnimationFrame(st.anim);
+      cancelAnimationFrame(morphFrame);
       svg.removeEventListener('pointerdown', onDown);
       svg.removeEventListener('pointermove', onMove);
       svg.removeEventListener('pointerup', onUp);

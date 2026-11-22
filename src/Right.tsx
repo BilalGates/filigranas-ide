@@ -8,7 +8,6 @@ export const RIGHT_PANELS = {
   files: { title: 'Archivos', icon: 'folder', keys: '⌘P' },
   browser: { title: 'Navegador', icon: 'globe' },
   containers: { title: 'Contenedores', icon: 'box', keys: '⌘⇧O' },
-  design: { title: 'Studio', icon: 'design' },
   conflicts: { title: 'Conflictos', icon: 'warn' },
   editor: { title: 'Editor', icon: 'file', keys: '⌘E' },
 } satisfies Record<string, { title: string; icon: string; keys?: string }>;

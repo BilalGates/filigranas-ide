@@ -241,6 +241,10 @@ type ComposerProps = {
   providerPicker?: ReactNode;
   /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
   model?: ReactNode;
+  /** Fila sobre la caja: dónde trabaja la sesión (carpeta, rama, motor). */
+  context?: ReactNode;
+  /** Chip de permisos de la sesión, a la derecha de las opciones. */
+  permission?: ReactNode;
   onSend: (text: string, attachments: ChatAttachment[]) => Promise<unknown>;
   onInterrupt: () => void;
   placeholder: string;
@@ -275,7 +279,7 @@ function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
 }
 
 /** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, providerPicker, model, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
+export function Composer({ disabled, running, efforts, effort, onEffort, providerPicker, model, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -405,6 +409,8 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
   }, []);
 
   return (
+    <>
+    {context}
     <div className="co-compose" ref={root}>
       <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
@@ -501,6 +507,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
               {EFFORT_LABEL[effort] ?? effort}
             </button>
           )}
+          {permission}
         </div>
         {running ? (
           <button className="send" aria-label="Detener" title={shortcut('detener · ⌘.')} onClick={onInterrupt}>
@@ -517,5 +524,6 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
         )}
       </div>
     </div>
+    </>
   );
 }

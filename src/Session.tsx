@@ -5,6 +5,8 @@ import { Composer, ConversationLog, useChatHistory, withAttachmentNames, type As
 import { useReportActivity } from './ui';
 import Coordinator from './Coordinator';
 import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
+import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
+import { Icon } from './trama/icons';
 
 export const ENGINE_LABEL: Record<string, string> = { codex: 'codex', claude: 'claude code', opencode: 'opencode', agy: 'antigravity', devin: 'devin' };
 const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -150,15 +152,13 @@ type Props = {
   onConflicts?: (files: string[]) => void;
   onModel: (key: number | string, model: string | null) => void;
   manager?: { task: { id: number; title: string } | null; clearTask: () => void };
-  /** Abre Trabajo para empezar la sesión de trabajo que exigen las sesiones directas. */
-  onStartWork?: () => void;
 };
 
 // Error del backend cuando no hay sesión de trabajo activa (src-tauri/src/work.rs).
 const NEEDS_WORK = /inicia una sesión de trabajo/i;
 
 /** Conversación con una sesión de agente ejecutor del proyecto. */
-export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager, onStartWork }: Props) {
+export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager }: Props) {
   const isManager = manager !== undefined;
   const isClaude = session.engine === 'claude';
   const isCodex = session.engine === 'codex';
@@ -191,6 +191,8 @@ export default function Session({ session, project, hidden, switching, providerP
   const [showChanges, setShowChanges] = useState(false);
   const [integrated, setIntegrated] = useState(!!session.integrated);
   const [notice, setNotice] = useState<string | null>(null);
+  const [autoNotes, setAutoNotes] = useState<string[]>([]);
+  const permission = usePermissionMode(manager ? null : session.id);
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
@@ -363,6 +365,14 @@ export default function Session({ session, project, hidden, switching, providerP
         case 'permission':
           setPending((p) => [...p, acpAsk(msg)]);
           break;
+        case 'auto_approved': {
+          // El núcleo aprobó por su cuenta según el nivel de permisos de la sesión.
+          const call = msg.toolCall as { title?: string; kind?: string } | undefined;
+          const input = msg.input as { file_path?: string; path?: string; command?: string } | undefined;
+          const what = call ? call.title ?? call.kind ?? 'acción' : `${msg.tool ?? 'herramienta'}${input?.file_path ?? input?.path ? ` · ${input?.file_path ?? input?.path}` : input?.command ? ` · ${input.command.slice(0, 120)}` : ''}`;
+          setAutoNotes((n) => [...n.slice(-19), `Aprobado automáticamente: ${what}`]);
+          break;
+        }
         case 'turn_end':
           refreshChanges();
           setRunning(false);
@@ -615,10 +625,9 @@ export default function Session({ session, project, hidden, switching, providerP
       )}
       {isCodex ? <>
         {notice && <div className="co-notice">{notice}</div>}
-        {error && (NEEDS_WORK.test(error) && onStartWork ? (
+        {error && (NEEDS_WORK.test(error) ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
-            <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
+            <span className="grow">Esta sesión trabaja en la carpeta del proyecto y antes necesita un objetivo y una rama. Fíjalos en el chip de rama, sobre el cuadro de mensaje, o abre una sesión aislada.</span>
           </div>
         ) : <div className="co-error">{error}</div>)}
         <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} onActivity={setDirectState} onModel={onModel}
@@ -629,15 +638,18 @@ export default function Session({ session, project, hidden, switching, providerP
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
-        {error && (NEEDS_WORK.test(error) && onStartWork ? (
+        {autoNotes.map((note, i) => <div key={i} className="co-auto"><Icon name="check" size={12} />{note}</div>)}
+        {permission.error && <div className="co-error">{permission.error}</div>}
+        {error && (NEEDS_WORK.test(error) ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
-            <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
+            <span className="grow">Esta sesión trabaja en la carpeta del proyecto y antes necesita un objetivo y una rama. Fíjalos en el chip de rama, sobre el cuadro de mensaje, o abre una sesión aislada.</span>
           </div>
         ) : <div className="co-error">{error}</div>)}
       </ConversationLog>
       <Composer
         providerPicker={providerPicker}
+        context={!manager && <SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} />}
+        permission={!manager && <PermissionChip mode={permission.mode} onMode={permission.setMode} />}
         draftKey={manager ? `pm:${project}` : `session:${session.id}`}
         disabled={switching === true}
         running={running}

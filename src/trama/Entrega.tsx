@@ -15,12 +15,15 @@ import { EmptyArt, Root, StDot, ago } from './kit';
 // Las acciones usan los componentes y comandos existentes (commit, Larry,
 // push, PR, merge e integración conservan sus aprobaciones).
 type Stage = 'tarea' | 'agentes' | 'rama' | 'cambios' | 'tests' | 'commit' | 'pr' | 'ci' | 'integracion';
+export type EntregaStage = Stage;
 type StState = 'done' | 'now' | 'fail' | 'todo';
 const noop = () => {};
 const OUTCOME: Record<string, string> = { passed: 'correcto', failed: 'falló', findings: 'con hallazgos', incomplete: 'incompleto', unknown: 'desconocido' };
 
-export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null }: {
+export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null, initialStage = null }: {
   initialScope?: number | null;
+  /** Etapa con la que se abre (Code Health, PR, commits o ramas sin integrar). */
+  initialStage?: EntregaStage | null;
   project: string | null;
   projectName: string | null;
   agentSessions: Session[];
@@ -28,7 +31,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   onConflicts: (files: string[]) => void;
   onBranchesChanged: () => void;
 }) {
-  const [stage, setStage] = useState<Stage | null>(null);
+  const [stage, setStage] = useState<Stage | null>(initialStage);
   const [scopeId, setScopeId] = useState<number | null>(initialScope);
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   const [status, setStatus] = useState<GitStatus | null>(null);
@@ -243,6 +246,7 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
   if (stage === 'tests' || stage === 'ci') return <>{head('shield', stage === 'ci' ? 'CI y revisión' : 'Tests y revisión de código')}<div className="rev-tool legacy"><CodeHealth key={`${project}:${sid}`} project={project} session={chosen} closed={false} onFile={onFile} /></div></>;
   if (stage === 'integracion' && chosen) return <>{head('merge', `Integrar ${chosen.name}`)}<div className="rev-tool legacy"><Pending key={chosen.id} session={chosen} closed={false} onDiff={onDiff} onChanged={onChanged} onConflicts={onConflicts} /></div></>;
   if (stage === 'tarea' || stage === 'integracion') return <>{head('flow', 'Sesión de trabajo')}<div className="rev-tool"><div className="legacy"><WorkSession key={project} project={project} hidden={false} onReview={(ready) => { if (ready) onStage('pr'); }} /></div>
+    {stage === 'integracion' && <ClosedBranches project={project} onDiff={onDiff} onChanged={onChanged} onConflicts={onConflicts} />}
     {tasks && tasks.length > 0 && <div className="rev-tasks"><span className="lab">Tareas abiertas</span>{tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').slice(0, 12).map((t) => <div key={t.id} className="frow2"><span className="p">#{t.id} {t.title}</span><span className="n">{t.status}</span></div>)}</div>}</div></>;
   if (stage === 'agentes') return <>{head('agent', 'Sesiones del proyecto')}<div className="rev-tool rev-list">
     {agentSessions.length ? agentSessions.map((s) => <div key={s.id} className="frow2"><span className="p"><b>{s.name}</b> · {s.engine}{s.branch ? ` · ${s.branch}` : ''}</span><span className="n">{s.worktree ? (s.integrated ? 'integrada' : 'worktree propio') : 'checkout compartido'}</span></div>)
@@ -281,5 +285,30 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
         )}
       </div>
     </>
+  );
+}
+
+/** Ramas de sesiones ya cerradas que siguen sin integrar (antes en Trabajo › Ramas). */
+function ClosedBranches({ project, onDiff, onChanged, onConflicts }: {
+  project: string; onDiff: (c: DiffTarget) => void; onChanged: () => void; onConflicts: (f: string[]) => void;
+}) {
+  const [list, setList] = useState<Session[] | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(() => sessionApi.orphans(project).then((l) => { setList(l); setError(null); }, (e) => setError(String(e))), [project]);
+  useEffect(() => { void load(); }, [load]);
+  const chosen = list?.find((s) => s.id === open) ?? null;
+  return (
+    <div className="rev-tasks rev-orphans">
+      <span className="lab">Ramas de sesiones cerradas</span>
+      {error && <div className="flow-err" role="alert">{error}</div>}
+      {list == null && !error && <span className="mut2">Consultando ramas…</span>}
+      {list?.length === 0 && <span className="mut2">No hay ramas de sesiones cerradas pendientes de integrar.</span>}
+      {list?.map((s) => <button key={s.id} className={`frow2 rowbtn${open === s.id ? ' on' : ''}`} onClick={() => setOpen(open === s.id ? null : s.id)}>
+        <span className="p mono">{s.branch} → {s.base}</span><span className="n">{s.name}</span>
+      </button>)}
+      {chosen && <div className="legacy"><Pending key={chosen.id} session={chosen} closed onDiff={onDiff} onConflicts={onConflicts}
+        onChanged={() => { onChanged(); void load(); setOpen(null); }} /></div>}
+    </div>
   );
 }

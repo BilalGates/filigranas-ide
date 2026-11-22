@@ -238,6 +238,7 @@ impl Claude {
         let active_run = run.clone();
         let catalog = self.models.clone();
         let (id, handle, pending, flag, input) = (session.id, app.clone(), self.pending.clone(), alive.clone(), stdin.clone());
+        let cwd = PathBuf::from(session.cwd());
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
@@ -281,6 +282,17 @@ impl Claude {
                             &input,
                             &json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request_id, "error": "Filigranas no admite esta petición" } }),
                         );
+                        continue;
+                    }
+                    // Nivel de permisos de la sesión: Filigranas puede aprobar por su cuenta.
+                    let mode = handle.state::<AppState>().permissions.get(id);
+                    let (kind, paths) = crate::autoapprove::claude_request(&msg["request"]);
+                    if crate::autoapprove::approves(mode, &cwd, kind, &paths) {
+                        let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
+                            "request_id": request_id, "response": permission(&msg["request"], "accept") } }));
+                        runs::on_active(&handle, id, |conn, run| runs::phase(conn, run, "running"));
+                        let _ = handle.emit("session", Event { id, msg: json!({ "type": "auto_approved",
+                            "tool": msg.pointer("/request/tool_name"), "input": msg.pointer("/request/input") }) });
                         continue;
                     }
                     let Ok(mut requests) = pending.lock() else { break };

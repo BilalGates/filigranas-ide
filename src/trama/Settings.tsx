@@ -31,8 +31,8 @@ export default function Settings({ project, projectName, tools, checking, autoUp
         <div className="sbody scr">
           {sec === 'modelos' && <>
             <h2 className="vt">Modelos y herramientas</h2>
-            <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. Solo Codex, Claude y Jev están activos. El modelo de cada conversación se elige en su propio selector.</p>
-            <div className="settings-embed legacy"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
+            <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. El catálogo muestra el estado de las herramientas disponibles. El modelo de cada conversación se elige en su propio selector.</p>
+            <div className="tr-settings-card"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
           </>}
           {sec === 'skills' && <SkillsSec />}
           {sec === 'permisos' && <>
@@ -62,11 +62,11 @@ function SkillsSec() {
   useEffect(() => { skillsApi.list().then(setList, (e) => setError(String(e))); }, []);
   return <>
     <h2 className="vt">Skills y reglas</h2>
-    <p className="lead">Skills incluidas en Filigranas. Todos los agentes reciben el catálogo junto a las reglas globales y las del proyecto (AGENTS.md), y leen cada skill solo cuando su encargo la necesita.</p>
+    <p className="lead">Skills incluidas en Filigranas. El catálogo se incluye en las instrucciones administradas por Filigranas. Cada skill se consulta cuando la requiere el encargo.</p>
     {error && <p className="mut2">{error}</p>}
-    {(list ?? []).map((s) => <div key={s.name} className="srow"><div><div className="t"><span className="mono">${s.name}</span> {sc('g')}</div><div className="d">{s.description}</div></div><span className="chip">todos los roles</span></div>)}
-    <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Se leen del repositorio en cada sesión</div></div><span className="chip">todos los roles</span></div>
-    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip">todos los roles</span></div>
+    {(list ?? []).map((s) => <div key={s.name} className="srow"><div><div className="t"><span className="mono">${s.name}</span> {sc('g')}</div><div className="d">{s.description}</div></div><span className="chip">catálogo incluido</span></div>)}
+    <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip">catálogo incluido</span></div>
+    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip">catálogo incluido</span></div>
   </>;
 }
 
@@ -82,7 +82,7 @@ function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
     <p className="lead">Solo se muestran cifras que el sistema conoce. Lo desconocido se indica como tal.</p>
     {q('Codex', codex)}{q('Claude', claude)}
     <div className="srow"><div><div className="t">Jev {sc('g')}</div><div className="d">{jv ? `Modo ${jv.settings.mode === 'local' ? 'local' : jv.settings.mode === 'shadow' ? 'sombra' : 'activo'} · política ${jv.settings.policy === 'economy' ? 'económica' : jv.settings.policy === 'quality' ? 'calidad' : 'equilibrada'}` : 'Sin estado'}</div></div><span className="chip">en Modelos y herramientas</span></div>
-    <div className="settings-embed legacy" style={{ marginTop: 14 }}><UsagePanel {...usage} /></div>
+    <div className="tr-settings-card" style={{ marginTop: 14 }}><UsagePanel {...usage} surface="settings" /></div>
   </>;
 }
 

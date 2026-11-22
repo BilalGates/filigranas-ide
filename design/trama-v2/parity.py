@@ -45,7 +45,11 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "docs/trama-paridad/actual")
     parser.add_argument("--channel", default=None, help="Canal Chromium, por ejemplo chrome")
     parser.add_argument("--diff", action="store_true", help="Guardar diferencias de píxel para datos y estados previamente alineados")
+    parser.add_argument("--section", action="append", choices=[item[0] for item in SECTIONS])
+    parser.add_argument("--width", action="append", type=int, choices=[width for width, _ in SIZES])
     args = parser.parse_args()
+    sections = [item for item in SECTIONS if not args.section or item[0] in args.section]
+    sizes = [item for item in SIZES if not args.width or item[0] in args.width]
 
     if args.diff and not args.artifact:
         parser.error("--diff requiere --artifact")
@@ -65,8 +69,8 @@ def main():
                 parser.error("el export no contiene la pantalla Ajustes de Trama")
             check.close()
 
-        for width, height in SIZES:
-            for name, view, selector, project in SECTIONS:
+        for width, height in sizes:
+            for name, view, selector, project in sections:
                 frame = {"width": width, "height": height}
                 context = browser.new_context(viewport=frame, reduced_motion="reduce", device_scale_factor=1)
                 app = context.new_page()
@@ -83,6 +87,9 @@ def main():
                 if name == "flow-demo":
                     app.locator(".flow-demo").click()
                 app.locator(selector).first.wait_for(state="visible")
+                if name == "brain":
+                    app.get_by_role("button", name="Red del proyecto").click()
+                    app.locator(".brain-network").wait_for(state="visible")
                 if name == "ajustes":
                     app.get_by_role("button", name="Skills y reglas", exact=True).click()
                 if name == "entrega":

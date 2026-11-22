@@ -95,6 +95,14 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
     if (filter.project && filter.project !== project) return;
     const hub = `project:${project}`;
     nodes.push({ key: hub, id: 0, kind: 'project', title: name, project, date: now, url: null, body: null, source: null, matched: true });
+    if (name === 'bitacola') {
+      const task = 'task:bitacola:1', pull = 'pull:bitacola:7';
+      nodes.push(
+        { key: task, id: 1, kind: 'task', title: 'Revisar la cola', date: now, project, url: null, body: null, source: null, matched: true },
+        { key: pull, id: 7, kind: 'pr', title: 'Integrar mejoras de la cola', date: now, project, url: 'https://github.com/demo/bitacola/pull/7', body: null, source: null, matched: true },
+      );
+      edges.push({ from: task, to: hub, kind: 'project_member' }, { from: task, to: pull, kind: 'pull' });
+    }
     themes.forEach((title, j) => {
       const id = i * 10 + j + 1;
       const entry: BrainEntry & { project: string } = { id, version: 1, global: false, task: null, kind: j === 0 ? 'decision' : j === 3 ? 'outcome' : 'fact',

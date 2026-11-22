@@ -15,6 +15,8 @@ python design/trama-v2/parity.py --output /tmp/filigranas-trama-capturas
 
 Añadir `--artifact /ruta/al/export-v2/index.html` para capturar ambas vistas. Usar `--diff` cuando se hayan alineado datos y estados. El script comprueba que el export incluya navegación y Ajustes. Para el archivo adjunto se usó `--reference-label "HTML adjunto"`. La revisión exacta de esa exportación queda por confirmar.
 
+Última revisión de Workspace, Studio, Ajustes y Brain. [1440 × 900](continuacion-1440x900.webp) · [1050 × 720](continuacion-1050x720.webp).
+
 [Resultado y matriz de trazabilidad](resultado.md).
 
 ## Cómo se consigue la fidelidad

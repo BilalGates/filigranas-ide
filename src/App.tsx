@@ -12,7 +12,8 @@ import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
-import DesignLoop from './DesignLoop';
+import DesignCanvas from './DesignCanvas';
+import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
 import UsagePanel from './Usage';
@@ -124,10 +125,12 @@ export default function App() {
   const [dest, setDestState] = useState<Dest>(loadDest);
   const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
   const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
+  const [entregaScope, setEntregaScope] = useState<number | null>(null);
+  const [studioView, setStudioView] = useState<'captures' | 'canvas'>('captures');
   const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
     try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
   });
-  const setDest = useCallback((d: Dest) => { setDestState(d); saveDest(d); }, []);
+  const setDest = useCallback((d: Dest) => { if (d !== 'entrega') setEntregaScope(null); setDestState(d); saveDest(d); }, []);
   const { activity, muted } = useUi();
   const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
   const pmReady = !!project && pmChat?.project === project;
@@ -394,7 +397,9 @@ export default function App() {
     if (project && sessionsOf === project && view === 'coach' && !pmProjects.has(project) && agentSessions.length) setView(agentSessions[0].id);
   }, [project, sessionsOf, view, pmProjects, agentSessions]);
 
+  const openStudio = () => { setStudioView('captures'); setDest('studio'); };
   const revealRight = (tab: RightTab) => {
+    if (tab === 'design') { openStudio(); return; }
     setRightView(tab);
     setNoRight(false);
   };
@@ -607,7 +612,7 @@ export default function App() {
       ? { name: 'Project manager', meta: pmEngine === 'claude' ? 'Claude Code' : 'Codex', tag: null, state: sessionState('coach') }
       : activeSession
         ? { name: activeSession.name, meta: ENGINE_LABEL[activeSession.engine] ?? activeSession.engine, tag: null, state: sessionState(String(activeSession.id)) }
-        : null;
+        : { name: current.name, meta: 'Workspace', tag: null, state: null };
 
   const chatEngine = activeSession?.engine ?? (view === 'coach' && hasPm && pmReady ? pmEngine : null);
   const providerPicker = (chatEngine === 'codex' || chatEngine === 'claude') && (
@@ -658,7 +663,6 @@ export default function App() {
   const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
   const panelOpen = !noRight && (!!current || rightView === 'browser');
   const browserOpen = panelOpen && rightView === 'browser';
-  const designOpen = !!current && panelOpen && rightView === 'design';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
     if (tab === 'browser') return false;
     if (tab === 'editor') return !!editorTab;
@@ -677,7 +681,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
@@ -747,14 +751,19 @@ export default function App() {
       )}
       {dest === 'studio' && (
         <Boundary name="Studio">
-        <Studio project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Studio key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          view={studioView} onView={setStudioView} onNewSession={() => newSession('claude')}
+          canvas={current && <DesignCanvas key={current.path} project={current.path}
+            reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
+            archived={ws.projects.filter((item) => item.archived).length}
+            conversation={<button className="btn sm" onClick={() => { setDest('workspace'); requestAnimationFrame(focusConversation); }}><Icon name="chat" size={13} /> Conversación</button>} />}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onBrowser={() => { setDest('workspace'); revealRight('browser'); }} />
         </Boundary>
       )}
       {dest === 'entrega' && (
         <Boundary name="Entrega">
-        <Entrega key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Entrega key={project} initialScope={entregaScope} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
           onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
         </Boundary>
@@ -973,12 +982,6 @@ export default function App() {
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
-        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
-          reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
-          archived={ws.projects.filter((item) => item.archived).length}
-          onConversation={focusConversation}
-          onNew={() => newSession('claude')}
-          onSession={setView} />}
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -1021,11 +1024,13 @@ export default function App() {
         {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
         {panelOpen && current && rightView === 'editor' &&
           editorTab &&
-          (diff ? (
-            <Diff project={current.path} change={diff} />
-          ) : (
-            <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />
-          ))}
+          <>
+            {dest === 'workspace' && <WorkspaceChanges key={`${current.path}:${(diff ? diff.session : fileSession) ?? ''}`}
+              project={current.path} session={(diff ? diff.session : fileSession) ?? null}
+              onDiff={showDiff} onEntrega={() => { setEntregaScope((diff ? diff.session : fileSession) ?? null); setDest('entrega'); }} />}
+            {diff ? <Diff project={current.path} change={diff} /> :
+              <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />}
+          </>}
       </Right>
       <footer className="statusbar" aria-label="Estado del proyecto">
         <div className="status-project">

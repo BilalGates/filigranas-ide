@@ -19,7 +19,8 @@ type StState = 'done' | 'now' | 'fail' | 'todo';
 const noop = () => {};
 const OUTCOME: Record<string, string> = { passed: 'correcto', failed: 'falló', findings: 'con hallazgos', incomplete: 'incompleto', unknown: 'desconocido' };
 
-export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged }: {
+export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null }: {
+  initialScope?: number | null;
   project: string | null;
   projectName: string | null;
   agentSessions: Session[];
@@ -28,7 +29,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   onBranchesChanged: () => void;
 }) {
   const [stage, setStage] = useState<Stage | null>(null);
-  const [scopeId, setScopeId] = useState<number | null>(null);
+  const [scopeId, setScopeId] = useState<number | null>(initialScope);
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[] | null>(null);

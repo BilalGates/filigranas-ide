@@ -8,14 +8,14 @@ export const RIGHT_PANELS = {
   files: { title: 'Archivos', icon: 'folder', keys: '⌘P' },
   browser: { title: 'Navegador', icon: 'globe' },
   containers: { title: 'Contenedores', icon: 'box', keys: '⌘⇧O' },
-  design: { title: 'Design Loop', icon: 'design' },
+  design: { title: 'Studio', icon: 'design' },
   conflicts: { title: 'Conflictos', icon: 'warn' },
   editor: { title: 'Editor', icon: 'file', keys: '⌘E' },
 } satisfies Record<string, { title: string; icon: string; keys?: string }>;
 
 export type RightTab = keyof typeof RIGHT_PANELS;
 
-export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'design', 'conflicts']);
+export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'conflicts']);
 
 type Props = {
   tab: RightTab;
@@ -32,11 +32,10 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ch
 
   return (
     <aside id="workspace-right-panel" className="panel right"
-      aria-labelledby={tab === 'design' ? undefined : 'right-panel-title'}
-      aria-label={tab === 'design' ? panel.title : undefined} hidden={hidden}>
-      <Splitter size={tab === 'design' ? SIZES.design : SIZES.git} axis="x" invert measureParent={tab === 'design'}
+      aria-labelledby="right-panel-title" hidden={hidden}>
+      <Splitter size={SIZES.git} axis="x" invert
         label="Ancho del panel derecho" className="is-right" />
-      {tab !== 'design' && <header className="panel-head">
+      <header className="panel-head">
         <Icon name={panel.icon} size={15} />
         <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{editing ? editor.name : panel.title}</h2>
         {editing && editor.diff && <span className="right-panel-kind">diff</span>}
@@ -51,7 +50,7 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ch
             <Icon name="close" size={12} />
           </button>
         )}
-      </header>}
+      </header>
       <div className={`panel-body is-${tab}`}>
         {children}
       </div>

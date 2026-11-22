@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainKind, type BrainLink, type BrainLinkKind, type Project, type Task } from '../ipc';
+import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainKind, type BrainLink, type BrainLinkKind, type BrainNodeKind, type Project, type Task } from '../ipc';
 import { STATUS } from '../Tasks';
 import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
 import { EmptyArt, Root } from './kit';
 import { ErrorNote, Modal } from './ui';
+import { BrainNetwork, brainNetworkLabel, NetworkConnections } from './BrainNetwork';
 
 // Brain de Trama v2 sobre la memoria real: brain_graph (recuerdos, tareas y PR
 // con sus aristas), brain_search/entry para la ficha completa y brain_links
@@ -84,6 +85,9 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
   const [sel, setSel] = useState<number | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [hist, setHist] = useState<number[]>([]);
+  const [network, setNetwork] = useState(false);
+  const [networkKind, setNetworkKind] = useState<BrainNodeKind | null>(null);
+  const [networkNode, setNetworkNode] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [fk, setFk] = useState<BrainKind | 'all'>('all');
   const [fv, setFv] = useState<'all' | 'vigente' | 'sustituido' | 'caducado'>('all');
@@ -92,20 +96,23 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
   const [revision, setRevision] = useState(0);
   const [inspOpen, setInspOpen] = useState(false);
 
+  const inNetwork = lens === 'map' && network;
+  const graphQuery = inNetwork ? q.trim() || null : null;
+  const graphKind = inNetwork ? networkKind : null;
   const latest = useRef(0);
   const load = useCallback(async () => {
     const request = ++latest.current;
     if (!validDays) return;
     try {
       const [g, e, l] = await Promise.all([
-        brain.graph({ query: null, project: p, kind: null, from, until }),
+        brain.graph({ query: graphQuery, project: p, kind: graphKind, from, until }),
         brain.search(p, '', null).catch(() => [] as BrainEntry[]),
         linkProject ? brain.links(linkProject).catch(() => [] as BrainLink[]) : Promise.resolve([] as BrainLink[]),
       ]);
       if (request !== latest.current) return;
       setGraph(g); setEntries(new Map(e.map((x) => [x.id!, x]))); setLinks(l); setError(null);
     } catch (err) { if (request === latest.current) setError(String(err)); }
-  }, [p, linkProject, validDays, from, until]);
+  }, [p, linkProject, validDays, from, until, graphQuery, graphKind]);
   useEffect(() => {
     setGraph(null);
     setEntries(new Map());
@@ -113,7 +120,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
     void load();
     return () => { latest.current++; };
   }, [load]);
-  useEffect(() => { setSel(null); setFocus(null); setHist([]); }, [p, fromDay, toDay]);
+  useEffect(() => { setSel(null); setFocus(null); setHist([]); setNetworkNode(null); }, [p, fromDay, toDay]);
 
   const mems = useMemo(() => graph ? buildMems(graph, entries, links) : [], [graph, entries, links]);
   const filtered = useMemo(() => {
@@ -121,6 +128,19 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
     return mems.filter((m) => (fk === 'all' || m.k === fk) && (fv === 'all' || m.status === fv) &&
       terms.every((term) => searchText(`${m.x} ${m.why} ${m.source}`).includes(term)));
   }, [mems, q, fk, fv]);
+  const selectedNode = inNetwork ? graph?.nodes.find((node) => node.key === networkNode) : undefined;
+  const selectNetwork = (key: string | null) => {
+    setNetworkNode(key);
+    const node = graph?.nodes.find((item) => item.key === key);
+    setSel(node && KINDS.includes(node.kind as BrainKind) ? node.id : null);
+    if (key) setInspOpen(true);
+  };
+  const openNetwork = (node: BNode) => {
+    if (node.kind === 'task') onOpenTask(node.id, node.project);
+    else if (node.kind === 'pr' && node.url) void pr.open(node.url).catch((reason) => setError(String(reason)));
+    else if (node.kind === 'project' && node.project) setScope(node.project);
+    else if (KINDS.includes(node.kind as BrainKind)) openFocus(node.id);
+  };
   const m = sel != null ? mems.find((x) => x.id === sel) ?? null : null;
   const pick = (id: number | null) => { setSel(id); if (id != null) setInspOpen(true); };
   const openFocus = (id: number) => { setHist([]); setFocus(id); setSel(id); setLens('focus'); };
@@ -156,8 +176,14 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
         </div>
         {lens !== 'ctx' && (
           <div className="bfilters" role="group" aria-label="Filtros">
+            {lens === 'map' && <button className="btn sm" aria-pressed={network} onClick={() => { setNetwork(!network); setNetworkNode(null); setSel(null); }}><Icon name="brain" size={13} /> Red del proyecto</button>}
+            {inNetwork ? <label className="fsel"><select aria-label="Tipo de nodo" value={networkKind ?? ''} onChange={(e) => { setNetworkKind((e.target.value || null) as BrainNodeKind | null); selectNetwork(null); }}>
+              <option value="">Todos los nodos</option><option value="project">Proyectos</option><option value="task">Tareas</option><option value="pr">Pull requests</option>
+              {KINDS.map((kind) => <option key={kind} value={kind}>{KIND[kind][0]}</option>)}
+            </select><Icon name="down" size={11} /></label> : <>
             <label className="fsel"><span className="sr">Tipo</span><select value={fk} onChange={(e) => setFk(e.currentTarget.value as BrainKind | 'all')} aria-label="Tipo"><option value="all">Todos los tipos</option>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][0]}</option>)}</select><Icon name="down" size={11} /></label>
             <label className="fsel"><span className="sr">Vigencia</span><select value={fv} onChange={(e) => setFv(e.currentTarget.value as typeof fv)} aria-label="Vigencia"><option value="all">Cualquier vigencia</option><option value="vigente">Vigentes</option><option value="sustituido">Sustituidos</option><option value="caducado">Caducados</option></select><Icon name="down" size={11} /></label>
+            </>}
             <details className="brain-dates">
               <summary className="btn sm ghost">{fromDay || toDay ? 'Fechas activas' : 'Fechas'}</summary>
               <div className="brain-date-fields">
@@ -166,16 +192,17 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
                 <button className="btn sm" onClick={() => { setFromDay(''); setToDay(''); }}>Quitar fechas</button>
               </div>
             </details>
-            <span className="mut2 bcount">{filtered.length} de {mems.length}{graph?.limited && ' · vista parcial'}</span>
+            <span className="mut2 bcount">{inNetwork ? `${graph?.nodes.length ?? 0} nodos` : `${filtered.length} de ${mems.length}`}{graph?.limited && ' · vista parcial'}</span>
             {lens === 'focus' && hist.length > 0 && <button className="btn sm ghost" onClick={() => { const h = [...hist]; const prev = h.pop()!; setHist(h); setFocus(prev); setSel(prev); }}><Icon name="back" size={12} /> Volver</button>}
             <span className="grow" />
-            <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>
+            {!inNetwork && <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>}
           </div>
         )}
         <div className="stage bstage">
           {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => void load()}>Reintentar</button></div>}
           {!validDays ? <div className="empty sm" role="status">Elige una fecha final igual o posterior al inicio.</div>
             : !graph ? <div className="flow-loading"><span className="spin" /></div>
+            : inNetwork ? (graph.nodes.length ? <BrainNetwork data={graph} selected={networkNode} onSelect={selectNetwork} onOpen={openNetwork} /> : <div className="empty sm" role="status">No hay nodos con estos filtros.</div>)
             : empty && (from != null || until != null) ? <div className="empty sm" role="status">Sin recuerdos en estas fechas.</div>
             : empty && lens !== 'ctx' ? (
               <div className="empty big"><EmptyArt /><h3>{p == null ? 'Aún no hay memoria' : `${projectName} aún no tiene memoria`}</h3>
@@ -193,13 +220,18 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
         <aside className="insp" id="binsp" aria-label="Ficha del recuerdo">
           {m ? <Insp key={`${m.id}:${revision}`} m={m} mems={mems} links={links} project={linkProject} entry={entries.get(m.id) ?? null} scopeAll={p == null} lens={lens}
             onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(draft) => setEditing({ draft, project: m.project })} onChanged={load} onForgot={() => { setSel(null); void load(); }} />
-            : (
+            : selectedNode && graph ? <div className="sec">
+                <span className="lab">{brainNetworkLabel(selectedNode.kind)}</span><h3>{selectedNode.title}</h3>
+                {selectedNode.body && <p className="mut2">{selectedNode.body}</p>}
+                <button className="btn sm" onClick={() => openNetwork(selectedNode)}>{selectedNode.kind === 'project' ? 'Ver proyecto' : selectedNode.kind === 'pr' ? 'Abrir pull request' : 'Abrir tarea'}</button>
+              </div> : (
               <>
                 <div className="sec"><h3>Memoria {p == null ? 'de todos los proyectos' : 'del proyecto'}</h3><p className="mut2">Conocimiento confirmado y su procedencia. No reentrena modelos: aporta contexto a cada turno.</p></div>
                 <div className="sec">{KINDS.map((k) => <div key={k} className="agline"><i className="kd" style={{ background: KIND[k][1] }} /><span className="grow">{KIND[k][0]}</span><span className="mono mut2">{mems.filter((x) => x.k === k).length}</span></div>)}</div>
                 <div className="sec"><div className="why">Las tareas y los agentes viven en Flow; aquí solo hay conocimiento y su procedencia. Las relaciones solo existen si las creas tú.</div></div>
               </>
             )}
+          {selectedNode && graph && <NetworkConnections data={graph} selected={selectedNode.key} onSelect={selectNetwork} />}
         </aside>
       </div>
       {editing && <EntryForm {...editing} onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); pick(id); void load().then(() => setRevision((value) => value + 1)); }} />}

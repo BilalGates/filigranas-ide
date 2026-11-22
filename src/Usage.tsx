@@ -20,7 +20,7 @@ function Quota({ window }: { window: QuotaWindow }) {
   );
 }
 
-export default function UsagePanel({ engine, label, model, quota }: { engine: string | null; label: string | null; model: string | null; quota: ProviderQuota }) {
+export default function UsagePanel({ engine, label, model, quota, surface }: { engine: string | null; label: string | null; model: string | null; quota: ProviderQuota; surface?: 'settings' }) {
   const [usage, setUsage] = useState<JevUsage | null>(null);
   const [usageFailed, setUsageFailed] = useState(false);
   const [usdPerEuro, setUsdPerEuro] = useState<number | null>(null);
@@ -67,7 +67,7 @@ export default function UsagePanel({ engine, label, model, quota }: { engine: st
   const { windows, exhausted, loading } = quota;
 
   return (
-    <section className="uso" aria-label="Uso restante y consumo de Jev">
+    <section className={surface === 'settings' ? "uso tr-settings-usage" : "uso"} aria-label="Uso restante y consumo de Jev">
       {label ? (
           <div>
             <div className="uso-h">{label}{provider && ' · cuota restante'}</div>

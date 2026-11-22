@@ -135,6 +135,62 @@ def check_frame(browser, url):
     page.close()
 
 
+
+def check_workspace_inspector(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir bitacola", exact=True).click()
+    page.keyboard.press("Meta+Alt+2")
+    page.get_by_role("treeitem", name=re.compile(r"README")).first.click()
+    dock = page.get_by_role("group", name="Cambios del editor")
+    expect(dock).to_contain_text("autonomy.ts")
+    expect(page.locator(".monaco-editor")).to_be_visible()
+    dock.get_by_role("button", name="Entrega").click()
+    expect(page.get_by_role("main", name="Entrega")).to_be_visible()
+    assert not errors, errors
+    page.close()
+
+
+def check_studio_surfaces(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir calaix", exact=True).click()
+    destination(page, "Studio")
+    expect(page.get_by_label("Ancho de captura")).to_have_value("1440")
+    page.get_by_label("Ancho %", exact=True).fill("55")
+    page.get_by_text("Comparar esta región", exact=True).click()
+    expect(page.get_by_role("slider", name="Divisor de la región")).to_be_visible()
+    approve = page.get_by_role("button", name="Aprobar como referencia")
+    expect(approve).to_be_disabled()
+    page.get_by_label("Revisé la captura y sus restricciones").check()
+    expect(approve).to_be_enabled()
+    page.get_by_role("button", name="Diseñar barra lateral").click()
+    expect(page.get_by_role("region", name="Diseño de barra lateral")).to_be_visible()
+    page.get_by_role("button", name="Pantallas y versiones").click()
+    expect(page.get_by_role("complementary", name="Pantallas y versiones")).to_be_visible()
+    assert not errors, errors
+    page.close()
+
+
+def check_settings_and_network(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir bitacola", exact=True).click()
+    destination(page, "Ajustes")
+    expect(page.get_by_role("region", name="Herramientas", exact=True)).to_contain_text("Codex")
+    page.get_by_role("button", name="Presupuestos", exact=True).click()
+    expect(page.get_by_role("region", name="Uso restante y consumo de Jev")).to_be_visible()
+    destination(page, "Brain")
+    page.get_by_role("button", name="Red del proyecto").click()
+    page.get_by_label("Tipo de nodo").select_option("task")
+    node = page.get_by_role("button", name="Tarea: Revisar la cola")
+    expect(node).to_be_visible()
+    node.click()
+    inspector = page.get_by_role("complementary", name="Ficha del recuerdo")
+    expect(inspector.get_by_role("button", name="Abrir tarea")).to_be_visible()
+    inspector.get_by_role("button", name=re.compile("Integrar mejoras de la cola")).click()
+    expect(inspector.get_by_role("button", name="Abrir pull request")).to_be_visible()
+    assert not errors, errors
+    page.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", default="http://127.0.0.1:1420")
@@ -142,7 +198,7 @@ def main():
     args = parser.parse_args()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=args.channel)
-        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame):
+        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame, check_workspace_inspector, check_studio_surfaces, check_settings_and_network):
             check(browser, args.app)
             print(f"{check.__name__}: correcto")
         browser.close()

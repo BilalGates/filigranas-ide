@@ -237,14 +237,16 @@ mod tests {
         let db = crate::db::open(Path::new(":memory:")).unwrap();
         let root = Path::new("/bundle/skills");
         let listing = |p, role| turn_catalog(&db, p, role, root, "Encargo".into()).unwrap();
-        assert!(listing("a", Role::Designer).contains("/design-loop/SKILL.md"));
+        let skill_path = root.join("design-loop").join("SKILL.md");
+        let skill_path = skill_path.to_str().unwrap();
+        assert!(listing("a", Role::Designer).contains(skill_path));
         set_assignment(&db, "", Role::Designer, "design-loop", Some(false)).unwrap();
-        assert!(!listing("a", Role::Designer).contains("/design-loop/SKILL.md"));
-        assert!(listing("a", Role::Senior).contains("/design-loop/SKILL.md"));
+        assert!(!listing("a", Role::Designer).contains(skill_path));
+        assert!(listing("a", Role::Senior).contains(skill_path));
         set_assignment(&db, "a", Role::Designer, "design-loop", Some(true)).unwrap();
-        assert!(listing("a", Role::Designer).contains("/design-loop/SKILL.md"));
-        assert!(!listing("b", Role::Designer).contains("/design-loop/SKILL.md"));
+        assert!(listing("a", Role::Designer).contains(skill_path));
+        assert!(!listing("b", Role::Designer).contains(skill_path));
         set_assignment(&db, "a", Role::Designer, "design-loop", None).unwrap();
-        assert!(!listing("a", Role::Designer).contains("/design-loop/SKILL.md"));
+        assert!(!listing("a", Role::Designer).contains(skill_path));
     }
 }

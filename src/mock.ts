@@ -568,6 +568,7 @@ mockIPC(
       case 'brain_preview':
       case 'health_list':
       case 'health_ci':
+        return [];
       case 'design_list':
         return mockDesign.screens.filter((x) => x.project === a.project).map(({ project: _p, ...x }) => x);
       case 'design_shots':

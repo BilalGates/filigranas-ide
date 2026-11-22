@@ -474,14 +474,14 @@ html:not([data-motion='reducido']) .tr-graph .gn.s-working .ring { animation: tr
   --grana-bg: var(--amberbg);
   --grana-line: rgb(255 178 94 / 0.34);
 }
-.co-btn.is-primary:not(:disabled), .primary:not(:disabled), .act:not(:disabled), .send:not(:disabled) {
+.co-btn.is-primary:not(:disabled), .primary:not(:disabled), button.act:not(:disabled), .send:not(:disabled) {
   color: #0b0c10 !important;
   background: linear-gradient(180deg, #fff, #dfe3ea);
   box-shadow: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 6px 18px -8px rgb(200 212 255 / 0.5);
   font-weight: 600;
 }
-.co-btn.is-primary:hover:not(:disabled), .primary:hover:not(:disabled), .act:hover:not(:disabled), .send:hover:not(:disabled) { background: linear-gradient(180deg, #fff, #eef0f5); }
-html.is-light .co-btn.is-primary:not(:disabled), html.is-light .primary:not(:disabled), html.is-light .act:not(:disabled), html.is-light .send:not(:disabled) { color: #fff !important; background: #16181c; box-shadow: none; }
+.co-btn.is-primary:hover:not(:disabled), .primary:hover:not(:disabled), button.act:hover:not(:disabled), .send:hover:not(:disabled) { background: linear-gradient(180deg, #fff, #eef0f5); }
+html.is-light .co-btn.is-primary:not(:disabled), html.is-light .primary:not(:disabled), html.is-light button.act:not(:disabled), html.is-light .send:not(:disabled) { color: #fff !important; background: #16181c; box-shadow: none; }
 .co-approval { border-radius: 11px; }
 html:not([data-motion='reducido']) .co-approval { animation: trPop var(--d2) var(--ease); }
 .co-msg.is-user { border-radius: 12px; background: rgb(255 255 255 / 0.055); box-shadow: inset 0 0 0 1px var(--line); }

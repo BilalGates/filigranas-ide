@@ -390,6 +390,8 @@ export default function App() {
   }, [project, sessionsOf, view, pmProjects, agentSessions]);
 
   const revealRight = (tab: RightTab) => {
+    // Brain es un destino propio: el antiguo panel lateral ya no se abre.
+    if (tab === 'brain' || tab === 'brain-graph') { setDest('brain'); return; }
     setRightView(tab);
     setNoRight(false);
   };
@@ -557,7 +559,7 @@ export default function App() {
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openWork('pulls', view === 'work' ? undefined : activeSession ?? null) },
     { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
-    { id: 'brain', label: 'Filigranas Brain', run: () => showRight('brain-graph') },
+    { id: 'brain', label: 'Filigranas Brain', run: () => setDest('brain') },
     { id: 'browser', label: 'navegador', run: () => showRight('browser') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
@@ -707,11 +709,6 @@ export default function App() {
             title="Navegador">
             <Icon name="globe" size={15} />
           </button>
-          <button className={`tb-brain${brainOpen ? ' is-on' : ''}`}
-            onClick={() => { setDest('workspace'); showRight(panelOpen && rightView === 'brain' ? 'brain' : 'brain-graph'); }}
-            aria-label="Filigranas Brain" title="Filigranas Brain" aria-controls="workspace-right-panel" aria-expanded={brainOpen}>
-            <Icon name="brain" size={15} />
-          </button>
           <GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
             onOpenChange={open => { setGithubOpen(open); if (open) setUsageOpen(false); }} />
         </div>
@@ -721,6 +718,7 @@ export default function App() {
       {dest === 'inicio' && (
         <Boundary name="Inicio">
         <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
+          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null} onFlow={() => setDest('flow')}
           onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
           onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
           onWork={(path, task) => { if (path !== project) selectProject(path); if (task) setWorkTarget({ project: path, task, section: 'summary' }); setView('work'); setDest('workspace'); }}
@@ -736,10 +734,12 @@ export default function App() {
       {dest === 'flow' && (
         <Boundary name="Flow">
         <Flow project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onEditTask={(id) => { if (project && id) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }}
           onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); setView('coach'); setDest('workspace'); }}
-          onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }} />
+          onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }}
+          onStartPm={() => { if (project && !hasPm) startPm(project); setView('coach'); setDest('workspace'); }} />
         </Boundary>
       )}
       {dest === 'studio' && (
@@ -759,7 +759,7 @@ export default function App() {
       {dest === 'brain' && (
         <Boundary name="Brain">
           <BrainView project={project} projectName={current?.name ?? null}
-            onOpenTask={(id) => { if (project) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }} />
+            onOpenTask={(id, proj) => { const path = proj ?? project; if (!path) return; if (path !== project) selectProject(path); setWorkTarget({ project: path, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }} />
         </Boundary>
       )}
       {dest === 'ajustes' && (

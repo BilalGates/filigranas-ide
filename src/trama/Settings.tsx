@@ -48,12 +48,12 @@ export default function Settings({ project, projectName, tools, checking, autoUp
           {section === 'visual' && <Visual />}
           {section === 'herramientas' && (
             <Block title="Herramientas, cuentas y Jev" note="Estado real de las CLI, inicio de sesión y enrutado de Jev. Los cambios se guardan en el núcleo.">
-              <div className="settings-embed"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
+              <div className="settings-embed legacy"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
             </Block>
           )}
           {section === 'uso' && (
             <Block title="Uso y presupuesto" note="Cuotas y consumo que informan los proveedores y Jev. Filigranas no inventa límites que el proveedor no publica.">
-              <div className="settings-embed"><UsagePanel {...usage} /></div>
+              <div className="settings-embed legacy"><UsagePanel {...usage} /></div>
             </Block>
           )}
           {section === 'proyecto' && <ProjectSettings project={project} projectName={projectName} />}

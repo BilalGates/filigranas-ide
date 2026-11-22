@@ -16,6 +16,7 @@ const G: Record<string, string> = {
   pull: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M5 20h14" stroke-dasharray="1 3"/><circle class="n" cx="12" cy="20" r="1.3"/>',
   push: '<path d="M12 20V9M7.5 13.5L12 9l4.5 4.5"/><path d="M5 4h14" stroke-dasharray="1 3"/><circle class="n" cx="12" cy="4" r="1.3"/>',
   more: '<circle class="n" cx="6" cy="12" r="1.4"/><circle class="n" cx="12" cy="12" r="1.4"/><circle class="n" cx="18" cy="12" r="1.4"/>',
+  refresh: '<path d="M19 12a7 7 0 11-2.1-5"/><path d="M19 4.5V9h-4.5"/><circle class="n" cx="12" cy="12" r="1.3"/>',
   regen: '<path d="M19 12a7 7 0 11-2.1-5"/><path d="M19 4.5V9h-4.5"/><circle class="n" cx="12" cy="12" r="1.3"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
@@ -95,8 +96,9 @@ export const ICON_NAMES = Object.keys(G);
 
 export function Icon({ name, size = 14, label }: { name: string; size?: number; label?: string }) {
   return (
-    <svg className="ti" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+    <svg className="ti i" width={size} height={size} style={{ width: size, height: size }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
       strokeLinecap="round" strokeLinejoin="round" role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}
       dangerouslySetInnerHTML={{ __html: G[name] ?? G.info }} />
   );
 }
+export const ICON_PATHS = G;

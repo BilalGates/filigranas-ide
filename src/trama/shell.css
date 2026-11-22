@@ -1,0 +1,57 @@
+/* Integración del lenguaje del Artifact en el marco de la app (no generado). */
+.tv.tr-root {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  animation: tv-viewIn 0.42s var(--ease);
+}
+.tv.tr-root > * { flex: 1; min-height: 0; }
+.tv .home-agline { width: 100%; text-align: left; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; }
+.tv .home-agline:hover { background: rgba(255, 255, 255, 0.04); }
+.tv .home-calm { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 4px; color: var(--tx2); text-align: center; }
+.tv .home-calm p { margin: 0; font-size: var(--fs-s); }
+.tv .home-calm .emptyart { width: 140px; height: 70px; }
+.tv .prow.on { background: rgba(157, 182, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(157, 182, 255, 0.18); }
+/* `.act` heredado de la interfaz anterior es un botón; aquí es la barra de actividad */
+.tv .prow .act { background: none; height: auto; border-radius: 0; color: inherit; font-weight: inherit; box-shadow: none; padding: 0; }
+/* Flow: arranque sin tareas, carga y error */
+.tv .flow-start { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; overflow: auto; }
+.tv .flow-start-art { position: absolute; inset: 8% 6%; width: 88%; height: 84%; opacity: 0.9; pointer-events: none; }
+.tv .flow-start-card { position: relative; max-width: 560px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; border-radius: var(--r4); background: rgba(13, 14, 17, 0.88); box-shadow: inset 0 0 0 1px var(--line2), 0 30px 80px -30px rgba(0, 0, 0, 0.9); }
+.tv .flow-start-card h3 { margin: 0; font-size: var(--fs-2xl); letter-spacing: -0.01em; }
+.tv .flow-start-card p { margin: 0; color: var(--tx2); line-height: 1.55; font-size: var(--fs-l); }
+.tv .flow-demo { align-self: flex-start; display: inline-flex; gap: 8px; align-items: center; color: var(--tx2); font-size: var(--fs-s); }
+.tv .flow-demo:hover { color: var(--tx); }
+.tv .flow-loading { position: absolute; inset: 0; display: grid; place-items: center; }
+.tv .flow-err { position: absolute; z-index: 3; left: 12px; right: 12px; top: 12px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 9px; background: var(--coralbg); color: var(--coral); }
+.tv .rowbtn { width: 100%; text-align: left; padding: 4px 6px; border-radius: 8px; }
+.tv .rowbtn:hover { background: rgba(255, 255, 255, 0.04); }
+/* Entrega: piezas reales dentro de la composición del Artifact */
+.tv .rev-git { overflow: auto; }
+.tv .rev-git > .panel, .tv .rev-git .git-panel { background: transparent; box-shadow: none; }
+.tv .rev-err { position: absolute; z-index: 5; right: 16px; top: 64px; display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-radius: 8px; background: var(--coralbg); color: var(--coral); font-size: var(--fs-s); }
+.tv .rev-diff { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tv .rev-diff > * { flex: 1; min-height: 0; }
+.tv .rev-tool { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; }
+.tv .rev-list { display: flex; flex-direction: column; gap: 2px; }
+.tv .rev-tasks { margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
+.tv .rev-history { flex: 1; min-height: 0; padding: 14px 18px; }
+.tv .rev-next { margin-bottom: 14px; padding: 12px 14px; border-radius: 11px; background: rgba(0, 0, 0, 0.22); box-shadow: inset 0 0 0 1px var(--line); }
+.tv .rev-log { list-style: none; margin: 0; padding: 0; position: relative; }
+.tv .rev-log::before { content: ''; position: absolute; left: 5px; top: 10px; bottom: 10px; width: 1px; background: var(--line2); }
+.tv .rev-log li { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto 70px; gap: 14px; align-items: center; padding: 7px 0; font-size: var(--fs-m); border-bottom: 1px solid var(--line); }
+.tv .rev-log .dot2 { width: 11px; height: 11px; border-radius: 50%; background: var(--ink1); box-shadow: inset 0 0 0 1.5px var(--skyhi); position: relative; }
+.tv .rev-log li:first-child .dot2 { background: var(--skyhi); }
+.tv .rev-log .subj { display: flex; gap: 6px; align-items: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tv .rev-log .mono { text-align: right; }
+.tv .frow2.on { background: rgba(255, 255, 255, 0.06); }
+.tv .diffv { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tv .rev-legacy { display: flex; flex-direction: column; min-height: 100%; }

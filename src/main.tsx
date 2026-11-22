@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import './styles.css';
 import './trama/trama.css';
+import './trama/artifact.css';
+import './trama/shell.css';
 import App from './App';
 import WindowControls from './WindowControls';
 import { restoreLayout } from './Splitter';

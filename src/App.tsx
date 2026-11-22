@@ -30,6 +30,7 @@ import Sharing, { type ShareTarget } from './Sharing';
 import AmbientField from './trama/AmbientField';
 import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest } from './trama/nav';
 import Home from './trama/Home';
+import Flow from './trama/Flow';
 import { Seg } from './trama/ui';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -724,6 +725,13 @@ export default function App() {
             if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
             setDest('workspace');
           }} />
+      )}
+      {dest === 'flow' && (
+        <Flow project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          onOpenSession={(id) => { setView(id); setDest('workspace'); }}
+          onEditTask={(id) => { if (project && id) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }}
+          onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); setView('coach'); setDest('workspace'); }}
+          onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }} />
       )}
       <Sidebar
         ws={ws}

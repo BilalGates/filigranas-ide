@@ -25,9 +25,6 @@ html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-nativ
 .tv .home-calm { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 4px; color: var(--tx2); text-align: center; }
 .tv .home-calm p { margin: 0; font-size: var(--fs-s); }
 .tv .home-calm .emptyart { width: 140px; height: 70px; }
-.tv .prow.on { background: rgba(157, 182, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(157, 182, 255, 0.18); }
-/* `.act` heredado de la interfaz anterior es un botón; aquí es la barra de actividad */
-.tv .prow .act { background: none; height: auto; border-radius: 0; color: inherit; font-weight: inherit; box-shadow: none; padding: 0; }
 /* Flow: arranque sin tareas, carga y error */
 .tv .flow-start { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; overflow: auto; }
 .tv .flow-start-art { position: absolute; inset: 8% 6%; width: 88%; height: 84%; opacity: 0.9; pointer-events: none; }

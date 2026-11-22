@@ -222,3 +222,33 @@ html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-nativ
 .tv .brain-network .network-task { fill: var(--mint); }
 .tv .brain-network .network-pr { fill: var(--amber); }
 .tv .brain-network .gn.sel .network-node { stroke: var(--tx); stroke-width: 2.4px; }
+
+.tr-root .skill-scope { width: fit-content; margin-bottom: 12px; }
+.tr-root .skill-scroll { overflow: auto; margin: 12px 0; }
+.tr-root .skill-matrix { min-width: 570px; }
+.tr-root .skill-matrix tbody th { text-align: left; font-weight: 500; }
+.tr-root .skill-matrix th span { display: block; font-size: 10px; }
+.tr-root .skill-matrix td { text-align: center; }
+.tr-root .skill-controls { position: relative; display: inline-grid; vertical-align: middle; }
+.tr-root .skill-cell { width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); display: grid; place-items: center; }
+.tr-root .skill-cell.on { color: var(--mint); background: color-mix(in srgb, var(--mint) 18%, transparent); }
+.tr-root .skill-cell:hover { border-color: currentColor; }
+.tr-root .skill-reset { position: absolute; inset: -5px -17px auto auto; width: 17px; height: 17px; display: grid; place-items: center; color: var(--tx3); }
+.tr-root .skill-reset:hover { color: var(--tx); }
+.tr-root .skill-status { margin: 4px 0 12px; }
+
+.tv .studio-components { display: grid; gap: 5px; margin: 8px 0; font-size: 11px; }
+.tv .studio-components select { min-width: 0; width: 100%; }
+.tv .studio-selector { overflow-wrap: anywhere; }
+.tv .canvasw.tool-select .studio-stage:has(.studio-component-box) { cursor: pointer; }
+.tv .studio-component-box { position: absolute; pointer-events: none; border: 2px solid var(--skyhi); background: #5b86ff18; }
+.tv .studio-component-box.selected { border-color: var(--mint); }
+.tv .studio-component-box span { position: absolute; top: 0; left: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 7px; border-radius: 0 0 5px 0; background: var(--skyhi); color: #111623; font: 600 14px var(--ui); }
+.tv .studio-component-box.selected span { background: var(--mint); }
+.tv .studio-reference-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 8px 0; }
+.tv .studio-reference { min-width: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--glass2); overflow: hidden; }
+.tv .studio-reference-thumb { display: grid; width: 100%; text-align: left; }
+.tv .studio-reference-thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; background: #0d1015; }
+.tv .studio-reference-thumb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 3px 5px; }
+.tv .studio-reference label { display: flex; align-items: center; gap: 3px; font-size: 10px; padding: 0 3px 4px; }
+.tv .studio-reference-preview { width: 100%; max-height: 55vh; object-fit: contain; }

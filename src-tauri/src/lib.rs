@@ -13,6 +13,7 @@ mod containers;
 mod db;
 mod delegate;
 mod design;
+mod design_components;
 mod files;
 mod git;
 mod github;
@@ -159,6 +160,9 @@ pub fn run() {
             brain_links::brain_link_save,
             brain_links::brain_link_remove,
             skills::skills_list,
+            skills::skills_assignments,
+            skills::skills_set_assignment,
+            skills::skills_set_session_role,
             health::health_list,
             health::health_file,
             health::health_import,
@@ -168,6 +172,10 @@ pub fn run() {
             design::design_list,
             design::design_save,
             design::design_shots,
+            design::design_components,
+            design::design_references,
+            design::design_reference_add,
+            design::design_reference_remove,
             design::design_image,
             design::design_import,
             design::design_preview,

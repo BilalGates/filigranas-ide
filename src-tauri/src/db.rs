@@ -54,6 +54,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     crate::jev::migrate(&conn)?;
     crate::health::migrate(&conn)?;
     crate::design::migrate(&conn)?;
+    crate::skills::migrate(&conn)?;
     crate::github::migrate(&conn)?;
     Ok(conn)
 }
@@ -88,6 +89,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("handoff_from", "INTEGER"),
         ("handoff_context", "TEXT"),
         ("paused", "TEXT"),
+        ("skill_role", "TEXT"),
         // Opciones elegidas en un agente ACP (JSON: id de opción → valor).
         ("options", "TEXT"),
         ("other_options", "TEXT"),
@@ -152,6 +154,7 @@ pub struct Session {
     pub handoff_from: Option<i64>,
     /// Motivo de pausa (cuota o manual); `None` si no está pausada.
     pub paused: Option<String>,
+    pub skill_role: crate::skills::Role,
 }
 
 impl Session {
@@ -161,7 +164,7 @@ impl Session {
     }
 }
 
-const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused";
+const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused, skill_role";
 
 fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -179,6 +182,7 @@ fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         task: r.get(11)?,
         handoff_from: r.get(12)?,
         paused: r.get(13)?,
+        skill_role: crate::skills::Role::from_key(r.get::<_, Option<String>>(14)?.as_deref()),
     })
 }
 
@@ -202,6 +206,7 @@ pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_ses
         "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5, integrated = ?6, task = ?7, handoff_from = ?8, handoff_context = ?9 WHERE id = ?1",
         params![new.id, from.worktree, from.branch, from.base, from.base_commit, from.integrated, from.task, from.id, context],
     )?;
+    tx.execute("UPDATE sessions SET skill_role=(SELECT skill_role FROM sessions WHERE id=?1) WHERE id=?2", [from.id,new.id])?;
     tx.execute("INSERT INTO task_sessions(session_id,task_id) SELECT ?1,task_id FROM task_sessions WHERE session_id=?2", [new.id,from.id])?;
     tx.execute("INSERT INTO work_agents(session_id,work_id,paths) SELECT ?1,work_id,paths FROM work_agents WHERE session_id=?2", [new.id,from.id])?;
     let to = session(&tx, new.id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;

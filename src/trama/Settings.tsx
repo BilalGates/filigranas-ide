@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
 import UsagePanel from '../Usage';
-import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type SkillInfo, type Tool } from '../ipc';
+import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
 import { shortcut } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
@@ -15,8 +15,8 @@ type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 
 const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['atajos', 'grid', 'Atajos']];
 const sc = (k: 'g' | 'p' | 's') => <span className={`scope ${k}`}>{{ g: 'global', p: 'proyecto', s: 'sesión' }[k]}</span>;
 
-export default function Settings({ project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
-  project: string | null; projectName: string | null; tools: Tool[] | null; checking: boolean; autoUpdates: CliUpdate[] | null;
+export default function Settings({ agentSessions, project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
+  agentSessions: Session[]; project: string | null; projectName: string | null; tools: Tool[] | null; checking: boolean; autoUpdates: CliUpdate[] | null;
   onRefreshTools: () => void; onLogin: ((command: string) => void) | null; usage: Parameters<typeof UsagePanel>[0]; commands: { id: string; label: string; keys?: string }[];
 }) {
   const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'modelos'; } catch { return 'modelos'; } });
@@ -34,7 +34,7 @@ export default function Settings({ project, projectName, tools, checking, autoUp
             <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. El catálogo muestra el estado de las herramientas disponibles. El modelo de cada conversación se elige en su propio selector.</p>
             <div className="tr-settings-card"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
           </>}
-          {sec === 'skills' && <SkillsSec />}
+          {sec === 'skills' && <SkillsSec key={project} project={project} projectName={projectName} />}
           {sec === 'permisos' && <>
             <h2 className="vt">Permisos</h2>
             <p className="lead">Las operaciones críticas no se pueden relajar desde aquí: siempre piden autorización explícita en el momento.</p>
@@ -43,7 +43,7 @@ export default function Settings({ project, projectName, tools, checking, autoUp
             ))}
           </>}
           {sec === 'presupuestos' && <Budget usage={usage} />}
-          {sec === 'agentes' && <Agents project={project} projectName={projectName} />}
+          {sec === 'agentes' && <Agents key={project} project={project} projectName={projectName} agentSessions={agentSessions} />}
           {sec === 'apariencia' && <Look />}
           {sec === 'atajos' && <>
             <h2 className="vt">Atajos de teclado</h2>
@@ -56,17 +56,78 @@ export default function Settings({ project, projectName, tools, checking, autoUp
   );
 }
 
-function SkillsSec() {
-  const [list, setList] = useState<SkillInfo[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { skillsApi.list().then(setList, (e) => setError(String(e))); }, []);
+const ROLES: [SkillRole, string][] = [
+  ['pm', 'PM'], ['researcher', 'Investigador'], ['designer', 'Diseñador'], ['senior', 'Senior'],
+  ['junior', 'Junior'], ['auditor', 'Auditor'], ['auditor2', 'Auditor 2'],
+];
+const SKILL_NAMES: Record<string, string> = {
+  implement: 'Implementación', debug: 'Depuración', research: 'Investigación',
+  'design-loop': 'Diseño', 'code-review': 'Revisión', 'github-flow': 'GitHub',
+};
+
+function SkillsSec({ project, projectName }: { project: string | null; projectName: string | null }) {
+  const [scope, setScope] = useState<string | null>(null);
   return <>
     <h2 className="vt">Skills y reglas</h2>
-    <p className="lead">Skills incluidas en Filigranas. El catálogo se incluye en las instrucciones administradas por Filigranas. Cada skill se consulta cuando la requiere el encargo.</p>
-    {error && <p className="mut2">{error}</p>}
-    {(list ?? []).map((s) => <div key={s.name} className="srow"><div><div className="t"><span className="mono">${s.name}</span> {sc('g')}</div><div className="d">{s.description}</div></div><span className="chip">catálogo incluido</span></div>)}
-    <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip">catálogo incluido</span></div>
-    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip">catálogo incluido</span></div>
+    <p className="lead">Elige qué skills de Filigranas recibe cada rol en su siguiente turno. Configura el rol de cada conversación en Agentes.</p>
+    <div className="seg skill-scope" role="group" aria-label="Ámbito de las skills">
+      <button aria-pressed={scope == null} className={scope == null ? 'on' : ''} onClick={() => setScope(null)}>Global</button>
+      {project && <button aria-pressed={scope != null} className={scope != null ? 'on' : ''} onClick={() => setScope(project)}>{projectName ?? 'Proyecto'}</button>}
+    </div>
+    <SkillMatrix key={scope} project={scope} />
+    <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
+    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
+  </>;
+}
+
+function SkillMatrix({ project }: { project: string | null }) {
+  const [list, setList] = useState<SkillInfo[]>([]);
+  const [cells, setCells] = useState<SkillAssignment[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+  useEffect(() => {
+    let active = true;
+    Promise.all([skillsApi.list(), skillsApi.assignments(project)]).then(([list, cells]) => {
+      if (active) { setList(list); setCells(cells); }
+    }, (error) => { if (active) setStatus(String(error)); });
+    return () => { active = false; };
+  }, [project]);
+  const change = async (skill: string, role: SkillRole, enabled: boolean | null) => {
+    setSaving(true);
+    setStatus('');
+    try {
+      await skillsApi.setAssignment(project, skill, role, enabled);
+      setCells(await skillsApi.assignments(project));
+      setStatus(enabled == null ? 'Heredando del ámbito global.' : 'Asignación guardada.');
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <>
+    {project && <p className="mut2">Las celdas sin excepción heredan el ajuste global.</p>}
+    {cells && <div className="skill-scroll"><table className="mx skill-matrix" aria-label="Asignación de skills por rol">
+      <thead><tr><th scope="col">Skill</th>{ROLES.map(([id, name]) => <th key={id} scope="col">{name}</th>)}</tr></thead>
+      <tbody>{list.map((skill) => <tr key={skill.name}>
+        <th scope="row" title={skill.description}>{SKILL_NAMES[skill.name] ?? skill.name}<span className="mono mut2">{skill.name}</span></th>
+        {ROLES.map(([role, name]) => {
+          const cell = cells.find((item) => item.skill === skill.name && item.role === role);
+          return <td key={role}><span className="skill-controls">
+            <button className={`skill-cell${cell?.enabled ? ' on' : ''}`} disabled={saving || !cell}
+              aria-pressed={cell?.enabled ?? false} aria-label={`${skill.name} para ${name}`}
+              title={cell?.inherited ? 'Hereda del ámbito global' : undefined}
+              onClick={() => void change(skill.name, role, !cell?.enabled)}>
+              {cell?.enabled ? <Icon name="check" size={13} /> : <span aria-hidden="true">−</span>}
+            </button>
+            {project && cell && !cell.inherited && <button className="skill-reset" disabled={saving}
+              title="Heredar del ámbito global" aria-label={`Heredar ${skill.name} para ${name}`}
+              onClick={() => void change(skill.name, role, null)}><Icon name="close" size={10} /></button>}
+          </span></td>;
+        })}
+      </tr>)}</tbody>
+    </table></div>}
+    {status && <p className="skill-status mut2" role="status">{status}</p>}
   </>;
 }
 
@@ -86,7 +147,9 @@ function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
   </>;
 }
 
-function Agents({ project, projectName }: { project: string | null; projectName: string | null }) {
+function Agents({ project, projectName, agentSessions }: { project: string | null; projectName: string | null; agentSessions: Session[] }) {
+  const [roleBusy, setRoleBusy] = useState<number | null>(null);
+  const [roles, setRoles] = useState<Record<number, SkillRole>>({});
   const [limit, setLimit] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +163,23 @@ function Agents({ project, projectName }: { project: string | null; projectName:
           <button className="btn sm" disabled={limit == null || limit < 1} onClick={() => taskApi.parallelLimit(project, limit).then((v) => { setLimit(v); setSaved(true); }, (e) => setError(String(e)))}>Guardar</button>{saved && <span className="chip mint">guardado</span>}</div></div>
     ) : <p className="mut2">Abre un proyecto para ajustar sus agentes.</p>}
     <div className="srow"><div><div className="t">Modelo y esfuerzo {sc('s')}</div><div className="d">Se eligen en el selector de cada conversación y en Studio para las sesiones de diseño</div></div><span className="chip">en cada sesión</span></div>
-    {error && <p className="mut2">{error}</p>}
+    {project && agentSessions.filter((item) => item.project === project).map((session) =>
+      <div className="srow" key={session.id}>
+        <div><div className="t">{session.name} {sc('s')}</div><div className="d">Rol de skills para esta conversación</div></div>
+        <select className="in" aria-label={`Rol de ${session.name}`} value={roles[session.id] ?? session.skillRole ?? 'senior'} disabled={roleBusy != null}
+          onChange={async (event) => {
+            const role = event.currentTarget.value as SkillRole;
+            setRoleBusy(session.id); setError(null);
+            try {
+              await skillsApi.setSessionRole(project, session.id, role);
+              setRoles((current) => ({ ...current, [session.id]: role }));
+            } catch (error) { setError(String(error)); }
+            finally { setRoleBusy(null); }
+          }}>
+          {ROLES.filter(([id]) => id !== 'pm').map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+      </div>)}
+    {error && <p className="mut2" role="status">{error}</p>}
   </>;
 }
 

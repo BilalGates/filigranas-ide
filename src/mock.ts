@@ -425,6 +425,7 @@ mockIPC(
           task: null,
           handoffFrom: null,
           paused: null,
+          skillRole: a.skillRole ?? 'senior',
         };
         mockSessions.push(created);
         mockWorks.get(a.project)?.agents.push({sessionId:id,name,paths:['.'],running:false,closed:false});
@@ -594,6 +595,21 @@ mockIPC(
         return mockDesign.screens.filter((x) => x.project === a.project).map(({ project: _p, ...x }) => x);
       case 'design_shots':
         return mockDesign.shots.filter((x) => x.screen === a.screen).map(({ screen: _s, ...x }) => x).reverse();
+      case 'design_components':
+        return mockDesign.shots.find((x) => x.id === a.shot && x.screen === a.screen)?.source === 'captura' ? [
+          { selector: 'header', name: 'Cabecera', kind: 'header', radius: '0px', x: 0, y: 0, width: 1280, height: 96 },
+          { selector: '#acceder', name: 'Acceder', kind: 'button', radius: '8px', x: 480, y: 440, width: 320, height: 52 },
+        ] : [];
+      case 'design_references':
+        return mockDesign.references.filter((x) => x.screen === a.screen);
+      case 'design_reference_add': {
+        const id = mockDesign.next++;
+        mockDesign.references.push({ id, screen: a.screen, name: a.name, mime: 'image/png', data: a.data });
+        return id;
+      }
+      case 'design_reference_remove':
+        mockDesign.references = mockDesign.references.filter((x) => x.screen !== a.screen || x.id !== a.reference);
+        return null;
       case 'design_image':
         return mockPng(Number(a.shot));
       case 'design_review': {
@@ -647,7 +663,25 @@ mockIPC(
         mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
         return null;
       case 'skills_list':
-        return [{ name: 'implement', description: 'Implementa un encargo con pruebas.' }, { name: 'design-loop', description: 'Bucle de diseño con capturas.' }];
+        return mockSkillCatalog;
+      case 'skills_assignments':
+        return mockSkillCatalog.flatMap(({ name: skill }) => mockSkillRoles.map((role) => {
+          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? true;
+          const local = mockSkillAssignments.get(JSON.stringify([a.project, skill, role]));
+          return { skill, role, enabled: local ?? global, inherited: !!a.project && local == null };
+        }));
+      case 'skills_set_assignment': {
+        const key = JSON.stringify([a.project, a.skill, a.role]);
+        if (a.enabled == null) mockSkillAssignments.delete(key); else mockSkillAssignments.set(key, a.enabled);
+        return null;
+      }
+      case 'skills_set_session_role': {
+        const session = mockSessions.find((item) => item.id === a.session && item.project === a.project);
+        if (!session) fail('Sesión desconocida');
+        session.skillRole = a.role;
+        void emit('sessions-changed', { project: a.project });
+        return null;
+      }
       case 'health_run':
       case 'health_import':
         return fail('Este flujo necesita la app de escritorio de Filigranas');
@@ -831,7 +865,19 @@ function mockRuns(task: number) {
     routing: { source: 'jev', reason: 'Cambio acotado con pruebas existentes', effort: 'medio', recommendedEffort: 'medio', confidence: 0.82, model: 'gpt-6-sol', inputTokens: null, outputTokens: null, costEstimateUsd: null, durationMs: null, complexity: 'media', review: null, context: null } }];
 }
 
+const mockSkillCatalog = [
+  { name: 'implement', description: 'Implementa un encargo con pruebas.' },
+  { name: 'design-loop', description: 'Bucle de diseño con capturas.' },
+  { name: 'debug', description: 'Diagnóstico de problemas.' },
+  { name: 'research', description: 'Investigación y fuentes.' },
+  { name: 'code-review', description: 'Revisión de código.' },
+  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.' },
+];
+const mockSkillRoles = ['pm', 'researcher', 'designer', 'senior', 'junior', 'auditor', 'auditor2'];
+const mockSkillAssignments = new Map<string, boolean>();
+
 const mockDesign = {
+  references: [] as { id: number; screen: number; name: string; mime: string; data: string }[],
   next: 10,
   screens: [{ id: 1, project: '/Users/demo/repositorios/calaix', name: 'Inicio de sesión', url: 'http://localhost:5173/login', constraints: '[bloqueo 0,0,100,12] Cabecera y logotipo\nTipografía SF Pro en toda la pantalla', revision: 3, approved: 2 as number | null }] as any[],
   shots: [

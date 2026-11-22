@@ -303,9 +303,9 @@ export default function App() {
     };
   }, [project]);
 
-  const newSession = (engine = 'codex', task: number | null = null) => {
+  const newSession = (engine = 'codex', task: number | null = null, skillRole: 'designer' | null = null) => {
     if (!project) return;
-    sessions.create(project, engine, task).then(
+    sessions.create(project, engine, task, skillRole).then(
       ({ notice, ...s }) => {
         if (currentProject.current !== s.project) return;
         setAgentSessions((list) => list.some((item) => item.id === s.id) ? list : [...list, s]);
@@ -752,7 +752,7 @@ export default function App() {
       {dest === 'studio' && (
         <Boundary name="Studio">
         <Studio key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
-          view={studioView} onView={setStudioView} onNewSession={() => newSession('claude')}
+          view={studioView} onView={setStudioView} onNewSession={() => newSession('claude', null, 'designer')}
           canvas={current && <DesignCanvas key={current.path} project={current.path}
             reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
             archived={ws.projects.filter((item) => item.archived).length}
@@ -776,7 +776,7 @@ export default function App() {
       )}
       {dest === 'ajustes' && (
         <Boundary name="Ajustes">
-          <Settings project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
+          <Settings agentSessions={agentSessions} project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
             onRefreshTools={checkTools} onLogin={current ? (command) => { setDest('workspace'); openTerminal(current.path, true, command); } : null}
             usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
         </Boundary>

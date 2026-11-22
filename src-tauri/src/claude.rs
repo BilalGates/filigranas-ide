@@ -197,13 +197,13 @@ impl Claude {
         }
         procs.remove(&session.id); // termina el anterior (Drop)
 
-        let rules = crate::skills::instructions(app);
+        let rules = crate::skills::RULES;
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
             let role = policy.split("## Cómo delegas").next().unwrap_or(policy);
             format!("{role}Coordina el trabajo y comprueba los resultados. Puedes usar los subagentes de Claude Code si están disponibles. Deja los commits, la publicación y la integración a las acciones del IDE y del usuario.\n\n{rules}")
         } else {
-            system_prompt(&session.name, &rules)
+            system_prompt(&session.name, rules)
         };
         let mut cmd = Command::new(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
@@ -348,11 +348,11 @@ pub struct Created {
 
 /// Crea una sesión. El proceso arranca con el primer mensaje.
 #[tauri::command]
-pub async fn session_create(app: AppHandle, project: String, engine: String, task: Option<i64>) -> CmdResult<Created> {
+pub async fn session_create(app: AppHandle, project: String, engine: String, task: Option<i64>, skill_role: Option<crate::skills::Role>) -> CmdResult<Created> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
-        new_session(&app, &path, &engine, task)
+        new_session(&app, &path, &engine, task, skill_role)
     })
     .await
     .map_err(err)?
@@ -360,7 +360,7 @@ pub async fn session_create(app: AppHandle, project: String, engine: String, tas
 
 /// Crea un chat en el checkout compartido del proyecto. Claude Code acepta un UUID
 /// propio; los agentes ACP asignan el suyo al crearla y se guarda entonces.
-pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i64>) -> CmdResult<Created> {
+pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i64>, skill_role: Option<crate::skills::Role>) -> CmdResult<Created> {
     let state = app.state::<AppState>();
     let provider = match engine {
         "claude" => uuid::Uuid::new_v4().to_string(),
@@ -377,6 +377,7 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
             tasks::validate_start(&tx, project, task)?;
         }
         let s = db::create_session(&tx, project, engine, &provider, &names).map_err(err)?;
+        if let Some(role) = skill_role { crate::skills::assign_session(&tx, s.id, role)?; }
         if let Some(task) = task {
             tasks::link(&tx, project, task, s.id)?;
         }
@@ -482,6 +483,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         let run = runs::begin(&tx, &session.project, &scope, &session.engine, (!is_pm).then_some(id), task)?;
         let input = runs::task_input(&tx, run, &session.project, task, previous, text)?;
         let input = crate::chat::with_context(&tx, &session.project, (!is_pm).then_some(id), run, input)?;
+        let input = crate::skills::with_catalog(app, &tx, &session.project, (!is_pm).then_some(id), input)?;
         db::set_session_task(&tx, id, text).map_err(err)?;
         if session.paused.is_some() {
             db::set_session_paused(&tx, id, None).map_err(err)?;

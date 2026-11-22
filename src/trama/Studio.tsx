@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { design, sessions as sessionApi, type DesignRegion, type DesignScreen, type DesignShot, type Session } from '../ipc';
+import { design, sessions as sessionApi, type DesignComponent, type DesignRegion, type DesignScreen, type DesignShot, type Session } from '../ipc';
 import { joinConstraints, parseConstraints, type Lock } from './constraints';
 import { Icon } from './icons';
 import { EmptyArt, Root } from './kit';
 import { Modal } from './ui';
+import StudioReferences from './StudioReferences';
 
 // Studio de Trama v2 sobre el bucle de diseño existente: pantallas y
 // versiones (capturas reales), lienzo con regiones y comparación, bloqueos
 // guardados en las restricciones (el núcleo los envía con cada encargo),
-// revisión y encargo a una sesión Claude con worktree. Enviar no simula
+// revisión y encargo a una sesión Claude del proyecto. Enviar no simula
 // cambios: la versión nueva aparece al capturar de nuevo.
 type Tool = 'select' | 'region' | 'hand';
 type Cmp = null | 'split' | 'side' | 'diff';
@@ -23,6 +24,10 @@ const sendRegion = (r: DesignRegion) => {
   return { x, y, width: Math.min(100 - x, Math.ceil(r.x + r.width) - x), height: Math.min(100 - y, Math.ceil(r.y + r.height) - y) };
 };
 const isFull = (r: DesignRegion) => r.width >= 99.9 && r.height >= 99.9;
+const componentRegion = (component: DesignComponent, shot: DesignShot): DesignRegion => ({
+  x: component.x * 100 / shot.width, y: component.y * 100 / shot.height,
+  width: component.width * 100 / shot.width, height: component.height * 100 / shot.height,
+});
 
 export default function Studio({ project, projectName, agentSessions, view, onView, canvas, onNewSession, onOpenSession, onBrowser }: {
   project: string | null; projectName: string | null; agentSessions: Session[]; view: 'captures' | 'canvas'; onView: (view: 'captures' | 'canvas') => void; canvas: React.ReactNode; onNewSession: () => void; onOpenSession: (id: number) => void; onBrowser: () => void;
@@ -31,6 +36,9 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   const [screenId, setScreenId] = useState<number | null>(null);
   const [shots, setShots] = useState<DesignShot[] | null>(null);
   const [shotId, setShotId] = useState<number | null>(null);
+  const [componentMaps, setComponentMaps] = useState<Record<number, DesignComponent[]>>({});
+  const [selector, setSelector] = useState<string | null>(null);
+  const [referenceIds, setReferenceIds] = useState<number[]>([]);
   const imageRequests = useRef(new Set<number>());
   const [images, setImages] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +61,17 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   const comparable = !!shot && !!reference && reference.id !== shot.id && reference.width === shot.width && reference.height === shot.height;
   const reviewable = !baseline || (!!shot && baseline.width === shot.width && baseline.height === shot.height);
   const parsed = useMemo(() => parseConstraints(screen?.constraints ?? ''), [screen?.constraints]);
+  const components = shotId == null ? undefined : componentMaps[shotId];
+  const selected = components?.find((item) => item.selector === selector) ?? null;
+  const visibleLocks = parsed.locks.map((lock) => {
+    const item = lock.selector && components?.find((item) => item.selector === lock.selector);
+    return item && shot ? { ...lock, region: componentRegion(item, shot) } : lock;
+  });
+  const chooseComponent = (component: DesignComponent | null) => {
+    setSelector(component?.selector ?? null);
+    setRegion(component && shot ? componentRegion(component, shot) : FULL);
+  };
+  const changeRegion = (next: DesignRegion) => { setSelector(null); setRegion(next); };
 
   const act = async (fn: () => Promise<unknown>, done?: string) => {
     setBusy(true); setError(null); setNotice(null);
@@ -83,13 +102,24 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
     }
   }, [project, screenId, shots, images, shot, reference]);
   useEffect(() => {
+    if (!project || screenId == null || shotId == null) return;
+    let active = true;
+    design.components(project, screenId, shotId).then(
+      (items) => { if (active) setComponentMaps((previous) => ({ ...previous, [shotId]: items })); },
+      (error) => { if (active) setError(String(error)); },
+    );
+    return () => { active = false; };
+  }, [project, screenId, shotId]);
+  useEffect(() => { setReferenceIds([]); }, [screenId]);
+  useEffect(() => { setSelector(null); setRegion(FULL); }, [shotId]);
+  useEffect(() => {
     const on = (e: KeyboardEvent) => {
       if (view !== 'captures' || (e.target as HTMLElement).closest('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey) return;
       if (e.key === 'v' || e.key === 'V') setTool('select');
       else if (e.key === 'r' || e.key === 'R') setTool('region');
       else if (e.key === 'h' || e.key === 'H') setTool('hand');
       else if (comparable && (e.key === 'c' || e.key === 'C')) setCmp((c) => c ? null : 'split');
-      else if (e.key === 'Escape') setRegion(FULL);
+      else if (e.key === 'Escape') { setSelector(null); setRegion(FULL); }
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
@@ -146,14 +176,14 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
           {!screens ? <div className="flow-loading"><span className="spin" /></div>
             : !screen ? (
               <div className="studio-empty"><div className="empty big"><EmptyArt /><h3>{projectName} no tiene pantallas de diseño</h3>
-                <p>Una pantalla es una URL de tu proyecto. Captúrala, marca regiones, protege lo que no debe cambiar y encarga cambios a una sesión Claude con su propio worktree.</p>
+                <p>Una pantalla es una URL de tu proyecto. Captúrala, marca regiones, protege lo que no debe cambiar y encarga cambios a una sesión Claude del proyecto.</p>
                 <div className="row"><button className="btn pearl" onClick={newScreen}><Icon name="plus" size={13} /> Crear la primera pantalla</button></div></div></div>
             ) : !shot ? (
               <div className="studio-empty"><div className="empty big"><EmptyArt /><h3>Sin capturas de {screen.name}</h3><p>{screen.url ? `Captura ${screen.url} a ${size[0]} × ${size[1]} o importa una imagen.` : 'Importa una imagen para crear la primera versión.'}</p>
                 <div className="row"><CaptureButtons busy={busy} hasUrl={!!screen.url} size={size} onCapture={(note) => act(async () => { const id = await design.capture(project, screen.id!, size[0], size[1], note); await loadShots(screen.id!); setShotId(id); }, 'Captura guardada como candidata.')}
                   onImport={(f, note) => act(async () => { const id = await design.import(project, screen.id!, await fileBase64(f), note); await loadShots(screen.id!); setShotId(id); }, 'Imagen importada como candidata.')} /></div></div></div>
             ) : (
-              <Canvas key={screen.id} shot={shot} image={images[shot.id]} base={comparable && reference ? images[reference.id] : undefined} cmp={comparable ? cmp : null} tool={tool} region={region} onRegion={setRegion} locks={parsed.locks} />
+              <Canvas key={shot.id} shot={shot} image={images[shot.id]} base={comparable && reference ? images[reference.id] : undefined} cmp={comparable ? cmp : null} tool={tool} region={region} onRegion={changeRegion} locks={visibleLocks} components={components ?? []} selected={selected} onSelect={chooseComponent} />
             )}
           {shot && (
             <div className="toolbar" role="toolbar" aria-label="Herramientas">
@@ -161,7 +191,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
                 <button key={id} className={tool === id ? 'on' : ''} aria-pressed={tool === id} onClick={() => setTool(id)} title={`${l} (${k})`} aria-label={l}><Icon name={ic} size={17} /></button>
               ))}
               <span className="sep" />
-              <button disabled={isFull(region) || !validRegion(region) || busy} onClick={() => saveConstraints([...parsed.locks, { region, text: `Región ${Math.round(region.x)},${Math.round(region.y)}` }], parsed.rest)} title="Proteger la región marcada" aria-label="Proteger región"><Icon name="lock" size={17} /></button>
+              <button disabled={isFull(region) || !validRegion(region) || busy || !!selected} onClick={() => saveConstraints([...parsed.locks, { region, text: `Región ${Math.round(region.x)},${Math.round(region.y)}` }], parsed.rest)} title="Proteger la región marcada" aria-label="Proteger región"><Icon name="lock" size={17} /></button>
               <button className={cmp ? 'on' : ''} aria-pressed={!!cmp} disabled={!comparable} onClick={() => setCmp(cmp ? null : 'split')} title={comparable ? 'Comparar con la versión elegida (C)' : 'Elige otra versión del mismo tamaño'} aria-label="Comparar"><Icon name="compare" size={17} /></button>
             </div>
           )}
@@ -172,10 +202,10 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
             </select></label>
           </div>}
           {shot && screen && (
-            <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={parsed.locks}
-              onCmp={setCmp} onClear={() => setRegion(FULL)} onOpenSession={onOpenSession}
+            <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
+              onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
               onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
-              onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true }); setSent((l) => [{ text, label: isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`, at: Date.now() }, ...l]); },
+              onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
                 compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
           )}
           {(error || notice) && <div className={`studio-toast${error ? ' err' : ''}`} role="status">{error ?? notice}<button className="tbtn" onClick={() => { setError(null); setNotice(null); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></div>}
@@ -184,7 +214,8 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
           {screen ? (
             <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} onSize={setSize}
               candidateImage={shot ? images[shot.id] : undefined} referenceImage={comparable && reference ? images[reference.id] : undefined}
-              onRegion={setRegion} onSave={saveConstraints}
+              components={components} selected={selected} onSelect={chooseComponent} onRegion={changeRegion} onSave={saveConstraints}
+              references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
               onCapture={(note) => act(async () => { const id = await design.capture(project, screen.id!, size[0], size[1], note); await loadShots(screen.id!); setShotId(id); }, 'Captura guardada como candidata.')}
               onImport={(f, note) => act(async () => { const id = await design.import(project, screen.id!, await fileBase64(f), note); await loadShots(screen.id!); setShotId(id); }, 'Imagen importada como candidata.')} />
           ) : <div className="sec"><h3>Studio</h3><p className="mut2">Crea una pantalla para empezar a iterar su diseño con capturas reales.</p></div>}
@@ -204,10 +235,11 @@ function CaptureButtons({ busy, hasUrl, size, onCapture, onImport }: { busy: boo
   </>;
 }
 
-function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks }: { shot: DesignShot; image?: string; base?: string; cmp: Cmp; tool: Tool; region: DesignRegion; onRegion: (r: DesignRegion) => void; locks: Lock[] }) {
+function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, components, selected, onSelect }: { shot: DesignShot; image?: string; base?: string; cmp: Cmp; tool: Tool; region: DesignRegion; onRegion: (r: DesignRegion) => void; locks: Lock[]; components: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [cam, setCam] = useState({ k: 1, x: 0, y: 0 });
   const [cut, setCut] = useState(50);
+  const [hover, setHover] = useState<DesignComponent | null>(null);
   const side = cmp === 'side' && base;
   const fit = useCallback(() => {
     const r = wrap.current?.getBoundingClientRect();
@@ -220,6 +252,16 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks }: { sho
   useEffect(() => { const ro = new ResizeObserver(() => fit()); if (wrap.current) ro.observe(wrap.current); return () => ro.disconnect(); }, [fit]);
   useEffect(() => { const el = wrap.current; const stop = (e: WheelEvent) => e.preventDefault(); el?.addEventListener('wheel', stop, { passive: false }); return () => el?.removeEventListener('wheel', stop); }, []);
   const toImg = (cx: number, cy: number) => { const r = wrap.current!.getBoundingClientRect(); return { x: ((cx - r.left - cam.x) / cam.k / shot.width) * 100, y: ((cy - r.top - cam.y) / cam.k / shot.height) * 100 }; };
+  const hit = (cx: number, cy: number) => {
+    const point = toImg(cx, cy);
+    const x = point.x * shot.width / 100, y = point.y * shot.height / 100;
+    let best: DesignComponent | null = null;
+    for (const item of components) {
+      if (x < item.x || y < item.y || x > item.x + item.width || y > item.y + item.height) continue;
+      if (!best || item.width * item.height <= best.width * best.height) best = item;
+    }
+    return best;
+  };
   const clamp = (n: number) => Math.max(0, Math.min(100, n));
   const pct = (r: DesignRegion) => ({ left: `${r.x}%`, top: `${r.y}%`, width: `${r.width}%`, height: `${r.height}%` });
   const frame = (src: string | undefined, label: string, overlay: boolean, extra?: React.ReactNode) => (
@@ -227,14 +269,18 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks }: { sho
       <div className="frameLabel">{label}</div>
       <div className="frame">{src ? <img src={src} alt={label} draggable={false} /> : <div className="tr-skel" style={{ position: 'absolute', inset: 0 }} />}{extra}
         {overlay && locks.map((l, i) => <div key={i} className="lockbox" style={pct(l.region)}><span><Icon name="lock" size={11} /> {l.text}</span></div>)}
-        {overlay && !isFull(region) && <div className="regbox" style={pct(region)} />}
+        {overlay && !selected && !isFull(region) && <div className="regbox" style={pct(region)} />}
+        {overlay && !cmp && selected && <div className="studio-component-box selected" style={pct(componentRegion(selected, shot))}><span>{selected.name}</span></div>}
+        {overlay && !cmp && tool === 'select' && hover && hover.selector !== selected?.selector && <div className="studio-component-box" style={pct(componentRegion(hover, shot))}><span>{hover.name}</span></div>}
       </div>
     </div>
   );
   return (
     <div ref={wrap} className="studio-stage" tabIndex={0} aria-label="Lienzo"
+      onPointerMove={(e) => { if (tool === 'select' && !cmp && !e.buttons) setHover(hit(e.clientX, e.clientY)); }}
+      onPointerLeave={() => setHover(null)}
       onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest('.cmpbar, .studio-zoomtools')) return;
+        if (e.button > 1 || (e.target as HTMLElement).closest('.cmpbar, .studio-zoomtools')) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         const start = { cx: e.clientX, cy: e.clientY, cam, p: toImg(e.clientX, e.clientY) };
         const pan = tool !== 'region' || e.button === 1 || e.altKey;
@@ -242,8 +288,18 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks }: { sho
           if (pan) setCam({ ...start.cam, x: start.cam.x + ev.clientX - start.cx, y: start.cam.y + ev.clientY - start.cy });
           else { const p = toImg(ev.clientX, ev.clientY), x0 = clamp(Math.min(start.p.x, p.x)), y0 = clamp(Math.min(start.p.y, p.y)); onRegion({ x: x0, y: y0, width: Math.max(0.5, clamp(Math.max(start.p.x, p.x)) - x0), height: Math.max(0.5, clamp(Math.max(start.p.y, p.y)) - y0) }); }
         };
-        const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+        const up = (ev: PointerEvent) => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          if (ev.type === 'pointerup' && tool === 'select' && !cmp && e.button === 0 && !e.altKey &&
+              Math.hypot(ev.clientX - start.cx, ev.clientY - start.cy) < 4) {
+            onSelect(hit(ev.clientX, ev.clientY));
+          }
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
       }}
       onWheel={(e) => {
         const r = wrap.current!.getBoundingClientRect();
@@ -273,11 +329,11 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks }: { sho
   );
 }
 
-function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessions, locks, onCmp, onClear, onOpenSession, onNewSession, reviewable, onReview, onSend }: {
-  project: string; screen: DesignScreen; shot: DesignShot; baseline: DesignShot | null; region: DesignRegion; cmp: Cmp; busy: boolean; agentSessions: Session[]; locks: Lock[];
+function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessions, locks, selected, references, onCmp, onClear, onOpenSession, onNewSession, reviewable, onReview, onSend }: {
+  project: string; screen: DesignScreen; shot: DesignShot; baseline: DesignShot | null; region: DesignRegion; cmp: Cmp; busy: boolean; agentSessions: Session[]; locks: Lock[]; selected: DesignComponent | null; references: number;
   onNewSession: () => void; reviewable: boolean; onCmp: (c: Cmp) => void; onClear: () => void; onOpenSession: (id: number) => void; onReview: (approve: boolean) => void; onSend: (session: number, text: string, compare: boolean) => void;
 }) {
-  const designers = agentSessions.filter((s) => s.project === project && s.engine === 'claude' && s.worktree);
+  const designers = agentSessions.filter((s) => s.project === project && s.engine === 'claude');
   const [session, setSession] = useState<number | null>(designers[0]?.id ?? null);
   const [models, setModels] = useState<{ id: string; label: string }[]>([]);
   const [model, setModel] = useState<string | null>(null);
@@ -286,13 +342,14 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   const [ok, setOk] = useState(false);
   useEffect(() => { if (session == null && designers[0]) setSession(designers[0].id); }, [designers, session]);
   useEffect(() => { if (session != null) sessionApi.claudeOptions(session).then((o) => { setModels(o.models); setModel(o.pinnedModel); }, () => setModels([])); }, [session]);
-  useEffect(() => { setOk(false); setApprove(false); }, [shot.id, region, baseline?.id]);
+  useEffect(() => { setOk(false); setApprove(false); }, [shot.id, region, baseline?.id, references]);
   const reviewActions = shot.status === 'candidate' && <div className="studio-review row wrap">
     <label className="row"><input type="checkbox" checked={approve} disabled={!reviewable || busy} onChange={(e) => setApprove(e.target.checked)} /> Revisé la captura y sus restricciones</label>
     <button className="btn sm danger" disabled={busy} onClick={() => onReview(false)}>Descartar</button>
     <button className="btn sm pearl" disabled={busy || !approve || !reviewable} onClick={() => onReview(true)}>Aprobar como referencia</button>
     {!reviewable && <span className="mut2">Captura con el tamaño de la referencia para aprobar.</span>}
   </div>;
+  const selectable = selected != null || validRegion(region);
   const touches = locks.filter((l) => !isFull(region) && l.region.x < region.x + region.width && l.region.x + l.region.width > region.x && l.region.y < region.y + region.height && l.region.y + l.region.height > region.y);
   if (cmp) return (
     <div className="scomp cmpc">
@@ -306,34 +363,35 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
     </div>
   );
   if (!designers.length) return (
-    <div className="scomp"><div className="row wrap"><span className="mut2">Selecciona una sesión Claude aislada para enviar un encargo.</span>
+    <div className="scomp"><div className="row wrap"><span className="mut2">Crea una sesión Claude para enviar un encargo.</span>
       <button className="btn sm" disabled={busy} onClick={onNewSession}>Nueva sesión Claude</button></div>{reviewActions}</div>
   );
   return (
     <div className="scomp">
       <div className="row wrap">
-        <span className="chip sky"><Icon name={isFull(region) ? 'screen' : 'region'} size={11} /> {isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`}</span>
+        <span className="chip sky"><Icon name={isFull(region) ? 'screen' : 'region'} size={11} /> {isFull(region) ? 'Toda la pantalla' : selected?.name ?? `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`}</span>
         {touches.length > 0 && <span className="chip amber"><Icon name="lock" size={11} /> {touches.map((l) => l.text).join(', ')}: protegido, no se tocará</span>}
         <span className="grow" />
         {!isFull(region) && <button className="tbtn" onClick={onClear} aria-label="Quitar región" title="Quitar región"><Icon name="close" size={12} /></button>}
       </div>
       <textarea rows={2} value={text} onChange={(e) => { setText(e.currentTarget.value); setOk(false); }} placeholder={isFull(region) ? 'Qué cambiar en la pantalla (o pulsa R y marca una región)' : 'Qué cambiar en esta región'} aria-label="Encargo de diseño" className="in" style={{ width: '100%', marginTop: 8 }} />
       <div className="row wrap" style={{ marginTop: 6 }}>
-        <label className="fsel"><select value={session ?? ''} onChange={(e) => { setSession(Number(e.currentTarget.value)); setOk(false); }} aria-label="Sesión">{designers.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'worktree'}</option>)}</select><Icon name="down" size={11} /></label>
+        <label className="fsel"><select value={session ?? ''} onChange={(e) => { setSession(Number(e.currentTarget.value)); setOk(false); }} aria-label="Sesión">{designers.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'proyecto'}</option>)}</select><Icon name="down" size={11} /></label>
         {models.length > 0 && <label className="fsel"><select value={model ?? ''} onChange={(e) => { const v = e.currentTarget.value; sessionApi.setOption(session!, 'model', v).then(() => setModel(v || null)); }} aria-label="Modelo"><option value="">Modelo predeterminado</option>{models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select><Icon name="down" size={11} /></label>}
-        <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.currentTarget.checked)} /> Enviar captura y protecciones</label>
+        <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.currentTarget.checked)} /> Enviar captura y protecciones{references ? ` con ${references} ${references === 1 ? 'referencia' : 'referencias'}` : ''}</label>
         <span className="grow" />
         <button className="btn sm ghost" onClick={() => session != null && onOpenSession(session)}>Conversación</button>
-        <button className="btn sm" disabled={busy || !ok || !text.trim() || !validRegion(region) || !baseline || baseline.id === shot.id} onClick={() => { onSend(session!, text, true); setText(''); }} title="Comparar con la referencia sin editar archivos">Comparar</button>
-        <button className="btn sm pearl" disabled={busy || !ok || !text.trim() || !validRegion(region) || session == null} onClick={() => { onSend(session!, text, false); setText(''); }}><Icon name="spark" size={12} /> Pedir cambio</button>
+        <button className="btn sm" disabled={busy || !ok || !text.trim() || !selectable || session == null || !baseline || baseline.id === shot.id} onClick={() => { onSend(session!, text, true); setText(''); }} title="Comparar con la referencia sin editar archivos">Comparar</button>
+        <button className="btn sm pearl" disabled={busy || !ok || !text.trim() || !selectable || session == null} onClick={() => { onSend(session!, text, false); setText(''); }}><Icon name="spark" size={12} /> Pedir cambio</button>
       </div>
       {reviewActions}
     </div>
   );
 }
 
-function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, onSize, onRegion, onSave, onCapture, onImport }: {
+function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, references, onSize, onRegion, onSave, onCapture, onImport }: {
   screen: DesignScreen; shot: DesignShot | null; region: DesignRegion; parsed: { locks: Lock[]; rest: string }; busy: boolean; sent: { text: string; label: string; at: number }[]; size: [number, number];
+  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; references: React.ReactNode;
   candidateImage?: string; referenceImage?: string; onSize: (size: [number, number]) => void; onRegion: (r: DesignRegion) => void; onSave: (locks: Lock[], rest: string) => void; onCapture: (note: string) => void; onImport: (f: File, note: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -350,7 +408,25 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
   return (
     <>
       <div className="sec"><span className="lab">Selección</span>
-        {shot && <div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
+        {shot && components && components.length > 0 && <label className="studio-components">Componente
+          <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
+            <option value="">Seleccionar componente…</option>
+            {components.map((item) => <option key={item.selector} value={item.selector}>{item.name} · {item.kind}</option>)}
+          </select>
+        </label>}
+        {shot && components?.length === 0 && <p className="mut2">Esta versión permite marcar regiones. Para seleccionar componentes, captura una página local desde Studio.</p>}
+        {shot && selected && <>
+          <div className="row wrap"><h3 className="grow">{selected.name}</h3>
+            <button className="btn sm" disabled={busy} onClick={() => {
+              const locked = parsed.locks.some((item) => item.selector === selected.selector);
+              onSave(locked ? parsed.locks.filter((item) => item.selector !== selected.selector)
+                : [...parsed.locks, { region, selector: selected.selector, text: selected.name }], parsed.rest);
+            }}><Icon name="lock" size={13} /> {parsed.locks.some((item) => item.selector === selected.selector) ? 'Desproteger componente' : 'Proteger componente'}</button>
+          </div>
+          <dl className="kv"><dt>Tamaño</dt><dd>{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
+            <dt>Radio</dt><dd>{selected.radius}</dd><dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
+        </>}
+        {shot && !selected && <div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
           <label key={key}>{({ x: 'X', y: 'Y', width: 'Ancho', height: 'Alto' })[key]} %
             <input className="in" type="number" min={0} max={100} value={Math.round(region[key])} onChange={(event) => onRegion({ ...region, [key]: event.target.valueAsNumber || 0 })} />
           </label>
@@ -366,7 +442,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           </div>
         </details>}
         {!validRegion(region) && <p role="status">La región debe quedar dentro de la pantalla.</p>}
-        {full ? <p className="mut2">Pulsa <span className="kbd">R</span> y marca una región en la captura para acotar el cambio; con <span className="kbd">H</span> mueves el lienzo y con <span className="kbd">C</span> comparas con la referencia.</p> : (
+        {selected ? null : full ? <p className="mut2">Usa <span className="kbd">V</span> para seleccionar un componente. Pulsa <span className="kbd">R</span> y marca una región en la captura para acotar el cambio; con <span className="kbd">H</span> mueves el lienzo y con <span className="kbd">C</span> comparas con la referencia.</p> : (
           <>
             <div className="row" style={{ marginTop: 6 }}><h3 className="grow">Región marcada</h3></div>
             <dl className="kv"><dt>Posición</dt><dd className="mono">{Math.round(region.x)} %, {Math.round(region.y)} %</dd><dt>Tamaño</dt><dd className="mono">{Math.round(region.width)} × {Math.round(region.height)} %{shot ? ` · ${Math.round((region.width / 100) * shot.width)} × ${Math.round((region.height / 100) * shot.height)} px` : ''}</dd></dl>
@@ -380,7 +456,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
       <div className="sec"><span className="lab">Protegido · se conserva entre versiones</span>
         <div style={{ marginTop: 6 }}>
           {parsed.locks.length ? parsed.locks.map((l, i) => (
-            <div key={i} className="lockrow"><Icon name="lock" size={13} /><button className="grow lnk" style={{ textAlign: 'left' }} onClick={() => onRegion(l.region)}>{l.text || 'Región sin nombre'}</button>
+            <div key={i} className="lockrow"><Icon name="lock" size={13} /><button className="grow lnk" style={{ textAlign: 'left' }} onClick={() => { const component = l.selector && components?.find((item) => item.selector === l.selector); if (component) onSelect(component); else onRegion(l.region); }}>{l.text || 'Región sin nombre'}</button>
               <button className="tbtn" disabled={busy} onClick={() => onSave(parsed.locks.filter((_, j) => j !== i), parsed.rest)} aria-label="Desproteger" title="Desproteger"><Icon name="close" size={12} /></button></div>
           )) : <p className="mut2">Nada protegido todavía.</p>}
         </div>
@@ -391,6 +467,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>
       </div>
+      {references}
       <div className="sec"><span className="lab">Nueva versión</span>
         <div className="studio-region-fields">
           <label>Ancho de captura<input className="in" type="number" min={64} max={4096} value={size[0] || ''} onChange={(event) => onSize([event.target.valueAsNumber || 0, size[1]])} /></label>
@@ -414,9 +491,9 @@ function ScreenForm({ screen, onClose, onSave }: { screen: DesignScreen; onClose
     <Modal title={screen.id == null ? 'Nueva pantalla' : 'Editar pantalla'} onClose={onClose}>
       <div className="tr-col">
         <label className="tr-field-row">Nombre<input autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
-        <label className="tr-field-row">URL<input value={form.url} placeholder="http://localhost:5173/" onChange={(e) => setForm({ ...form, url: e.currentTarget.value })} /></label>
+        <label className="tr-field-row">URL local (opcional)<input value={form.url} placeholder="http://localhost:5173/" onChange={(e) => setForm({ ...form, url: e.currentTarget.value })} /></label>
       </div>
-      <div className="acts"><button className="tr-btn ghost" onClick={onClose}>Cancelar</button><button className="tr-btn pearl" disabled={!form.name.trim() || !form.url.trim()} onClick={() => onSave(form)}>Guardar</button></div>
+      <div className="acts"><button className="tr-btn ghost" onClick={onClose}>Cancelar</button><button className="tr-btn pearl" disabled={!form.name.trim()} onClick={() => onSave(form)}>Guardar</button></div>
     </Modal>
   );
 }

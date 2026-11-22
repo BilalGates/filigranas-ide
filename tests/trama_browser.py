@@ -1,6 +1,7 @@
 """Regresiones de Trama sobre pnpm dev y su núcleo simulado."""
 
 import argparse
+import base64
 import re
 
 from playwright.sync_api import expect, sync_playwright
@@ -191,6 +192,65 @@ def check_settings_and_network(browser, url):
     page.close()
 
 
+def check_studio_references_and_components(browser, url):
+    page, errors = start(browser, url, resume=True)
+    page.get_by_role("button", name=re.compile("Retomar sesión")).click()
+    destination(page, "Studio")
+    inspector = page.get_by_role("complementary", name="Inspector de diseño")
+    picker = inspector.get_by_role("combobox", name="Componente", exact=True)
+    expect(picker).to_be_visible()
+    page.get_by_role("toolbar", name="Herramientas").get_by_role("button", name="Seleccionar").click()
+    frame = page.locator(".artboard-real .frame").bounding_box()
+    assert frame is not None
+    page.mouse.click(frame["x"] + frame["width"] * 0.5, frame["y"] + frame["height"] * 0.58)
+    expect(picker).to_have_value("#acceder")
+    expect(inspector.get_by_text("#acceder", exact=True)).to_be_visible()
+    inspector.get_by_role("button", name="Proteger componente").click()
+    expect(inspector.get_by_role("button", name="Desproteger componente")).to_be_visible()
+    png = page.locator(".artboard-real .frame > img").get_attribute("src")
+    inspector.locator("input[type=file][aria-label='Archivo de referencia']").set_input_files({
+        "name": "referencia-qa.png", "mimeType": "image/png", "buffer": base64.b64decode(png.split(",", 1)[1]),
+    })
+    references = inspector.get_by_role("region", name="Referencias visuales")
+    references.get_by_role("checkbox", name="Adjuntar referencia-qa.png").check()
+    references.get_by_role("button", name="Ver referencia referencia-qa.png").click()
+    dialog = page.get_by_role("dialog", name="referencia-qa.png")
+    expect(dialog.get_by_role("img", name="referencia-qa.png")).to_be_visible()
+    dialog.get_by_role("button", name="Cerrar", exact=True).click()
+    destination(page, "Ajustes")
+    destination(page, "Studio")
+    expect(page.get_by_role("button", name="Ver referencia referencia-qa.png")).to_be_visible()
+    expect(page.get_by_role("checkbox", name="Adjuntar referencia-qa.png")).not_to_be_checked()
+    expect(inspector.get_by_role("button", name="Acceder", exact=True)).to_be_visible()
+    assert not errors, errors
+    page.close()
+
+
+def check_skill_roles(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir bitacola", exact=True).click()
+    destination(page, "Ajustes")
+    page.get_by_role("button", name="Skills y reglas").click()
+    table = page.get_by_role("table", name="Asignación de skills por rol")
+    designer = table.get_by_role("button", name="design-loop para Diseñador", exact=True)
+    senior = table.get_by_role("button", name="design-loop para Senior", exact=True)
+    expect(designer).to_have_attribute("aria-pressed", "true")
+    designer.click()
+    expect(designer).to_have_attribute("aria-pressed", "false")
+    expect(senior).to_have_attribute("aria-pressed", "true")
+    scope = page.get_by_role("group", name="Ámbito de las skills")
+    scope.get_by_role("button", name="bitacola").click()
+    expect(designer).to_have_attribute("aria-pressed", "false")
+    designer.click()
+    expect(designer).to_have_attribute("aria-pressed", "true")
+    table.get_by_role("button", name="Heredar design-loop para Diseñador").click()
+    expect(designer).to_have_attribute("aria-pressed", "false")
+    scope.get_by_role("button", name="Global").click()
+    expect(designer).to_have_attribute("aria-pressed", "false")
+    assert not errors, errors
+    page.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", default="http://127.0.0.1:1420")
@@ -198,7 +258,7 @@ def main():
     args = parser.parse_args()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=args.channel)
-        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame, check_workspace_inspector, check_studio_surfaces, check_settings_and_network):
+        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame, check_workspace_inspector, check_studio_surfaces, check_settings_and_network, check_studio_references_and_components, check_skill_roles):
             check(browser, args.app)
             print(f"{check.__name__}: correcto")
         browser.close()

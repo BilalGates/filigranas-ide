@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeHealth from '../CodeHealth';
 import Diff from '../Diff';
 import GitPanel from '../GitPanel';
@@ -88,6 +88,12 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   const changes = status?.changes ?? [];
   const lastRun = runs?.[0] ?? null;
   const open = lastRun ? lastRun.findings.filter((f) => f.status === 'open') : [];
+  const diffFindings = useMemo(() =>
+    diff && (diff.session ?? null) === sid
+      ? lastRun?.findings.filter((finding) => finding.status === 'open' && finding.path === diff.path && finding.line != null)
+      : undefined,
+  [lastRun, diff, sid]);
+
   const pull = pulls?.find((p) => p.state === 'OPEN') ?? pulls?.[0] ?? null;
   const live = tasks?.filter((t) => t.status !== 'done' && t.status !== 'cancelled') ?? [];
   const testRun = runs?.find((r) => ['cargo test', 'pnpm run test', 'npm run test'].includes(r.source));
@@ -146,7 +152,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
             </>}
           </aside>
           <section className="diffv" aria-label="Contenido">
-            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions}
+            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings}
               onDiff={(c) => { setDiff(c); setStage('cambios'); }} onFile={onFile} onConflicts={onConflicts} onChanged={() => { onBranchesChanged(); void load(); }} onStage={selectStage} />
           </section>
           <aside className="audit" aria-label="Auditoría">
@@ -227,15 +233,16 @@ function Treemap({ findings, onFile }: { findings: HealthRun['findings']; onFile
   );
 }
 
-function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, onDiff, onFile, onConflicts, onChanged, onStage }: {
+function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, onDiff, onFile, onConflicts, onChanged, onStage }: {
   stage: Stage; project: string; diff: DiffTarget | null; chosen: Session | null; sid: number | null; status: GitStatus | null; log: LogRow[] | null; work: Work | null; tasks: Task[] | null; agentSessions: Session[];
+  findings?: HealthRun['findings'];
   onDiff: (c: DiffTarget) => void; onFile: (path: string, session: number | null, root: string | null) => void; onConflicts: (f: string[]) => void; onChanged: () => void; onStage: (s: Stage) => void;
 }) {
   const head = (icon: string, title: string, extra?: React.ReactNode) => <div className="tabs"><span className="tab on"><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
   if (stage === 'cambios' && diff) return (
     <>
       {head('file', diff.label ?? diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
-      <div className="rev-diff legacy"><Diff project={project} change={diff} inline /></div>
+      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} inline /></div>
     </>
   );
   if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;

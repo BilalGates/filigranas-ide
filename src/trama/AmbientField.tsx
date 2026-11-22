@@ -22,14 +22,15 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const { activity } = useUi();
   const motion = useMotion();
-  const state = useRef({ working: 0, waiting: 0, pulses: [] as Pulse[], dim, img: null as ImageData | null, w: 0, h: 0, timer: 0, running: false });
+  const state = useRef({ working: 0, thinking: false, waiting: 0, pulses: [] as Pulse[], dim, img: null as ImageData | null, w: 0, h: 0, timer: 0, frame: 0, running: false });
   const prev = useRef<Record<string, string | null>>({});
 
   // Traduce la actividad de las vistas a fuentes de luz y transiciones.
   useEffect(() => {
     const s = state.current;
     const values = Object.entries(activity);
-    s.working = values.filter(([, v]) => v === 'trabajando').length;
+    s.thinking = activity.coach === 'trabajando';
+    s.working = values.filter(([key, v]) => key !== 'coach' && v === 'trabajando').length;
     s.waiting = values.filter(([, v]) => v === 'permiso').length;
     for (const [key, v] of values) {
       if (prev.current[key] === 'trabajando' && v === null && ambientEnabled())
@@ -44,7 +45,7 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
 
   const active = () => {
     const s = state.current;
-    return ambientEnabled() && !document.hidden && (s.working > 0 || s.waiting > 0 || s.pulses.length > 0);
+    return ambientEnabled() && !document.hidden && (s.working > 0 || s.thinking || s.waiting > 0 || s.pulses.length > 0);
   };
   const render = (t: number) => {
     const s = state.current, cv = canvas.current;
@@ -54,6 +55,10 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
     for (let i = 0; i < Math.min(s.working, 6); i++) {
       const ph = live ? k : i * 3.1;
       src.push({ x: 0.25 + 0.55 * ((i * 0.37 + ph * 0.006 * (1 + (i % 3))) % 1), y: 0.72 + 0.18 * Math.sin(ph * 0.21 + i), r: 0.17, c: i % 2 ? [143, 196, 255] : [176, 156, 255], a: 0.2 });
+    }
+    if (s.thinking) {
+      const ph = live ? k : 0;
+      src.push({ x: 0.5 + 0.1 * Math.sin(ph * 0.13), y: 0.32 + 0.06 * Math.cos(ph * 0.17), r: 0.28, c: [150, 125, 255], a: 0.18 + 0.1 * Math.sin(ph * 0.9) });
     }
     if (s.waiting) {
       const b = ((live ? k : 0.3) % 1.9) / 1.9;
@@ -66,14 +71,25 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
       src.push({ x: p.x, y: 0.75, r: 0.1 + q * 0.25, c: p.c, a: 0.42 * Math.sin(Math.PI * Math.min(1, q * 1.4)) * (1 - q) });
     }
     const gain = s.dim * getMotionState().intensity;
+    // La distribución gaussiana es separable. Cada fuente necesita W + H
+    // exponenciales, incluso si la ventana o la cantidad de agentes crece.
+    const light = src.map((source) => ({
+      c: source.c,
+      x: Float32Array.from({ length: W }, (_, i) => {
+        const dx = (i / W - source.x) * asp / source.r;
+        return Math.exp(-dx * dx);
+      }),
+      y: Float32Array.from({ length: H }, (_, j) => {
+        const dy = (j / H - source.y) / source.r;
+        return source.a * gain * Math.exp(-dy * dy);
+      }),
+    }));
     let o = 0;
     for (let j = 0; j < H; j++) {
-      const v = j / H;
       for (let i = 0; i < W; i++) {
-        const u = i / W;
         let r = 0, g = 0, b = 0;
-        for (const q of src) {
-          const dx = (u - q.x) * asp, dy = v - q.y, w = q.a * gain * Math.exp(-(dx * dx + dy * dy) / (q.r * q.r));
+        for (const q of light) {
+          const w = q.x[i] * q.y[j];
           r += q.c[0] * w; g += q.c[1] * w; b += q.c[2] * w;
         }
         const l = (r * 0.3 + g * 0.55 + b * 0.15) / 255;
@@ -83,16 +99,21 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
     }
     cv.getContext('2d')?.putImageData(s.img, 0, 0);
   };
+  const queueFrame = () => {
+    const s = state.current;
+    cancelAnimationFrame(s.frame);
+    if (!document.hidden) s.frame = requestAnimationFrame(render);
+  };
   const step = () => {
     const s = state.current;
-    if (!active()) { s.running = false; requestAnimationFrame(render); return; }
-    requestAnimationFrame(render);
+    queueFrame();
+    if (!active()) { s.running = false; return; }
     s.timer = window.setTimeout(step, s.pulses.length || s.waiting ? 66 : 90);
   };
   const wake = () => {
     const s = state.current;
     if (active()) { if (!s.running) { s.running = true; step(); } }
-    else { s.running = false; window.clearTimeout(s.timer); requestAnimationFrame(render); }
+    else { s.running = false; window.clearTimeout(s.timer); queueFrame(); }
   };
 
   useEffect(() => {
@@ -111,7 +132,14 @@ export default function AmbientField({ dim = 1 }: { dim?: number }) {
     const ro = new ResizeObserver(size);
     ro.observe(cv.parentElement!);
     document.addEventListener('visibilitychange', wake);
-    return () => { ro.disconnect(); document.removeEventListener('visibilitychange', wake); window.clearTimeout(state.current.timer); };
+    return () => {
+      const s = state.current;
+      ro.disconnect();
+      document.removeEventListener('visibilitychange', wake);
+      window.clearTimeout(s.timer);
+      cancelAnimationFrame(s.frame);
+      s.running = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

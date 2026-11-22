@@ -112,7 +112,9 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
     });
     for (const cur of mockBrainEntries.filter((e) => e.project === project)) {
       const key = `m:${cur.id}`;
-      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source, matched: true });
+      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source,
+        validUntil: cur.validUntil, sourceTask: cur.sourceTask, sourceRun: cur.sourceRun,
+        validity: cur.validUntil != null && cur.validUntil <= now ? 'caducado' : 'vigente', matched: true });
       edges.push({ from: key, to: hub, kind: 'project_member' });
     }
   });
@@ -126,11 +128,16 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
   }
   if (!filter.project) {
     for (const entry of mockBrainEntries.filter((entry) => entry.global)) {
-      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true });
+      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true,
+        validity: entry.validUntil != null && entry.validUntil <= now ? 'caducado' : 'vigente' });
     }
   }
-  const matches = new Set(nodes.filter(n => (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
-    && (!filter.query || `${n.title} ${n.body ?? ''}`.toLocaleLowerCase().includes(filter.query.toLocaleLowerCase()))).map(n => n.key));
+  const fold = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase();
+  const terms = fold(filter.query ?? '').split(/\s+/).filter(Boolean);
+  const matches = new Set(nodes.filter(n => n.key === `m:${filter.focusId}` ||
+    ((!filter.memoryOnly || n.key.startsWith('m:')) && (!filter.validity || filter.validity === n.validity)
+    && (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
+    && terms.every((term) => fold(`${n.title} ${n.body ?? ''} ${n.source ?? ''}`).includes(term)))).map(n => n.key));
   const visible = new Set(matches);
   for (const edge of edges) { if (matches.has(edge.from)) visible.add(edge.to); if (matches.has(edge.to)) visible.add(edge.from); }
   return { nodes: nodes.filter(n => visible.has(n.key)).map(n => ({ ...n, matched: matches.has(n.key) })), edges: edges.filter(e => visible.has(e.from) && visible.has(e.to)), limited: false };
@@ -213,6 +220,15 @@ mockIPC(
       }
       case 'get_workspace':
         return workspace();
+      case 'home_summary':
+        return (a.paths as string[]).map((path) => ({
+          path,
+          tasks: rel(path) === 'kaza' ? [] : mockTasks().filter((task) => task.status !== 'done' && task.status !== 'cancelled'),
+          sessions: path === a.focus ? mockSessions.filter((session) => session.project === path) : [],
+          work: mockWorks.get(path) ?? null,
+          branch: mockBranches.get(path) ?? 'main',
+          dates: ['2026-11-19T22:14:00+01:00', '2026-11-19T21:45:00+01:00', '2026-11-18T17:40:00+01:00'],
+        }));
       case 'default_root':
         return ROOT;
       case 'set_root':
@@ -584,6 +600,8 @@ mockIPC(
       case 'tasks_list':
         // kaza queda sin tareas para revisar los estados vacíos
         return rel(a.project) === 'kaza' ? [] : mockTasks();
+      case 'task_flow':
+        return rel(a.project) === 'kaza' ? { tasks: [], runs: {} } : { tasks: mockTasks(), runs: { 2: mockRuns(2) } };
       case 'task_runs':
         return mockRuns(Number(a.task));
       case 'health_list':
@@ -663,10 +681,10 @@ mockIPC(
         mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
         return null;
       case 'skills_list':
-        return mockSkillCatalog;
+        return mockSkillCatalog.map(({ name, description }) => ({ name, description }));
       case 'skills_assignments':
-        return mockSkillCatalog.flatMap(({ name: skill }) => mockSkillRoles.map((role) => {
-          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? true;
+        return mockSkillCatalog.flatMap(({ name: skill, roles }) => mockSkillRoles.map((role) => {
+          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? roles.includes(role);
           const local = mockSkillAssignments.get(JSON.stringify([a.project, skill, role]));
           return { skill, role, enabled: local ?? global, inherited: !!a.project && local == null };
         }));
@@ -866,12 +884,12 @@ function mockRuns(task: number) {
 }
 
 const mockSkillCatalog = [
-  { name: 'implement', description: 'Implementa un encargo con pruebas.' },
-  { name: 'design-loop', description: 'Bucle de diseño con capturas.' },
-  { name: 'debug', description: 'Diagnóstico de problemas.' },
-  { name: 'research', description: 'Investigación y fuentes.' },
-  { name: 'code-review', description: 'Revisión de código.' },
-  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.' },
+  { name: 'implement', description: 'Implementa un encargo con pruebas.', roles: ['senior', 'junior'] },
+  { name: 'design-loop', description: 'Bucle de diseño con capturas.', roles: ['designer', 'senior'] },
+  { name: 'debug', description: 'Diagnóstico de problemas.', roles: ['senior', 'junior'] },
+  { name: 'research', description: 'Investigación y fuentes.', roles: ['pm', 'researcher'] },
+  { name: 'code-review', description: 'Revisión de código.', roles: ['auditor', 'auditor2'] },
+  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.', roles: ['pm'] },
 ];
 const mockSkillRoles = ['pm', 'researcher', 'designer', 'senior', 'junior', 'auditor', 'auditor2'];
 const mockSkillAssignments = new Map<string, boolean>();

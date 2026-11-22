@@ -83,6 +83,7 @@ function SkillsSec({ project, projectName }: { project: string | null; projectNa
 function SkillMatrix({ project }: { project: string | null }) {
   const [list, setList] = useState<SkillInfo[]>([]);
   const [cells, setCells] = useState<SkillAssignment[] | null>(null);
+  const [catalogRole, setCatalogRole] = useState<SkillRole>('senior');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   useEffect(() => {
@@ -128,6 +129,19 @@ function SkillMatrix({ project }: { project: string | null }) {
       </tr>)}</tbody>
     </table></div>}
     {status && <p className="skill-status mut2" role="status">{status}</p>}
+    {cells && <section className="pane" style={{ padding: 12, maxWidth: 900, marginTop: 18 }} aria-label="Catálogo efectivo">
+      <div className="row">
+        <Icon name="layers" size={14} /><b>Catálogo efectivo</b><span className="grow" />
+        <label className="row">Rol <select className="in" aria-label="Rol del catálogo" value={catalogRole} onChange={(event) => setCatalogRole(event.currentTarget.value as SkillRole)}>
+          {ROLES.map(([role, name]) => <option key={role} value={role}>{name}</option>)}
+        </select></label>
+      </div>
+      <p className="mut2">Skills disponibles para este rol en el siguiente turno de Codex o Claude.</p>
+      {cells.some((cell) => cell.enabled && cell.role === catalogRole) ? <ul>
+        {cells.filter((cell) => cell.enabled && cell.role === catalogRole).map((cell) => <li key={cell.skill}><span className="mono">{cell.skill}</span></li>)}
+      </ul> : <p className="mut2">Este rol carece de skills habilitadas en este ámbito.</p>}
+    </section>}
+
   </>;
 }
 

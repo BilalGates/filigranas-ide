@@ -24,7 +24,8 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            CHECK(from_entry <> to_entry),
            UNIQUE(from_entry, to_entry, kind)
          );
-         CREATE INDEX IF NOT EXISTS brain_links_scope ON brain_links(project);",
+         CREATE INDEX IF NOT EXISTS brain_links_scope ON brain_links(project);
+         CREATE INDEX IF NOT EXISTS brain_links_target_kind ON brain_links(to_entry,kind,project);",
     )
 }
 

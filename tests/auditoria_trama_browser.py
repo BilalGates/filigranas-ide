@@ -76,7 +76,9 @@ def check_flow_unknown_route(browser, url):
         const base = window.__TAURI_INTERNALS__.invoke;
         window.__TAURI_INTERNALS__.invoke = async (command, args, options) => {
             const result = await base(command, args, options);
-            return command === 'task_runs' ? result.map(run => ({ ...run, routing: null })) : result;
+            if (command !== 'task_flow') return result;
+            return { ...result, runs: Object.fromEntries(Object.entries(result.runs).map(
+                ([id, runs]) => [id, runs.map(run => ({ ...run, routing: null }))])) };
         };
     }""")
     page.get_by_role("button", name="Abrir calaix", exact=True).click()
@@ -110,9 +112,23 @@ def check_appearance(browser, url):
     page.get_by_role("button", name=re.compile("Movimiento y apariencia")).click()
     expect(intensity).to_have_value("0")
     expect(page.get_by_role("radio", name="Claro", exact=True)).to_have_attribute("aria-checked", "true")
+    for label, value in (("Sin ambiente", "sin-ambiente"), ("Reducido", "reducido"), ("Completo", "completo")):
+        page.get_by_role("radio", name=label, exact=True).click()
+        expect(page.locator("html")).to_have_attribute("data-motion", value)
+        halo = page.locator(".mdemo .st-working").evaluate(
+            "(el) => parseFloat(getComputedStyle(el, '::before').animationDuration)"
+        )
+        assert (halo > 0.01) == (value != "reducido"), (value, halo)
+        page.reload()
+        page.get_by_role("button", name="continuar", exact=True).click()
+        page.get_by_role("button", name="Movimiento y apariencia", exact=True).click()
+        expect(page.get_by_role("radio", name=label, exact=True)).to_have_attribute("aria-checked", "true")
+        expect(page.locator("html")).to_have_attribute("data-motion", value)
     page.emulate_media(reduced_motion="reduce")
     expect(page.locator("html")).to_have_attribute("data-motion", "reducido")
     expect(intensity).to_be_disabled()
+    page.emulate_media(reduced_motion="no-preference")
+    expect(page.locator("html")).to_have_attribute("data-motion", "completo")
     assert not errors, errors
 
 

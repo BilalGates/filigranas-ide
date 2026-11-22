@@ -20,6 +20,7 @@ mod github;
 mod github_login;
 mod handoff;
 mod health;
+mod home;
 mod isolate;
 mod jev;
 mod larry;
@@ -74,6 +75,14 @@ pub(crate) type CmdResult<T> = Result<T, String>;
 
 pub(crate) fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
+}
+
+/// Run local I/O and SQLite reads without occupying the webview event loop.
+pub(crate) async fn background_read<T: Send + 'static>(
+    app: tauri::AppHandle,
+    read: impl FnOnce(&AppState) -> CmdResult<T> + Send + 'static,
+) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(move || read(&app.state::<AppState>())).await.map_err(err)?
 }
 
 fn main_webview_only(
@@ -194,6 +203,7 @@ pub fn run() {
             git_ops::git_undo_commit,
             git_ops::git_commit_detail,
             workspace::get_workspace,
+            home::home_summary,
             workspace::default_root,
             workspace::set_root,
             workspace::create_group,
@@ -248,6 +258,7 @@ pub fn run() {
             work::work_prepare,
             work::work_resume,
             tasks::tasks_list,
+            tasks::task_flow,
             tasks::task_save,
             tasks::task_link,
             tasks::task_runs,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type * as Monaco from 'monaco-editor';
-import { git, sessions, type DiffTarget } from './ipc';
+import { git, sessions, type DiffTarget, type HealthRun } from './ipc';
 import { loadMonaco } from './monacoLoader';
 
 /**
@@ -10,10 +10,19 @@ import { loadMonaco } from './monacoLoader';
  * editar se abre el archivo desde el árbol. Se refresca cuando cambia algo
  * en el proyecto o la sesión termina un turno.
  */
-export default function Diff({ project, change, inline = false }: { project: string; change: DiffTarget; inline?: boolean }) {
+export default function Diff({ project, change, inline = false, findings }: {
+  project: string; change: DiffTarget; inline?: boolean; findings?: HealthRun['findings'];
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [limited, setLimited] = useState(false);
+  const findingsRef = useRef(findings);
+  const showFindings = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    findingsRef.current = findings;
+    showFindings.current?.();
+  }, [findings]);
+
 
   useEffect(() => {
     let alive = true;
@@ -21,6 +30,7 @@ export default function Diff({ project, change, inline = false }: { project: str
     let code: Monaco.editor.IStandaloneCodeEditor | null = null;
     let decorations: Monaco.editor.IEditorDecorationsCollection | null = null;
     let models: Monaco.editor.ITextModel[] = [];
+    let zones: string[] = [];
     let latest = 0;
 
     const load = async () => {
@@ -60,6 +70,38 @@ export default function Diff({ project, change, inline = false }: { project: str
             range: new monaco.Range(i + 1, 1, i + 1, 1),
             options: { isWholeLine: true, className: `diff-unified-${row.type}` },
           }] : []));
+          let lines: Map<number, number> | undefined;
+          showFindings.current = () => {
+            const current = findingsRef.current ?? [];
+            if (current.length && !lines) {
+              const modifiedLines = new Map<number, number>();
+              rows.forEach((row, i) => { if (row.modified != null) modifiedLines.set(row.modified, i + 1); });
+              lines = modifiedLines;
+            }
+            const byLine = new Map<number, HealthRun['findings']>();
+            for (const finding of current) {
+              const line = finding.line == null ? undefined : lines?.get(finding.line);
+              if (line == null) continue;
+              const current = byLine.get(line) ?? [];
+              current.push(finding);
+              byLine.set(line, current);
+            }
+            code?.changeViewZones((accessor) => {
+              zones.forEach((zone) => accessor.removeZone(zone));
+              zones = [];
+              for (const [line, items] of byLine) {
+                const node = document.createElement('div');
+                node.className = 'diff-finding';
+                node.setAttribute('role', 'note');
+                const severe = items.some((item) => item.severity === 'error');
+                node.classList.toggle('diff-finding-error', severe);
+                node.textContent = items.map((item) => `L${item.line} · ${item.rule}`).join(' · ');
+                node.title = node.textContent;
+                zones.push(accessor.addZone({ afterLineNumber: line, heightInLines: 1.65, domNode: node }));
+              }
+            });
+          };
+          showFindings.current();
           setLimited(limited);
         } else if (!diff) {
           diff = monaco.editor.createDiffEditor(host.current, { ...baseOptions(), readOnly: true, renderOverviewRuler: false });
@@ -86,6 +128,7 @@ export default function Diff({ project, change, inline = false }: { project: str
     });
     return () => {
       alive = false;
+      showFindings.current = null;
       window.clearTimeout(timer);
       unlisten.then((off) => off());
       unlistenSession.then((off) => off());

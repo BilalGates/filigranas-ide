@@ -132,6 +132,13 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
 
   if (!project) return <Root label="Studio"><div className="studio-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Studio trabaja sobre las pantallas de diseño del proyecto abierto.</p></div></div></Root>;
   const newScreen = () => setEditing({ id: null, name: '', url: '', constraints: '', revision: null, approved: null });
+  const composer = shot && screen ? (
+    <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
+      onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
+      onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
+      onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
+        compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
+  ) : null;
   return (
     <Root label="Studio">
       <div className="studio-views" role="group" aria-label="Vista de Studio">
@@ -170,6 +177,12 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
             <div className="seg" role="group" aria-label="Tamaño de captura">
               {SIZES.slice(0, 4).map(([w, h]) => <button key={w} className={size[0] === w ? 'on' : ''} aria-pressed={size[0] === w} onClick={() => setSize([w, h])}>{w}</button>)}
             </div>
+            {shot && screen && <div className="studio-version-compare">
+              <label className="fsel">Comparar con<select value={compareId ?? ''} onChange={(e) => { setCompareId(e.target.value ? Number(e.target.value) : null); setCmp('split'); }} aria-label="Comparar con versión">
+                <option value="">Referencia aprobada</option>
+                {(shots ?? []).filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height).map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.note || ST[item.status]}</option>)}
+              </select></label>
+            </div>}
             {screen?.url && <button className="btn sm ghost" onClick={() => act(async () => { await design.preview(project, screen.id!); onBrowser(); })} title="Abrir en el navegador integrado"><Icon name="globe" size={12} /> Vista previa</button>}
             <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
           </div>
@@ -195,19 +208,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
               <button className={cmp ? 'on' : ''} aria-pressed={!!cmp} disabled={!comparable} onClick={() => setCmp(cmp ? null : 'split')} title={comparable ? 'Comparar con la versión elegida (C)' : 'Elige otra versión del mismo tamaño'} aria-label="Comparar"><Icon name="compare" size={17} /></button>
             </div>
           )}
-          {shot && screen && <div className="studio-version-compare">
-            <label className="fsel">Comparar con<select value={compareId ?? ''} onChange={(e) => { setCompareId(e.target.value ? Number(e.target.value) : null); setCmp('split'); }} aria-label="Comparar con versión">
-              <option value="">Referencia aprobada</option>
-              {(shots ?? []).filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height).map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.note || ST[item.status]}</option>)}
-            </select></label>
-          </div>}
-          {shot && screen && (
-            <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
-              onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
-              onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
-              onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
-                compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
-          )}
+
           {(error || notice) && <div className={`studio-toast${error ? ' err' : ''}`} role="status">{error ?? notice}<button className="tbtn" onClick={() => { setError(null); setNotice(null); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></div>}
         </section>
         <aside className="insp" aria-label="Inspector de diseño">
@@ -215,7 +216,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
             <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} onSize={setSize}
               candidateImage={shot ? images[shot.id] : undefined} referenceImage={comparable && reference ? images[reference.id] : undefined}
               components={components} selected={selected} onSelect={chooseComponent} onRegion={changeRegion} onSave={saveConstraints}
-              references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
+              composer={composer} references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
               onCapture={(note) => act(async () => { const id = await design.capture(project, screen.id!, size[0], size[1], note); await loadShots(screen.id!); setShotId(id); }, 'Captura guardada como candidata.')}
               onImport={(f, note) => act(async () => { const id = await design.import(project, screen.id!, await fileBase64(f), note); await loadShots(screen.id!); setShotId(id); }, 'Imagen importada como candidata.')} />
           ) : <div className="sec"><h3>Studio</h3><p className="mut2">Crea una pantalla para empezar a iterar su diseño con capturas reales.</p></div>}
@@ -245,8 +246,8 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, compone
     const r = wrap.current?.getBoundingClientRect();
     if (!r) return;
     const totalW = side ? shot.width * 2 + 80 : shot.width;
-    const k = Math.max(0.08, Math.min((r.width - 80) / totalW, (r.height - 210) / shot.height, 1.2));
-    setCam({ k, x: (r.width - totalW * k) / 2 - 20, y: Math.max(56, (r.height - shot.height * k) / 2 - 40) });
+    const k = Math.max(0.08, Math.min((r.width - 60) / totalW, (r.height - 120) / shot.height, 1.25));
+    setCam({ k, x: (r.width - totalW * k) / 2, y: Math.max(56, r.height / 2 - shot.height * k * 0.52) });
   }, [shot.width, shot.height, side]);
   useEffect(() => { fit(); }, [fit, shot.id]);
   useEffect(() => { const ro = new ResizeObserver(() => fit()); if (wrap.current) ro.observe(wrap.current); return () => ro.disconnect(); }, [fit]);
@@ -352,7 +353,7 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   const selectable = selected != null || validRegion(region);
   const touches = locks.filter((l) => !isFull(region) && l.region.x < region.x + region.width && l.region.x + l.region.width > region.x && l.region.y < region.y + region.height && l.region.y + l.region.height > region.y);
   if (cmp) return (
-    <div className="scomp cmpc">
+    <div className="sec studio-composer">
       <div className="row wrap"><b>Antes → versión seleccionada</b><span className="mut2">{locks.length} {locks.length === 1 ? 'protección' : 'protecciones'} en la pantalla</span><span className="grow" />
         <div className="seg" role="group" aria-label="Modo de comparación">{([['split', 'compare', 'Divisor'], ['side', 'side', 'Lado a lado'], ['diff', 'diff', 'Diferencias']] as [Cmp, string, string][]).map(([id, ic, l]) => <button key={id} className={cmp === id ? 'on' : ''} aria-pressed={cmp === id} onClick={() => onCmp(id)}><Icon name={ic} size={13} />{l}</button>)}</div>
       </div>
@@ -363,11 +364,11 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
     </div>
   );
   if (!designers.length) return (
-    <div className="scomp"><div className="row wrap"><span className="mut2">Crea una sesión Claude para enviar un encargo.</span>
+    <div className="sec studio-composer"><div className="row wrap"><span className="mut2">Crea una sesión Claude para enviar un encargo.</span>
       <button className="btn sm" disabled={busy} onClick={onNewSession}>Nueva sesión Claude</button></div>{reviewActions}</div>
   );
   return (
-    <div className="scomp">
+    <div className="sec studio-composer">
       <div className="row wrap">
         <span className="chip sky"><Icon name={isFull(region) ? 'screen' : 'region'} size={11} /> {isFull(region) ? 'Toda la pantalla' : selected?.name ?? `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`}</span>
         {touches.length > 0 && <span className="chip amber"><Icon name="lock" size={11} /> {touches.map((l) => l.text).join(', ')}: protegido, no se tocará</span>}
@@ -389,9 +390,9 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   );
 }
 
-function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, references, onSize, onRegion, onSave, onCapture, onImport }: {
+function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
   screen: DesignScreen; shot: DesignShot | null; region: DesignRegion; parsed: { locks: Lock[]; rest: string }; busy: boolean; sent: { text: string; label: string; at: number }[]; size: [number, number];
-  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; references: React.ReactNode;
+  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; composer: React.ReactNode; references: React.ReactNode;
   candidateImage?: string; referenceImage?: string; onSize: (size: [number, number]) => void; onRegion: (r: DesignRegion) => void; onSave: (locks: Lock[], rest: string) => void; onCapture: (note: string) => void; onImport: (f: File, note: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -467,6 +468,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>
       </div>
+      {composer}
       {references}
       <div className="sec"><span className="lab">Nueva versión</span>
         <div className="studio-region-fields">

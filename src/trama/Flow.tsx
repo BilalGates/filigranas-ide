@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc';
 import { PRIORITY as PRIO, STATUS } from '../Tasks';
 import { useUi } from '../ui';
@@ -14,11 +15,11 @@ import { Modal } from './ui';
 const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
-type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string };
+type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number };
 type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null };
 const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
 type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean };
-const LANE_H = 58, COL_W = 186, NODE_W = 170, NODE_H = 50;
+const LANE_H = 66, COL_W = 214, NODE_W = 194, NODE_H = 50;
 const FS: Record<string, FStatus> = { running: 'running', verifying: 'running', waiting_approval: 'waiting', blocked: 'blocked', failed: 'blocked', paused_quota: 'blocked', done: 'done', cancelled: 'done' };
 const LAB: Record<FStatus, [string, string]> = { running: ['en marcha', 'en marcha'], waiting: ['espera permiso', 'esperan permiso'], blocked: ['bloqueada', 'bloqueadas'], done: ['completada', 'completadas'], backlog: ['pendiente', 'pendientes'] };
 const ST2AG: Record<FStatus, AgState> = { done: 'done', running: 'working', waiting: 'waiting', blocked: 'blocked', backlog: 'idle' };
@@ -60,9 +61,28 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
 // Demostración: el equipo del Artifact, solo en memoria.
 function demoModel(): FModel {
   const A = (id: string, name: string, h: string, state: AgState, did: string): Agent => ({ id, session: null, name, engine: name.split(' · ')[1] ?? '', h, state, did, branch: null });
-  const agents = [A('pm', 'Project manager', '#7aa2ff', 'thinking', 'Coordinando · 4 sesiones'), A('res', 'Investigador · Haiku', '#7fd6ff', 'done', 'Terminó: API de git en Rust'), A('sen', 'Senior · Sonnet', '#b09cff', 'working', 'Editando git_ops.rs'), A('cod', 'Programador · Codex', '#8fc4ff', 'waiting', 'Pide editar src/ipc.ts'), A('jun', 'Junior · Haiku', '#7fe3c4', 'working', 'Escribiendo tests de fetch()'), A('aud', 'Auditor · Opus', '#ffc27a', 'idle', 'En espera de t2 y t4')];
-  const T = (id: string, title: string, agent: string, status: FStatus, deps: string[], model: string): FTask => ({ id, num: null, title, status, label: LAB[status][0], agent, deps, lvl: 0, prio: 'normal', model, real: null, goal: '' });
-  const tasks = [T('t1', 'Investigar comandos git y errores de red', 'res', 'done', [], 'Haiku'), T('t2', 'fetch, pull, push y stash en git_ops.rs', 'sen', 'running', ['t1'], 'Sonnet'), T('t3', 'Contrato IPC en ipc.ts', 'cod', 'waiting', ['t1'], 'Codex'), T('t4', 'Tests de git_ops', 'jun', 'running', ['t2'], 'Haiku'), T('t5', 'Acciones en el panel de Git', 'sen', 'blocked', ['t2', 't3'], 'Sonnet'), T('t6', 'Commits visibles antes de confirmar', 'pm', 'backlog', ['t5'], 'Codex'), T('t7', 'Auditoría de seguridad de los comandos', 'aud', 'backlog', ['t2', 't4'], 'Opus'), T('t8', 'Publicar PR hacia main', 'pm', 'backlog', ['t6', 't7'], 'Codex')];
+  const agents = [
+    A('jev', 'Enrutador · Jev', '#e8eaf0', 'working', 'Modo sombra · 37/100 consultas hoy'),
+    A('pm', 'Project manager · Codex', '#6f9bff', 'thinking', 'Coordinando · 4 sesiones'),
+    A('res', 'Investigador · Haiku', '#79d5ff', 'done', 'Terminó: API de git en Rust'),
+    A('sen', 'Senior · Sonnet', '#a995ff', 'working', 'Editando git_ops.rs · stash()'),
+    A('cod', 'Programador · Codex', '#8fc4ff', 'waiting', 'Pide editar src/ipc.ts'),
+    A('jun', 'Junior · Haiku', '#7fe3c4', 'working', 'Escribiendo tests de fetch()'),
+    A('aud', 'Auditor · Opus', '#ffc27a', 'idle', 'En espera de t2 y t4'),
+    A('aud2', 'Auditor 2 · Codex', '#ffd9a0', 'idle', 'Segunda revisión independiente'),
+  ];
+  const T = (id: string, title: string, agent: string, status: FStatus, deps: string[], model: string, progress: number, prio = 'normal'): FTask =>
+    ({ id, num: null, title, status, label: LAB[status][0], agent, deps, lvl: 0, prio, model, real: null, goal: '', progress });
+  const tasks = [
+    T('t1', 'Investigar comandos git y errores de red', 'res', 'done', [], 'Haiku', 100),
+    T('t2', 'fetch, pull, push y stash en git_ops.rs', 'sen', 'running', ['t1'], 'Sonnet', 62, 'alta'),
+    T('t3', 'Contrato IPC en ipc.ts', 'cod', 'waiting', ['t1'], 'Codex', 40),
+    T('t4', 'Tests de git_ops', 'jun', 'running', ['t2'], 'Haiku', 35),
+    T('t5', 'Acciones en el panel de Git', 'sen', 'blocked', ['t2', 't3'], 'Sonnet', 0, 'alta'),
+    T('t6', 'Commits visibles antes de confirmar', 'pm', 'backlog', ['t5'], 'Codex', 0),
+    T('t7', 'Auditoría de seguridad de los comandos', 'aud', 'backlog', ['t2', 't4'], 'Opus + Codex', 0, 'alta'),
+    T('t8', 'Publicar PR hacia main', 'pm', 'backlog', ['t6', 't7'], 'Codex', 0),
+  ];
   const lv = levels(tasks);
   tasks.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const today = new Date(); today.setHours(20, 0, 0, 0);
@@ -85,40 +105,50 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
   const { activity } = useUi();
   const [lens, setLensState] = useState<Lens>(() => { try { const v = localStorage.getItem('filigranas.flow.lente'); return v === 'deps' || v === 'list' ? v : 'exec'; } catch { return 'exec'; } });
   const setLens = (l: Lens) => { setLensState(l); try { localStorage.setItem('filigranas.flow.lente', l); } catch { /* */ } };
-  const [list, setList] = useState<Task[] | null>(null);
-  const [runs, setRuns] = useState<Record<number, TaskRun[]>>({});
+  const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof taskApi.flow>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [filter, setFilter] = useState<FStatus | null>(null);
   const [demo, setDemo] = useState(false);
   const [help, setHelp] = useState(false);
   const [inspOpen, setInspOpen] = useState(false);
-  const request = useRef(0);
-
-  const load = useCallback(async () => {
-    if (!project) return;
-    const id = ++request.current;
-    try {
-      const t = await taskApi.list(project);
-      if (id !== request.current) return;
-      setList(t); setError(null);
-      const want = t.filter((x) => x.sessions.length || FS[x.status]).slice(0, 30);
-      const got = await Promise.allSettled(want.map((x) => taskApi.runs(project, x.id)));
-      if (id !== request.current) return;
-      const next: Record<number, TaskRun[]> = {};
-      got.forEach((r, i) => { if (r.status === 'fulfilled' && r.value.length) next[want[i].id] = r.value; });
-      setRuns(next);
-    } catch (e) { if (id === request.current) setError(String(e)); }
-  }, [project]);
+  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     if (!project) return;
-    void load();
-    const timer = window.setInterval(load, 8000);
-    return () => { request.current++; window.clearInterval(timer); };
-  }, [project, load]);
+    let alive = true;
+    let busy = false;
+    let queued = false;
+    let timer: number | undefined;
+    const load = async () => {
+      timer = undefined;
+      if (!alive || document.hidden) return;
+      if (busy) { queued = true; return; }
+      busy = true;
+      try {
+        const result = await taskApi.flow(project);
+        if (alive) { setSnapshot(result); setError(null); }
+      } catch (reason) {
+        if (alive) setError(String(reason));
+      } finally {
+        busy = false;
+        if (queued) { queued = false; schedule(); }
+      }
+    };
+    const schedule = () => {
+      if (alive && timer === undefined) timer = window.setTimeout(load, 160);
+    };
+    timer = window.setTimeout(load);
+    const unlisten = listen('tasks-changed', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      alive = false; window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', schedule);
+      void unlisten.then((stop) => stop());
+    };
+  }, [project, refresh]);
 
   const agents = useMemo(() => sessionAgents(agentSessions.filter((session) => session.project === project), activity, pm), [agentSessions, activity, pm, project]);
-  const model = useMemo<FModel | null>(() => demo ? demoModel() : list ? realModel(list, runs, agents) : null, [demo, list, runs, agents]);
+  const model = useMemo<FModel | null>(() => demo ? demoModel() : snapshot ? realModel(snapshot.tasks, snapshot.runs, agents) : null, [demo, snapshot, agents]);
   const c = useMemo(() => { const k: Record<FStatus, number> = { done: 0, running: 0, waiting: 0, blocked: 0, backlog: 0 }; model?.tasks.forEach((t) => k[t.status]++); return k; }, [model]);
   const pick = (id: string | null) => { setSel(id); if (id) setInspOpen(true); };
 
@@ -152,7 +182,7 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
         </div>
         <div className="stage" id="stage">
-          {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => void load()}>Reintentar</button></div>}
+          {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => setRefresh((count) => count + 1)}>Reintentar</button></div>}
           {!model ? (!error && <div className="flow-loading" role="status" aria-label="Cargando tareas"><span className="spin" /></div>)
             : empty ? <FlowStart agents={model.agents} onCreate={() => onEditTask(null)} onPm={onStartPm} onHelp={() => setHelp(true)} onDemo={() => { setDemo(true); setSel('t2'); setFilter(null); }} />
             : lens === 'list' ? <FlowList m={model} sel={sel} filter={filter} onSel={pick} />
@@ -210,18 +240,20 @@ function nodeSvg(n: GNode, m: FModel) {
     const a = n.a as Agent;
     const c = a.state === 'waiting' ? '#ffb25e' : a.state === 'idle' ? 'rgba(220,226,236,.4)' : a.state === 'done' ? '#6fe0b3' : a.state === 'blocked' ? '#ff6b5d' : a.h;
     const [role, mdl] = a.name.split(' · ');
-    return `<rect class="body lane" x="-70" y="-20" width="140" height="40" rx="9"/><circle cx="-56" cy="0" r="9" fill="none" stroke="${c}" stroke-opacity=".4" class="${a.state === 'working' ? 'svgbreath' : a.state === 'waiting' ? 'svgbeat' : a.state === 'thinking' ? 'svgthink' : ''}"/><circle cx="-56" cy="0" r="3.8" fill="${a.state === 'idle' ? 'none' : c}" stroke="${c}" stroke-width="1.3"/><text x="-40" y="-2">${escapeXml((role ?? '').slice(0, 15))}</text><text class="s" x="-40" y="13">${escapeXml(mdl ?? a.engine)}</text>`;
+    return `<rect class="body lane" x="-10" y="-18" width="160" height="36" rx="9"/><circle cx="6" cy="0" r="9" fill="none" stroke="${c}" stroke-opacity=".35" class="${a.state === 'working' ? 'svgbreath' : a.state === 'waiting' ? 'svgbeat' : a.state === 'thinking' ? 'svgthink' : ''}"/><circle cx="6" cy="0" r="3.6" fill="${a.state === 'idle' ? 'none' : c}" stroke="${c}"/><text x="22" y="-2">${escapeXml(role ?? a.name)}</text><text class="s" x="22" y="12">${escapeXml((mdl ?? a.engine) + (a.id === 'jev' ? ' · sombra' : ''))}</text>`;
   }
   const t = n.t as FTask, a = m.agents.find((x) => x.id === t.agent) ?? NONE;
   const c = t.status === 'done' ? '#6fe0b3' : t.status === 'waiting' ? '#ffb25e' : t.status === 'running' ? a.h : t.status === 'blocked' ? '#ff6b5d' : 'rgba(220,226,236,.45)';
-  const w = n.w, h = n.h, x = -w / 2, y = -h / 2, title = t.title.length > 20 ? `${t.title.slice(0, 19)}…` : t.title;
+  const w = n.w, h = n.h, x = -w / 2, y = -h / 2, title = t.title.length > 24 ? `${t.title.slice(0, 23)}…` : t.title;
   const badge = t.status === 'waiting' ? `<g class="badge" transform="translate(${w / 2 - 14},${y + 1})"><rect x="-26" y="-9" width="40" height="18" rx="9" fill="#2a1f10" stroke="#ffb25e" stroke-opacity=".6"/><text x="-6" y="4" text-anchor="middle" class="bt" style="fill:#ffc98a">permiso</text></g>`
     : t.status === 'done' ? `<g transform="translate(${w / 2 - 16},0)" class="okmark"><circle r="8" fill="rgba(111,224,179,.14)"/><path d="M-3.5,0.5L-1,3L3.8,-2.5" fill="none" stroke="#6fe0b3" stroke-width="1.6" stroke-linecap="round"/></g>` : '';
-  const sub = `${t.num != null ? `#${t.num}` : t.id}${t.model ? ` · ${t.model}` : a.id !== 'none' ? ` · ${a.engine}` : ''}${t.status === 'blocked' ? ' · espera' : ''}`;
+  const sub = `${t.num != null ? `#${t.num}` : t.id}${t.model ? ` · ${t.model}` : a.id !== 'none' ? ` · ${a.engine}` : ''} · ${t.label}`;
+  const progress = t.progress ?? (t.status === 'done' ? 100 : 0);
+  const progressLine = progress > 0 ? `<line x1="${x + 12}" y1="${y + h - 6}" x2="${x + 12 + (w - 24) * progress / 100}" y2="${y + h - 6}" stroke="${c}" stroke-width="2" stroke-dasharray="2 3"/>` : '';
   return `${t.status === 'running' ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${a.h}" fill-opacity=".07"/>` : ''}<rect class="body" x="${x}" y="${y}" width="${w}" height="${h}" rx="10"/>
 <circle cx="${x + 16}" cy="${y + 18}" r="7.5" fill="none" stroke="${c}" stroke-opacity=".35" class="${t.status === 'running' ? 'svgbreath' : t.status === 'waiting' ? 'svgbeat' : ''}"/><circle cx="${x + 16}" cy="${y + 18}" r="3.6" fill="${t.status === 'backlog' || t.status === 'blocked' ? 'none' : c}" stroke="${c}" stroke-width="1.4"/>
 <text x="${x + 30}" y="${y + 22}">${escapeXml(title)}</text><text class="s" x="${x + 30}" y="${y + 38}">${escapeXml(sub)}</text>
-<line x1="${x + 12}" y1="${y + h - 5}" x2="${x + w - 12}" y2="${y + h - 5}" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="2 3"/>${badge}`;
+<line x1="${x + 12}" y1="${y + h - 6}" x2="${x + w - 12}" y2="${y + h - 6}" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="2 3"/>${progressLine}${m.demo ? '' : badge}`;
 }
 
 function graphModel(m: FModel, lens: Lens) {
@@ -230,34 +262,51 @@ function graphModel(m: FModel, lens: Lens) {
   m.tasks.forEach((t) => { (byL[t.lvl] = byL[t.lvl] || []).push(t); });
   // altura de cada carril según cuántas tareas comparten nivel en él
   const stack = new Map<string, number>();
-  m.tasks.forEach((t) => { const k = `${t.agent}:${t.lvl}`; stack.set(k, (stack.get(k) ?? 0) + 1); });
+  const laneHeight = new Map<string, number>();
+  const assigned = new Set(m.agents.map((agent) => agent.id));
+  m.tasks.forEach((t) => {
+    const key = `${t.agent}:${t.lvl}`;
+    const count = (stack.get(key) ?? 0) + 1;
+    stack.set(key, count);
+    laneHeight.set(t.agent, Math.max(count, laneHeight.get(t.agent) ?? 1));
+  });
   const laneY = new Map<string, number>();
   let yAcc = 0;
-  const lanes = [...m.agents, ...(m.tasks.some((t) => !m.agents.some((a) => a.id === t.agent)) ? [NONE] : [])];
+  const lanes = [...m.agents, ...(m.tasks.some((t) => !assigned.has(t.agent)) ? [NONE] : [])];
   lanes.forEach((a) => {
     laneY.set(a.id, yAcc);
-    const rows = Math.max(1, ...[...stack.entries()].filter(([k]) => k.startsWith(`${a.id}:`)).map(([, v]) => v));
+    const rows = laneHeight.get(a.id) ?? 1;
     yAcc += LANE_H + (rows - 1) * (NODE_H + 12);
   });
-  if (lens === 'exec') m.agents.forEach((a) => nodes.push({ id: `L-${a.id}`, kind: 'agent', a, x: 70, y: laneY.get(a.id)!, w: 140, h: 40, aria: a.name }));
-  const x0 = lens === 'exec' ? 190 : 0;
+  if (lens === 'exec') m.agents.forEach((a) => nodes.push({ id: `L-${a.id}`, kind: 'agent', a, x: 30, y: laneY.get(a.id)!, w: 150, h: 40, keep: true, aria: a.name }));
+  const x0 = lens === 'exec' ? 180 : 40;
   const slot = new Map<string, number>();
   m.tasks.forEach((t) => {
     let y: number;
     if (lens === 'exec') {
       const key = `${t.agent}:${t.lvl}`, k = slot.get(key) ?? 0; slot.set(key, k + 1);
       y = (laneY.get(t.agent) ?? yAcc) + k * (NODE_H + 12);
-    } else { const col = byL[t.lvl]; y = (col.indexOf(t) - (col.length - 1) / 2) * 72; }
-    nodes.push({ id: t.id, kind: 'task', t, x: x0 + t.lvl * COL_W + NODE_W / 2, y, w: NODE_W, h: NODE_H, aria: `${t.title}, ${t.label}`, cls: `t-${t.status}` });
+    } else {
+      const key = String(t.lvl), k = slot.get(key) ?? 0; slot.set(key, k + 1);
+      y = (k - (byL[t.lvl].length - 1) / 2) * 80;
+    }
+    nodes.push({ id: t.id, kind: 'task', t, x: x0 + t.lvl * COL_W + 100, y, w: NODE_W, h: NODE_H, aria: `${t.title}, ${t.label}`, cls: `t-${t.status}` });
   });
-  const ids = new Set(m.tasks.map((t) => t.id));
+  const byId = new Map(m.tasks.map((t) => [t.id, t]));
+  const demoCritical = new Set(['t1', 't2', 't4', 't7', 't8']);
   m.tasks.forEach((t) => t.deps.forEach((d) => {
-    if (!ids.has(d)) return;
-    const s = m.tasks.find((x) => x.id === d)!;
+    const s = byId.get(d);
+    if (!s) return;
     const blk = t.status === 'blocked' && s.status !== 'done';
-    edges.push({ from: d, to: t.id, kind: s.status === 'done' ? 'done' : blk ? 'block' : 'dep', cls: s.status === 'done' ? 'e-done' : blk ? 'e-block' : 'e-dep', marker: s.status === 'done' ? 'done' : blk ? undefined : 'dep' });
+    const live = s.status === 'done' && (t.status === 'running' || t.status === 'waiting');
+    if (m.demo) {
+      const critical = lens === 'deps' && demoCritical.has(d) && demoCritical.has(t.id);
+      edges.push({ from: d, to: t.id, cls: live ? 'live' : blk ? 'blk' : critical ? 'crit' : '' });
+      return;
+    }
+    edges.push({ from: d, to: t.id, kind: s.status === 'done' ? 'done' : blk ? 'block' : 'dep', cls: live ? 'live' : s.status === 'done' ? 'e-done' : blk ? 'e-block' : 'e-dep', marker: s.status === 'done' ? 'done' : blk ? undefined : 'dep' });
   }));
-  if (lens === 'exec') {
+  if (lens === 'exec' && !m.demo) {
     if (m.agents.some((a) => a.id === 'pm')) {
       const delegated = new Set(m.tasks.filter((t) => t.agent !== 'pm' && t.agent !== 'none').map((t) => t.agent));
       delegated.forEach((id) => edges.push({ from: 'L-pm', to: `L-${id}`, kind: 'deleg', cls: 'e-deleg', marker: 'del' }));
@@ -270,8 +319,8 @@ function graphModel(m: FModel, lens: Lens) {
   }
   const span = Math.max(4, ...m.tasks.map((t) => t.lvl)) + 1;
   const under = lens === 'exec'
-    ? () => `<g class="lane">${lanes.map((a) => { const y = laneY.get(a.id)! - LANE_H / 2; return `<line x1="-20" x2="${190 + span * COL_W}" y1="${y}" y2="${y}"/>`; }).join('')}</g>`
-    : () => { const mx = Math.max(1, ...Object.values(byL).map((c) => c.length)); return `<g class="lane">${Object.keys(byL).map((l) => `<text x="${+l * COL_W + NODE_W / 2}" y="${-mx * 36 - 14}" text-anchor="middle">Nivel ${+l + 1}${byL[+l].length > 1 ? ` · ${byL[+l].length} en paralelo` : ''}</text>`).join('')}</g>`; };
+    ? () => `<g class="lane">${lanes.map((a) => { const y = laneY.get(a.id)! + LANE_H / 2; return `<line x1="-20" x2="${220 + span * COL_W}" y1="${y}" y2="${y}"/>`; }).join('')}</g>`
+    : () => { const mx = Math.max(1, ...Object.values(byL).map((c) => c.length)); return `<g class="lane">${Object.keys(byL).map((l) => `<text x="${x0 + +l * COL_W + 100}" y="${-mx * 40 - 6}" text-anchor="middle">Nivel ${+l + 1}${byL[+l].length > 1 ? ` · ${byL[+l].length} en paralelo` : ''}</text>`).join('')}</g>`; };
   return { nodes, edges, under };
 }
 const edgePath = (e: GEdge, a: GNode, b: GNode) => {

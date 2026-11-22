@@ -681,6 +681,7 @@ export default function App() {
     return true;
   });
   const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null) : [];
+  const fieldDim = { inicio: 1, workspace: layout === 'code' ? 0.35 : 0.7, studio: 0.55, entrega: 0.7, flow: 0.9, brain: 0.85, ajustes: 0.6 }[dest];
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
   const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
   const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
@@ -693,7 +694,7 @@ export default function App() {
 
   return (
     <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
-      <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
+      <AmbientField dim={fieldDim} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
           <TitleSwitch ws={ws} project={project} branch={branchInfo} onError={setError}

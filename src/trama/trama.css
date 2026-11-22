@@ -157,6 +157,9 @@ html[data-backdrop][data-platform='win'] .app { background: rgb(6 7 9 / 0.74); }
   animation: trIn var(--d3) var(--ease);
 }
 .tr-dest[hidden] { display: none; }
+.app:not(.is-dest) > :is(.center, .sidebar, .rail, .right) {
+  animation: trIn var(--d3) var(--ease);
+}
 @keyframes trIn { from { opacity: 0; transform: translateY(6px); } }
 
 /* columna de destinos */

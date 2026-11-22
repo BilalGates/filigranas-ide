@@ -88,6 +88,18 @@ fn catalog(root: &Path, enabled: impl Fn(&str) -> bool) -> String {
     text
 }
 
+// Matriz base de Trama v2. Los valores guardados prevalecen sobre estos.
+fn default_assignment(role: Role, skill: &str) -> bool {
+    match skill {
+        "implement" | "debug" => matches!(role, Role::Senior | Role::Junior),
+        "research" => matches!(role, Role::Pm | Role::Researcher),
+        "design-loop" => matches!(role, Role::Designer | Role::Senior),
+        "code-review" => matches!(role, Role::Auditor | Role::Auditor2),
+        "github-flow" => role == Role::Pm,
+        _ => false,
+    }
+}
+
 fn assignment(conn: &Connection, scope: &str, role: Role, skill: &str) -> rusqlite::Result<Option<bool>> {
     conn.query_row(
         "SELECT enabled FROM skill_assignments WHERE scope=?1 AND role=?2 AND skill=?3",
@@ -123,7 +135,7 @@ fn turn_catalog(conn: &Connection, project: &str, role: Role, root: &Path, text:
     let mut disabled = Vec::new();
     for (name, _) in SKILLS.iter().filter_map(|skill| metadata(skill)) {
         if assignment(conn, project, role, name).map_err(err)?
-            .or(assignment(conn, "", role, name).map_err(err)?).unwrap_or(true) {
+            .or(assignment(conn, "", role, name).map_err(err)?).unwrap_or_else(|| default_assignment(role, name)) {
             enabled.push(name);
         } else {
             disabled.push(format!("${name}"));
@@ -164,7 +176,7 @@ pub fn skills_assignments(state: State<AppState>, project: Option<String>) -> Cm
     let mut result = Vec::new();
     for (skill, _) in SKILLS.iter().filter_map(|skill| metadata(skill)) {
         for role in ROLES {
-            let global = assignment(&conn, "", role, skill).map_err(err)?.unwrap_or(true);
+            let global = assignment(&conn, "", role, skill).map_err(err)?.unwrap_or_else(|| default_assignment(role, skill));
             let local = scope.as_ref().map(|path| assignment(&conn, path, role, skill)).transpose().map_err(err)?.flatten();
             result.push(Assignment { skill: skill.into(), role, enabled: local.unwrap_or(global), inherited: scope.is_some() && local.is_none() });
         }
@@ -233,6 +245,28 @@ mod tests {
     }
 
     #[test]
+    fn turn_catalog_respects_the_approved_default_matrix() {
+        let db = crate::db::open(Path::new(":memory:")).unwrap();
+        let root = Path::new("/bundle/skills");
+        let expected: [&[&str]; 7] = [
+            &["github-flow", "research"],
+            &["research"],
+            &["design-loop"],
+            &["implement", "debug", "design-loop"],
+            &["implement", "debug"],
+            &["code-review"],
+            &["code-review"],
+        ];
+        for (role, skills) in ROLES.into_iter().zip(expected) {
+            let listing = turn_catalog(&db, "project", role, root, "Encargo".into()).unwrap();
+            for skill in skills {
+                assert!(listing.contains(&format!("/bundle/skills/{skill}/SKILL.md")));
+            }
+            assert_eq!(listing.matches("/SKILL.md").count(), skills.len());
+        }
+    }
+
+    #[test]
     fn turn_catalog_applies_role_and_project_overrides_without_changing_global_rules() {
         let db = crate::db::open(Path::new(":memory:")).unwrap();
         let root = Path::new("/bundle/skills");
@@ -243,6 +277,9 @@ mod tests {
         set_assignment(&db, "", Role::Designer, "design-loop", Some(false)).unwrap();
         assert!(!listing("a", Role::Designer).contains(skill_path));
         assert!(listing("a", Role::Senior).contains(skill_path));
+        assert!(!listing("a", Role::Researcher).contains(skill_path));
+        set_assignment(&db, "", Role::Researcher, "design-loop", Some(true)).unwrap();
+        assert!(listing("a", Role::Researcher).contains(skill_path));
         set_assignment(&db, "a", Role::Designer, "design-loop", Some(true)).unwrap();
         assert!(listing("a", Role::Designer).contains(skill_path));
         assert!(!listing("b", Role::Designer).contains(skill_path));

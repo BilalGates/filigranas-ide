@@ -10,6 +10,7 @@ export type Entry = { name: string; path: string; dir: boolean };
 
 export const api = {
   workspace: () => invoke<Workspace>('get_workspace'),
+  homeSummary: (paths: string[], focus: string | null) => invoke<HomeSummary[]>('home_summary', { paths, focus }),
   defaultRoot: () => invoke<string>('default_root'),
   setRoot: (path: string) => invoke<Workspace>('set_root', { path }),
   createProject: (name: string) => invoke<Workspace>('create_project', { name }),
@@ -284,10 +285,20 @@ export const jev = {
 };
 export const tasks = {
   list: (project: string) => invoke<Task[]>('tasks_list', { project }),
+  flow: (project: string) => invoke<{ tasks: Task[]; runs: Record<number, TaskRun[]> }>('task_flow', { project }),
   save: (project: string, input: TaskEdit) => invoke<number>('task_save', { project, input }),
   link: (project: string, task: number, session: number) => invoke<void>('task_link', { project, task, session }),
   runs: (project: string, task: number) => invoke<TaskRun[]>('task_runs', { project, task }),
   parallelLimit: (project: string, limit: number | null = null) => invoke<number>('task_parallel_limit', { project, limit }),
+};
+
+export type HomeSummary = {
+  path: string;
+  tasks: Pick<Task, 'id' | 'title' | 'status' | 'updatedAt'>[];
+  sessions: Session[];
+  work: WorkSession | null;
+  branch: string | null;
+  dates: string[] | null;
 };
 
 // Larry: propuesta y creación de commits locales.
@@ -425,10 +436,18 @@ export type BrainDraft = {
 };
 export type BrainEntry = BrainDraft & { created: number; updated: number };
 export type BrainNodeKind = BrainKind | 'task' | 'pr' | 'project';
-type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean; project: string | null; body: string | null; source: string | null };
+export type BrainValidity = 'vigente' | 'sustituido' | 'caducado';
+type BrainNode = {
+  key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null;
+  matched: boolean; project: string | null; body: string | null; source: string | null;
+  sourceTask?: number | null; sourceRun?: number | null; validUntil?: number | null; validity?: BrainValidity | null;
+};
 export type BrainEdge = { from: string; to: string; kind: 'project_member' | 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
 export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
-export type BrainGraphFilter = { query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
+export type BrainGraphFilter = {
+  query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null;
+  memoryOnly?: boolean; validity?: BrainValidity | null; focusId?: number | null;
+};
 type BrainReference = { id: number; version: number; source: string };
 export const brain = {
   graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),

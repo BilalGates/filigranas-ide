@@ -160,8 +160,10 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .tv.tr-root > .studio-views { flex: none; display: flex; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
 .tv .studio-views [aria-pressed='true'] { background: var(--hover); color: var(--tx); }
 .tv .studio-sidebar-design { display: flex; min-height: 0; }
-.tv .studio-version-compare { position: absolute; top: 53px; left: 14px; z-index: 3; }
-.tv .studio-version-compare .fsel { gap: 6px; background: var(--glass3); }
+.tv .studio-version-compare { min-width: 0; max-width: min(42%, 270px); }
+.tv .studio-version-compare .fsel { gap: 6px; background: var(--glass3); white-space: nowrap; }
+.tv .studio-version-compare select { min-width: 0; }
+.tv.w-narrow .cwhead { flex-wrap: wrap; }
 .tv .studio-region-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-block: 8px; }
 .tv .studio-region-fields label { display: grid; gap: 4px; color: var(--tx2); font-size: var(--fs-s); }
 .tv .studio-region-fields input { width: 100%; padding: 4px 6px; }

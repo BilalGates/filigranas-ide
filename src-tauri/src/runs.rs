@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -304,15 +305,13 @@ pub struct Run {
     memory: Vec<crate::brain::Reference>,
 }
 
-pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
-    let mut query = conn.prepare(
-        "SELECT id,session_id,provider,model,started_ms,max(0,ended_ms-started_ms),outcome,retry,input_tokens,
-         cached_input_tokens,output_tokens,cost_estimate_usd,quota_short_percent,quota_short_minutes,
-         quota_long_percent,quota_long_minutes,context_tokens,jev_routes.data
-         FROM task_runs LEFT JOIN jev_routes ON jev_routes.run_id=task_runs.id
-         WHERE task_id=?1 ORDER BY id DESC LIMIT 30"
-    )?;
-    let rows = query.query_map([task], |r| Ok(Run {
+const RECENT_FIELDS: &str = "r.id,r.session_id,r.provider,r.model,r.started_ms,max(0,r.ended_ms-r.started_ms),
+    r.outcome,r.retry,r.input_tokens,r.cached_input_tokens,r.output_tokens,r.cost_estimate_usd,
+    r.quota_short_percent,r.quota_short_minutes,r.quota_long_percent,r.quota_long_minutes,
+    r.context_tokens,jev_routes.data";
+
+fn run_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Run> {
+    Ok(Run {
         id: r.get(0)?, session_id: r.get(1)?, provider: r.get(2)?, model: r.get(3)?,
         started_ms: r.get(4)?, duration_ms: r.get(5)?, outcome: r.get(6)?, retry: r.get(7)?,
         input_tokens: r.get(8)?, cached_input_tokens: r.get(9)?, output_tokens: r.get(10)?,
@@ -320,7 +319,16 @@ pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
         quota_long: r.get::<_, Option<f64>>(14)?.zip(r.get(15)?), context_tokens: r.get(16)?,
         routing: r.get::<_, Option<String>>(17)?.and_then(|data| serde_json::from_str(&data).ok()),
         memory: Vec::new(),
-    }))?;
+    })
+}
+
+pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
+    let mut query = conn.prepare(&format!(
+        "SELECT {RECENT_FIELDS}
+         FROM task_runs r LEFT JOIN jev_routes ON jev_routes.run_id=r.id
+         WHERE r.task_id=?1 ORDER BY r.id DESC LIMIT 30"
+    ))?;
+    let rows = query.query_map([task], run_row)?;
     rows.map(|row| {
         let mut run = row?;
         run.memory = crate::brain::references(conn, run.id)?;
@@ -328,10 +336,53 @@ pub fn recent(conn: &Connection, task: i64) -> rusqlite::Result<Vec<Run>> {
     }).collect()
 }
 
+/// Flow renders the latest traces for many tasks at once. Only the detailed
+/// task history loads memory citations, which are unused in the graph.
+pub fn recent_for_project(conn: &Connection, project: &str) -> rusqlite::Result<HashMap<i64, Vec<Run>>> {
+    let mut query = conn.prepare(&format!(
+        "SELECT {RECENT_FIELDS},t.id
+         FROM tasks t JOIN task_runs r ON r.id IN (
+            SELECT candidate.id FROM task_runs candidate WHERE candidate.task_id=t.id AND candidate.project=?1
+            ORDER BY candidate.id DESC LIMIT 30
+         )
+         LEFT JOIN jev_routes ON jev_routes.run_id=r.id
+         WHERE t.project=?1 ORDER BY t.id,r.id DESC"
+    ))?;
+    let mut result: HashMap<i64, Vec<Run>> = HashMap::new();
+    let mut rows = query.query([project])?;
+    while let Some(row) = rows.next()? {
+        result.entry(row.get(18)?).or_default().push(run_row(row)?);
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn recent_project_runs_keep_the_latest_thirty_for_each_task() {
+        let conn = crate::db::open(std::path::Path::new(":memory:")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tasks(id,project,title,goal,criteria,priority,risk,status) VALUES
+              (1,'/a','Uno','','','normal','normal','ready'),
+              (2,'/a','Dos','','','normal','normal','ready'),
+              (3,'/b','Tres','','','normal','normal','ready'),
+              (4,'/a','Sin ejecuciones','','','normal','normal','ready');
+             WITH RECURSIVE seq(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM seq WHERE i<35)
+             INSERT INTO task_runs(id,task_id,scope,project,provider,started_ms,ended_ms,retry)
+              SELECT i,1,'fixture','/a','codex',i,i+1,0 FROM seq;
+             INSERT INTO task_runs(id,task_id,scope,project,provider,started_ms,ended_ms,retry) VALUES
+              (36,2,'fixture','/a','claude',36,37,0),
+              (37,3,'fixture','/b','codex',37,38,0);",
+        ).unwrap();
+
+        let latest = recent_for_project(&conn, "/a").unwrap();
+        assert_eq!(latest.len(), 2);
+        assert_eq!(latest[&1].iter().map(|run| run.id).collect::<Vec<_>>(), (6..=35).rev().collect::<Vec<_>>());
+        assert_eq!(latest[&2][0].id, 36);
+    }
 
     #[test]
     fn observed_tokens_keep_provider_semantics_and_absence() {

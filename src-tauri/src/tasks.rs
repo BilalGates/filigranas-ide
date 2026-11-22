@@ -104,28 +104,43 @@ pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
         dependencies: Vec::new(), waiting_for: Vec::new(), sessions: Vec::new(),
     })).map_err(err)?;
     let mut tasks = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
-    let mut links = conn.prepare(
-        "SELECT s.id,s.name,s.engine,s.branch,s.worktree,s.base_commit,s.closed FROM task_sessions t
-         JOIN sessions s ON s.id=t.session_id WHERE t.task_id=?1 ORDER BY s.id"
+    let indexes: HashMap<_, _> = tasks.iter().enumerate().map(|(i, task)| (task.id, i)).collect();
+    let mut deps = conn.prepare(
+        "SELECT d.task_id,d.requires_id,r.status!='done' FROM tasks t
+         JOIN task_dependencies d ON d.task_id=t.id JOIN tasks r ON r.id=d.requires_id
+         WHERE t.project=?1 ORDER BY d.task_id,d.requires_id"
     ).map_err(err)?;
-    let mut deps = conn.prepare("SELECT requires_id FROM task_dependencies WHERE task_id=?1 ORDER BY requires_id").map_err(err)?;
-    let mut branches = HashMap::new();
-    for task in &mut tasks {
-        task.dependencies = deps.query_map([task.id], |r| r.get(0)).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
-        task.waiting_for = waiting_for(conn, task.id).map_err(err)?;
-        task.sessions = links.query_map([task.id], |r| Ok(Link {
-            id: r.get(0)?, name: r.get(1)?, engine: r.get(2)?, branch: r.get(3)?,
-            worktree: r.get(4)?, base_commit: r.get(5)?, closed: r.get(6)?, github: None,
-        })).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
-        for link in &mut task.sessions {
-            if let Some(branch) = &link.branch {
-                let snapshot = match branches.entry(branch.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-                    std::collections::hash_map::Entry::Vacant(entry) => entry.insert(crate::github::branch(conn, project, branch)?),
-                };
-                link.github = Some(snapshot.clone());
-            }
+    let mut rows = deps.query([project]).map_err(err)?;
+    while let Some(row) = rows.next().map_err(err)? {
+        let task = &mut tasks[indexes[&row.get::<_, i64>(0).map_err(err)?]];
+        let dependency = row.get(1).map_err(err)?;
+        task.dependencies.push(dependency);
+        if row.get::<_, bool>(2).map_err(err)? {
+            task.waiting_for.push(dependency);
         }
+    }
+    let mut links = conn.prepare(
+        "SELECT l.task_id,s.id,s.name,s.engine,s.branch,s.worktree,s.base_commit,s.closed FROM tasks t
+         JOIN task_sessions l ON l.task_id=t.id JOIN sessions s ON s.id=l.session_id
+         WHERE t.project=?1 ORDER BY l.task_id,s.id"
+    ).map_err(err)?;
+    let mut branches = HashMap::new();
+    let mut rows = links.query([project]).map_err(err)?;
+    while let Some(row) = rows.next().map_err(err)? {
+        let task = &mut tasks[indexes[&row.get::<_, i64>(0).map_err(err)?]];
+        let mut link = Link {
+            id: row.get(1).map_err(err)?, name: row.get(2).map_err(err)?, engine: row.get(3).map_err(err)?,
+            branch: row.get(4).map_err(err)?, worktree: row.get(5).map_err(err)?,
+            base_commit: row.get(6).map_err(err)?, closed: row.get(7).map_err(err)?, github: None,
+        };
+        if let Some(branch) = &link.branch {
+            let snapshot = match branches.entry(branch.clone()) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => entry.insert(crate::github::branch(conn, project, branch)?),
+            };
+            link.github = Some(snapshot.clone());
+        }
+        task.sessions.push(link);
     }
     Ok(tasks)
 }
@@ -322,9 +337,29 @@ pub fn changed(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn tasks_list(state: State<AppState>, project: String) -> CmdResult<Vec<Task>> {
-    let conn = state.db.lock().map_err(err)?;
-    list(&conn, &project_path(&conn, &project)?)
+pub async fn tasks_list(app: AppHandle, project: String) -> CmdResult<Vec<Task>> {
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        list(&conn, &project_path(&conn, &project)?)
+    }).await
+}
+
+#[derive(Serialize)]
+pub struct FlowSnapshot {
+    tasks: Vec<Task>,
+    runs: HashMap<i64, Vec<crate::runs::Run>>,
+}
+
+#[tauri::command]
+pub async fn task_flow(app: AppHandle, project: String) -> CmdResult<FlowSnapshot> {
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        let project = project_path(&conn, &project)?;
+        Ok(FlowSnapshot {
+            tasks: list(&conn, &project)?,
+            runs: crate::runs::recent_for_project(&conn, &project).map_err(err)?,
+        })
+    }).await
 }
 
 #[tauri::command]

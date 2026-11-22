@@ -84,13 +84,12 @@ export function useTv() {
   const [w, setW] = useState(() => window.innerWidth);
   useEffect(() => { const on = () => setW(window.innerWidth); window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
   const reduced = m.systemReduced || m.motion === 'reducido';
-  return `tv tr-root${w < 1100 ? ' w-narrow' : ''}${w < 900 ? ' w-tiny' : ''}${reduced ? ' reduced' : ''}${m.motion === 'sin-ambiente' || reduced ? ' calm' : ''}`;
+  return `tv tr-root${w < 1100 ? ' w-narrow' : ''}${w < 900 ? ' w-tiny' : ''}${reduced ? ' reduced' : ''}`;
 }
 export function Root({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
   const cls = useTv();
   return <main className={`${cls} ${className}`} aria-label={label}>{children}</main>;
 }
-export const ambient = () => document.documentElement.dataset.motion === 'completo';
 export function useAgentsActivity() { return useUi().activity; }
 
 /** Fecha relativa breve, como en el Artifact. */

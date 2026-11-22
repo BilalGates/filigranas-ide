@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { api, git, sessions as sessionApi, tasks as taskApi, workSessions, type Project, type Session, type Task, type WorkSession, type Workspace } from '../ipc';
+import { api, type HomeSummary, type Project, type Session, type Workspace } from '../ipc';
 import { STATUS } from '../Tasks';
 import { useUi } from '../ui';
 import { Icon } from './icons';
-import { AgDot, EmptyArt, Root, Sigil, StDot, ago, ambient, sessionAgents, type Agent } from './kit';
+import { AgDot, EmptyArt, Root, Sigil, StDot, ago, sessionAgents, type Agent } from './kit';
+import { ambientEnabled, useMotion } from './motion';
 import { Modal } from './ui';
 import type { Resume } from './nav';
 
 // Inicio de Trama v2: composición del Artifact (continuidad de sesión con la
 // trama del equipo, proyectos con sigilo y actividad, atención y agentes)
 // alimentada solo con datos reales.
-type Snap = { project: Project; tasks: Task[] | null; sessions: Session[] | null; work: WorkSession | null; branch: string | null; activity: number[] | null; last: number | null };
+type Snap = HomeSummary & { activity: number[] | null; last: number | null };
 const ATTENTION = new Set(['waiting_approval', 'blocked', 'failed', 'paused_quota']);
 const RUNNING = new Set(['running', 'verifying']);
 const DAYS = 21;
@@ -45,31 +46,40 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   const [creating, setCreating] = useState(false);
   const [showAllAttention, setShowAllAttention] = useState(false);
   const projects = useMemo(() => ws.projects.filter((p) => !p.archived), [ws.projects]);
+  const resumeAvailable = resume && projects.some((p) => p.path === resume.project);
+  const focusPath = (resumeAvailable ? resume.project : project) ?? projects[0]?.path ?? null;
+  const paths = projects.slice(0, 30).map(({ path }) => path);
+  if (focusPath && !paths.includes(focusPath)) paths.push(focusPath);
+  const scope = JSON.stringify(paths);
 
   useEffect(() => {
     let alive = true;
-    const load = () => projects.slice(0, 30).forEach(async (p) => {
-      const [t, s, w, b, l] = await Promise.allSettled([taskApi.list(p.path), sessionApi.list(p.path), workSessions.current(p.path), git.head(p.path), git.log(p.path)]);
-      if (!alive) return;
-      const dates = l.status === 'fulfilled' ? l.value.map((r) => r.date) : null;
-      setSnaps((m) => ({ ...m, [p.path]: {
-        project: p,
-        tasks: t.status === 'fulfilled' ? t.value : null,
-        sessions: s.status === 'fulfilled' ? s.value : null,
-        work: w.status === 'fulfilled' ? w.value : null,
-        branch: b.status === 'fulfilled' ? b.value : null,
-        activity: dates ? activityOf(dates) : null,
-        last: dates && dates.length ? Math.max(...dates.map((d) => new Date(d).getTime())) : null,
-      } }));
-    });
-    load();
+    let loading = false;
+    const selection: string[] = JSON.parse(scope);
+    const load = async () => {
+      if (!alive || loading || document.hidden) return;
+      loading = true;
+      try {
+        const items = await api.homeSummary(selection, focusPath);
+        if (!alive) return;
+        setSnaps(Object.fromEntries(items.map((item) => [item.path, {
+          ...item,
+          activity: item.dates ? activityOf(item.dates) : null,
+          last: item.dates?.length ? Math.max(...item.dates.map((date) => new Date(date).getTime())) : null,
+        }])));
+      } catch {
+        // Keep the last available summary and retry after the next refresh.
+      } finally { loading = false; }
+    };
+    const initial = window.setTimeout(load);
     const timer = window.setInterval(load, 30000);
-    return () => { alive = false; window.clearInterval(timer); };
-  }, [projects]);
+    document.addEventListener('visibilitychange', load);
+    return () => {
+      alive = false; window.clearTimeout(initial); window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', load);
+    };
+  }, [scope, focusPath]);
 
-  // Proyecto protagonista: el que se dejó a medias, o el abierto.
-  const resumeAvailable = resume && projects.some((p) => p.path === resume.project);
-  const focusPath = (resumeAvailable ? resume.project : project) ?? projects[0]?.path ?? null;
   const focus = focusPath ? snaps[focusPath] : undefined;
   const focusName = ws.projects.find((p) => p.path === focusPath)?.name ?? '';
   const isCurrent = focusPath === project;
@@ -92,14 +102,14 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
       if (key !== 'coach' && !s) continue;
       out.push({ key: `p${key}`, st: 'waiting', title: `${s ? s.name : 'Project manager'} pide permiso`, text: ws.projects.find((p) => p.path === project)?.name ?? '', action: 'Ver la petición', warn: true, run: () => onSession(project, s ? s.id : 'coach') });
     }
-    for (const { path } of projects) {
+    for (const { path, name } of projects) {
       const snap = snaps[path];
       if (!snap) continue;
       for (const t of snap.tasks ?? []) {
         if (!ATTENTION.has(t.status)) continue;
-        out.push({ key: `t${snap.project.path}:${t.id}`, st: t.status === 'paused_quota' ? 'paused' : t.status === 'waiting_approval' ? 'waiting' : 'blocked', title: `${STATUS[t.status]}: ${t.title}`, text: `${snap.project.name} · tarea #${t.id}`, action: 'Abrir tarea', run: () => onWork(snap.project.path, t.id) });
+        out.push({ key: `t${path}:${t.id}`, st: t.status === 'paused_quota' ? 'paused' : t.status === 'waiting_approval' ? 'waiting' : 'blocked', title: `${STATUS[t.status]}: ${t.title}`, text: `${name} · tarea #${t.id}`, action: 'Abrir tarea', run: () => onWork(path, t.id) });
       }
-      if (snap.work?.state === 'review') out.push({ key: `w${snap.project.path}`, st: 'waiting', title: 'Sesión de trabajo lista para revisar', text: `${snap.project.name} · ${snap.work.objective}`, action: 'Revisar', run: () => onWork(snap.project.path) });
+      if (snap.work?.state === 'review') out.push({ key: `w${path}`, st: 'waiting', title: 'Sesión de trabajo lista para revisar', text: `${name} · ${snap.work.objective}`, action: 'Revisar', run: () => onWork(path) });
     }
     return out;
   }, [activity, snaps, agentSessions, project, projects, ws.projects, onSession, onWork]);
@@ -242,35 +252,43 @@ function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: S
 function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: string; sub: string; resting: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const kick = useRef<() => void>(() => {});
+  const motion = useMotion();
   const data = useRef({ agents, label, sub, resting });
   data.current = { agents, label, sub, resting };
   useEffect(() => {
     const cv = ref.current!;
-    let raf = 0, last = 0, sphere: HTMLCanvasElement | null = null, size = '';
-    const frame = (t: number) => {
-      if (!cv.isConnected) return;
-      if (t - last < 50 && t) { raf = requestAnimationFrame(frame); return; }
-      last = t;
-      const box = cv.parentElement!.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1);
-      const W = box.width, H = box.height, cx = W * 0.62, cy = H * 0.5;
-      const key = `${W}x${H}`;
-      if (key !== size) {
-        size = key; cv.width = W * d; cv.height = H * d;
-        sphere = document.createElement('canvas'); sphere.width = W * d; sphere.height = H * d;
-        const sc = sphere.getContext('2d')!; sc.scale(d, d);
-        for (let y = 4; y < H; y += 6) for (let x = 4; x < W; x += 6) {
-          const dd = Math.hypot(x - cx, (y - cy) * 1.1), l = Math.max(0, 1 - dd / (H * 0.42));
-          if (l < 0.05) continue;
-          const z = Math.min(4.4, l * 6);
-          sc.fillStyle = `rgba(${(200 + l * 55) | 0},${(205 + l * 50) | 0},255,${0.2 + l * 0.75})`; sc.fillRect(x - z / 2, y - z / 2, z, z);
-        }
+    const c = cv.getContext('2d')!;
+    const sphere = document.createElement('canvas');
+    const sc = sphere.getContext('2d')!;
+    let raf = 0, last = 0;
+    let W = 0, H = 0, d = 0, cx = 0, cy = 0;
+    const resize = () => {
+      const box = cv.parentElement!.getBoundingClientRect();
+      const scale = Math.min(2, devicePixelRatio || 1);
+      if (box.width === W && box.height === H && d === scale) return;
+      W = box.width; H = box.height; d = scale; cx = W * 0.62; cy = H * 0.5;
+      cv.width = sphere.width = Math.round(W * d);
+      cv.height = sphere.height = Math.round(H * d);
+      sc.setTransform(d, 0, 0, d, 0, 0);
+      for (let y = 4; y < H; y += 6) for (let x = 4; x < W; x += 6) {
+        const dd = Math.hypot(x - cx, (y - cy) * 1.1), l = Math.max(0, 1 - dd / (H * 0.42));
+        if (l < 0.05) continue;
+        const z = Math.min(4.4, l * 6);
+        sc.fillStyle = `rgba(${(200 + l * 55) | 0},${(205 + l * 50) | 0},255,${0.2 + l * 0.75})`;
+        sc.fillRect(x - z / 2, y - z / 2, z, z);
       }
-      const c = cv.getContext('2d')!;
+      kick.current();
+    };
+    const frame = (t: number) => {
+      if (!W || !H || document.hidden) return;
+      const live = ambientEnabled();
+      if (live && t - last < 50 && last) { raf = requestAnimationFrame(frame); return; }
+      last = t;
       c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, W, H);
       const { agents: A, label: lb, sub: sb, resting: rest } = data.current;
       // en reposo la esfera respira despacio; con actividad, luce plena
-      const breath = rest ? (ambient() ? 0.55 + 0.2 * Math.sin(t / 1300) : 0.6) : 1;
-      c.globalAlpha = breath; c.drawImage(sphere!, 0, 0, W, H); c.globalAlpha = 1;
+      const breath = rest ? (live ? 0.55 + 0.2 * Math.sin(t / 1300) : 0.6) : 1;
+      c.globalAlpha = breath; c.drawImage(sphere, 0, 0, W, H); c.globalAlpha = 1;
       const n = Math.max(1, A.length);
       A.slice(0, 7).forEach((a, i) => {
         const y = H * (n === 1 ? 0.5 : 0.14 + (i * 0.72) / (Math.min(n, 7) - 1));
@@ -278,7 +296,7 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
         const on = a.state === 'working' || a.state === 'waiting', ph = (t / 1500 + i * 0.17) % 1;
         for (let k = 0; k < 60; k++) {
           const p = k / 60, x = 18 + p * (cx - 62), yy = y + (cy - y) * (p * p * (3 - 2 * p)) + Math.sin(k * 12.9 + i * 7.3);
-          const near = on && Math.abs(p - ph) < 0.05 && ambient();
+          const near = live && on && Math.abs(p - ph) < 0.05;
           const al = a.state === 'idle' || a.state === 'paused' ? 0.18 : 0.38 + (near ? 0.55 : 0);
           c.fillStyle = a.state === 'waiting' ? `rgba(255,178,94,${al})` : `rgba(${rgb},${al})`;
           const z = near ? 2.6 : 1.4; c.fillRect(x, yy, z, z);
@@ -297,16 +315,23 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
           c.fillStyle = 'rgba(190,200,230,.5)'; c.font = '600 10.5px Iosevka,"JetBrains Mono",monospace'; c.fillText(name, 18, y - 8);
         });
       }
-      if (ambient() && !document.hidden) raf = requestAnimationFrame(frame);
+      if (live) raf = requestAnimationFrame(frame);
     };
     kick.current = () => { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(frame); };
-    raf = requestAnimationFrame(frame);
-    const ro = new ResizeObserver(() => kick.current());
+    resize();
+    const ro = new ResizeObserver(resize);
     ro.observe(cv.parentElement!);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+    const visibility = () => kick.current();
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('resize', resize);
+    return () => {
+      cancelAnimationFrame(raf); ro.disconnect();
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('resize', resize);
+    };
   }, []);
   // con movimiento reducido, redibuja al cambiar los datos
-  useEffect(() => { kick.current(); }, [agents, label, sub, resting]);
+  useEffect(() => { kick.current(); }, [agents, label, sub, resting, motion]);
   return <canvas ref={ref} aria-hidden="true" />;
 }
 

@@ -31,6 +31,8 @@ type Props = {
   chooseBranch: boolean;
   onBranchPickerOpened: () => void;
   onDirty?: (dirty: boolean) => void;
+  onChanged?: () => void;
+  operationsOnly?: boolean;
 };
 
 // Propuesta de Larry: `touched` cuando el usuario ya ha editado algún mensaje
@@ -39,7 +41,7 @@ type Draft = { commits: LarryCommit[]; touched: boolean; loading: boolean };
 const EMPTY: Draft = { commits: [], touched: false, loading: false };
 
 /** Control de versiones del proyecto abierto, al estilo de Cursor. */
-export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, chooseBranch, onBranchPickerOpened, onDirty }: Props) {
+export default function GitPanel({ project, selected, onDiff, onPublish, pending, onPending, chooseBranch, onBranchPickerOpened, onDirty, onChanged, operationsOnly = false }: Props) {
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -163,6 +165,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
       .finally(() => {
         setOp(null);
         refresh();
+        onChanged?.();
       });
   };
 
@@ -205,6 +208,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
         const n = outcome.created.length;
         say(`${n} commit${n === 1 ? '' : 's'} creado${n === 1 ? '' : 's'}`);
         refresh();
+        onChanged?.();
         if (andPush) reviewPush(!status?.upstream);
       },
       (e) => {
@@ -216,9 +220,9 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
 
   const commitRef = useRef(commit);
   commitRef.current = commit;
-  useCommand('commit', useCallback(() => commitRef.current(false), []));
-  useCommand('commit-push', useCallback(() => commitRef.current(true), []));
-  useCommand('larry', useCallback(() => propose(true), [propose]));
+  useCommand('commit', useCallback(() => { if (!operationsOnly) commitRef.current(false); }, [operationsOnly]));
+  useCommand('commit-push', useCallback(() => { if (!operationsOnly) commitRef.current(true); }, [operationsOnly]));
+  useCommand('larry', useCallback(() => { if (!operationsOnly) propose(true); }, [operationsOnly, propose]));
 
   const editMore = (i: number, text: string) =>
     setDraft((d) => ({ ...d, touched: true, commits: d.commits.map((c, j) => (j === i ? { ...c, message: text } : c)) }));
@@ -394,7 +398,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             </button>
           )}
 
-          {dirty && (
+          {!operationsOnly && dirty && (
             <section className="git-changes" aria-label="Cambios">
               <div className="git-label">
                 <span>cambios</span>
@@ -416,12 +420,13 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
             </section>
           )}
 
-          {pending > 0 && (
+          {!operationsOnly && pending > 0 && (
             <button className="git-pending" onClick={onPending} title="sesiones cerradas cuya rama sigue guardada">
               {pending} rama{pending === 1 ? '' : 's'} sin integrar
             </button>
           )}
 
+          {!operationsOnly && <>
           <Splitter size={SIZES.log} axis="y" invert label="Altura del historial" className="is-log" />
           <section className="git-log" aria-label="Historial">
             <div className="git-label">
@@ -496,6 +501,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
               })}
             </div>
           </section>
+          </>}
         </>
       )}
     </>

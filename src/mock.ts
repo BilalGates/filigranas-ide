@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -112,8 +112,15 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
     kind: 'preference', title: 'Priorizar la continuidad', body: 'Conservar el contexto entre proyectos y sesiones.',
     source: 'Preferencia de ejemplo', project: null, global: true, share: false, sourceTask: null,
     sourceRun: null, validUntil: null, created: now, updated: now };
-  if (!mockBrainEntries.some(e => e.id === global.id)) mockBrainEntries.push(global);
-  if (!filter.project) nodes.push({ ...global, key: 'm:999', id: 999, date: now, url: null, matched: true });
+  if (!mockSeeded.has(global.id!)) {
+    mockSeeded.add(global.id!);
+    mockBrainEntries.push(global);
+  }
+  if (!filter.project) {
+    for (const entry of mockBrainEntries.filter((entry) => entry.global)) {
+      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true });
+    }
+  }
   const matches = new Set(nodes.filter(n => (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
     && (!filter.query || `${n.title} ${n.body ?? ''}`.toLocaleLowerCase().includes(filter.query.toLocaleLowerCase()))).map(n => n.key));
   const visible = new Set(matches);
@@ -570,8 +577,9 @@ mockIPC(
         return rel(a.project) === 'kaza' ? [] : mockTasks();
       case 'task_runs':
         return mockRuns(Number(a.task));
-      case 'brain_preview':
       case 'health_list':
+        return rel(a.project) === 'bitacola' && a.session == null ? mockHealth() : [];
+      case 'brain_preview':
       case 'health_ci':
         return [];
       case 'design_list':
@@ -789,6 +797,24 @@ function mockTasks() {
     t(7, 'Revisión de seguridad del worker', 'review', 'high', [2]),
   ];
 }
+function mockHealth(): HealthRun[] {
+  const observed = Math.floor(Date.now() / 1000);
+  return [
+    {
+      id: 101, task: null, tool: 'git', version: '2.50', source: 'diff --check · árbol de trabajo',
+      revision: '84ab176', digest: null, outcome: 'findings', observed,
+      findings: [
+        { fingerprint: 'example-whitespace', path: 'src/lib/autonomy.ts', line: 11, rule: 'Espacios al final de línea', severity: 'error', previous: false, status: 'open', resolution: '' },
+        { fingerprint: 'example-queue', path: 'src/lib/queue.ts', line: 3, rule: 'Cobertura de la cola', severity: 'warning', previous: false, status: 'open', resolution: '' },
+      ],
+    },
+    {
+      id: 100, task: null, tool: 'pnpm', version: '11.13.1', source: 'pnpm run test',
+      revision: '84ab176', digest: null, outcome: 'passed', observed: observed - 120, findings: [],
+    },
+  ];
+}
+
 function mockRuns(task: number) {
   if (task !== 2) return [];
   return [{ id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],

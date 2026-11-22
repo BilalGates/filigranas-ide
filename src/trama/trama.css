@@ -129,7 +129,6 @@ html[data-backdrop][data-platform='win'] .app { background: rgb(6 7 9 / 0.74); }
 .app > .center { grid-column: 3; }
 .app > .rail { grid-column: 4; }
 .app > .right { grid-column: 5; }
-.app.has-brain > .right { grid-column: 3 / -1; }
 .splitter.is-side { left: calc(var(--dest-w) + var(--side-w, 232px) - 5px); }
 .app.no-side .center { margin-left: 0; }
 .titlebar, .statusbar, .app > .sidebar, .app > .center, .app > .rail, .app > .right, .tr-dest, .tr-nav { position: relative; z-index: 1; }

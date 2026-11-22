@@ -9,15 +9,13 @@ export const RIGHT_PANELS = {
   browser: { title: 'Navegador', icon: 'globe' },
   containers: { title: 'Contenedores', icon: 'box', keys: '⌘⇧O' },
   design: { title: 'Design Loop', icon: 'design' },
-  brain: { title: 'Filigranas Brain', icon: 'brain' },
-  'brain-graph': { title: 'Filigranas Brain', icon: 'graph' },
   conflicts: { title: 'Conflictos', icon: 'warn' },
   editor: { title: 'Editor', icon: 'file', keys: '⌘E' },
 } satisfies Record<string, { title: string; icon: string; keys?: string }>;
 
 export type RightTab = keyof typeof RIGHT_PANELS;
 
-export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'design', 'brain', 'brain-graph', 'conflicts']);
+export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'design', 'conflicts']);
 
 type Props = {
   tab: RightTab;

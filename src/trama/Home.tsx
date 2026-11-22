@@ -67,7 +67,8 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   }, [projects]);
 
   // Proyecto protagonista: el que se dejó a medias, o el abierto.
-  const focusPath = (resume && ws.projects.some((p) => p.path === resume.project) ? resume.project : project) ?? projects[0]?.path ?? null;
+  const resumeAvailable = resume && projects.some((p) => p.path === resume.project);
+  const focusPath = (resumeAvailable ? resume.project : project) ?? projects[0]?.path ?? null;
   const focus = focusPath ? snaps[focusPath] : undefined;
   const focusName = ws.projects.find((p) => p.path === focusPath)?.name ?? '';
   const isCurrent = focusPath === project;
@@ -113,14 +114,13 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   };
   let date = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
   date = date[0].toUpperCase() + date.slice(1);
-  const resumeLabel = resume && ws.projects.some((p) => p.path === resume.project);
 
   return (
     <Root label="Inicio">
       <div className="home scr">
         <div className="col" style={{ gap: 0 }}>
           <div className="when">{date}</div>
-          <h1 className="vt">{resumeLabel ? 'Continúa donde lo dejaste' : focusPath ? 'Empieza con un proyecto' : 'Bienvenido a Filigranas'}</h1>
+          <h1 className="vt">{resumeAvailable ? 'Continúa donde lo dejaste' : focusPath ? 'Empieza con un proyecto' : 'Bienvenido a Filigranas'}</h1>
           {focusPath && (
             <section className="resume" aria-label="Última sesión">
               <div className="shot"><Tapestry agents={agents.filter((a) => a.id !== 'pm')} label={focus?.branch ?? focusName} sub={focus?.tasks ? `${pending.length} tareas · ${running.length} en curso` : ''} resting={resting} /></div>
@@ -147,7 +147,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
                   <div className="last">Siguiente tarea: «{pending[0].title}». <span className="mut">{STATUS[pending[0].status]} · #{pending[0].id}</span></div>
                 ) : null}
                 <div className="row" style={{ marginTop: 'auto' }}>
-                  <button className="btn pearl" onClick={resumeLabel ? onResume : () => focusPath && onProject(focusPath)}><Icon name="play" size={13} /> {resumeLabel ? 'Retomar sesión' : 'Abrir proyecto'} <span className="kbd dark">↩</span></button>
+                  <button className="btn pearl" onClick={resumeAvailable ? onResume : () => focusPath && onProject(focusPath)}><Icon name="play" size={13} /> {resumeAvailable ? 'Retomar sesión' : 'Abrir proyecto'} <span className="kbd dark">↩</span></button>
                   <button className="btn" onClick={onFlow}><Icon name="flow" size={14} /> Ver el equipo</button>
                 </div>
               </div>

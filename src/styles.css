@@ -3148,56 +3148,6 @@ html.is-light .git-log-body {
 
 .tb-brain { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; color: var(--tx2); }
 .tb-brain:hover, .tb-brain.is-on { background: var(--s2); border-color: var(--line); color: var(--tx); }
-.brain-tabs { gap: 18px; }
-.brain-tabs .is-active { color: var(--tx); text-decoration: underline; text-underline-offset: 8px; }
-.brain-memory-scope { padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.brain-graph .task-form > label { flex: 1 1 130px; min-width: 0; }
-.brain-graph .task-form input, .brain-graph .task-form select { width: 100%; min-width: 0; }
-.brain-network { transition: opacity .16s ease; }
-.brain-graph.is-loading .brain-network { opacity: .55; pointer-events: none; }
-/* Brain ocupa el espacio de trabajo; cerrar su acceso devuelve la vista anterior. */
-.app.has-brain .center, .app.has-brain .rail { visibility: hidden; }
-.app.has-brain .right { grid-column: 2 / -1; width: auto; margin-left: 0; transition: none; }
-.app.has-brain.no-side .right { margin-left: 8px; }
-.app.has-brain .right > .splitter { display: none; }
-.brain-graph > .p5-actions.task-form { display: grid; grid-template-columns: minmax(150px, 1.1fr) minmax(180px, 1.5fr) minmax(130px, 1fr) repeat(2, minmax(130px, 1fr)); }
-.app.has-brain .brain-network-svg { height: clamp(360px, 54vh, 700px); }
-@container right-panel (max-width: 850px) {
-  .brain-graph > .p5-actions.task-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-.brain-graph-caption { margin: 16px 0 10px; font-size: 11px; }
-.brain-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; font-size: 10px; color: var(--tx2); }
-.brain-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.brain-legend i { width: 6px; height: 6px; border-radius: 50%; }
-.brain-network { position: relative; flex: none; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: radial-gradient(ellipse at center, var(--s1), var(--bg)); }
-.brain-network-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; padding: 8px; border-bottom: 1px solid var(--line); }
-.brain-network-tools .co-btn { padding: 4px 8px; font-size: 10px; }
-.brain-network-tools span { color: var(--tx3); font-size: 10px; min-width: 38px; text-align: center; }
-.brain-network-svg { display: block; width: 100%; height: clamp(320px, 48vh, 620px); touch-action: none; user-select: none; cursor: grab; }
-.brain-network-svg:active { cursor: grabbing; }
-.brain-network-svg line { stroke: var(--tx3); stroke-width: 1.4; transition: opacity .2s; }
-.brain-network-svg line.is-lit { stroke: var(--tx2); stroke-width: 1.5; }
-.brain-dot { cursor: pointer; outline: none; transition: opacity .2s; }
-.brain-dot-core { fill: currentColor; stroke: currentColor; stroke-width: 2; }
-.brain-dot-halo { fill: currentColor; opacity: .04; transition: opacity .2s; }
-.brain-dot:hover .brain-dot-halo, .brain-dot:focus .brain-dot-halo, .brain-dot.is-selected .brain-dot-halo { opacity: .2; }
-.brain-dot.is-selected .brain-dot-core, .brain-dot:focus .brain-dot-core { stroke: var(--tx); stroke-width: 2.5; }
-.brain-dot text { fill: var(--tx2); font-size: 11px; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
-.brain-dot text.is-hub-label { fill: currentColor; font-weight: 700; font-size: 14px; }
-.brain-network-hint { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--tx3); font-size: 10px; }
-.brain-graph-details { min-width: 0; overflow-wrap: anywhere; margin-top: 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
-.brain-detail-close { float: right; margin-left: 8px; }
-.brain-graph-stage { display: grid; gap: 12px; min-width: 0; }
-@container right-panel (min-width: 900px) {
-  .brain-graph-stage.has-details { grid-template-columns: minmax(0, 1fr) minmax(240px, 28%); align-items: start; }
-  .brain-graph-details { max-height: calc(54vh + 72px); overflow: auto; }
-}
-.brain-graph-details h2 { margin: 0 0 8px; }
-.brain-graph-details li { margin-block: 5px; overflow-wrap: anywhere; }
-@media (prefers-reduced-motion: reduce) {
-  .brain-network, .brain-dot, .brain-dot-halo, .brain-network-svg line { transition: none; }
-}
 
 .menu-item > svg {
   flex: none;

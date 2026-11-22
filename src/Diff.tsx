@@ -10,7 +10,7 @@ import { loadMonaco } from './monacoLoader';
  * editar se abre el archivo desde el árbol. Se refresca cuando cambia algo
  * en el proyecto o la sesión termina un turno.
  */
-export default function Diff({ project, change }: { project: string; change: DiffTarget }) {
+export default function Diff({ project, change, inline = false }: { project: string; change: DiffTarget; inline?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +28,7 @@ export default function Diff({ project, change }: { project: string; change: Dif
           if (!alive || !host.current) return;
           setError(null);
           if (!diff) {
-            diff = monaco.editor.createDiffEditor(host.current, { ...baseOptions(), readOnly: true, renderOverviewRuler: false });
+            diff = monaco.editor.createDiffEditor(host.current, { ...baseOptions(), readOnly: true, renderOverviewRuler: false, renderSideBySide: !inline });
             const lang = languageFor(change.path);
             models = [monaco.editor.createModel(texts.old, lang), monaco.editor.createModel(texts.new, lang)];
             diff.setModel({ original: models[0], modified: models[1] });
@@ -37,8 +37,7 @@ export default function Diff({ project, change }: { project: string; change: Dif
             models[1].setValue(texts.new);
           }
         },
-        (e) => alive && setError(String(e)),
-      );
+      ).catch((error) => { if (alive) setError(String(error)); });
 
     load();
     let timer: number | undefined;
@@ -58,7 +57,7 @@ export default function Diff({ project, change }: { project: string; change: Dif
       diff?.dispose();
       models.forEach((m) => m.dispose());
     };
-  }, [project, change.path, change.orig, change.session]);
+  }, [project, change.path, change.orig, change.session, inline]);
 
   const sep = change.path.search(/[^\\/]*$/);
 

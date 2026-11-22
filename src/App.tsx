@@ -12,8 +12,6 @@ import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
-import Brain from './Brain';
-import BrainGraph from './BrainGraph';
 import DesignLoop from './DesignLoop';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
@@ -38,6 +36,7 @@ import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
 import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
+import { AgDot, Sigil, sessionAgents } from './trama/kit';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -70,8 +69,6 @@ export default function App() {
   const nextTermId = useRef(1);
   const [termOpen, setTermOpen] = useState(false);
   const [view, setView] = useState<'coach' | 'work' | number>('coach');
-  const [brainProject, setBrainProject] = useState<string | null>(null);
-  const [brainTarget, setBrainTarget] = useState<number | null>(null);
   const [workTarget, setWorkTarget] = useState<WorkTarget | null>(null);
   const [worktree, setWorktree] = useState<{ project: string; id: number } | null>(null);
   const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
@@ -375,8 +372,8 @@ export default function App() {
 
   // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
   useEffect(() => {
-    if (typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
-  }, [agentSessions, view]);
+    if (project && sessionsOf === project && typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
+  }, [agentSessions, project, sessionsOf, view]);
 
   // Sus terminales tampoco sobreviven: su carpeta puede haberse borrado.
   useEffect(() => {
@@ -393,8 +390,6 @@ export default function App() {
   }, [project, sessionsOf, view, pmProjects, agentSessions]);
 
   const revealRight = (tab: RightTab) => {
-    // Brain es un destino propio: el antiguo panel lateral ya no se abre.
-    if (tab === 'brain' || tab === 'brain-graph') { setDest('brain'); return; }
     setRightView(tab);
     setNoRight(false);
   };
@@ -439,8 +434,8 @@ export default function App() {
 
   // «Retomar»: último punto de trabajo real (proyecto y vista del Workspace).
   useEffect(() => {
-    if (project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
-  }, [project, view, dest]);
+    if (project && sessionsOf === project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
+  }, [project, sessionsOf, view, dest]);
 
   const closeFile = () => {
     setFile(null);
@@ -467,17 +462,6 @@ export default function App() {
     setConflictFiles(null);
     setRightView((tab) => (tab === 'conflicts' ? 'git' : tab));
     setView('coach');
-  };
-  const graphTask = (path: string, id: number) => {
-    if (path !== project) selectProject(path);
-    setWorkTarget({ project: path, task: id, section: 'summary' });
-    setView('work');
-    setNoRight(true);
-  };
-  const graphMemory = (path: string | null, id: number) => {
-    setBrainProject(path);
-    setBrainTarget(id);
-    revealRight('brain');
   };
   const hasPm = !!current && pmProjects.has(current.path);
   const startPm = (path = current?.path) => {
@@ -563,7 +547,6 @@ export default function App() {
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openWork('pulls', view === 'work' ? undefined : activeSession ?? null) },
     { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
-    { id: 'brain', label: 'Filigranas Brain', run: () => setDest('brain') },
     { id: 'browser', label: 'navegador', run: () => showRight('browser') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
@@ -669,18 +652,16 @@ export default function App() {
   );
 
   const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
-  const isBrain = rightView === 'brain' || rightView === 'brain-graph';
-  const panelOpen = !noRight && (!!current || rightView === 'browser' || isBrain);
-  const brainOpen = panelOpen && isBrain;
+  const panelOpen = !noRight && (!!current || rightView === 'browser');
   const browserOpen = panelOpen && rightView === 'browser';
   const designOpen = !!current && panelOpen && rightView === 'design';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
-    if (tab === 'brain' || tab === 'brain-graph') return false;
     if (tab === 'browser') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
   });
+  const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null) : [];
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
   const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
   const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
@@ -692,21 +673,34 @@ export default function App() {
   );
 
   return (
-    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
           <button className={`tb-btn${noSide ? '' : ' is-on'}`} onClick={toggleSidebar} aria-label="Barra lateral" title={shortcut('barra lateral · ⌘B')}>
             <Icon name="sidebar" size={15} />
           </button>
+          <button className="tb-project" onClick={() => { setLeftMode('projects'); setNoSide(false); setDest('workspace'); }}
+            aria-label={current ? `Proyectos · ${current.name}` : 'Proyectos'} title={current ? `${current.name} / ${branchLabel}` : 'Proyectos'}>
+            <Sigil name={current?.name ?? 'Filigranas'} />
+            <b>{current?.name ?? 'Filigranas'}</b>
+            {current && <span className="tb-branch"><span aria-hidden="true">/</span>{branchLabel}</span>}
+            <Icon name="down" size={12} />
+          </button>
         </div>
         <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
-          <Icon name="folder" size={13} />
-          <span className="tb-name">{current?.name ?? 'filigranas'}</span>
-          <span className="grow" />
+          <Icon name="search" size={14} />
+          <span className="grow">Buscar o ejecutar…</span>
           <kbd>{shortcut('⌘K')}</kbd>
         </button>
         <div className="tb-right" data-tauri-drag-region>
+          {headerAgents.length > 0 && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
+            {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
+            {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
+          </button>}
+          {waiting > 0 && <button className="tb-btn tb-attention" aria-label={`Necesita tu atención · ${waiting} pendientes`} title="Necesita tu atención" onClick={() => setDest('inicio')}>
+            <Icon name="signal" size={15} /><span className="dot is-permiso" aria-hidden="true" />
+          </button>}
           <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
             onClick={() => { setDest('workspace'); showRight('browser'); }}
             aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
@@ -728,7 +722,7 @@ export default function App() {
           onWork={(path, task) => { if (path !== project) selectProject(path); if (task) setWorkTarget({ project: path, task, section: 'summary' }); setView('work'); setDest('workspace'); }}
           onResume={() => {
             const r = loadResume();
-            if (!r || !ws.projects.some((p) => p.path === r.project)) return;
+            if (!r || !ws.projects.some((p) => p.path === r.project && !p.archived)) return;
             if (r.project !== project) selectProject(r.project);
             if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
             setDest('workspace');
@@ -755,14 +749,14 @@ export default function App() {
       )}
       {dest === 'entrega' && (
         <Boundary name="Entrega">
-        <Entrega project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Entrega key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
           onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
         </Boundary>
       )}
       {dest === 'brain' && (
         <Boundary name="Brain">
-          <BrainView project={project} projectName={current?.name ?? null}
+          <BrainView key={project} project={project} projects={ws.projects}
             onOpenTask={(id, proj) => { const path = proj ?? project; if (!path) return; if (path !== project) selectProject(path); setWorkTarget({ project: path, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }} />
         </Boundary>
       )}
@@ -974,16 +968,6 @@ export default function App() {
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
-        {panelOpen && rightView === 'brain' && <>
-          <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>
-            <option value="">Memoria global</option>
-            {ws.projects.map(p => <option key={p.path} value={p.path}>{p.name}</option>)}
-          </select></label></div>
-          <Brain key={brainProject ?? 'global'} project={brainProject} target={brainTarget}
-            onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />
-        </>}
-        <BrainGraph projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
-          onMemories={path => { setBrainProject(path); setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />
         {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
           reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
           archived={ws.projects.filter((item) => item.archived).length}

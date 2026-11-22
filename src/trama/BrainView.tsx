@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { brain, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainKind, type BrainLink, type BrainLinkKind, type Task } from '../ipc';
+import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainKind, type BrainLink, type BrainLinkKind, type Project, type Task } from '../ipc';
 import { STATUS } from '../Tasks';
 import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
@@ -11,7 +11,6 @@ import { ErrorNote, Modal } from './ui';
 // para las relaciones tipadas que crea el usuario. Todo recuerdo guardado está
 // confirmado; nada se presenta como inferencia ni relación verificada.
 type Lens = 'map' | 'focus' | 'index' | 'ctx';
-type Scope = 'project' | 'all';
 type BNode = BrainGraphData['nodes'][number];
 type Mem = { id: number; key: string; k: BrainKind; x: string; why: string; source: string; date: number; project: string | null; status: 'vigente' | 'sustituido' | 'caducado'; validUntil: number | null; origins: Origin[]; used: { id: number; title: string }[] };
 type Origin = { t: 'doc' | 'task' | 'pr' | 'run'; label: string; ref: string | number; url?: string | null };
@@ -26,9 +25,21 @@ export const KIND: Record<BrainKind, [string, string, string]> = {
 export const RELT: Record<BrainLinkKind, [string, string]> = { depende: ['Depende de', '#9db6ff'], refina: ['Refina', '#7fe3c4'], sustituye: ['Sustituye a', '#8d939c'], contradice: ['Contradice', '#ff6b5d'], relacionado: ['Relacionado', '#bcc1c9'] };
 const ORIGT: Record<Origin['t'], [string, string]> = { task: ['flow', 'Tarea'], pr: ['pr', 'Pull request'], doc: ['source', 'Fuente'], run: ['route', 'Ejecución'] };
 const KINDS = Object.keys(KIND) as BrainKind[];
+const newDraft = (global: boolean): BrainDraft => ({
+  id: null, version: null, global, task: null, kind: 'decision', title: '', body: '',
+  source: '', sourceTask: null, sourceRun: null, share: false, validUntil: null,
+});
+const searchText = (value: string) => value.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('es');
 const nowS = () => Math.floor(Date.now() / 1000);
 const fecha = (s: number) => new Date((s < 1e12 ? s * 1000 : s)).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 const tr = (s: string, m: number) => (s.length > m ? `${s.slice(0, m - 1)}…` : s);
+
+function dayBoundary(value: string, end = false) {
+  if (!value) return null;
+  const local = new Date(`${value}T00:00:00`);
+  if (end) local.setDate(local.getDate() + 1);
+  return Math.floor(local.getTime() / 1000);
+}
 
 function buildMems(g: BrainGraphData, entries: Map<number, BrainEntry>, links: BrainLink[]): Mem[] {
   const byKey = new Map(g.nodes.map((n) => [n.key, n]));
@@ -55,10 +66,18 @@ function relsOf(m: Mem, links: BrainLink[]) {
 }
 const relLabel = (type: BrainLinkKind, inv: boolean) => inv && type === 'sustituye' ? 'Sustituida por' : inv && type === 'depende' ? 'La necesitan' : inv && type === 'refina' ? 'Refinada por' : RELT[type][0];
 
-export default function BrainView({ project, projectName, onOpenTask }: { project: string | null; projectName: string | null; onOpenTask: (id: number, project: string | null) => void }) {
-  const [lens, setLensState] = useState<Lens>(() => { try { const v = localStorage.getItem('filigranas.brain.lente') as Lens | null; return v && ['map', 'focus', 'index', 'ctx'].includes(v) ? v : 'map'; } catch { return 'map'; } });
+export default function BrainView({ project, projects, onOpenTask }: { project: string | null; projects: Project[]; onOpenTask: (id: number, project: string | null) => void }) {
+  const [savedLens, setLensState] = useState<Lens>(() => { try { const v = localStorage.getItem('filigranas.brain.lente') as Lens | null; return v && ['map', 'focus', 'index', 'ctx'].includes(v) ? v : 'map'; } catch { return 'map'; } });
   const setLens = (l: Lens) => { setLensState(l); try { localStorage.setItem('filigranas.brain.lente', l); } catch { /* */ } };
-  const [scope, setScope] = useState<Scope>('project');
+  const [p, setScope] = useState<string | null>(project);
+  const [fromDay, setFromDay] = useState('');
+  const [toDay, setToDay] = useState('');
+  const lens = p == null && savedLens === 'ctx' ? 'map' : savedLens;
+  const validDays = lens === 'ctx' || !fromDay || !toDay || fromDay <= toDay;
+  const from = lens === 'ctx' ? null : dayBoundary(fromDay);
+  const until = lens === 'ctx' ? null : dayBoundary(toDay, true);
+  const projectName = projects.find((item) => item.path === p)?.name;
+  const linkProject = p ?? project;
   const [graph, setGraph] = useState<BrainGraphData | null>(null);
   const [entries, setEntries] = useState<Map<number, BrainEntry>>(new Map());
   const [links, setLinks] = useState<BrainLink[]>([]);
@@ -69,31 +88,43 @@ export default function BrainView({ project, projectName, onOpenTask }: { projec
   const [fk, setFk] = useState<BrainKind | 'all'>('all');
   const [fv, setFv] = useState<'all' | 'vigente' | 'sustituido' | 'caducado'>('all');
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<BrainDraft | null>(null);
+  const [editing, setEditing] = useState<{ draft: BrainDraft; project: string | null } | null>(null);
+  const [revision, setRevision] = useState(0);
   const [inspOpen, setInspOpen] = useState(false);
-  const p = scope === 'all' ? null : project;
 
+  const latest = useRef(0);
   const load = useCallback(async () => {
-    if (!project && scope === 'project') return;
+    const request = ++latest.current;
+    if (!validDays) return;
     try {
       const [g, e, l] = await Promise.all([
-        brain.graph({ query: null, project: p, kind: null, from: null, until: null }),
+        brain.graph({ query: null, project: p, kind: null, from, until }),
         brain.search(p, '', null).catch(() => [] as BrainEntry[]),
-        project ? brain.links(project).catch(() => [] as BrainLink[]) : Promise.resolve([] as BrainLink[]),
+        linkProject ? brain.links(linkProject).catch(() => [] as BrainLink[]) : Promise.resolve([] as BrainLink[]),
       ]);
+      if (request !== latest.current) return;
       setGraph(g); setEntries(new Map(e.map((x) => [x.id!, x]))); setLinks(l); setError(null);
-    } catch (err) { setError(String(err)); }
-  }, [project, p, scope]);
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setSel(null); setFocus(null); setHist([]); }, [project, scope]);
+    } catch (err) { if (request === latest.current) setError(String(err)); }
+  }, [p, linkProject, validDays, from, until]);
+  useEffect(() => {
+    setGraph(null);
+    setEntries(new Map());
+    setLinks([]);
+    void load();
+    return () => { latest.current++; };
+  }, [load]);
+  useEffect(() => { setSel(null); setFocus(null); setHist([]); }, [p, fromDay, toDay]);
 
   const mems = useMemo(() => graph ? buildMems(graph, entries, links) : [], [graph, entries, links]);
-  const filtered = useMemo(() => { const s = q.trim().toLowerCase(); return mems.filter((m) => (fk === 'all' || m.k === fk) && (fv === 'all' || m.status === fv) && (!s || `${m.x} ${m.why} ${m.source}`.toLowerCase().includes(s))); }, [mems, q, fk, fv]);
+  const filtered = useMemo(() => {
+    const terms = searchText(q).trim().split(/\s+/).filter(Boolean);
+    return mems.filter((m) => (fk === 'all' || m.k === fk) && (fv === 'all' || m.status === fv) &&
+      terms.every((term) => searchText(`${m.x} ${m.why} ${m.source}`).includes(term)));
+  }, [mems, q, fk, fv]);
   const m = sel != null ? mems.find((x) => x.id === sel) ?? null : null;
   const pick = (id: number | null) => { setSel(id); if (id != null) setInspOpen(true); };
   const openFocus = (id: number) => { setHist([]); setFocus(id); setSel(id); setLens('focus'); };
 
-  if (!project && scope === 'project') return <Root label="Brain"><div className="brain"><div className="stage"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Brain muestra la memoria confirmada del proyecto abierto.</p><button className="btn" onClick={() => setScope('all')}>Ver todos los proyectos</button></div></div></div></Root>;
   const vig = mems.filter((x) => x.status === 'vigente').length;
   const empty = graph && mems.length === 0;
   return (
@@ -106,22 +137,36 @@ export default function BrainView({ project, projectName, onOpenTask }: { projec
           <label className="bsearch"><Icon name="search" size={14} /><input placeholder="Buscar en la memoria" value={q} onChange={(e) => setQ(e.currentTarget.value)} aria-label="Buscar en la memoria" /></label>
           <span className="grow" />
           <div className="seg" role="group" aria-label="Ámbito">
-            <button className={scope === 'project' ? 'on' : ''} aria-pressed={scope === 'project'} onClick={() => setScope('project')} disabled={!project}>{projectName ?? 'Proyecto'}</button>
-            <button className={scope === 'all' ? 'on' : ''} aria-pressed={scope === 'all'} onClick={() => setScope('all')}>Todos</button>
+            <label className="fsel brain-scope">
+              <select value={p ?? ''} onChange={(e) => setScope(e.currentTarget.value || null)} aria-label="Proyecto de Brain">
+                <option value="">Proyecto</option>
+                {projects.map((item) => <option key={item.path} value={item.path}>{item.name}{item.archived ? ' · archivado' : ''}</option>)}
+              </select>
+              <Icon name="down" size={11} />
+            </label>
+            <button className={p == null ? 'on' : ''} aria-pressed={p == null} onClick={() => setScope(null)}>Todos</button>
           </div>
           <div className="seg" role="group" aria-label="Vista">
             {([['map', 'map', 'Mapa'], ['focus', 'focus', 'Foco'], ['index', 'list', 'Índice'], ['ctx', 'layers', 'Contexto']] as [Lens, string, string][]).map(([id, ic, l]) => (
-              <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} disabled={id === 'ctx' && scope === 'all'} onClick={() => { if (id === 'focus' && focus == null && sel != null) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
+              <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} disabled={id === 'ctx' && p == null} onClick={() => { if (id === 'focus' && focus == null && sel != null) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
             ))}
           </div>
-          <button className="btn sm" disabled={!project} onClick={() => setEditing({ id: null, version: null, global: false, task: null, kind: 'decision', title: '', body: '', source: '', sourceTask: null, sourceRun: null, share: true, validUntil: null })}><Icon name="plus" size={12} /> Recuerdo</button>
+          <button className="btn sm" onClick={() => setEditing({ project: p, draft: newDraft(p == null) })}><Icon name="plus" size={12} /> Recuerdo</button>
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Ficha"><Icon name="panel" size={16} /></button>
         </div>
-        {!empty && lens !== 'ctx' && (
+        {lens !== 'ctx' && (
           <div className="bfilters" role="group" aria-label="Filtros">
             <label className="fsel"><span className="sr">Tipo</span><select value={fk} onChange={(e) => setFk(e.currentTarget.value as BrainKind | 'all')} aria-label="Tipo"><option value="all">Todos los tipos</option>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][0]}</option>)}</select><Icon name="down" size={11} /></label>
             <label className="fsel"><span className="sr">Vigencia</span><select value={fv} onChange={(e) => setFv(e.currentTarget.value as typeof fv)} aria-label="Vigencia"><option value="all">Cualquier vigencia</option><option value="vigente">Vigentes</option><option value="sustituido">Sustituidos</option><option value="caducado">Caducados</option></select><Icon name="down" size={11} /></label>
-            <span className="mut2 bcount">{filtered.length} de {mems.length}</span>
+            <details className="brain-dates">
+              <summary className="btn sm ghost">{fromDay || toDay ? 'Fechas activas' : 'Fechas'}</summary>
+              <div className="brain-date-fields">
+                <label className="tr-field-row">Desde<input type="date" value={fromDay} onChange={(e) => setFromDay(e.currentTarget.value)} /></label>
+                <label className="tr-field-row">Hasta<input type="date" value={toDay} onChange={(e) => setToDay(e.currentTarget.value)} /></label>
+                <button className="btn sm" onClick={() => { setFromDay(''); setToDay(''); }}>Quitar fechas</button>
+              </div>
+            </details>
+            <span className="mut2 bcount">{filtered.length} de {mems.length}{graph?.limited && ' · vista parcial'}</span>
             {lens === 'focus' && hist.length > 0 && <button className="btn sm ghost" onClick={() => { const h = [...hist]; const prev = h.pop()!; setHist(h); setFocus(prev); setSel(prev); }}><Icon name="back" size={12} /> Volver</button>}
             <span className="grow" />
             <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>
@@ -129,33 +174,35 @@ export default function BrainView({ project, projectName, onOpenTask }: { projec
         )}
         <div className="stage bstage">
           {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => void load()}>Reintentar</button></div>}
-          {!graph ? <div className="flow-loading"><span className="spin" /></div>
-            : empty ? (
-              <div className="empty big"><EmptyArt /><h3>{scope === 'all' ? 'Aún no hay memoria' : `${projectName} aún no tiene memoria`}</h3>
+          {!validDays ? <div className="empty sm" role="status">Elige una fecha final igual o posterior al inicio.</div>
+            : !graph ? <div className="flow-loading"><span className="spin" /></div>
+            : empty && (from != null || until != null) ? <div className="empty sm" role="status">Sin recuerdos en estas fechas.</div>
+            : empty && lens !== 'ctx' ? (
+              <div className="empty big"><EmptyArt /><h3>{p == null ? 'Aún no hay memoria' : `${projectName} aún no tiene memoria`}</h3>
                 <p>Brain guarda decisiones, restricciones, preferencias, hechos, evidencias y resultados que <b>confirmas</b>, con su fuente. Los agentes los reciben como contexto cuando son relevantes para su tarea.</p>
-                <div className="row"><button className="btn pearl" disabled={!project} onClick={() => setEditing({ id: null, version: null, global: false, task: null, kind: 'decision', title: '', body: '', source: '', sourceTask: null, sourceRun: null, share: true, validUntil: null })}><Icon name="plus" size={13} /> Añadir el primer recuerdo…</button></div>
+                <div className="row"><button className="btn pearl" onClick={() => setEditing({ project: p, draft: newDraft(p == null) })}><Icon name="plus" size={13} /> Añadir el primer recuerdo…</button></div>
                 <span className="sample">Nada se guarda sin tu confirmación.</span>
               </div>
             ) : lens === 'map' || lens === 'focus' ? (
               <BrainGraphView lens={lens} mems={filtered} all={mems} links={links} sel={sel} focus={focus ?? sel ?? filtered[0]?.id ?? null} q={q}
                 onSel={pick} onFocus={openFocus} onRel={(id) => { if (focus != null) setHist([...hist, focus]); setFocus(id); setSel(id); }}
-                onMore={(k) => { setFk(k); setLens('index'); }} onTask={(id, proj) => onOpenTask(id, proj)} />
+                onMore={(k) => { setFk(k); setLens('index'); }} onTask={onOpenTask} onError={setError} />
             ) : lens === 'index' ? <MemIndex mems={filtered} sel={sel} onSel={pick} onFocus={openFocus} q={q} onClear={() => { setQ(''); setFk('all'); setFv('all'); }} />
-            : project && <Ctx project={project} mems={mems} />}
+            : p && <Ctx key={p} project={p} mems={mems} />}
         </div>
         <aside className="insp" id="binsp" aria-label="Ficha del recuerdo">
-          {m ? <Insp key={m.id} m={m} mems={mems} links={links} project={project} entry={entries.get(m.id) ?? null} scopeAll={scope === 'all'} lens={lens}
-            onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(d) => setEditing(d)} onChanged={load} onForgot={() => { setSel(null); void load(); }} />
+          {m ? <Insp key={`${m.id}:${revision}`} m={m} mems={mems} links={links} project={linkProject} entry={entries.get(m.id) ?? null} scopeAll={p == null} lens={lens}
+            onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(draft) => setEditing({ draft, project: m.project })} onChanged={load} onForgot={() => { setSel(null); void load(); }} />
             : (
               <>
-                <div className="sec"><h3>Memoria {scope === 'all' ? 'de todos los proyectos' : 'del proyecto'}</h3><p className="mut2">Conocimiento confirmado y su procedencia. No reentrena modelos: aporta contexto a cada turno.</p></div>
+                <div className="sec"><h3>Memoria {p == null ? 'de todos los proyectos' : 'del proyecto'}</h3><p className="mut2">Conocimiento confirmado y su procedencia. No reentrena modelos: aporta contexto a cada turno.</p></div>
                 <div className="sec">{KINDS.map((k) => <div key={k} className="agline"><i className="kd" style={{ background: KIND[k][1] }} /><span className="grow">{KIND[k][0]}</span><span className="mono mut2">{mems.filter((x) => x.k === k).length}</span></div>)}</div>
                 <div className="sec"><div className="why">Las tareas y los agentes viven en Flow; aquí solo hay conocimiento y su procedencia. Las relaciones solo existen si las creas tú.</div></div>
               </>
             )}
         </aside>
       </div>
-      {editing && project && <EntryForm project={project} draft={editing} onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); setSel(id); void load(); }} />}
+      {editing && <EntryForm {...editing} onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); pick(id); void load().then(() => setRevision((value) => value + 1)); }} />}
     </Root>
   );
 }
@@ -235,14 +282,14 @@ const brainEdgePath = (_e: GEdge, a: GNode, b: GNode) => {
   return null;
 };
 
-function BrainGraphView({ lens, mems, all, links, sel, focus, q, onSel, onFocus, onRel, onMore, onTask }: {
+function BrainGraphView({ lens, mems, all, links, sel, focus, q, onSel, onFocus, onRel, onMore, onTask, onError }: {
   lens: 'map' | 'focus'; mems: Mem[]; all: Mem[]; links: BrainLink[]; sel: number | null; focus: number | null; q: string;
-  onSel: (id: number | null) => void; onFocus: (id: number) => void; onRel: (id: number) => void; onMore: (k: BrainKind) => void; onTask: (id: number, project: string | null) => void;
+  onSel: (id: number | null) => void; onFocus: (id: number) => void; onRel: (id: number) => void; onMore: (k: BrainKind) => void; onTask: (id: number, project: string | null) => void; onError: (error: string) => void;
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const g = useRef<GraphHandle | null>(null);
-  const cb = useRef({ onSel, onFocus, onRel, onMore, onTask });
-  cb.current = { onSel, onFocus, onRel, onMore, onTask };
+  const cb = useRef({ onSel, onFocus, onRel, onMore, onTask, onError });
+  cb.current = { onSel, onFocus, onRel, onMore, onTask, onError };
   const showProject = new Set(all.map((m) => m.project)).size > 1;
   const fm = focus != null ? all.find((x) => x.id === focus) : undefined;
   const sig = `${lens}|${focus}|${mems.map((m) => `${m.id}:${m.status}`).join(',')}|${links.map((l) => `${l.id}`).join(',')}`;
@@ -262,7 +309,7 @@ function BrainGraphView({ lens, mems, all, links, sel, focus, q, onSel, onFocus,
           if (n.kind === 'more') return cb.current.onMore(n.k as BrainKind);
           if (n.kind === 'none') return;
           if (n.kind === 'rel') return cb.current.onRel(n.ref as number);
-          if (n.kind === 'origin') { const o = n.o as Origin; if (o.t === 'task') cb.current.onTask(o.ref as number, (byId().find((x) => x.kind === 'center')?.m as Mem | undefined)?.project ?? null); else if (o.t === 'pr' && o.url) window.open(o.url, '_blank'); return; }
+          if (n.kind === 'origin') { const o = n.o as Origin; if (o.t === 'task') cb.current.onTask(o.ref as number, (byId().find((x) => x.kind === 'center')?.m as Mem | undefined)?.project ?? null); else if (o.t === 'pr' && o.url) void pr.open(o.url).catch((e) => cb.current.onError(String(e))); return; }
           if (n.kind === 'use') { const t = n.t as { id: number }; cb.current.onTask(t.id, (byId().find((x) => x.kind === 'center')?.m as Mem | undefined)?.project ?? null); return; }
           cb.current.onSel((n.m as Mem).id);
         },
@@ -280,7 +327,7 @@ function BrainGraphView({ lens, mems, all, links, sel, focus, q, onSel, onFocus,
     el.classList.toggle('mapmode', lens === 'map'); el.classList.toggle('focusmode', lens === 'focus');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
-  useEffect(() => { const s = q.trim().toLowerCase(); g.current?.highlight(s && lens === 'map' ? new Set(mems.filter((m) => m.x.toLowerCase().includes(s)).map((m) => String(m.id))) : null); }, [q, mems, lens]);
+  useEffect(() => { g.current?.highlight(q.trim() && lens === 'map' ? new Set(mems.map((m) => String(m.id))) : null); }, [q, mems, lens]);
   useEffect(() => { const key = sel != null ? String(sel) : null; if (lens === 'map' && g.current && g.current.selected !== key) g.current.select(key, true); }, [sel, lens]);
   useEffect(() => { const ro = new ResizeObserver(() => g.current?.fit(false)); ro.observe(svg.current!); return () => { ro.disconnect(); g.current?.destroy(); g.current = null; }; }, []);
   return (
@@ -325,10 +372,23 @@ function MemIndex({ mems, sel, onSel, onFocus, q, onClear }: { mems: Mem[]; sel:
 function Ctx({ project, mems }: { project: string; mems: Mem[] }) {
   const [list, setList] = useState<Task[] | null>(null);
   const [task, setTask] = useState<number | null>(null);
+  const [query, setQuery] = useState('');
   const [res, setRes] = useState<BrainEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { taskApi.list(project).then((t) => { setList(t); setTask(t.find((x) => x.status !== 'done' && x.status !== 'cancelled')?.id ?? t[0]?.id ?? null); }, (e) => setError(String(e))); }, [project]);
-  useEffect(() => { if (task != null) brain.preview(project, task, '').then(setRes, (e) => setError(String(e))); }, [project, task]);
+  useEffect(() => {
+    if (task == null) return;
+    let active = true;
+    setRes(null);
+    setError(null);
+    const timer = window.setTimeout(() => {
+      brain.preview(project, task, query).then(
+        (value) => { if (active) setRes(value); },
+        (e) => { if (active) setError(String(e)); },
+      );
+    }, 120);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [project, task, query]);
   const tok = (res ?? []).reduce((s, e) => s + (e.title.length + e.body.length) * 0.3, 0) | 0;
   return (
     <div className="mems scr">
@@ -338,6 +398,7 @@ function Ctx({ project, mems }: { project: string; mems: Mem[] }) {
           <div className="row wrap"><span className="lab">Próximo turno de</span>
             <label className="fsel wide"><select value={task ?? ''} onChange={(e) => setTask(Number(e.currentTarget.value))} aria-label="Tarea">{(list ?? []).map((x) => <option key={x.id} value={x.id}>#{x.id} · {x.title} · {STATUS[x.status]}</option>)}</select><Icon name="down" size={11} /></label>
             <span className="grow" /><span className="chip">{res ? `${res.length} ${res.length === 1 ? 'recuerdo' : 'recuerdos'} · ≈${tok} tokens` : '…'}</span></div>
+          <label className="bsearch"><Icon name="search" size={14} /><input aria-label="Encargo para la vista previa" placeholder="Encargo para la vista previa" maxLength={300} value={query} onChange={(e) => setQuery(e.currentTarget.value)} /></label>
           <p className="mut2" style={{ maxWidth: 640 }}>Esto es lo que el núcleo adjuntaría al agente que empiece esta tarea, además de las instrucciones del proyecto, con el mismo cálculo que usa al lanzar la ejecución. Los recuerdos privados o caducados no se envían.</p>
           {res === null ? <div className="tr-skel" style={{ height: 60 }} /> : res.length === 0 ? <div className="empty sm">Esta tarea no carga recuerdos.</div>
             : res.map((e, i) => (
@@ -356,13 +417,21 @@ function Insp({ m, mems, links, project, entry, scopeAll, lens, onSel, onFocus, 
   m: Mem; mems: Mem[]; links: BrainLink[]; project: string | null; entry: BrainEntry | null; scopeAll: boolean; lens: Lens;
   onSel: (id: number) => void; onFocus: (id: number) => void; onTask: (id: number, project: string | null) => void; onEdit: (d: BrainDraft) => void; onChanged: () => void; onForgot: () => void;
 }) {
-  const [full, setFull] = useState<BrainEntry | null>(entry);
+  const [fetched, setFetched] = useState<BrainEntry | null>(null);
+  const full = entry ?? fetched;
   const [target, setTarget] = useState<number | ''>('');
   const [kind, setKind] = useState<BrainLinkKind>('relacionado');
   const [ok, setOk] = useState(false);
   const [forget, setForget] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!entry) brain.entry(m.project, m.id).then(setFull, () => setFull(null)); }, [entry, m.id, m.project]);
+  useEffect(() => {
+    if (entry) return;
+    let active = true;
+    brain.entry(m.project, m.id).then((value) => {
+      if (active) setFetched(value);
+    }, (error) => { if (active) setError(String(error)); });
+    return () => { active = false; };
+  }, [entry, m.id, m.project]);
   const c = KIND[m.k][1];
   const rels = relsOf(m, links);
   const grouped: Record<string, typeof rels> = {};
@@ -382,7 +451,7 @@ function Insp({ m, mems, links, project, entry, scopeAll, lens, onSel, onFocus, 
       </div>
       <div className="sec"><span className="lab">Por qué existe</span><p className="mut2" style={{ margin: '6px 0 8px', whiteSpace: 'pre-wrap' }}>{m.why || 'Sin justificación registrada.'}</p>
         <div className="col" style={{ gap: 4 }}>{m.origins.map((o, i) => (
-          <button key={i} className="orow" onClick={() => { if (o.t === 'task') onTask(o.ref as number, m.project); else if (o.t === 'pr' && o.url) window.open(o.url, '_blank'); }}>
+          <button key={i} className="orow" onClick={() => { if (o.t === 'task') onTask(o.ref as number, m.project); else if (o.t === 'pr' && o.url) void pr.open(o.url).catch((e) => setError(String(e))); }}>
             <Icon name={ORIGT[o.t][0]} size={14} /><span className="grow">{o.label}</span><span className="mut">{ORIGT[o.t][1]}</span>
           </button>))}</div>
       </div>
@@ -420,23 +489,41 @@ function Insp({ m, mems, links, project, entry, scopeAll, lens, onSel, onFocus, 
   );
 }
 
-function EntryForm({ project, draft, onClose, onSaved }: { project: string; draft: BrainDraft; onClose: () => void; onSaved: (id: number) => void }) {
+function EntryForm({ project, draft, onClose, onSaved }: { project: string | null; draft: BrainDraft; onClose: () => void; onSaved: (id: number) => void }) {
   const [form, setForm] = useState(draft);
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const until = form.validUntil ? new Date(form.validUntil * 1000).toISOString().slice(0, 10) : '';
+  const [tasks, setTasks] = useState<Task[]>([]);
+  useEffect(() => {
+    if (!project) return;
+    let active = true;
+    taskApi.list(project).then((list) => { if (active) setTasks(list); }, (e) => { if (active) setError(String(e)); });
+    return () => { active = false; };
+  }, [project]);
+  const change = (next: Partial<BrainDraft>) => {
+    setOk(false);
+    setForm((current) => ({ ...current, ...next }));
+  };
+  const date = form.validUntil == null ? null : new Date(form.validUntil * 1000);
+  const until = date == null ? '' : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const valid = form.title.trim() && form.title.length <= 160 && form.body.trim() && form.body.length <= 1200 && form.source.trim() && form.source.length <= 400;
+  const taskOptions = (items: Task[]) => items.map((task) => <option key={task.id} value={task.id}>#{task.id} · {task.title}</option>);
   return (
     <Modal title={draft.id == null ? 'Nuevo recuerdo' : 'Corregir recuerdo'} onClose={onClose} wide>
       <div className="brain-form">
-        <label className="tr-field-row">Tipo<select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.currentTarget.value as BrainKind })}>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][2]}</option>)}</select></label>
-        <label className="tr-field-row">Ámbito<select value={form.global ? 'global' : 'proyecto'} disabled={draft.id != null} onChange={(e) => setForm({ ...form, global: e.currentTarget.value === 'global' })}><option value="proyecto">Este proyecto</option><option value="global">Global (todos los proyectos)</option></select></label>
-        <label className="tr-field-row span">Enunciado<input autoFocus value={form.title} maxLength={160} onChange={(e) => setForm({ ...form, title: e.currentTarget.value })} /></label>
-        <label className="tr-field-row span">Por qué existe<textarea rows={4} value={form.body} maxLength={1200} onChange={(e) => setForm({ ...form, body: e.currentTarget.value })} /></label>
-        <label className="tr-field-row span">Fuente<input value={form.source} maxLength={400} placeholder="acta, PR, conversación…" onChange={(e) => setForm({ ...form, source: e.currentTarget.value })} /></label>
-        <label className="tr-field-row">Vigente hasta<input type="date" value={until} onChange={(e) => setForm({ ...form, validUntil: e.currentTarget.value ? Math.floor(new Date(e.currentTarget.value).getTime() / 1000) : null })} /></label>
-        <label className="tr-row" style={{ fontSize: 12, alignSelf: 'end' }}><input type="checkbox" checked={form.share} onChange={(e) => setForm({ ...form, share: e.currentTarget.checked })} /> Compartir con los agentes</label>
+        <label className="tr-field-row">Tipo<select value={form.kind} onChange={(e) => change({ kind: e.currentTarget.value as BrainKind })}>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][2]}</option>)}</select></label>
+        <label className="tr-field-row">Ámbito<select value={form.global ? 'global' : 'proyecto'} disabled={!project || draft.id != null} onChange={(e) => change(e.currentTarget.value === 'global' ? { global: true, task: null, sourceTask: null, sourceRun: null } : { global: false })}>{project && <option value="proyecto">Este proyecto</option>}<option value="global">Global (todos los proyectos)</option></select></label>
+        {!form.global && <label className="tr-field-row span">Tarea del recuerdo<select value={form.task ?? ''} onChange={(e) => change({ task: Number(e.currentTarget.value) || null, sourceTask: null, sourceRun: null })}><option value="">Todo el proyecto</option>{taskOptions(tasks)}</select></label>}
+        <label className="tr-field-row span">Enunciado<input autoFocus value={form.title} maxLength={160} onChange={(e) => change({ title: e.currentTarget.value })} /></label>
+        <label className="tr-field-row span">Por qué existe<textarea rows={4} value={form.body} maxLength={1200} onChange={(e) => change({ body: e.currentTarget.value })} /></label>
+        <label className="tr-field-row span">Fuente<input value={form.source} maxLength={400} placeholder="acta, PR, conversación…" onChange={(e) => change({ source: e.currentTarget.value })} /></label>
+        {!form.global && <>
+          <label className="tr-field-row">Tarea fuente<select value={form.sourceTask ?? ''} onChange={(e) => change({ sourceTask: Number(e.currentTarget.value) || null, sourceRun: null })}><option value="">Sin vínculo</option>{taskOptions(tasks.filter((task) => form.task == null || task.id === form.task))}</select></label>
+          <label className="tr-field-row">ID de turno fuente<input type="number" min={1} step={1} disabled={form.sourceTask != null} value={form.sourceRun ?? ''} onChange={(e) => change({ sourceRun: Number(e.currentTarget.value) || null })} /></label>
+        </>}
+        <label className="tr-field-row">Vigente hasta<input type="datetime-local" value={until} onChange={(e) => change({ validUntil: e.currentTarget.value ? Math.floor(new Date(e.currentTarget.value).getTime() / 1000) : null })} /></label>
+        <label className="tr-row" style={{ fontSize: 12, alignSelf: 'end' }}><input type="checkbox" checked={form.share} onChange={(e) => change({ share: e.currentTarget.checked })} /> Compartir con los agentes</label>
       </div>
       <label className="tr-row" style={{ fontSize: 12, marginTop: 12 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.currentTarget.checked)} /> He revisado el contenido y su procedencia</label>
       {error && <div style={{ marginTop: 10 }}><ErrorNote error={error} /></div>}

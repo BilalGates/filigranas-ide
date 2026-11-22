@@ -1,8 +1,21 @@
 # Paridad visual con el Artifact Trama v2
 
-Cada imagen pone el Artifact aprobado a la izquierda y Filigranas a la derecha, a la misma resolución: `<sección>-1600.png` es 1600 × 900 y `<sección>-1280.png` es 1280 × 800.
+Los PNG históricos de 1600 × 900 y 1280 × 800 muestran el Artifact a la izquierda y Filigranas en Chromium a la derecha. Los escenarios contienen datos diferentes. La tabla inferior registra la valoración de la integración previa.
 
-Las capturas de Filigranas se hicieron en Chromium contra `pnpm dev` con el núcleo simulado (`src/mock.ts`). Para regenerarlas: `python3 parity.py` (script de trabajo; necesita el Artifact servido localmente).
+## Capturas de la rama de integración
+
+Cada hoja compara el HTML adjunto a la izquierda con Filigranas a la derecha. Incluye las seis vistas, Flow en demostración y Ajustes. Los datos de los dos lados difieren. Filigranas usa el núcleo simulado de desarrollo en Chromium. [Cabecera y barra inferior](marco-1440x900.webp). [Registro de capturas](chromium-capturas.json). [1600 × 900](chromium-1600x900.webp) · [1440 × 900](chromium-1440x900.webp) · [1280 × 800](chromium-1280x800.webp) · [1050 × 720](chromium-1050x720.webp) · [820 × 600](chromium-820x600.webp).
+
+Desde la raíz, iniciar `pnpm dev`. En un entorno Python con `playwright` y `Pillow`, instalar Chromium con `python -m playwright install chromium` o pasar `--channel chrome` si está instalado Chrome. Ejecutar:
+
+```sh
+python tests/trama_browser.py
+python design/trama-v2/parity.py --output /tmp/filigranas-trama-capturas
+```
+
+Añadir `--artifact /ruta/al/export-v2/index.html` para capturar ambas vistas. Usar `--diff` cuando se hayan alineado datos y estados. El script comprueba que el export incluya navegación y Ajustes. Para el archivo adjunto se usó `--reference-label "HTML adjunto"`. La revisión exacta de esa exportación queda por confirmar.
+
+[Resultado y matriz de trazabilidad](resultado.md).
 
 ## Cómo se consigue la fidelidad
 

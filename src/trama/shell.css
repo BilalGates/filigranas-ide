@@ -197,3 +197,6 @@ html.is-light .titlebar { background: #eceef1 !important; }
 .app.is-browser > .right { grid-column: 2 / 4; width: auto !important; max-width: none; margin-left: 8px; transition: none; }
 .app.is-browser > .sidebar, .app.is-browser > .center, .app.is-browser > .splitter.is-side, .app.is-browser .ws-back { visibility: hidden; }
 .app.is-browser > .right > .splitter { display: none; }
+.eng-mark.jev { background: #b9a4ff; }
+.eng-btn .num.mut { color: var(--tx3); }
+.eng-models li .grow { color: var(--tx3); }

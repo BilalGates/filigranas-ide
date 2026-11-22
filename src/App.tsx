@@ -38,6 +38,7 @@ import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
 import TitleSwitch from './trama/TitleSwitch';
 import EngineUsage, { type Engine } from './trama/EngineUsage';
+import JevUsage from './trama/JevUsage';
 import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
 
@@ -92,7 +93,7 @@ export default function App() {
   const [switching, setSwitching] = useState<number | string | null>(null);
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
-  const [engineOpen, setEngineOpen] = useState<Engine | null>(null);
+  const [engineOpen, setEngineOpen] = useState<Engine | 'jev' | null>(null);
   const [usageTools, setUsageTools] = useState(false);
   // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
   const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
@@ -1058,8 +1059,9 @@ export default function App() {
         )}
         <span className="grow" />
         <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
-          open={engineOpen} onOpen={(e) => { setEngineOpen(e); if (e) setGithubOpen(false); }}
+          open={engineOpen === 'jev' ? null : engineOpen} onOpen={(e) => { setEngineOpen(e); if (e) setGithubOpen(false); }}
           onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
+        <JevUsage open={engineOpen === 'jev'} onOpen={(o) => { setEngineOpen(o ? 'jev' : null); if (o) setGithubOpen(false); }} onSettings={() => setDest('ajustes')} />
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}

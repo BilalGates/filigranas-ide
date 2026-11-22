@@ -187,10 +187,10 @@ html.is-light .titlebar { background: rgb(0 0 0 / 0.1) !important; }
 .statusbar { position: relative; z-index: 30 !important; }
 
 /* ── Cabecera del panel derecho: ruta desde la carpeta de repositorios ─ */
-.panel-head h2.is-path { flex: 1; font-weight: 500; }
+.panel-head h2.is-path { flex: 0 1 auto; font-weight: 500; }
 .panel-crumb { display: flex; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; }
-.panel-crumb .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
-.panel-crumb .leaf { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }
+.panel-crumb .dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
+.panel-crumb .leaf { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }
 
 /* ── Navegador a pantalla completa: ocupa conversaciones y chat ────── */
 /* La conversación sigue montada debajo; el carril derecho sigue visible
@@ -201,3 +201,6 @@ html.is-light .titlebar { background: rgb(0 0 0 / 0.1) !important; }
 .eng-mark.jev { background: #b9a4ff; }
 .eng-btn .num.mut { color: var(--tx3); }
 .eng-models li .grow { color: var(--tx3); }
+
+.co-needs-work { display: flex; align-items: center; gap: 12px; line-height: 1.45; }
+.co-needs-work .co-link { flex: none; font-weight: 600; }

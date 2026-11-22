@@ -111,3 +111,76 @@
 .statusbar .status-live { gap: 6px; }
 .statusbar .status-live .dot { width: 6px; height: 6px; }
 .statusbar .status-live .amb { color: var(--amber); }
+
+/* ── Barra superior opaca: proyecto y rama a la izquierda ─────────── */
+.titlebar { z-index: 30 !important; background: #08090b !important; border-bottom: 1px solid var(--line); backdrop-filter: none; }
+html.is-light .titlebar { background: #eceef1 !important; }
+.titlebar .tb-left { display: flex; align-items: center; min-width: 0; }
+.tb-switch { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; }
+.tb-proj, .tb-branch { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; border-radius: 8px; color: var(--tx); font-size: 13px; white-space: nowrap; max-width: 260px; }
+.tb-proj .tb-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.tb-branch { color: var(--tx2); font-size: 12.5px; }
+.tb-branch .mono { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; }
+.tb-proj:hover, .tb-branch:hover, .tb-proj.is-on, .tb-branch.is-on { background: rgba(255, 255, 255, 0.07); color: var(--tx); }
+.tb-proj > svg:last-child, .tb-branch > svg:last-child { color: var(--tx3); }
+.tb-sep { color: var(--tx4); }
+.tb-sig { width: 18px; height: 18px; border-radius: 5px; overflow: hidden; flex: none; }
+.tb-sig canvas { width: 100%; height: 100%; display: block; }
+.tb-menu { position: absolute; top: 34px; left: 0; z-index: 80; width: 300px; padding: 6px; border-radius: 12px; background: #16181d; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 60px -16px rgba(0, 0, 0, 0.85); animation: trPop var(--d1) var(--ease); }
+.tb-menu.branch { left: auto; right: auto; }
+.tb-q { width: 100%; height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: rgba(0, 0, 0, 0.35); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--tx); font: inherit; font-size: 13px; margin-bottom: 4px; }
+.tb-q:focus { outline: none; box-shadow: inset 0 0 0 1px rgba(157, 182, 255, 0.5); }
+.tb-list { max-height: 360px; overflow: auto; }
+.tb-list button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border-radius: 7px; color: var(--tx2); font-size: 13px; text-align: left; }
+.tb-list button:hover, .tb-list button:focus-visible { background: rgba(255, 255, 255, 0.07); color: var(--tx); outline: none; }
+.tb-list button.on { color: var(--tx); }
+.tb-group { padding: 8px 8px 3px; font-size: 11px; font-weight: 600; color: var(--tx3); text-transform: uppercase; letter-spacing: 0.04em; }
+.tb-empty { padding: 10px 8px; color: var(--tx3); font-size: 12.5px; }
+.tb-foot { padding: 6px 8px 2px; border-top: 1px solid var(--line); margin-top: 4px; color: var(--tx3); font-size: 11.5px; line-height: 1.4; }
+.titlebar .tb-pill { color: var(--tx3); }
+
+/* ── Columna izquierda: navegador y perfil de GitHub ──────────────── */
+.tr-nsep { width: 22px; height: 1px; margin: 4px 0; background: var(--line-2); }
+.tr-nb[aria-pressed='true'] { color: var(--tx); background: rgba(255, 255, 255, 0.07); }
+.tr-gh { margin-top: 4px; }
+.tr-gh .github-profile { margin: 0; }
+.tr-gh .github-profile-button { width: 32px; height: 32px; }
+.tr-gh .github-profile-popup { top: auto; right: auto; bottom: calc(var(--status-h) + 10px); left: calc(var(--dest-w) + 6px); }
+/* tooltip legible: opaco y por encima de todo (se monta en body) */
+.tr-tip { z-index: 200; background: #1d2026; color: #eef0f3; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 12px 30px -8px rgba(0, 0, 0, 0.8); font-size: 12.5px; font-weight: 500; animation: none; }
+.tr-tip kbd { color: #a8aeb8; }
+
+/* ── Uso por motor en la barra de estado ──────────────────────────── */
+.statusbar { display: flex; align-items: center; }
+.eng-usage { display: flex; align-items: center; gap: 2px; margin-right: 6px; }
+.eng-wrap { position: relative; }
+.eng-btn { display: inline-flex; align-items: center; gap: 7px; }
+.eng-btn .num { font-family: var(--mono); color: var(--tx2); }
+.eng-btn.is-near .num { color: var(--amber); }
+.eng-mark { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.eng-mark.claude { background: #ffc27a; }
+.eng-mark.codex { background: #8fc4ff; }
+.eng-btn .dot { width: 7px; height: 7px; }
+.eng-dots { display: inline-flex; gap: 2px; }
+.eng-dots i { width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 255, 255, 0.16); }
+.eng-dots i.on { background: var(--tx2); }
+.eng-dots i.low { background: var(--amber); }
+.eng-pop { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 60; width: 340px; max-height: min(560px, calc(100vh - 120px)); overflow: auto; padding: 14px; border-radius: 12px; background: #16181d; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 60px -16px rgba(0, 0, 0, 0.85); font: 13px var(--ui); color: var(--tx); animation: trPop var(--d1) var(--ease); }
+.eng-pop header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.eng-pop h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.eng-pop header .icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; color: var(--tx3); }
+.eng-pop header .icon:hover { background: rgba(255, 255, 255, 0.07); color: var(--tx); }
+.eng-sec { padding: 10px 0; border-top: 1px solid var(--line); }
+.eng-lab { font-size: 11px; font-weight: 600; color: var(--tx3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.eng-big { margin: 0 0 6px; color: var(--tx2); }
+.eng-big b { color: var(--tx); font-weight: 600; }
+.eng-big .amb { color: var(--amber); }
+.eng-note { margin: 4px 0 0; color: var(--tx3); font-size: 12px; line-height: 1.45; }
+.eng-list, .eng-models { list-style: none; margin: 0; padding: 0; }
+.eng-list button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border-radius: 7px; color: var(--tx); text-align: left; font-size: 13px; }
+.eng-list button:hover { background: rgba(255, 255, 255, 0.06); }
+.eng-list .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tx4); flex: none; }
+.eng-list .eng-note { margin: 0; }
+.eng-models li { display: flex; gap: 8px; padding: 3px 0; font-size: 12.5px; color: var(--tx2); }
+.eng-pop .usage-tools { margin-top: 6px; }
+.statusbar { position: relative; z-index: 30 !important; }

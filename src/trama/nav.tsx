@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { shortcut } from '../ui';
 import { Icon } from './icons';
 
@@ -37,11 +38,13 @@ export function saveResume(r: Resume) {
 }
 
 /** Columna de destinos. `badges`: recuento real de lo que necesita atención. */
-export function DestNav({ dest, onDest, badges, live }: {
+export function DestNav({ dest, onDest, badges, live, browser, github }: {
   dest: Dest;
   onDest: (d: Dest) => void;
   badges: Partial<Record<Dest, number>>;
   live: Partial<Record<Dest, boolean>>;
+  browser?: { open: boolean; run: () => void };
+  github?: ReactNode;
 }) {
   const [tip, setTip] = useState<{ label: string; keys: string; x: number; y: number } | null>(null);
   const show = (e: { currentTarget: HTMLElement }, label: string, keys: string) => {
@@ -60,9 +63,17 @@ export function DestNav({ dest, onDest, badges, live }: {
   return (
     <nav className="tr-nav" aria-label="Destinos">
       {DESTS.slice(0, -1).map(button)}
+      {browser && <>
+        <span className="tr-nsep" aria-hidden="true" />
+        <button className="tr-nb" aria-pressed={browser.open} aria-label="Navegador" onClick={browser.run}
+          onMouseEnter={(e) => show(e, 'Navegador', '')} onMouseLeave={() => setTip(null)} onFocus={(e) => show(e, 'Navegador', '')} onBlur={() => setTip(null)}>
+          <Icon name="globe" size={19} />
+        </button>
+      </>}
       <span className="sp" />
       {button(DESTS[DESTS.length - 1])}
-      {tip && <div className="tr-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">{tip.label}<kbd>{shortcut(tip.keys)}</kbd></div>}
+      {github && <div className="tr-gh">{github}</div>}
+      {tip && createPortal(<div className="tr-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">{tip.label}{tip.keys && <kbd>{shortcut(tip.keys)}</kbd>}</div>, document.body)}
     </nav>
   );
 }

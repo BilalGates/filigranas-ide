@@ -34,6 +34,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: TypeScript and Vite
         run: pnpm build
+      - name: TypeScript tests
+        run: pnpm test
       - name: Install Rust and Clippy
         run: rustup toolchain install stable --profile minimal --component clippy
       - name: Rust and Tauri tests

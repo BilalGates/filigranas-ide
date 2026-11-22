@@ -1,12 +1,3 @@
-.app.has-design.is-wide .right {
-  width: min(var(--design-w, 820px), var(--right-width-limit));
-}
-
-.panel-body.is-design { overflow: hidden; }
-.panel-body .design-loop { flex: 1; }
-
-.design-loop,
-.design-loop-view,
 .design-board {
   display: flex;
   flex: 1;

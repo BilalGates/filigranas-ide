@@ -471,6 +471,7 @@ mod tests {
             task: None,
             handoff_from: None,
             paused: None,
+            skill_role: crate::skills::Role::default(),
         }
     }
 

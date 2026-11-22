@@ -167,6 +167,7 @@ export type Session = {
   task: string | null;
   handoffFrom: number | null;
   paused: string | null;
+  skillRole?: SkillRole;
 };
 type CreatedSession = Session & { notice: string | null };
 /** Archivo a comparar: del proyecto, o de una sesión aislada. */
@@ -186,7 +187,7 @@ export const chats = {
 
 export const sessions = {
   list: (project: string) => invoke<Session[]>('session_list', { project }),
-  create: (project: string, engine: string, task: number | null = null) => invoke<CreatedSession>('session_create', { project, engine, task }),
+  create: (project: string, engine: string, task: number | null = null, skillRole: SkillRole | null = null) => invoke<CreatedSession>('session_create', { project, engine, task, skillRole }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
   send: (id: number, text: string, effort: string | null, task: number | null, attachments: ChatAttachment[], expectedEngine: string) => invoke<void>('session_send', { id, text, effort, task, attachments, expectedEngine }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
@@ -272,11 +273,13 @@ export type JevSettings = {
   lightModel: string | null;
 };
 export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export type JevStatusbar = { mode: JevSettings['mode']; used: number; limit: number };
 export type JevUsage = { tokens: number; costUsd: number | null };
 export const jev = {
   usage: () => invoke<JevUsage>('jev_usage'),
   euroRate: () => invoke<number>('jev_euro_rate'),
   status: () => invoke<JevStatus>('jev_status'),
+  statusbar: () => invoke<JevStatusbar>('jev_statusbar'),
   configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
 export const tasks = {
@@ -391,10 +394,16 @@ export const health = {
 export type DesignScreen = { id: number | null; name: string; url: string; constraints: string; revision: number | null; approved: number | null };
 export type DesignShot = { id: number; width: number; height: number; source: string; url: string | null; note: string; status: string; observed: number };
 export type DesignRegion = { x: number; y: number; width: number; height: number };
+export type DesignComponent = DesignRegion & { selector: string; name: string; kind: string; radius: string };
+export type DesignReference = { id: number; name: string; mime: string; data: string };
 export const design = {
   list: (project: string) => invoke<DesignScreen[]>('design_list', { project }),
   save: (project: string, screen: DesignScreen) => invoke<number>('design_save', { project, screen }),
   shots: (project: string, screen: number) => invoke<DesignShot[]>('design_shots', { project, screen }),
+  components: (project: string, screen: number, shot: number) => invoke<DesignComponent[]>('design_components', { project, screen, shot }),
+  references: (project: string, screen: number) => invoke<DesignReference[]>('design_references', { project, screen }),
+  addReference: (project: string, screen: number, name: string, data: string) => invoke<number>('design_reference_add', { project, screen, name, data }),
+  removeReference: (project: string, screen: number, reference: number) => invoke<void>('design_reference_remove', { project, screen, reference }),
   image: (project: string, screen: number, shot: number) => invoke<string>('design_image', { project, screen, shot }),
   preview: (project: string, screen: number) => invoke<void>('design_preview', { project, screen }),
   capture: (project: string, screen: number, width: number, height: number, note: string) =>
@@ -404,7 +413,7 @@ export const design = {
   import: (project: string, screen: number, png: string, note: string) => invoke<number>('design_import', { project, screen, png, note }),
   review: (project: string, screen: number, review: { shot: number; baseline: number | null; revision: number; approve: boolean; confirmed: boolean }) =>
     invoke<void>('design_review', { project, screen, review }),
-  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean }) =>
+  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean; references: number[]; component: string | null }) =>
     invoke<void>('design_send', { project, brief }),
 };
 
@@ -428,6 +437,23 @@ export const brain = {
   preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
   save: (project: string | null, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
   forget: (project: string | null, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
+  links: (project: string) => invoke<BrainLink[]>('brain_links', { project }),
+  link: (project: string, link: BrainLink, confirmed: boolean) => invoke<number>('brain_link_save', { project, link, confirmed }),
+  unlink: (project: string, id: number) => invoke<void>('brain_link_remove', { project, id }),
+};
+/** Relación tipada entre recuerdos. Solo existe si el usuario la crea. */
+export type BrainLinkKind = 'depende' | 'refina' | 'sustituye' | 'contradice' | 'relacionado';
+export type BrainLink = { id: number | null; from: number; to: number; kind: BrainLinkKind; note: string; created?: number };
+export type SkillInfo = { name: string; description: string };
+export type SkillRole = 'pm' | 'researcher' | 'designer' | 'senior' | 'junior' | 'auditor' | 'auditor2';
+export type SkillAssignment = { skill: string; role: SkillRole; enabled: boolean; inherited: boolean };
+export const skills = {
+  list: () => invoke<SkillInfo[]>('skills_list'),
+  assignments: (project: string | null) => invoke<SkillAssignment[]>('skills_assignments', { project }),
+  setAssignment: (project: string | null, skill: string, role: SkillRole, enabled: boolean | null) =>
+    invoke<void>('skills_set_assignment', { project, skill, role, enabled }),
+  setSessionRole: (project: string, session: number, role: SkillRole) =>
+    invoke<void>('skills_set_session_role', { project, session, role }),
 };
 
 export type ServiceForm = { id: string | null; name: string; command: string; port: number | null };

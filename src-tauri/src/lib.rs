@@ -3,6 +3,7 @@ mod approval;
 mod attachments;
 mod brain;
 mod brain_graph;
+mod brain_links;
 mod browser;
 mod chat;
 mod claude;
@@ -12,6 +13,7 @@ mod containers;
 mod db;
 mod delegate;
 mod design;
+mod design_components;
 mod files;
 mod git;
 mod github;
@@ -154,6 +156,13 @@ pub fn run() {
             brain::brain_preview,
             brain::brain_save,
             brain::brain_forget,
+            brain_links::brain_links,
+            brain_links::brain_link_save,
+            brain_links::brain_link_remove,
+            skills::skills_list,
+            skills::skills_assignments,
+            skills::skills_set_assignment,
+            skills::skills_set_session_role,
             health::health_list,
             health::health_file,
             health::health_import,
@@ -163,6 +172,10 @@ pub fn run() {
             design::design_list,
             design::design_save,
             design::design_shots,
+            design::design_components,
+            design::design_references,
+            design::design_reference_add,
+            design::design_reference_remove,
             design::design_image,
             design::design_import,
             design::design_preview,
@@ -279,6 +292,7 @@ pub fn run() {
             github_login::github_login_cancel,
             github_login::github_login_open,
             jev::jev_status,
+            jev::jev_statusbar,
             jev::jev_usage,
             jev::jev_euro_rate,
             jev::jev_configure,

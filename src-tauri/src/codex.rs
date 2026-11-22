@@ -415,7 +415,7 @@ impl Codex {
             if !force && self.shared.lock().map_err(err)?.loaded.contains(id) {
                 return Ok((rpc, id.clone(), None));
             }
-            let mut params = thread_params(cwd, session.is_some(), &crate::skills::instructions(app));
+            let mut params = thread_params(cwd, session.is_some(), crate::skills::RULES);
             params["threadId"] = json!(id);
             match rpc.request("thread/resume", params, LONG) {
                 Ok(res) => {
@@ -440,7 +440,7 @@ impl Codex {
                 }
             }
         }
-        let mut params = thread_params(cwd, session.is_some(), &crate::skills::instructions(app));
+        let mut params = thread_params(cwd, session.is_some(), crate::skills::RULES);
         if session.is_none() {
             params["dynamicTools"] = crate::delegate::specs();
         }
@@ -665,6 +665,7 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
         let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
         let input = runs::task_input(&tx, run, path, task, previous, text)?;
         let input = crate::chat::with_context(&tx, path, session_id, run, input)?;
+        let input = crate::skills::with_catalog(app, &tx, path, session_id, input)?;
         runs::quota(&tx, run, quota).map_err(err)?;
         runs::usage(&tx, run, runs::Usage { model: model.clone(), ..Default::default() }).map_err(err)?;
         if let Some(session) = direct {

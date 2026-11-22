@@ -49,6 +49,7 @@ fn text_parts(content: &Value) -> String {
 }
 
 fn message(user: bool, text: &str, engine: &str) -> Option<Value> {
+    let text = text.split_once(crate::skills::MARKER).filter(|_| user).map(|(text, _)| text).unwrap_or(text);
     let text = text.split_once(CONTEXT_MARKER).filter(|_| user).map(|(text, _)| text).unwrap_or(text);
     if text.trim().is_empty() {
         return None;

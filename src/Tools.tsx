@@ -20,6 +20,7 @@ type Props = {
   onRefresh: () => void;
   /** Último resultado de la actualización automática, si la hubo. */
   autoUpdates?: CliUpdate[] | null;
+  surface?: 'settings';
 };
 
 /** Estado de una herramienta en una palabra. */
@@ -30,23 +31,24 @@ function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada' {
 }
 
 /** Estado y acceso a las herramientas del IDE. */
-export default function Tools({ tools, checking, hidden, onLogin, onRefresh, autoUpdates }: Props) {
+export default function Tools({ tools, checking, hidden, onLogin, onRefresh, autoUpdates, surface }: Props) {
+  const settings = surface === 'settings';
   const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh', 'node'].includes(id));
   return (
-    <section className="coach" aria-label="Herramientas" hidden={hidden}>
-      <div className="co-head">
+    <section className={settings ? "tr-settings-tools" : "coach"} aria-label="Herramientas" hidden={hidden}>
+      <div className={settings ? "row tr-settings-heading" : "co-head"}>
         <span className="muted">CLI de los agentes, Node y GitHub</span>
-        <span className="push" />
+        <span className={settings ? "grow" : "push"} />
         <button className="co-link" onClick={onRefresh} disabled={checking}>
           {checking ? 'comprobando…' : 'volver a comprobar'}
         </button>
       </div>
-      <div className="co-log">
+      <div className={settings ? "tr-settings-body" : "co-log"}>
         {!tools && <div className="muted">comprobando las herramientas…</div>}
         {visible?.map((t) => {
           const state = toolState(t);
           return (
-            <div className="tool-row" key={t.id}>
+            <div className={settings ? "srow tr-tool-row" : "tool-row"} key={t.id}>
               <span className={`tool-dot is-${state.replace(' ', '-')}`} aria-hidden="true" />
               <span className="tool-name">{t.name}</span>
               <span className="muted">{t.role}</span>

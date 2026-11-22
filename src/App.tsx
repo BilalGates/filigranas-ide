@@ -32,6 +32,8 @@ import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest }
 import Home from './trama/Home';
 import Flow from './trama/Flow';
 import Studio from './trama/Studio';
+import Entrega from './trama/Entrega';
+import Boundary from './trama/Boundary';
 import { Seg } from './trama/ui';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
@@ -715,6 +717,7 @@ export default function App() {
 
       <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive} />
       {dest === 'inicio' && (
+        <Boundary name="Inicio">
         <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
           onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
           onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
@@ -726,18 +729,30 @@ export default function App() {
             if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
             setDest('workspace');
           }} />
+        </Boundary>
       )}
       {dest === 'flow' && (
+        <Boundary name="Flow">
         <Flow project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onEditTask={(id) => { if (project && id) setWorkTarget({ project, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }}
           onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); setView('coach'); setDest('workspace'); }}
           onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }} />
+        </Boundary>
       )}
       {dest === 'studio' && (
+        <Boundary name="Studio">
         <Studio project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onBrowser={() => { setDest('workspace'); revealRight('browser'); }} />
+        </Boundary>
+      )}
+      {dest === 'entrega' && (
+        <Boundary name="Entrega">
+        <Entrega project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
+          onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
+        </Boundary>
       )}
       <Sidebar
         ws={ws}

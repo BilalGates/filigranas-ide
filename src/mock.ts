@@ -553,7 +553,9 @@ mockIPC(
       case 'task_parallel_limit':
         return a.limit ?? 2;
       case 'tasks_list':
+        return mockTasks();
       case 'task_runs':
+        return mockRuns(Number(a.task));
       case 'brain_preview':
       case 'health_list':
       case 'health_ci':
@@ -702,3 +704,25 @@ async function demoSession(id: number) {
 };
 
 console.info('[filigranas] núcleo simulado activo');
+
+// Tareas de ejemplo solo para el modo navegador (desarrollo y pruebas visuales).
+function mockTasks() {
+  const now = Date.now();
+  const base = { parentId: null, goal: '', criteria: '', risk: 'medio', verification: 'pruebas', tests: null, waitingFor: [] as number[], sessions: [] as unknown[] };
+  const t = (id: number, title: string, status: string, priority: string, dependencies: number[], extra: Record<string, unknown> = {}) =>
+    ({ ...base, id, title, status, priority, dependencies, createdAt: now - id * 3600e3, updatedAt: now - id * 600e3, ...extra });
+  return [
+    t(1, 'Esquema de la cola de reintentos', 'done', 'high', [], { goal: 'Tabla y migración de la cola.' }),
+    t(2, 'Worker de reintentos con backoff', 'running', 'high', [1], { goal: 'Reintentar envíos con espera exponencial.', criteria: 'Reintenta 5 veces y registra el fallo.', sessions: [{ id: 1, name: 'sesión 1', engine: 'codex', branch: 'ide/reintentos', worktree: null, baseCommit: null, closed: false, github: null }] }),
+    t(3, 'Pruebas de la cola', 'waiting_approval', 'normal', [2], { waitingFor: [2] }),
+    t(4, 'Panel de estado de envíos', 'ready', 'normal', [1]),
+    t(5, 'Migrar alertas al nuevo canal', 'blocked', 'low', [2, 4], { waitingFor: [2, 4] }),
+    t(6, 'Documentar la API de reintentos', 'backlog', 'low', [2]),
+    t(7, 'Revisión de seguridad del worker', 'review', 'high', [2]),
+  ];
+}
+function mockRuns(task: number) {
+  if (task !== 2) return [];
+  return [{ id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],
+    routing: { source: 'jev', reason: 'Cambio acotado con pruebas existentes', effort: 'medio', recommendedEffort: 'medio', confidence: 0.82, model: 'gpt-6-sol', inputTokens: null, outputTokens: null, costEstimateUsd: null, durationMs: null, complexity: 'media', review: null, context: null } }];
+}

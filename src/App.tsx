@@ -893,7 +893,7 @@ export default function App() {
                   setDiff(null);
                   openEditor();
                 }}
-                onConflicts={showConflicts}
+                onConflicts={showConflicts} onStartWork={() => openWork()}
                 onModel={reportModel}
               />
             ))}

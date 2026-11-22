@@ -236,9 +236,9 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .tv .studio-reference-preview { width: 100%; max-height: 55vh; object-fit: contain; }
 
 /* ── Barra superior: proyecto y rama a la izquierda ──────────────── */
-/* translúcida, más oscura que el fondo para separarla del resto */
-.app > .titlebar { z-index: 30; background: rgb(0 0 0 / 0.7); border-bottom: 1px solid rgb(255 255 255 / 0.07); box-shadow: 0 1px 0 rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6); backdrop-filter: blur(24px) saturate(1.2); }
-html.is-light .app > .titlebar { background: rgb(0 0 0 / 0.1); }
+/* sin fondo propio: deja ver el campo y la transparencia de la ventana */
+.app > .titlebar { z-index: 30; background: transparent; border-bottom: 1px solid var(--line); box-shadow: none; backdrop-filter: none; }
+html.is-light .app > .titlebar { background: transparent; }
 .titlebar .tb-left { display: flex; align-items: center; min-width: 0; }
 .tb-switch { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .tb-proj, .tb-branch { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; border-radius: 8px; color: var(--tx); font-size: 13px; white-space: nowrap; min-width: 0; max-width: 260px; }
@@ -312,10 +312,10 @@ html.is-light .tb-menu, html.is-light .eng-pop { background: var(--raised); }
 html.is-light .tb-q { background: var(--raised-2); }
 
 /* ── Cabecera del panel derecho: ruta desde la carpeta de repositorios ─ */
-.panel-head h2.is-path { flex: 1; font-weight: 500; }
+.panel-head h2.is-path { flex: 0 1 auto; font-weight: 500; }
 .panel-crumb { display: flex; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; }
-.panel-crumb .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
-.panel-crumb .leaf { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }
+.panel-crumb .dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
+.panel-crumb .leaf { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }
 
 /* ── Navegador a pantalla completa: ocupa conversaciones y chat ────── */
 /* La conversación sigue montada debajo; el carril derecho sigue visible
@@ -323,3 +323,5 @@ html.is-light .tb-q { background: var(--raised-2); }
 .app.is-browser > .right { grid-column: 2 / 4; width: auto !important; max-width: none; margin-left: 8px; transition: none; }
 .app.is-browser > .sidebar, .app.is-browser > .center, .app.is-browser > .splitter.is-side, .app.is-browser .ws-back { visibility: hidden; }
 .app.is-browser > .right > .splitter { display: none; }
+.co-needs-work { display: flex; align-items: center; gap: 12px; line-height: 1.45; }
+.co-needs-work .co-link { flex: none; font-weight: 600; }

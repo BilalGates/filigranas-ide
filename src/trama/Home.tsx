@@ -154,16 +154,24 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
             </section>
           )}
           <section className="projects pane" aria-label="Proyectos">
-            <div className="row">
-              <h3 className="grow">Proyectos</h3>
-              <button className="btn sm" onClick={openFolder}><Icon name="folder" size={13} /> Abrir carpeta…</button>
-              <button className="btn sm" onClick={() => setCreating(true)}><Icon name="plus" size={13} /> Nuevo proyecto…</button>
+            <div className="projects-head">
+              <h3>Proyectos</h3>
+              <div className="projects-actions">
+                <button className="btn" onClick={openFolder}><Icon name="folder" size={15} /> Abrir carpeta…</button>
+                <button className="btn pearl" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> Nuevo proyecto…</button>
+              </div>
             </div>
             {projects.length === 0 && <div className="empty"><EmptyArt /><h3>Sin proyectos</h3><p>La carpeta {ws.root} no tiene proyectos todavía.</p></div>}
             {groups.map((g) => (
-              <div key={g.name}>
-                <div className="pgroup">{g.name}</div>
-                {g.items.map((p) => <ProjectRow key={p.path} p={p} snap={snaps[p.path]} current={p.path === project} agents={p.path === project ? sessionAgents(agentSessions, activity, null) : []} onOpen={() => onProject(p.path)} />)}
+              <div className="projects-group" key={g.name}>
+                <h4 className="pgroup">{g.name}</h4>
+                <ul className="projects-list">
+                  {g.items.map((p) => (
+                    <li key={p.path}>
+                      <ProjectRow p={p} snap={snaps[p.path]} current={p.path === project} agents={p.path === project ? sessionAgents(agentSessions, activity, null) : []} onOpen={() => onProject(p.path)} />
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </section>
@@ -196,25 +204,33 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
 function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: Snap; current: boolean; agents: Agent[]; onOpen: () => void }) {
   const act = snap?.activity;
   const mx = act ? Math.max(...act, 1) : 1;
+  const last = snap?.last ? ago(snap.last) : null;
   const att = snap?.tasks?.filter((t) => ATTENTION.has(t.status)).length ?? 0;
   const run = snap?.tasks?.filter((t) => RUNNING.has(t.status)).length ?? 0;
   const live = agents.filter((a) => a.state !== 'idle');
   const calm = !live.length && !att && !run && !snap?.work;
   return (
-    <button className={`prow${current ? ' on' : ''}`} onClick={onOpen} aria-label={`Abrir ${p.name}`} title={p.path}>
+    <button className={`prow${current ? ' on' : ''}`} onClick={onOpen} aria-current={current ? true : undefined} aria-label={`Abrir ${p.name}`} title={p.path}>
       <span className="glyph"><Sigil name={p.name} /></span>
-      <span className="pn"><span className="nm">{p.name}</span><span className="br">{snap?.branch ?? '…'}</span></span>
-      <span className="act" aria-label="Commits de las últimas tres semanas">
-        {act ? act.map((v, i) => <i key={i} style={{ height: v ? 4 + (v / mx) * 16 : 2, background: v >= mx * 0.7 && v ? 'var(--tx2)' : undefined }} />) : null}
+      <span className="pn">
+        <span className="nm">{p.name}</span>
+        <span className="project-details">
+          {snap?.branch && <span className="branch-line"><Icon name="branch" size={12} /><span className="br">{snap.branch}</span></span>}
+          {!calm && <span className="stt">
+            {live.map((a) => <AgDot key={a.id} a={a} s={12} />)}
+            {att > 0 && <span className="chip amber">{att} con atención</span>}
+            {run > 0 && <span className="chip sky">{run} en curso</span>}
+            {snap?.work && <span className="chip">{snap.work.state === 'review' ? 'en revisión' : 'sesión de trabajo'}</span>}
+          </span>}
+        </span>
       </span>
-      <span className="stt">
-        {live.map((a) => <AgDot key={a.id} a={a} s={12} />)}
-        {att > 0 && <span className="chip amber">{att} con atención</span>}
-        {run > 0 && <span className="chip sky">{run} en curso</span>}
-        {snap?.work && <span className="chip">{snap.work.state === 'review' ? 'en revisión' : 'sesión de trabajo'}</span>}
-        {calm && <span className="mut">en calma</span>}
+      <span className="project-history">
+        {act?.some(Boolean) && <span className="project-activity" role="img" aria-label="Commits de las últimas tres semanas" title="Commits de las últimas tres semanas">
+          {act.map((value, i) => <i key={i} className={value ? 'has-commits' : undefined} style={{ height: value ? 4 + (value / mx) * 13 : 2 }} />)}
+        </span>}
+        {last && <span className="tm" title="Último commit">{last === 'ahora' ? 'Ahora' : `Hace ${last}`}</span>}
       </span>
-      <span className="tm">{snap?.last ? ago(snap.last) : ''}</span>
+      <span className="project-open"><Icon name="chev" size={16} /></span>
     </button>
   );
 }

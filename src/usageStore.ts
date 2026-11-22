@@ -104,18 +104,18 @@ function subscribe(notify: () => void) {
   return () => { listeners.delete(notify); };
 }
 
-export function useProviderQuota(engine: string | null, model: string | null) {
+export function useProviderQuota(engine: string | null, model: string | null, refreshCodex = engine === 'codex') {
   const snapshots = useSyncExternalStore(subscribe, () => limits);
   const [now, setNow] = useState(nowSeconds);
   const [codexLoading, setCodexLoading] = useState(false);
 
   useEffect(() => {
-    if (!engine) return;
+    if (!engine && !refreshCodex) return;
     let active = true;
     let pending = false;
     const refresh = () => {
       setNow(nowSeconds());
-      if (engine !== 'codex' || pending) return;
+      if (!refreshCodex || pending) return;
       pending = true;
       setCodexLoading(true);
       void coordinator.rateLimits().then((snapshot) => {
@@ -129,16 +129,17 @@ export function useProviderQuota(engine: string | null, model: string | null) {
     const timer = window.setInterval(refresh, 60_000);
     window.addEventListener('focus', refresh);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [engine]);
+  }, [engine, refreshCodex]);
 
   const snapshot = engine === 'claude' || engine === 'codex' ? snapshots[engine] : EMPTY;
   const windows = snapshot.windows.filter((w) =>
     (w.resetsAt == null || w.resetsAt > now) &&
     (!['Opus', 'Sonnet'].includes(w.label) || model?.toLowerCase().includes(w.label.toLowerCase())));
+  const active = (provider: Engine) => snapshots[provider].windows.filter((window) => window.resetsAt == null || window.resetsAt > now);
   const remaining = windows.length ? Math.max(0, 100 - Math.max(...windows.map((w) => w.percent))) : null;
   const exhausted = (snapshot.blockedUntil ?? 0) > now || remaining === 0;
   const near = exhausted || (snapshot.warningUntil ?? 0) > now || (remaining !== null && remaining <= LOW_REMAINING);
-  return { windows, remaining, exhausted, near, loading: engine === 'codex' && codexLoading };
+  return { windows, remaining, exhausted, near, loading: engine === 'codex' && codexLoading, providerWindows: { codex: active('codex'), claude: active('claude') } };
 }
 
 export type ProviderQuota = ReturnType<typeof useProviderQuota>;

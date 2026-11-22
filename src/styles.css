@@ -2803,6 +2803,8 @@ html.is-light .git-log-body {
   flex: 1;
   min-height: 0;
 }
+.monaco .diff-unified-added { background: rgb(111 224 179 / 0.12); }
+.monaco .diff-unified-removed { background: rgb(255 107 93 / 0.12); }
 .viewer-msg {
   padding: 20px;
   color: var(--tx3);

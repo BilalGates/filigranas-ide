@@ -86,7 +86,7 @@ def main():
                 if name == "ajustes":
                     app.get_by_role("button", name="Skills y reglas", exact=True).click()
                 if name == "entrega":
-                    app.locator(".monaco-diff-editor").wait_for(state="visible")
+                    app.locator(".monaco.is-unified .monaco-editor").wait_for(state="visible")
                 app.mouse.move(width - 2, height - 2)
                 app.evaluate("document.fonts.ready")
                 app.wait_for_timeout(300)

@@ -71,7 +71,7 @@ function SkillsSec() {
 }
 
 function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
-  const codex = useProviderQuota('codex', null), claude = useProviderQuota('claude', null);
+  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null);
   const [jv, setJv] = useState<JevStatus | null>(null);
   useEffect(() => { jev.status().then(setJv, () => setJv(null)); }, []);
   const q = (label: string, x: ReturnType<typeof useProviderQuota>) => x.windows.length ? x.windows.map((w) => (

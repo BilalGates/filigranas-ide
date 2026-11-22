@@ -87,7 +87,7 @@ def check_delivery(browser, url):
     explorer = page.get_by_role("complementary", name="Archivos y commits")
     expect(explorer.get_by_text("autonomy.ts", exact=True)).to_be_visible()
     expect(explorer.get_by_role("textbox", name="Mensaje de commit")).to_have_count(0)
-    expect(page.locator(".monaco-diff-editor")).to_be_visible()
+    expect(page.locator(".monaco.is-unified .monaco-editor")).to_be_visible()
     expect(page.get_by_role("button", name="Tests: correcto")).to_be_visible()
     expect(page.get_by_role("complementary", name="Auditoría")).to_contain_text("Espacios al final")
     explorer.get_by_role("button", name="Historial y operaciones de rama").click()
@@ -104,11 +104,33 @@ def check_delivery_worktree(browser, url):
     page.get_by_role("button", name="Abrir calaix", exact=True).click()
     destination(page, "Entrega")
     page.get_by_role("combobox", name="Alcance").select_option("900")
-    diff = page.locator(".monaco-diff-editor")
+    diff = page.locator(".monaco.is-unified .monaco-editor")
     expect(diff).to_contain_text("obligatoria")
     page.get_by_role("button", name=re.compile("^Tests:")).click()
     page.get_by_role("button", name=re.compile("^Cambios:")).click()
     expect(diff).to_contain_text("obligatoria")
+    assert not errors, errors
+    page.close()
+
+
+def check_frame(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir bitacola", exact=True).click()
+    footer = page.get_by_role("contentinfo", name="Estado del proyecto")
+    branch = footer.get_by_role("button", name="Rama del proyecto: main")
+    expect(branch).to_contain_text("↑1 ↓0")
+    expect(footer).to_contain_text("0 trabajando")
+    expect(footer.get_by_role("button", name="Uso de los modelos")).to_contain_text("Codex")
+    jev = footer.get_by_role("button", name=re.compile(r"Jev local"))
+    expect(jev).to_contain_text("0/100")
+    jev.click()
+    expect(page.get_by_role("heading", name="Herramientas y Jev")).to_be_visible()
+    page.get_by_role("button", name="Cerrar uso").click()
+    controls = page.locator(".tb-right")
+    expect(controls.get_by_role("button", name="Necesita tu atención", exact=True)).to_be_visible()
+    assert controls.locator("button").last.get_attribute("aria-label") == "Necesita tu atención"
+    controls.get_by_role("button", name="Agentes de este proyecto").click()
+    expect(page.get_by_role("main", name="Flow")).to_be_visible()
     assert not errors, errors
     page.close()
 
@@ -120,7 +142,7 @@ def main():
     args = parser.parse_args()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=args.channel)
-        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree):
+        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame):
             check(browser, args.app)
             print(f"{check.__name__}: correcto")
         browser.close()

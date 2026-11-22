@@ -272,11 +272,13 @@ export type JevSettings = {
   lightModel: string | null;
 };
 export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export type JevStatusbar = { mode: JevSettings['mode']; used: number; limit: number };
 export type JevUsage = { tokens: number; costUsd: number | null };
 export const jev = {
   usage: () => invoke<JevUsage>('jev_usage'),
   euroRate: () => invoke<number>('jev_euro_rate'),
   status: () => invoke<JevStatus>('jev_status'),
+  statusbar: () => invoke<JevStatusbar>('jev_statusbar'),
   configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
 export const tasks = {

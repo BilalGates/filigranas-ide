@@ -16,7 +16,7 @@ import DesignLoop from './DesignLoop';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
 import UsagePanel from './Usage';
-import { percentLabel, useProviderQuota, useQuotaEvents } from './usageStore';
+import { useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
 import { emit, shortcut, toggleMute, useUi } from './ui';
 import Conflicts from './Conflicts';
@@ -35,6 +35,7 @@ import Boundary from './trama/Boundary';
 import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
 import Settings from './trama/Settings';
+import StatusMeters from './trama/StatusMeters';
 import { Seg } from './trama/ui';
 import { AgDot, Sigil, sessionAgents } from './trama/kit';
 
@@ -96,6 +97,7 @@ export default function App() {
   const [reportedModel, setReportedModel] = useState<{ key: number | string; model: string | null } | null>(null);
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
   const usageButton = useRef<HTMLButtonElement>(null);
+  const statusMeters = useRef<HTMLDivElement>(null);
   const usagePopup = useRef<HTMLElement>(null);
   const centerPanel = useRef<HTMLElement>(null);
   const [pmProjects, setPmProjects] = useState(loadPm);
@@ -111,7 +113,7 @@ export default function App() {
       }
       return next;
     });
-  const [branch, setBranch] = useState<{ project: string; label: string } | null>(null);
+  const [branch, setBranch] = useState<{ project: string; label: string; ahead: number; behind: number; upstream: string | null } | null>(null);
   const [chooseBranch, setChooseBranch] = useState(false);
   const clearBranchPicker = useCallback(() => setChooseBranch(false), []);
 
@@ -133,7 +135,7 @@ export default function App() {
   const pmEngine = pmSession?.engine ?? 'codex';
   const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
-  const quota = useProviderQuota(usageEngine, usageModel);
+  const quota = useProviderQuota(usageEngine, usageModel, true);
   const sessionWorktree = activeSession?.worktree ? activeSession : null;
 
   useEffect(() => {
@@ -142,9 +144,12 @@ export default function App() {
     let timer: number | undefined;
     const refresh = () => {
       const id = ++request;
-      git.head(project).then(
-        (label) => { if (id === request) setBranch({ project, label }); },
-        () => { if (id === request) setBranch({ project, label: 'Rama no disponible' }); },
+      const fallback = { ahead: 0, behind: 0, upstream: null };
+      void git.status(project).then(async ({ branch, ahead, behind, upstream }) => ({
+        label: branch ?? await git.head(project), ahead, behind, upstream,
+      }), async () => ({ label: await git.head(project), ...fallback })).then(
+        (status) => { if (id === request) setBranch({ project, ...status }); },
+        () => { if (id === request) setBranch({ project, label: 'Rama no disponible', ...fallback }); },
       );
     };
     refresh();
@@ -166,7 +171,7 @@ export default function App() {
     if (!usageOpen) return;
     const outside = (e: PointerEvent) => {
       const target = e.target as Node;
-      if (!usageButton.current?.contains(target) && !usagePopup.current?.contains(target)) setUsageOpen(false);
+      if (!statusMeters.current?.contains(target) && !usagePopup.current?.contains(target)) setUsageOpen(false);
     };
     const escape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -496,7 +501,8 @@ export default function App() {
   };
   const toggleUsage = () => {
     setUsageTools(false);
-    setUsageOpen((open) => !open);
+    setGithubOpen(false);
+    setUsageOpen((open) => !open || usageTools);
   };
   const toggleSidebar = () => {
     setNoSide((v) => !v);
@@ -593,10 +599,8 @@ export default function App() {
   const usageLabel = usageEngine === 'codex' ? 'Codex'
     : usageEngine === 'claude' ? 'Claude Code'
     : usageEngine ? (ENGINE_LABEL[usageEngine] ?? usageEngine) : null;
-  const quotaLabel = quota.exhausted ? 'Plan agotado'
-    : quota.remaining !== null ? percentLabel(quota.remaining)
-    : quota.loading ? 'Consultando…' : 'Sin lectura';
-  const branchLabel = branch && branch.project === project ? branch.label : 'Leyendo rama…';
+  const branchInfo = branch?.project === project ? branch : null;
+  const branchLabel = branchInfo?.label ?? 'Leyendo rama…';
   const centerTitle = !current ? null
     : view === 'work' ? { name: 'Trabajo', meta: current.name, tag: null, state: null }
     : view === 'coach' && hasPm
@@ -694,13 +698,6 @@ export default function App() {
           <kbd>{shortcut('⌘K')}</kbd>
         </button>
         <div className="tb-right" data-tauri-drag-region>
-          {headerAgents.length > 0 && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
-            {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
-            {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
-          </button>}
-          {waiting > 0 && <button className="tb-btn tb-attention" aria-label={`Necesita tu atención · ${waiting} pendientes`} title="Necesita tu atención" onClick={() => setDest('inicio')}>
-            <Icon name="signal" size={15} /><span className="dot is-permiso" aria-hidden="true" />
-          </button>}
           <button className={`tb-brain${browserOpen ? ' is-on' : ''}`}
             onClick={() => { setDest('workspace'); showRight('browser'); }}
             aria-label="Navegador" aria-controls="workspace-right-panel" aria-expanded={browserOpen}
@@ -709,6 +706,14 @@ export default function App() {
           </button>
           <GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
             onOpenChange={open => { setGithubOpen(open); if (open) setUsageOpen(false); }} />
+          {current && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
+            {headerAgents.length === 0 && <><Icon name="agent" size={13} /><span>0</span></>}
+            {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
+            {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
+          </button>}
+          <button className="tb-btn tb-attention" aria-label={waiting ? `Necesita tu atención · ${waiting} pendientes` : 'Necesita tu atención'} title="Necesita tu atención" onClick={() => setDest('inicio')}>
+            <Icon name="signal" size={16} />{waiting > 0 && <span className="dot is-permiso" aria-hidden="true" />}
+          </button>
         </div>
       </header>
 
@@ -1023,41 +1028,34 @@ export default function App() {
           ))}
       </Right>
       <footer className="statusbar" aria-label="Estado del proyecto">
-        <div className="status-actions">
-          <button ref={usageButton} className={`status-action status-usage${usageOpen ? ' is-on' : ''}`} aria-controls={usageOpen ? 'usage-popup' : undefined}
-            aria-expanded={usageOpen} onClick={toggleUsage} title={shortcut('uso de los modelos · ⌘U')}>
-            <Icon name="gauge" size={13} />
-            <span>{usageEngine === 'claude' ? 'Uso · Claude' : usageLabel ? `Uso · ${usageLabel}` : 'Uso'}</span>
-            {usageLabel && (
-              <span className={quota.near ? 'usage-limit' : undefined}
-                title={`${usageLabel}${usageModel ? ` · ${usageModel}` : ''} · ${quotaLabel}${quota.remaining !== null && !quota.exhausted ? ' restante' : ''}`}>
-                {quotaLabel}
-              </span>
-            )}
+        <div className="status-project">
+          <button className="status-branch" disabled={!current} title={current ? `Rama del proyecto · ${branchLabel}` : 'Abre un proyecto para ver su rama'}
+            aria-label={current ? `Rama del proyecto: ${branchLabel}` : 'Sin proyecto'}
+            onClick={() => { setDest('workspace'); revealRight('git'); setChooseBranch(true); }}>
+            <Icon name="branch" size={13} />
+            <span>{current ? branchLabel : 'Sin proyecto'}</span>
+            {branchInfo?.upstream && <span className="status-branch-sync" title={branchInfo.upstream}>↑{branchInfo.ahead} ↓{branchInfo.behind}</span>}
           </button>
+          {current && <>
+            <button className="status-action status-live" onClick={() => setDest(waiting > 0 ? 'inicio' : 'flow')} title="Actividad de los agentes">
+              <Icon name="agent" size={13} />
+              <span>{Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</span>
+              <span className={waiting > 0 ? 'amb' : undefined}>· {waiting} en espera</span>
+            </button>
+            <button className={`status-action status-terminal${termOpen ? ' is-on' : ''}`}
+              onClick={() => { if (dest === 'workspace' || !termOpen) toggleTerminal(); setDest('workspace'); }}
+              aria-controls="project-terminal" aria-expanded={dest === 'workspace' && termOpen} aria-label="Terminal" title={shortcut('Terminal · ⌘J')}>
+              <Icon name="terminal" size={13} />
+            </button>
+          </>}
+          {sessionWorktree?.branch && <span className="status-session-branch" title={`Rama de sesión · ${sessionWorktree.branch} ← ${sessionWorktree.base ?? '—'}`}>
+            <Icon name="branch" size={12} /><span>{sessionWorktree.branch}</span>
+          </span>}
         </div>
-        {current && (
-          <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
-            aria-expanded={termOpen} title={shortcut('Terminal · ⌘J')}>
-            <Icon name="terminal" size={13} /> Terminal
-          </button>
-        )}
-        <button className="status-branch" disabled={!current} title={current ? `Rama del proyecto · ${branchLabel}` : 'Abre un proyecto para ver su rama'}
-          aria-label={current ? `Rama del proyecto: ${branchLabel}` : 'Sin proyecto'} onClick={() => { revealRight('git'); setChooseBranch(true); }}>
-          <Icon name="branch" size={13} />
-          <span>{current ? branchLabel : 'Sin proyecto'}</span>
-        </button>
-        {sessionWorktree?.branch && <span className="status-session-branch" title={`Rama de sesión · ${sessionWorktree.branch} ← ${sessionWorktree.base ?? '—'}`}>
-          <Icon name="branch" size={12} />
-          <span>Sesión · {sessionWorktree.branch}</span>
-        </span>}
-        {current && (destLive.workspace || waiting > 0) && (
-          <button className="status-action status-live" onClick={() => setDest('workspace')} title="Actividad de los agentes">
-            {destLive.workspace && <><span className="dot is-trabajando" /> {Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</>}
-            {destLive.workspace && waiting > 0 && <span className="mut"> · </span>}
-            {waiting > 0 && <span className="amb">{waiting} {waiting === 1 ? 'espera' : 'esperan'} permiso</span>}
-          </button>
-        )}
+        <div ref={statusMeters} className="status-meters">
+          <StatusMeters quota={quota} usage={usageOpen} tools={usageTools} usageButton={usageButton} onUsage={toggleUsage}
+            onJev={() => { setGithubOpen(false); setUsageTools(true); setUsageOpen((open) => !open || !usageTools); }} />
+        </div>
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}

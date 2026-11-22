@@ -645,6 +645,8 @@ mockIPC(
         return fail('Este flujo necesita la app de escritorio de Filigranas');
       case 'jev_usage':
         return { tokens: 0, costUsd: 0 };
+      case 'jev_statusbar':
+        return { mode: mockJevSettings.mode, used: 0, limit: 100 };
       case 'jev_status':
         return mockJevStatus();
       case 'jev_configure':

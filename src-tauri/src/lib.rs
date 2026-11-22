@@ -284,6 +284,7 @@ pub fn run() {
             github_login::github_login_cancel,
             github_login::github_login_open,
             jev::jev_status,
+            jev::jev_statusbar,
             jev::jev_usage,
             jev::jev_euro_rate,
             jev::jev_configure,

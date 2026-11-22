@@ -1,7 +1,8 @@
 // Monaco se carga solo al abrir el primer archivo o diff (import dinámico
 // desde monacoLoader.ts), para que el arranque de la app no pague su peso.
 import * as monaco from 'monaco-editor';
-import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
+// El worker de diffs debe arrancar también desde el protocolo de assets de Tauri en WKWebView.
+import EditorWorker from 'monaco-editor/editor/editor.worker?worker&inline';
 import TsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 import JsonWorker from 'monaco-editor/language/json/json.worker?worker';
 import CssWorker from 'monaco-editor/language/css/css.worker?worker';

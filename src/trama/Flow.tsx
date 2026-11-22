@@ -433,7 +433,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
 function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel: (id: string) => void }) {
   const svg = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(600);
-  const codex = useProviderQuota('codex', null), claude = useProviderQuota('claude', null);
+  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null);
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (svg.current) ro.observe(svg.current); return () => ro.disconnect(); }, []);
   const day = new Date(); day.setHours(0, 0, 0, 0);
   const runs = (m?.runs ?? []).filter((r) => r.at >= day.getTime() || m?.demo).sort((a, b) => a.at - b.at);

@@ -1,0 +1,50 @@
+[
+  {
+    "view": "workspace",
+    "width": 1440,
+    "height": 900,
+    "errors": []
+  },
+  {
+    "view": "studio",
+    "width": 1440,
+    "height": 900,
+    "errors": []
+  },
+  {
+    "view": "brain",
+    "width": 1440,
+    "height": 900,
+    "errors": []
+  },
+  {
+    "view": "ajustes",
+    "width": 1440,
+    "height": 900,
+    "errors": []
+  },
+  {
+    "view": "workspace",
+    "width": 1050,
+    "height": 720,
+    "errors": []
+  },
+  {
+    "view": "studio",
+    "width": 1050,
+    "height": 720,
+    "errors": []
+  },
+  {
+    "view": "brain",
+    "width": 1050,
+    "height": 720,
+    "errors": []
+  },
+  {
+    "view": "ajustes",
+    "width": 1050,
+    "height": 720,
+    "errors": []
+  }
+]

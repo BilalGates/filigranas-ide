@@ -148,7 +148,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
                 }
             };
             crate::tasks::changed(app);
-            let created = claude::new_session(app, &project, engine, Some(task_id))?;
+            let created = claude::new_session(app, &project, engine, Some(task_id), None)?;
             let session = created.session;
             {
                 let conn = state.db.lock().map_err(err)?;

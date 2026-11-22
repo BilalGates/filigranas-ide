@@ -158,7 +158,7 @@ fn link(value: &str) -> CmdResult<Url> {
     Err("Introduce un enlace HTTP o HTTPS válido.".into())
 }
 
-fn image_format(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+pub(crate) fn image_format(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some(("image/png", "png"))
     } else if bytes.starts_with(b"\xff\xd8\xff") {

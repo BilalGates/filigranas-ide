@@ -152,7 +152,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
       return (
         <div className="co-msg is-user">
           <div className="co-by">tú</div>
-          <Prose text={(it.content ?? []).map((c) => c.text ?? '').join('\n').split(CONTEXT_MARKER, 1)[0]} />
+          <Prose text={(it.content ?? []).map((c) => c.text ?? '').join('\n').split('\n\n[Filigranas IDE: skills administradas del turno]\n', 1)[0].split(CONTEXT_MARKER, 1)[0]} />
         </div>
       );
     case 'agentMessage':

@@ -6,9 +6,9 @@ import { CANVAS_CONSTRAINT, loadCanvas, saveCanvas, starterFrames, type CanvasFr
 import { shortcut } from './ui';
 import './designCanvas.css';
 
-type Props = { project: string; reference: CanvasFrame; archived: number; navigation: ReactNode; conversation: ReactNode };
+type Props = { project: string; reference: CanvasFrame; archived: number; conversation: ReactNode };
 
-export default function DesignCanvas({ project, reference, archived, navigation, conversation }: Props) {
+export default function DesignCanvas({ project, reference, archived, conversation }: Props) {
   const [saved, setSaved] = useState(() => loadCanvas(project));
   const [selected, setSelected] = useState(1);
   const [rowId, setRowId] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export default function DesignCanvas({ project, reference, archived, navigation,
 
   return <div className="design-board">
     <div className="design-board-tools">
-      {navigation}
+
       <span className="design-board-document"><Icon name="sidebar" />Barra lateral</span>
       <span className="grow" />
       <div className="design-tool-group" role="group" aria-label="Herramientas del lienzo">

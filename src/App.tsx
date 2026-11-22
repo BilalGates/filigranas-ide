@@ -12,12 +12,10 @@ import Terminal from './Terminal';
 import Coordinator from './Coordinator';
 import SessionView, { ENGINE_LABEL } from './Session';
 import Tasks, { type WorkSection, type WorkTarget } from './Tasks';
-import Brain from './Brain';
-import BrainGraph from './BrainGraph';
-import DesignLoop from './DesignLoop';
+import DesignCanvas from './DesignCanvas';
+import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
-import UsagePanel from './Usage';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
 import { emit, shortcut, toggleMute, useUi } from './ui';
@@ -40,7 +38,9 @@ import TitleSwitch from './trama/TitleSwitch';
 import EngineUsage, { type Engine } from './trama/EngineUsage';
 import JevUsage from './trama/JevUsage';
 import Settings from './trama/Settings';
+import JevStatusButton from './trama/StatusMeters';
 import { Seg } from './trama/ui';
+import { AgDot, sessionAgents } from './trama/kit';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -73,8 +73,6 @@ export default function App() {
   const nextTermId = useRef(1);
   const [termOpen, setTermOpen] = useState(false);
   const [view, setView] = useState<'coach' | 'work' | number>('coach');
-  const [brainProject, setBrainProject] = useState<string | null>(null);
-  const [brainTarget, setBrainTarget] = useState<number | null>(null);
   const [workTarget, setWorkTarget] = useState<WorkTarget | null>(null);
   const [worktree, setWorktree] = useState<{ project: string; id: number } | null>(null);
   const [coachTask, setCoachTask] = useState<{ id: number; title: string } | null>(null);
@@ -94,7 +92,6 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState<Engine | 'jev' | null>(null);
-  const [usageTools, setUsageTools] = useState(false);
   // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
   const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
   // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
@@ -103,6 +100,7 @@ export default function App() {
   const [reportedModel, setReportedModel] = useState<{ key: number | string; model: string | null } | null>(null);
   const reportModel = useCallback((key: number | string, model: string | null) => setReportedModel({ key, model }), []);
   const usageButton = useRef<HTMLButtonElement>(null);
+  const statusMeters = useRef<HTMLDivElement>(null);
   const usagePopup = useRef<HTMLElement>(null);
   const centerPanel = useRef<HTMLElement>(null);
   const [pmProjects, setPmProjects] = useState(loadPm);
@@ -118,7 +116,7 @@ export default function App() {
       }
       return next;
     });
-  const [branch, setBranch] = useState<{ project: string; label: string } | null>(null);
+  const [branch, setBranch] = useState<{ project: string; label: string; ahead: number; behind: number; upstream: string | null } | null>(null);
   const [chooseBranch, setChooseBranch] = useState(false);
   const clearBranchPicker = useCallback(() => setChooseBranch(false), []);
 
@@ -129,10 +127,12 @@ export default function App() {
   const [dest, setDestState] = useState<Dest>(loadDest);
   const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
   const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
+  const [entregaScope, setEntregaScope] = useState<number | null>(null);
+  const [studioView, setStudioView] = useState<'captures' | 'canvas'>('captures');
   const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
     try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
   });
-  const setDest = useCallback((d: Dest) => { setDestState(d); saveDest(d); }, []);
+  const setDest = useCallback((d: Dest) => { if (d !== 'entrega') setEntregaScope(null); setDestState(d); saveDest(d); }, []);
   const { activity, muted } = useUi();
   const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
   const pmReady = !!project && pmChat?.project === project;
@@ -140,7 +140,7 @@ export default function App() {
   const pmEngine = pmSession?.engine ?? 'codex';
   const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
-  const quota = useProviderQuota(usageEngine, usageModel);
+  const quota = useProviderQuota(usageEngine, usageModel, true);
   const sessionWorktree = activeSession?.worktree ? activeSession : null;
 
   useEffect(() => {
@@ -149,9 +149,12 @@ export default function App() {
     let timer: number | undefined;
     const refresh = () => {
       const id = ++request;
-      git.head(project).then(
-        (label) => { if (id === request) setBranch({ project, label }); },
-        () => { if (id === request) setBranch({ project, label: 'Rama no disponible' }); },
+      const fallback = { ahead: 0, behind: 0, upstream: null };
+      void git.status(project).then(async ({ branch, ahead, behind, upstream }) => ({
+        label: branch ?? await git.head(project), ahead, behind, upstream,
+      }), async () => ({ label: await git.head(project), ...fallback })).then(
+        (status) => { if (id === request) setBranch({ project, ...status }); },
+        () => { if (id === request) setBranch({ project, label: 'Rama no disponible', ...fallback }); },
       );
     };
     refresh();
@@ -173,7 +176,7 @@ export default function App() {
     if (!usageOpen) return;
     const outside = (e: PointerEvent) => {
       const target = e.target as Node;
-      if (!usageButton.current?.contains(target) && !usagePopup.current?.contains(target)) setUsageOpen(false);
+      if (!statusMeters.current?.contains(target) && !usagePopup.current?.contains(target)) setUsageOpen(false);
     };
     const escape = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
@@ -302,9 +305,9 @@ export default function App() {
     };
   }, [project]);
 
-  const newSession = (engine = 'codex', task: number | null = null) => {
+  const newSession = (engine = 'codex', task: number | null = null, skillRole: 'designer' | null = null) => {
     if (!project) return;
-    sessions.create(project, engine, task).then(
+    sessions.create(project, engine, task, skillRole).then(
       ({ notice, ...s }) => {
         if (currentProject.current !== s.project) return;
         setAgentSessions((list) => list.some((item) => item.id === s.id) ? list : [...list, s]);
@@ -379,8 +382,8 @@ export default function App() {
 
   // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
   useEffect(() => {
-    if (typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
-  }, [agentSessions, view]);
+    if (project && sessionsOf === project && typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
+  }, [agentSessions, project, sessionsOf, view]);
 
   // Sus terminales tampoco sobreviven: su carpeta puede haberse borrado.
   useEffect(() => {
@@ -396,9 +399,9 @@ export default function App() {
     if (project && sessionsOf === project && view === 'coach' && !pmProjects.has(project) && agentSessions.length) setView(agentSessions[0].id);
   }, [project, sessionsOf, view, pmProjects, agentSessions]);
 
+  const openStudio = () => { setStudioView('captures'); setDest('studio'); };
   const revealRight = (tab: RightTab) => {
-    // Brain es un destino propio: el antiguo panel lateral ya no se abre.
-    if (tab === 'brain' || tab === 'brain-graph') { setDest('brain'); return; }
+    if (tab === 'design') { openStudio(); return; }
     setRightView(tab);
     setNoRight(false);
   };
@@ -443,8 +446,8 @@ export default function App() {
 
   // «Retomar»: último punto de trabajo real (proyecto y vista del Workspace).
   useEffect(() => {
-    if (project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
-  }, [project, view, dest]);
+    if (project && sessionsOf === project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
+  }, [project, sessionsOf, view, dest]);
 
   const closeFile = () => {
     setFile(null);
@@ -471,17 +474,6 @@ export default function App() {
     setConflictFiles(null);
     setRightView((tab) => (tab === 'conflicts' ? 'git' : tab));
     setView('coach');
-  };
-  const graphTask = (path: string, id: number) => {
-    if (path !== project) selectProject(path);
-    setWorkTarget({ project: path, task: id, section: 'summary' });
-    setView('work');
-    setNoRight(true);
-  };
-  const graphMemory = (path: string | null, id: number) => {
-    setBrainProject(path);
-    setBrainTarget(id);
-    revealRight('brain');
   };
   const hasPm = !!current && pmProjects.has(current.path);
   const startPm = (path = current?.path) => {
@@ -515,6 +507,8 @@ export default function App() {
     else openTerminal(current.path);
   };
   const toggleUsage = () => {
+    setUsageOpen(false);
+    setGithubOpen(false);
     setEngineOpen((open) => open ? null : usageEngine === 'claude' ? 'claude' : 'codex');
   };
   const toggleSidebar = () => {
@@ -566,7 +560,6 @@ export default function App() {
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openWork('pulls', view === 'work' ? undefined : activeSession ?? null) },
     { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
-    { id: 'brain', label: 'Filigranas Brain', run: () => setDest('brain') },
     { id: 'browser', label: 'navegador', run: () => showRight('browser') },
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
@@ -613,14 +606,15 @@ export default function App() {
   const usageLabel = usageEngine === 'codex' ? 'Codex'
     : usageEngine === 'claude' ? 'Claude Code'
     : usageEngine ? (ENGINE_LABEL[usageEngine] ?? usageEngine) : null;
-  const branchLabel = branch && branch.project === project ? branch.label : 'Leyendo rama…';
+  const branchInfo = branch?.project === project ? branch : null;
+  const branchLabel = branchInfo?.label ?? 'Leyendo rama…';
   const centerTitle = !current ? null
     : view === 'work' ? { name: 'Trabajo', meta: current.name, tag: null, state: null }
     : view === 'coach' && hasPm
       ? { name: 'Project manager', meta: pmEngine === 'claude' ? 'Claude Code' : 'Codex', tag: null, state: sessionState('coach') }
       : activeSession
         ? { name: activeSession.name, meta: ENGINE_LABEL[activeSession.engine] ?? activeSession.engine, tag: null, state: sessionState(String(activeSession.id)) }
-        : null;
+        : { name: current.name, meta: 'Workspace', tag: null, state: null };
 
   const chatEngine = activeSession?.engine ?? (view === 'coach' && hasPm && pmReady ? pmEngine : null);
   const providerPicker = (chatEngine === 'codex' || chatEngine === 'claude') && (
@@ -668,19 +662,17 @@ export default function App() {
     </div>
   );
 
-  // Ruta que encabeza el panel derecho: el archivo abierto o la carpeta del proyecto.
-  const panelLocation = !current ? null
-    : rightView === 'editor' && (diff?.path ?? file)
-      ? (() => { const f = (diff?.path ?? file)!; const base = (fileSession != null ? fileRoot : null) ?? current.path; return /^([a-zA-Z]:)?[\\/]/.test(f) ? f : `${base.replace(/[\\/]+$/, '')}/${f}`; })()
-      : current.path;
-  const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
-  const isBrain = rightView === 'brain' || rightView === 'brain-graph';
-  const panelOpen = !noRight && (!!current || rightView === 'browser' || isBrain);
-  const brainOpen = panelOpen && isBrain;
+  const editorPath = diff?.path ?? file;
+  const editorScope = diff ? diff.session : fileSession;
+  const editorRoot = editorScope == null ? current?.path
+    : agentSessions.find((session) => session.id === editorScope)?.worktree ?? (diff ? null : fileRoot) ?? current?.path;
+  const panelLocation = rightView === 'editor' && editorPath && editorRoot
+    ? /^([a-zA-Z]:)?[\\/]/.test(editorPath) ? editorPath : `${editorRoot.replace(/[\\/]+$/, '')}/${editorPath}`
+    : current?.path ?? null;
+  const editorTab = current && editorPath ? { name: editorPath.split(/[\\/]/).pop() ?? '', path: editorPath, diff: !!diff } : null;
+  const panelOpen = !noRight && (!!current || rightView === 'browser');
   const browserOpen = panelOpen && rightView === 'browser';
-  const designOpen = !!current && panelOpen && rightView === 'design';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
-    if (tab === 'brain' || tab === 'brain-graph') return false;
     if (tab === 'browser') return false;
     // Studio es un destino propio: sin botón duplicado en el carril
     if (tab === 'design') return false;
@@ -688,6 +680,7 @@ export default function App() {
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
   });
+  const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null) : [];
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
   const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
   const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
@@ -699,27 +692,37 @@ export default function App() {
   );
 
   return (
-    <div className={`app${brainOpen ? ' has-brain' : ''}${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${designOpen ? ' has-design' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
       <AmbientField dim={dest === 'workspace' ? 0.8 : 1} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
-          <TitleSwitch ws={ws} project={project} branch={branch && branch.project === project ? branch.label : null} onError={setError}
-            onProject={(path) => { if (path !== project) selectProject(path); }}
-            onBranched={() => { if (project) git.head(project).then((label) => setBranch({ project, label }), () => {}); }} />
+          <TitleSwitch ws={ws} project={project} branch={branchInfo} onError={setError}
+            onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
+            onBranched={() => { void emit('project-changed'); }}
+            onManage={() => { setLeftMode('projects'); setNoSide(false); setDest('workspace'); }}
+            onBranchTools={() => { setDest('workspace'); revealRight('git'); setChooseBranch(true); }} />
         </div>
         <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
-          <Icon name="search" size={13} />
-          <span className="tb-name">Buscar o ejecutar…</span>
-          <span className="grow" />
+          <Icon name="search" size={14} />
+          <span className="grow">Buscar o ejecutar…</span>
           <kbd>{shortcut('⌘K')}</kbd>
         </button>
-        <div className="tb-right" data-tauri-drag-region />
+        <div className="tb-right" data-tauri-drag-region>
+          {current && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
+            {headerAgents.length === 0 && <><Icon name="agent" size={13} /><span>0</span></>}
+            {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
+            {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
+          </button>}
+          <button className="tb-btn tb-attention" aria-label={waiting ? `Necesita tu atención · ${waiting} pendientes` : 'Necesita tu atención'} title="Necesita tu atención" onClick={() => setDest('inicio')}>
+            <Icon name="signal" size={16} />{waiting > 0 && <span className="dot is-permiso" aria-hidden="true" />}
+          </button>
+        </div>
       </header>
 
       <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
         browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
         github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
-          onOpenChange={open => { setGithubOpen(open); if (open) setEngineOpen(null); }} />} />
+          onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
       {dest === 'inicio' && (
         <Boundary name="Inicio">
         <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
@@ -729,7 +732,7 @@ export default function App() {
           onWork={(path, task) => { if (path !== project) selectProject(path); if (task) setWorkTarget({ project: path, task, section: 'summary' }); setView('work'); setDest('workspace'); }}
           onResume={() => {
             const r = loadResume();
-            if (!r || !ws.projects.some((p) => p.path === r.project)) return;
+            if (!r || !ws.projects.some((p) => p.path === r.project && !p.archived)) return;
             if (r.project !== project) selectProject(r.project);
             if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
             setDest('workspace');
@@ -749,27 +752,32 @@ export default function App() {
       )}
       {dest === 'studio' && (
         <Boundary name="Studio">
-        <Studio project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Studio key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+          view={studioView} onView={setStudioView} onNewSession={() => newSession('claude', null, 'designer')}
+          canvas={current && <DesignCanvas key={current.path} project={current.path}
+            reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
+            archived={ws.projects.filter((item) => item.archived).length}
+            conversation={<button className="btn sm" onClick={() => { setDest('workspace'); requestAnimationFrame(focusConversation); }}><Icon name="chat" size={13} /> Conversación</button>} />}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onBrowser={() => { setDest('workspace'); revealRight('browser'); }} />
         </Boundary>
       )}
       {dest === 'entrega' && (
         <Boundary name="Entrega">
-        <Entrega project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Entrega key={project} initialScope={entregaScope} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
           onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
         </Boundary>
       )}
       {dest === 'brain' && (
         <Boundary name="Brain">
-          <BrainView project={project} projectName={current?.name ?? null}
+          <BrainView key={project} project={project} projects={ws.projects}
             onOpenTask={(id, proj) => { const path = proj ?? project; if (!path) return; if (path !== project) selectProject(path); setWorkTarget({ project: path, task: id, section: 'summary' }); setView('work'); setDest('workspace'); }} />
         </Boundary>
       )}
       {dest === 'ajustes' && (
         <Boundary name="Ajustes">
-          <Settings project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
+          <Settings agentSessions={agentSessions} project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
             onRefreshTools={checkTools} onLogin={current ? (command) => { setDest('workspace'); openTerminal(current.path, true, command); } : null}
             usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
         </Boundary>
@@ -815,19 +823,13 @@ export default function App() {
       )}
       {shareDialog}
       {usageOpen && (
-        <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Uso de los modelos">
+        <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Herramientas y Jev">
           <header>
-            <h2>{usageTools ? 'Herramientas y Jev' : 'Uso'}</h2>
+            <h2>Herramientas y Jev</h2>
             <button className="icon" aria-label="Cerrar uso" onClick={() => { setUsageOpen(false); usageButton.current?.focus(); }}><Icon name="close" size={12} /></button>
           </header>
-          {usageTools ? <>
-            <button className="usage-tools" onClick={() => setUsageTools(false)}>‹ Volver a Uso</button>
-            <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
-              onLogin={current ? (command) => { setUsageOpen(false); openTerminal(current.path, true, command); } : null} />
-          </> : <>
-            <UsagePanel engine={usageEngine} label={usageLabel} model={usageModel} quota={quota} />
-            <button className="usage-tools" onClick={() => setUsageTools(true)}><Icon name="tools" size={14} /> Herramientas y Jev</button>
-          </>}
+          <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
+            onLogin={current ? (command) => { setUsageOpen(false); setDest('workspace'); openTerminal(current.path, true, command); } : null} />
         </section>
       )}
       <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
@@ -947,7 +949,7 @@ export default function App() {
         </section>
         {errorToast}
         {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
-          onOpen={() => { setCliNotice(null); setUsageTools(true); setUsageOpen(true); }} />}
+          onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
       </main>
 
       <nav className="rail" aria-label="Paneles y utilidades">
@@ -975,22 +977,6 @@ export default function App() {
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile} root={ws.root} location={panelLocation}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
-        {panelOpen && rightView === 'brain' && <>
-          <div className="brain-memory-scope task-form"><label>Proyecto de los recuerdos<select value={brainProject ?? ''} onChange={e => { setBrainProject(e.target.value || null); setBrainTarget(null); }}>
-            <option value="">Memoria global</option>
-            {ws.projects.map(p => <option key={p.path} value={p.path}>{p.name}</option>)}
-          </select></label></div>
-          <Brain key={brainProject ?? 'global'} project={brainProject} target={brainTarget}
-            onClearTarget={() => setBrainTarget(null)} onGraph={() => revealRight('brain-graph')} />
-        </>}
-        <BrainGraph projects={ws.projects} hidden={!panelOpen || rightView !== 'brain-graph'}
-          onMemories={path => { setBrainProject(path); setBrainTarget(null); revealRight('brain'); }} onTask={graphTask} onMemory={graphMemory} />
-        {current && <DesignLoop key={'design:' + current.path} project={current.path} sessions={agentSessions} hidden={!designOpen}
-          reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
-          archived={ws.projects.filter((item) => item.archived).length}
-          onConversation={focusConversation}
-          onNew={() => newSession('claude')}
-          onSession={setView} />}
         {current && conflictFiles && (
           <Conflicts
             project={current.path}
@@ -1033,35 +1019,41 @@ export default function App() {
         {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
         {panelOpen && current && rightView === 'editor' &&
           editorTab &&
-          (diff ? (
-            <Diff project={current.path} change={diff} />
-          ) : (
-            <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />
-          ))}
+          <>
+            {dest === 'workspace' && <WorkspaceChanges key={`${current.path}:${(diff ? diff.session : fileSession) ?? ''}`}
+              project={current.path} session={(diff ? diff.session : fileSession) ?? null}
+              onDiff={showDiff} onEntrega={() => { setEntregaScope((diff ? diff.session : fileSession) ?? null); setDest('entrega'); }} />}
+            {diff ? <Diff project={current.path} change={diff} /> :
+              <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />}
+          </>}
       </Right>
       <footer className="statusbar" aria-label="Estado del proyecto">
-        {current && (
-          <button className={`status-action${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-controls="project-terminal"
-            aria-expanded={termOpen} title={shortcut('Terminal · ⌘J')}>
-            <Icon name="terminal" size={13} /> Terminal
-          </button>
-        )}
-        {sessionWorktree?.branch && <span className="status-session-branch" title={`Rama de sesión · ${sessionWorktree.branch} ← ${sessionWorktree.base ?? '—'}`}>
-          <Icon name="branch" size={12} />
-          <span>Sesión · {sessionWorktree.branch}</span>
-        </span>}
-        {current && (destLive.workspace || waiting > 0) && (
-          <button className="status-action status-live" onClick={() => setDest('workspace')} title="Actividad de los agentes">
-            {destLive.workspace && <><span className="dot is-trabajando" /> {Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</>}
-            {destLive.workspace && waiting > 0 && <span className="mut"> · </span>}
-            {waiting > 0 && <span className="amb">{waiting} {waiting === 1 ? 'espera' : 'esperan'} permiso</span>}
-          </button>
-        )}
-        <span className="grow" />
-        <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
-          open={engineOpen === 'jev' ? null : engineOpen} onOpen={(e) => { setEngineOpen(e); if (e) setGithubOpen(false); }}
-          onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
-        <JevUsage open={engineOpen === 'jev'} onOpen={(o) => { setEngineOpen(o ? 'jev' : null); if (o) setGithubOpen(false); }} onSettings={() => setDest('ajustes')} />
+        <div className="status-project">
+          {current && <>
+            <button className="status-action status-live" onClick={() => setDest(waiting > 0 ? 'inicio' : 'flow')} title="Actividad de los agentes">
+              <Icon name="agent" size={13} />
+              <span>{Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</span>
+              <span className={waiting > 0 ? 'amb' : undefined}>· {waiting} en espera</span>
+            </button>
+            <button className={`status-action status-terminal${termOpen ? ' is-on' : ''}`}
+              onClick={() => { if (dest === 'workspace' || !termOpen) toggleTerminal(); setDest('workspace'); }}
+              aria-controls="project-terminal" aria-expanded={dest === 'workspace' && termOpen} aria-label="Terminal" title={shortcut('Terminal · ⌘J')}>
+              <Icon name="terminal" size={13} />
+            </button>
+          </>}
+          {sessionWorktree?.branch && <span className="status-session-branch" title={`Rama de sesión · ${sessionWorktree.branch} ← ${sessionWorktree.base ?? '—'}`}>
+            <Icon name="branch" size={12} /><span>{sessionWorktree.branch}</span>
+          </span>}
+        </div>
+        <div ref={statusMeters} className="status-meters">
+          <JevStatusButton open={usageOpen} buttonRef={usageButton} onClick={() => {
+            setGithubOpen(false); setEngineOpen(null); setUsageOpen((open) => !open);
+          }} />
+          <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
+            open={engineOpen === 'jev' ? null : engineOpen} onOpen={(engine) => { setEngineOpen(engine); if (engine) { setGithubOpen(false); setUsageOpen(false); } }}
+            onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
+          <JevUsage open={engineOpen === 'jev'} onOpen={(o) => { setEngineOpen(o ? 'jev' : null); if (o) { setGithubOpen(false); setUsageOpen(false); } }} onSettings={() => setDest('ajustes')} />
+        </div>
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}

@@ -19,7 +19,8 @@ type StState = 'done' | 'now' | 'fail' | 'todo';
 const noop = () => {};
 const OUTCOME: Record<string, string> = { passed: 'correcto', failed: 'falló', findings: 'con hallazgos', incomplete: 'incompleto', unknown: 'desconocido' };
 
-export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged }: {
+export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null }: {
+  initialScope?: number | null;
   project: string | null;
   projectName: string | null;
   agentSessions: Session[];
@@ -28,7 +29,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   onBranchesChanged: () => void;
 }) {
   const [stage, setStage] = useState<Stage | null>(null);
-  const [scopeId, setScopeId] = useState<number | null>(null);
+  const [scopeId, setScopeId] = useState<number | null>(initialScope);
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [log, setLog] = useState<LogRow[] | null>(null);
@@ -37,6 +38,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   const [work, setWork] = useState<Work | null>(null);
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const request = useRef(0);
   const [left, setLeft] = useState(false);
   const [right, setRight] = useState(false);
   const isolated = agentSessions.filter((s) => s.worktree);
@@ -45,19 +47,39 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
 
   const load = useCallback(async () => {
     if (!project) return;
+    const id = ++request.current;
     const [st, lg, h, ci, w, t] = await Promise.allSettled([
-      sid == null ? git.status(project) : sessionApi.changes(sid), git.log(project), health.list(project, sid), health.ci(project, sid), workSessions.current(project), taskApi.list(project),
+      sid == null ? git.status(project) : sessionApi.changes(sid), sid == null ? git.log(project) : Promise.resolve([]), health.list(project, sid), health.ci(project, sid), workSessions.current(project), taskApi.list(project),
     ]);
+    if (id !== request.current) return;
     setStatus(st.status === 'fulfilled' ? st.value : null);
     setLog(lg.status === 'fulfilled' ? lg.value : null);
     setRuns(h.status === 'fulfilled' ? h.value : null);
     setPulls(ci.status === 'fulfilled' ? ci.value : null);
     setWork(w.status === 'fulfilled' ? w.value : null);
     setTasks(t.status === 'fulfilled' ? t.value : null);
-    const failed = [st, h, ci, w].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    const failed = [st, lg, h, ci, w, t].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
     setError(failed ? String(failed.reason) : null);
   }, [project, sid]);
-  useEffect(() => { setDiff(null); setStage(null); void load(); const t = window.setInterval(load, 15000); return () => window.clearInterval(t); }, [load]);
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(load, 15000);
+    return () => {
+      request.current++;
+      window.clearInterval(timer);
+    };
+  }, [load]);
+  const selectScope = (id: number | null) => {
+    request.current++;
+    setStatus(null);
+    setLog(null);
+    setRuns(null);
+    setPulls(null);
+    setError(null);
+    setDiff(null);
+    setStage(null);
+    setScopeId(id);
+  };
   // con cambios pendientes, el primer archivo abre el diff como protagonista
   useEffect(() => { if (!diff && stage == null && status?.changes[0]) setDiff(sid == null ? status.changes[0] : { ...status.changes[0], session: sid }); }, [status, diff, stage, sid]);
 
@@ -68,21 +90,21 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   const open = lastRun ? lastRun.findings.filter((f) => f.status === 'open') : [];
   const pull = pulls?.find((p) => p.state === 'OPEN') ?? pulls?.[0] ?? null;
   const live = tasks?.filter((t) => t.status !== 'done' && t.status !== 'cancelled') ?? [];
-  const testRun = runs?.find((r) => ['test', 'cargo_test', 'build', 'typecheck'].includes(r.tool) || r.tool.includes('test')) ?? lastRun;
+  const testRun = runs?.find((r) => ['cargo test', 'pnpm run test', 'npm run test'].includes(r.source));
   const S: [Stage, string, string, StState][] = [
-    ['tarea', 'Tarea', work ? work.objective : tasks ? `${live.length} abiertas` : '—', work ? (work.state === 'finished' ? 'done' : 'now') : live.length ? 'done' : 'todo'],
+    ['tarea', 'Tarea', work ? work.objective : tasks ? `${live.length} abiertas` : '—', work ? (work.state === 'finished' ? 'done' : 'now') : live.length ? 'now' : 'todo'],
     ['agentes', 'Agentes', `${agentSessions.length} ${agentSessions.length === 1 ? 'sesión' : 'sesiones'}`, agentSessions.length ? 'done' : 'todo'],
     ['rama', 'Rama', chosen?.branch ?? status?.branch ?? '—', status?.branch ? 'done' : 'todo'],
-    ['cambios', 'Cambios', `${changes.length} ${changes.length === 1 ? 'archivo' : 'archivos'}`, changes.length ? 'now' : 'done'],
+    ['cambios', 'Cambios', `${changes.length} ${changes.length === 1 ? 'archivo' : 'archivos'}`, status ? (changes.length ? 'now' : 'done') : 'todo'],
     ['tests', 'Tests', testRun ? OUTCOME[testRun.outcome] ?? testRun.outcome : 'sin ejecutar', testRun ? (testRun.outcome === 'passed' ? 'done' : testRun.outcome === 'failed' || testRun.outcome === 'findings' ? 'fail' : 'now') : 'todo'],
     ['commit', 'Commit', status ? (status.ahead ? `${status.ahead} por publicar` : changes.length ? 'Larry' : 'al día') : '—', status ? (status.ahead ? 'now' : changes.length ? 'todo' : 'done') : 'todo'],
     ['pr', 'Pull request', pull ? `#${pull.number} · ${pull.isDraft ? 'borrador' : pull.state.toLowerCase()}` : 'sin PR', pull ? (pull.state === 'MERGED' ? 'done' : 'now') : 'todo'],
     ['ci', 'CI', pull?.checksKnown ? `${pull.checks[0]}/${pull.checks[0] + pull.checks[1] + pull.checks[2]} checks` : 'GitHub', pull?.checksKnown ? (pull.checksState === 'success' ? 'done' : pull.checksState === 'failure' ? 'fail' : 'now') : 'todo'],
-    ['integracion', 'Integración', pull?.base ?? chosen?.base ?? 'main', pull?.state === 'MERGED' || chosen?.integrated ? 'done' : 'todo'],
+    ['integracion', 'Integración', pull?.base ?? chosen?.base ?? '—', pull?.state === 'MERGED' || chosen?.integrated ? 'done' : 'todo'],
   ];
   const nowStage = (S.find((s) => s[3] === 'fail' || s[3] === 'now') ?? S[3])[0];
-  const active = stage ?? (diff ? 'cambios' : nowStage);
-  const selectStage = (s: Stage) => { setStage(s); if (s !== 'cambios') setDiff(null); else if (!diff && changes[0]) setDiff(changes[0]); };
+  const active = stage ?? (diff ? 'cambios' : status?.changes.length === 0 ? 'rama' : nowStage);
+  const selectStage = (s: Stage) => { setStage(s); if (s !== 'cambios') setDiff(null); else if (!diff && changes[0]) setDiff({ ...changes[0], session: sid ?? undefined }); };
 
   return (
     <Root label="Entrega">
@@ -92,7 +114,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
             <h2 className="vt grow">Entrega · {chosen?.branch ?? status?.branch ?? projectName}{(pull?.base ?? chosen?.base) ? ` → ${pull?.base ?? chosen?.base}` : ''}</h2>
             {status?.head && <span className="chip mono">SHA {status.head.slice(0, 7)}</span>}
             <span className={`chip${pull ? ' mint' : ''}`}>{pull ? `PR #${pull.number} ${pull.isDraft ? 'en borrador' : pull.state.toLowerCase()}` : status?.upstream ? `upstream ${status.upstream}` : 'sin publicar'}</span>
-            <label className="fsel"><select value={scopeId ?? ''} onChange={(e) => setScopeId(e.currentTarget.value ? Number(e.currentTarget.value) : null)} aria-label="Alcance"><option value="">Checkout del proyecto</option>{isolated.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'worktree'}</option>)}</select><Icon name="down" size={11} /></label>
+            <label className="fsel"><select value={scopeId ?? ''} onChange={(e) => selectScope(e.currentTarget.value ? Number(e.currentTarget.value) : null)} aria-label="Alcance"><option value="">Checkout del proyecto</option>{isolated.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'worktree'}</option>)}</select><Icon name="down" size={11} /></label>
             <button className="tbtn" onClick={() => void load()} aria-label="Actualizar"><Icon name="refresh" size={15} /></button>
             <button className="tbtn narrow-only" onClick={() => setLeft(!left)} aria-label="Archivos"><Icon name="sidebar" size={16} /></button>
             <button className="tbtn narrow-only" onClick={() => setRight(!right)} aria-label="Auditoría"><Icon name="panel" size={16} /></button>
@@ -102,24 +124,25 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
         {error && <div className="rev-err" role="alert"><Icon name="warn" size={14} /> {error}</div>}
         <div className="revb">
           <aside className="ftree rev-git" aria-label="Archivos y commits">
-            {sid == null ? (
-              <div className="legacy rev-legacy"><GitPanel key={project} project={project} selected={diff?.session == null ? diff : null} onDiff={(c) => { setDiff(c); setStage('cambios'); }} chooseBranch={false}
-                onBranchPickerOpened={noop} pending={isolated.length} onPending={() => selectStage('integracion')} onPublish={() => selectStage('pr')} /></div>
-            ) : (
-              <>
-                <div className="fsec"><Icon name="file" size={13} /> Sin integrar · {chosen!.name}</div>
-                {changes.length ? changes.map((c) => (
-                  <button key={c.path} className={`frow${diff?.path === c.path ? ' on' : ''}`} onClick={() => { setDiff({ ...c, session: sid }); setStage('cambios'); }}>
-                    <span />
-                    <span className="p">{c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/') + 1) : ''}<b>{c.path.split('/').pop()}</b></span>
-                    <span className="n">{c.adds != null && <span className="add">+{c.adds}</span>} {c.dels ? <span className="del">−{c.dels}</span> : null}</span>
-                  </button>)) : <div className="fnote">Sin cambios respecto a su base</div>}
-                <div className="fsec"><Icon name="branch" size={13} /> Rama</div><div className="fnote">{chosen!.branch ?? '—'} · base {chosen!.base ?? '—'}</div>
-              </>
-            )}
+            <div className="fsec"><Icon name="file" size={13} /> {chosen ? `Sin integrar · ${chosen.name}` : 'Sin commit · local'}</div>
+            {changes.length ? changes.map((change) => (
+              <button key={change.path} className={`frow${diff?.path === change.path ? ' on' : ''}`}
+                title={change.orig ? `${change.orig} → ${change.path}` : change.path}
+                onClick={() => { setDiff({ ...change, session: sid ?? undefined }); setStage('cambios'); }}>
+                <span className={`sev ${change.status === '!' || change.status === 'D' ? 'h' : change.status === 'M' ? 'm' : ''}`}
+                  aria-label={change.status} />
+                <span className="p">{change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/') + 1) : ''}<b>{change.path.split('/').pop()}</b></span>
+                <span className="n">{change.adds != null && <span className="add">+{change.adds}</span>} {change.dels ? <span className="del">−{change.dels}</span> : null}</span>
+              </button>
+            )) : <div className="fnote">{status ? 'Sin cambios' : 'Cargando cambios…'}</div>}
+            <div className="fsec"><Icon name="commit" size={13} /> Commits locales</div>
+            <button className="frow2 rev-link" onClick={() => selectStage('rama')}><span className="p">Historial y operaciones de rama</span><Icon name="chev" size={12} /></button>
+            <button className="frow2 rev-link" onClick={() => selectStage('commit')}><span className="p">Propuesta de Larry</span><Icon name="chev" size={12} /></button>
+            <div className="fsec"><Icon name="branch" size={13} /> {chosen ? 'Rama' : 'Remoto'}</div>
+            <div className="fnote">{chosen ? `${chosen.branch ?? '—'} · base ${chosen.base ?? '—'}` : status?.upstream ?? 'Sin rama de seguimiento'}</div>
             {isolated.length > 0 && <>
               <div className="fsec"><Icon name="pr" size={13} /> Worktrees de sesiones</div>
-              {isolated.map((s) => <button key={s.id} className={`frow2${sid === s.id ? ' on' : ''}`} onClick={() => setScopeId(sid === s.id ? null : s.id)}><span className="p">{s.name} · {s.branch ?? 'worktree'}</span><span className="n mono">{s.integrated ? 'integrada' : ''}</span></button>)}
+              {isolated.map((s) => <button key={s.id} className={`frow2${sid === s.id ? ' on' : ''}`} onClick={() => selectScope(sid === s.id ? null : s.id)}><span className="p">{s.name} · {s.branch ?? 'worktree'}</span><span className="n mono">{s.integrated ? 'integrada' : ''}</span></button>)}
             </>}
           </aside>
           <section className="diffv" aria-label="Contenido">
@@ -212,14 +235,14 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
   if (stage === 'cambios' && diff) return (
     <>
       {head('file', diff.label ?? diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
-      <div className="rev-diff legacy"><Diff project={project} change={diff} /></div>
+      <div className="rev-diff legacy"><Diff project={project} change={diff} inline /></div>
     </>
   );
   if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;
   if (stage === 'pr') return <>{head('pr', 'Pull request')}<div className="rev-tool legacy"><Publish key={`${project}:${sid}`} project={project} session={sid} hidden={false} /></div></>;
   if (stage === 'tests' || stage === 'ci') return <>{head('shield', stage === 'ci' ? 'CI y revisión' : 'Tests y revisión de código')}<div className="rev-tool legacy"><CodeHealth key={`${project}:${sid}`} project={project} session={chosen} closed={false} onFile={onFile} /></div></>;
   if (stage === 'integracion' && chosen) return <>{head('merge', `Integrar ${chosen.name}`)}<div className="rev-tool legacy"><Pending key={chosen.id} session={chosen} closed={false} onDiff={onDiff} onChanged={onChanged} onConflicts={onConflicts} /></div></>;
-  if (stage === 'tarea' || stage === 'integracion') return <>{head('flow', 'Sesión de trabajo')}<div className="rev-tool"><div className="legacy"><WorkSession key={project} project={project} hidden={false} onReview={noop} /></div>
+  if (stage === 'tarea' || stage === 'integracion') return <>{head('flow', 'Sesión de trabajo')}<div className="rev-tool"><div className="legacy"><WorkSession key={project} project={project} hidden={false} onReview={(ready) => { if (ready) onStage('pr'); }} /></div>
     {tasks && tasks.length > 0 && <div className="rev-tasks"><span className="lab">Tareas abiertas</span>{tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').slice(0, 12).map((t) => <div key={t.id} className="frow2"><span className="p">#{t.id} {t.title}</span><span className="n">{t.status}</span></div>)}</div>}</div></>;
   if (stage === 'agentes') return <>{head('agent', 'Sesiones del proyecto')}<div className="rev-tool rev-list">
     {agentSessions.length ? agentSessions.map((s) => <div key={s.id} className="frow2"><span className="p"><b>{s.name}</b> · {s.engine}{s.branch ? ` · ${s.branch}` : ''}</span><span className="n">{s.worktree ? (s.integrated ? 'integrada' : 'worktree propio') : 'checkout compartido'}</span></div>)
@@ -229,6 +252,11 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
     <>
       {head('branch', `Historial · ${chosen?.branch ?? status?.branch ?? ''}`, status && <span className="mut2" style={{ fontSize: 12 }}>{status.upstream ? `${status.ahead} por publicar · ${status.behind} por traer` : 'sin upstream'}</span>)}
       <div className="rev-history scr">
+        {sid == null && <section className="legacy rev-git-controls" aria-label="Operaciones de rama">
+          <GitPanel key={project} project={project} selected={null} onDiff={onDiff} chooseBranch={false}
+            onBranchPickerOpened={noop} pending={0} onPending={noop} onPublish={() => onStage('pr')}
+            onChanged={onChanged} operationsOnly />
+        </section>}
         {status && status.changes.length === 0 && (
           <div className="rev-next">
             <b>Árbol limpio.</b> <span className="mut2">{status.ahead ? `Hay ${status.ahead} commits locales por publicar.` : work ? `Sesión de trabajo: ${work.objective}.` : 'No hay nada pendiente de confirmar.'}</span>
@@ -238,7 +266,7 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
             </div>
           </div>
         )}
-        {log === null ? <div className="tr-skel" style={{ height: 120 }} /> : log.length === 0 ? <div className="empty sm">Sin commits.</div> : (
+        {sid != null ? <div className="empty sm">El historial se muestra en el checkout del proyecto.</div> : log === null ? <div className="tr-skel" style={{ height: 120 }} /> : log.length === 0 ? <div className="empty sm">Sin commits.</div> : (
           <ol className="rev-log">
             {log.slice(0, 80).map((r) => (
               <li key={r.hash}>

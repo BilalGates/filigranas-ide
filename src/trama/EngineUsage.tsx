@@ -37,9 +37,10 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
   engine: Engine; project: string | null; projectName: string | null; sessions: Session[]; pm: boolean; open: boolean;
   onToggle: () => void; onClose: () => void; onSession: (v: number | 'coach') => void; onSettings: () => void;
 }) {
-  const quota = useProviderQuota(engine, null);
+  const quota = useProviderQuota(engine, null, false);
   const { activity } = useUi();
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const mine = sessions.filter((s) => s.engine === engine);
   const working = mine.filter((s) => activity[String(s.id)] === 'trabajando');
   const pmWorking = pm && activity.coach === 'trabajando';
@@ -48,14 +49,14 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
   useEffect(() => {
     if (!open) return;
     const out = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) onClose(); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); trigger.current?.focus(); } };
     document.addEventListener('pointerdown', out); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); };
   }, [open, onClose]);
   const left = quota.remaining;
   return (
     <div className="eng-wrap" ref={root}>
-      <button className={`status-action eng-btn${open ? ' is-on' : ''}${quota.near ? ' is-near' : ''}`} onClick={onToggle} aria-expanded={open}
+      <button ref={trigger} aria-label={`Uso de ${NAME[engine]}`} className={`status-action eng-btn${open ? ' is-on' : ''}${quota.near ? ' is-near' : ''}`} onClick={onToggle} aria-expanded={open}
         title={`${NAME[engine]} · ${left == null ? 'cuota desconocida' : `${percentLabel(left)} restante`}${live ? ` · ${live} trabajando` : ''}`}>
         {live > 0 ? <span className="dot is-trabajando" /> : waiting > 0 ? <span className="dot is-permiso" /> : <span className={`eng-mark ${engine}`} />}
         <span>{NAME[engine]}</span>
@@ -64,7 +65,7 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
       </button>
       {open && (
         <section className="eng-pop" role="dialog" aria-label={`Uso de ${NAME[engine]}`}>
-          <header><span className={`eng-mark ${engine}`} /><h2>{NAME[engine]}</h2><span className="grow" /><button className="icon" onClick={onClose} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
+          <header><span className={`eng-mark ${engine}`} /><h2>{NAME[engine]}</h2><span className="grow" /><button className="icon" onClick={() => { onClose(); trigger.current?.focus(); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
           <div className="eng-sec">
             <div className="eng-lab">Cuota restante</div>
             {quota.exhausted && <div className="usage-limit" role="status">Cuota del plan agotada</div>}

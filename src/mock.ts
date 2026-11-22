@@ -83,6 +83,8 @@ const meta: Record<string, { groupId: number | null; archived: boolean }> = {
 
 // Datos sintéticos de Brain, solo para la vista de desarrollo en navegador.
 const mockBrainEntries: Array<BrainEntry & { project: string | null }> = [];
+const mockLinks: any[] = [];
+const mockSeeded = new Set<number>();
 function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
   const nodes: BrainGraphData['nodes'] = [];
   const edges: BrainGraphData['edges'] = [];
@@ -98,11 +100,13 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
       const entry: BrainEntry & { project: string } = { id, version: 1, global: false, task: null, kind: j === 0 ? 'decision' : j === 3 ? 'outcome' : 'fact',
         title: `${title} · ${name}`, body: `Memoria de ejemplo de ${name}. Conserva las decisiones y sus fuentes para continuar el trabajo.`, source: `Nota de diseño · ${name}`,
         sourceTask: null, sourceRun: null, share: false, validUntil: null, created: now, updated: now - j * 86400, project };
-      if (!mockBrainEntries.some(e => e.id === id)) mockBrainEntries.push(entry);
-      const key = `m:${id}`;
-      nodes.push({ key, id, kind: entry.kind, title: entry.title, date: entry.updated, project, url: null, body: entry.body, source: entry.source, matched: true });
-      edges.push({ from: key, to: hub, kind: 'project_member' });
+      if (!mockSeeded.has(id)) { mockSeeded.add(id); mockBrainEntries.push(entry); }
     });
+    for (const cur of mockBrainEntries.filter((e) => e.project === project)) {
+      const key = `m:${cur.id}`;
+      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source, matched: true });
+      edges.push({ from: key, to: hub, kind: 'project_member' });
+    }
   });
   const global: BrainEntry & { project: null } = { id: 999, version: 1, task: null,
     kind: 'preference', title: 'Priorizar la continuidad', body: 'Conservar el contexto entre proyectos y sesiones.',
@@ -593,8 +597,40 @@ mockIPC(
         return null;
       case 'design_preview':
         return null;
-      case 'brain_save':
-      case 'brain_forget':
+      case 'brain_save': {
+        if (!a.confirmed) fail('confirma el contenido y la procedencia del recuerdo');
+        const d = a.draft;
+        if (d.id != null) {
+          const at = mockBrainEntries.findIndex((e) => e.id === d.id);
+          if (at < 0 || mockBrainEntries[at].version !== d.version) fail('el recuerdo cambió');
+          mockBrainEntries[at] = { ...mockBrainEntries[at], ...d, version: d.version + 1, updated: Math.floor(Date.now() / 1000) };
+          return d.id;
+        }
+        const id = 5000 + mockBrainEntries.length;
+        mockBrainEntries.push({ ...d, id, version: 1, project: d.global ? null : a.project, created: Math.floor(Date.now() / 1000), updated: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_forget': {
+        const at = mockBrainEntries.findIndex((e) => e.id === a.id && e.version === a.version);
+        if (at < 0) fail('el recuerdo cambió o está fuera de este ámbito');
+        mockBrainEntries.splice(at, 1);
+        mockLinks.splice(0, mockLinks.length, ...mockLinks.filter((l) => l.from !== a.id && l.to !== a.id));
+        return null;
+      }
+      case 'brain_links':
+        return mockLinks.filter((l) => l.project === a.project);
+      case 'brain_link_save': {
+        if (!a.confirmed) fail('confirma la relación');
+        if (a.link.from === a.link.to) fail('un recuerdo no puede relacionarse consigo mismo');
+        const id = mockLinks.length + 1;
+        mockLinks.push({ ...a.link, id, project: a.project, created: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_link_remove':
+        mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
+        return null;
+      case 'skills_list':
+        return [{ name: 'implement', description: 'Implementa un encargo con pruebas.' }, { name: 'design-loop', description: 'Bucle de diseño con capturas.' }];
       case 'health_run':
       case 'health_import':
         return fail('Este flujo necesita la app de escritorio de Filigranas');

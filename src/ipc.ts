@@ -428,7 +428,15 @@ export const brain = {
   preview: (project: string, task: number, query: string) => invoke<BrainEntry[]>('brain_preview', { project, task, query }),
   save: (project: string | null, draft: BrainDraft, confirmed: boolean) => invoke<number>('brain_save', { project, draft, confirmed }),
   forget: (project: string | null, id: number, version: number) => invoke<void>('brain_forget', { project, id, version }),
+  links: (project: string) => invoke<BrainLink[]>('brain_links', { project }),
+  link: (project: string, link: BrainLink, confirmed: boolean) => invoke<number>('brain_link_save', { project, link, confirmed }),
+  unlink: (project: string, id: number) => invoke<void>('brain_link_remove', { project, id }),
 };
+/** Relación tipada entre recuerdos. Solo existe si el usuario la crea. */
+export type BrainLinkKind = 'depende' | 'refina' | 'sustituye' | 'contradice' | 'relacionado';
+export type BrainLink = { id: number | null; from: number; to: number; kind: BrainLinkKind; note: string; created?: number };
+export type SkillInfo = { name: string; description: string };
+export const skills = { list: () => invoke<SkillInfo[]>('skills_list') };
 
 export type ServiceForm = { id: string | null; name: string; command: string; port: number | null };
 export type ServiceAction = 'start' | 'stop' | 'restart' | 'remove';

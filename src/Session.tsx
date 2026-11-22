@@ -150,10 +150,15 @@ type Props = {
   onConflicts?: (files: string[]) => void;
   onModel: (key: number | string, model: string | null) => void;
   manager?: { task: { id: number; title: string } | null; clearTask: () => void };
+  /** Abre Trabajo para empezar la sesión de trabajo que exigen las sesiones directas. */
+  onStartWork?: () => void;
 };
 
+// Error del backend cuando no hay sesión de trabajo activa (src-tauri/src/work.rs).
+const NEEDS_WORK = /inicia una sesión de trabajo/i;
+
 /** Conversación con una sesión de agente ejecutor del proyecto. */
-export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager }: Props) {
+export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager, onStartWork }: Props) {
   const isManager = manager !== undefined;
   const isClaude = session.engine === 'claude';
   const isCodex = session.engine === 'codex';
@@ -610,7 +615,12 @@ export default function Session({ session, project, hidden, switching, providerP
       )}
       {isCodex ? <>
         {notice && <div className="co-notice">{notice}</div>}
-        {error && <div className="co-error">{error}</div>}
+        {error && (NEEDS_WORK.test(error) && onStartWork ? (
+          <div className="co-error co-needs-work" role="alert">
+            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
+          </div>
+        ) : <div className="co-error">{error}</div>)}
         <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} onActivity={setDirectState} onModel={onModel}
           onContext={setContext} onConversation={setCodexHasWork} />
       </> : <>
@@ -619,7 +629,12 @@ export default function Session({ session, project, hidden, switching, providerP
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
-        {error && <div className="co-error">{error}</div>}
+        {error && (NEEDS_WORK.test(error) && onStartWork ? (
+          <div className="co-error co-needs-work" role="alert">
+            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
+          </div>
+        ) : <div className="co-error">{error}</div>)}
       </ConversationLog>
       <Composer
         providerPicker={providerPicker}

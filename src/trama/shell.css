@@ -74,8 +74,7 @@ html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-nativ
 .tb-attention:hover { background: var(--hover); color: var(--tx); }
 .tb-attention .dot { position: absolute; top: 3px; right: 4px; width: 6px; height: 6px; }
 @media (max-width: 1100px) {
-  .tb-branch { display: none; }
-  .tb-project b { max-width: 12vw; }
+  .tb-switch .tb-branch-sync { display: none; }
 }
 @media (max-width: 900px) {
   .tb-agents.tv { display: none; }
@@ -94,7 +93,8 @@ html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-nativ
 .threads-side .threads-foot { padding: 8px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
 .threads-side .threads-foot .btn { justify-content: flex-start; }
 .threads-side .threads-new { position: relative; }
-.threads-side .threads-menu { position: absolute; right: 0; top: 32px; left: auto; z-index: 30; width: 240px; }
+html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--raised); }
+.threads-side .threads-new .ctx.threads-menu { position: absolute; right: 0; top: 32px; left: auto; z-index: 40; width: 208px; background: #16181d; backdrop-filter: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 60px -16px rgba(0, 0, 0, 0.85); }
 /* el centro deja de ser una tarjeta: la conversación flota sobre el campo */
 .app > .center.panel { background: rgba(6, 7, 9, 0.35); box-shadow: none; border-radius: 0; margin: 0; border-left: 1px solid var(--line); }
 .app > .center .center-head { height: 48px; padding: 0 14px; gap: 11px; }
@@ -309,3 +309,9 @@ html.is-light .app > .titlebar { background: #eceef1; }
 .app > .statusbar { z-index: 30; }
 html.is-light .tb-menu, html.is-light .eng-pop { background: var(--raised); }
 html.is-light .tb-q { background: var(--raised-2); }
+
+/* ── Cabecera del panel derecho: ruta desde la carpeta de repositorios ─ */
+.panel-head h2.is-path { flex: 1; font-weight: 500; }
+.panel-crumb { display: flex; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; }
+.panel-crumb .dir { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; direction: rtl; color: var(--tx3); }
+.panel-crumb .leaf { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; color: var(--tx); font-weight: 600; }

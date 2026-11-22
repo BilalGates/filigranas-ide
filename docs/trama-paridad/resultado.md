@@ -77,3 +77,5 @@ Claude Code completó el turno con Opus 5.5. Identificó tres imágenes, transcr
 ### Marco y cuotas por motor · 22 de noviembre de 2026
 
 Se incorporó el cambio de interfaz de `d8fc11d`. El selector de proyecto y el de rama ocupan la cabecera. El navegador y GitHub pasan a la columna de destinos, mientras que Agentes y Atención conservan su sitio en la esquina superior derecha. La barra inferior mantiene actividad, terminal y Jev. Cada motor tiene un acceso de cuota con las sesiones y el trabajo registrado en tareas de los últimos siete días. La sesión autenticada de Studio descrita arriba se probó antes de este cambio de marco.
+
+La integración de `4b300f2` añade la ruta a la cabecera de archivos, cambios y editor. El menú de una nueva conversación se mantiene abierto al navegar por sus opciones. Trabajo se conserva en la paleta y en el acceso a tareas desde Flow.

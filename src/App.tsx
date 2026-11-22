@@ -661,7 +661,14 @@ export default function App() {
     </div>
   );
 
-  const editorTab = current && (diff || file) ? { name: (diff?.path ?? file ?? '').split(/[\\/]/).pop() ?? '', path: diff?.path ?? file ?? '', diff: !!diff } : null;
+  const editorPath = diff?.path ?? file;
+  const editorScope = diff ? diff.session : fileSession;
+  const editorRoot = editorScope == null ? current?.path
+    : agentSessions.find((session) => session.id === editorScope)?.worktree ?? (diff ? null : fileRoot) ?? current?.path;
+  const panelLocation = rightView === 'editor' && editorPath && editorRoot
+    ? /^([a-zA-Z]:)?[\\/]/.test(editorPath) ? editorPath : `${editorRoot.replace(/[\\/]+$/, '')}/${editorPath}`
+    : current?.path ?? null;
+  const editorTab = current && editorPath ? { name: editorPath.split(/[\\/]/).pop() ?? '', path: editorPath, diff: !!diff } : null;
   const panelOpen = !noRight && (!!current || rightView === 'browser');
   const browserOpen = panelOpen && rightView === 'browser';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
@@ -776,7 +783,7 @@ export default function App() {
       )}
       {leftMode === 'threads' && current ? (
         <Threads projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} sessions={agentSessions}
-          onView={setView} onWork={() => openWork()} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
+          onView={setView} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
           onClose={closeSession} onProjects={() => setLeftMode('projects')}
           footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
       ) : (
@@ -967,7 +974,7 @@ export default function App() {
           <Icon name="chat" size={13} /> Conversación
         </button>
       )}
-      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}>
+      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile} root={ws.root} location={panelLocation}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {current && conflictFiles && (
           <Conflicts

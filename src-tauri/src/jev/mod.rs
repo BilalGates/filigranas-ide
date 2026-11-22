@@ -92,6 +92,22 @@ pub fn jev_status(state: State<AppState>) -> CmdResult<Status> {
     Ok(Status::new(saved, state.codex.jev_models()?))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Statusbar {
+    mode: Mode,
+    used: u32,
+    limit: u32,
+}
+
+#[tauri::command]
+pub fn jev_statusbar(state: State<AppState>) -> CmdResult<Statusbar> {
+    let conn = state.db.lock().map_err(err)?;
+    let mode = settings(&conn).map_err(err)?.mode;
+    let used = attempt_count(&conn).map_err(err)?;
+    Ok(Statusbar { mode, used, limit: DAILY_ATTEMPTS })
+}
+
 fn select_model(value: &Value) -> Option<String> {
     let models = value["models"].as_array()?;
     let mut names = models.iter().filter_map(|entry| entry["name"].as_str())
@@ -216,11 +232,15 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+fn attempt_count(conn: &Connection) -> rusqlite::Result<u32> {
+    conn.query_row("SELECT count(*) FROM jev_attempts WHERE at > unixepoch()-86400", [], |r| r.get(0))
+}
+
 fn reserve(db: &Mutex<Connection>) -> CmdResult<bool> {
     let mut conn = db.lock().map_err(err)?;
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(err)?;
     tx.execute("DELETE FROM jev_attempts WHERE at <= unixepoch()-86400", []).map_err(err)?;
-    let count: u32 = tx.query_row("SELECT count(*) FROM jev_attempts", [], |r| r.get(0)).map_err(err)?;
+    let count = attempt_count(&tx).map_err(err)?;
     let available = count < DAILY_ATTEMPTS;
     if available {
         tx.execute("INSERT INTO jev_attempts DEFAULT VALUES", []).map_err(err)?;
@@ -697,6 +717,8 @@ mod tests {
         assert!(!reserve(&reopened).unwrap());
         let conn = reopened.into_inner().unwrap();
         assert_eq!(super::settings(&conn).unwrap().mode, Mode::Active);
+        conn.execute("INSERT INTO jev_attempts(at) VALUES(unixepoch()-90000)", []).unwrap();
+        assert_eq!(attempt_count(&conn).unwrap(), DAILY_ATTEMPTS);
         assert_eq!(baseline(&conn, "thread").unwrap().as_deref(), Some("verified-default"));
         let runs = serde_json::to_value(crate::runs::recent(&conn, 1).unwrap()).unwrap();
         assert_eq!(runs[1]["routing"]["effort"], "low");

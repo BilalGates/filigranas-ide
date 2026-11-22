@@ -8,13 +8,13 @@ import Larry from './Larry';
 import Pending from './Pending';
 import WorkSession from './WorkSession';
 
-const STATUS: Record<string, string> = {
+export const STATUS: Record<string, string> = {
   backlog: 'pendiente', ready: 'lista', running: 'en marcha', waiting_approval: 'espera permiso',
   verifying: 'verificación', review: 'revisión', ready_to_merge: 'lista para integrar', done: 'completada',
   blocked: 'bloqueada', paused_quota: 'pausada por cuota', failed: 'fallida', cancelled: 'cancelada',
 };
 const MANUAL = ['backlog', 'ready', 'blocked', 'verifying', 'review', 'ready_to_merge', 'done', 'failed', 'cancelled'];
-const PRIORITY = { urgent: 'urgente', high: 'alta', normal: 'normal', low: 'baja' };
+export const PRIORITY = { urgent: 'urgente', high: 'alta', normal: 'normal', low: 'baja' };
 const RISK = { low: 'bajo', normal: 'normal', high: 'alto', critical: 'crítico' };
 const TESTS = { passed: 'correctas', failed: 'fallidas', not_applicable: 'no aplican' };
 const OUTCOME: Record<string, string> = {

@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -54,7 +54,9 @@ let nextPty = 1;
 let nextSession = 1;
 const mockServices = new Map<string, LocalService[]>();
 const mockBranches = new Map<string, string>();
-const mockSessions: any[] = [];
+const mockSessions: any[] = [
+  { id: 900, project: '/Users/demo/repositorios/calaix', engine: 'claude', name: 'diseño', providerSession: 'm', effort: null, worktree: '/tmp/wt/diseno', branch: 'ide/diseno', base: 'main', baseCommit: '84ab176', integrated: null, task: null, handoffFrom: null, paused: null },
+];
 const mockManagers = new Map<string, any>();
 let mockShare: (HostedShare & { project: string }) | null = null;
 let mockShareGuest = false;
@@ -81,6 +83,8 @@ const meta: Record<string, { groupId: number | null; archived: boolean }> = {
 
 // Datos sintéticos de Brain, solo para la vista de desarrollo en navegador.
 const mockBrainEntries: Array<BrainEntry & { project: string | null }> = [];
+const mockLinks: any[] = [];
+const mockSeeded = new Set<number>();
 function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
   const nodes: BrainGraphData['nodes'] = [];
   const edges: BrainGraphData['edges'] = [];
@@ -91,23 +95,40 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
     if (filter.project && filter.project !== project) return;
     const hub = `project:${project}`;
     nodes.push({ key: hub, id: 0, kind: 'project', title: name, project, date: now, url: null, body: null, source: null, matched: true });
+    if (name === 'bitacola') {
+      const task = 'task:bitacola:1', pull = 'pull:bitacola:7';
+      nodes.push(
+        { key: task, id: 1, kind: 'task', title: 'Revisar la cola', date: now, project, url: null, body: null, source: null, matched: true },
+        { key: pull, id: 7, kind: 'pr', title: 'Integrar mejoras de la cola', date: now, project, url: 'https://github.com/demo/bitacola/pull/7', body: null, source: null, matched: true },
+      );
+      edges.push({ from: task, to: hub, kind: 'project_member' }, { from: task, to: pull, kind: 'pull' });
+    }
     themes.forEach((title, j) => {
       const id = i * 10 + j + 1;
       const entry: BrainEntry & { project: string } = { id, version: 1, global: false, task: null, kind: j === 0 ? 'decision' : j === 3 ? 'outcome' : 'fact',
         title: `${title} · ${name}`, body: `Memoria de ejemplo de ${name}. Conserva las decisiones y sus fuentes para continuar el trabajo.`, source: `Nota de diseño · ${name}`,
         sourceTask: null, sourceRun: null, share: false, validUntil: null, created: now, updated: now - j * 86400, project };
-      if (!mockBrainEntries.some(e => e.id === id)) mockBrainEntries.push(entry);
-      const key = `m:${id}`;
-      nodes.push({ key, id, kind: entry.kind, title: entry.title, date: entry.updated, project, url: null, body: entry.body, source: entry.source, matched: true });
-      edges.push({ from: key, to: hub, kind: 'project_member' });
+      if (!mockSeeded.has(id)) { mockSeeded.add(id); mockBrainEntries.push(entry); }
     });
+    for (const cur of mockBrainEntries.filter((e) => e.project === project)) {
+      const key = `m:${cur.id}`;
+      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source, matched: true });
+      edges.push({ from: key, to: hub, kind: 'project_member' });
+    }
   });
   const global: BrainEntry & { project: null } = { id: 999, version: 1, task: null,
     kind: 'preference', title: 'Priorizar la continuidad', body: 'Conservar el contexto entre proyectos y sesiones.',
     source: 'Preferencia de ejemplo', project: null, global: true, share: false, sourceTask: null,
     sourceRun: null, validUntil: null, created: now, updated: now };
-  if (!mockBrainEntries.some(e => e.id === global.id)) mockBrainEntries.push(global);
-  if (!filter.project) nodes.push({ ...global, key: 'm:999', id: 999, date: now, url: null, matched: true });
+  if (!mockSeeded.has(global.id!)) {
+    mockSeeded.add(global.id!);
+    mockBrainEntries.push(global);
+  }
+  if (!filter.project) {
+    for (const entry of mockBrainEntries.filter((entry) => entry.global)) {
+      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true });
+    }
+  }
   const matches = new Set(nodes.filter(n => (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
     && (!filter.query || `${n.title} ${n.body ?? ''}`.toLocaleLowerCase().includes(filter.query.toLocaleLowerCase()))).map(n => n.key));
   const visible = new Set(matches);
@@ -404,6 +425,7 @@ mockIPC(
           task: null,
           handoffFrom: null,
           paused: null,
+          skillRole: a.skillRole ?? 'senior',
         };
         mockSessions.push(created);
         mockWorks.get(a.project)?.agents.push({sessionId:id,name,paths:['.'],running:false,closed:false});
@@ -552,21 +574,121 @@ mockIPC(
         return mockBrainEntries.filter(e => (e.project === a.project || e.global) && (!a.kind || e.kind === a.kind) && e.title.toLocaleLowerCase().includes(a.query.toLocaleLowerCase()));
       case 'task_parallel_limit':
         return a.limit ?? 2;
+      case 'design_save': {
+        const scr = a.screen;
+        if (scr.id == null) { const id = mockDesign.next++; mockDesign.screens.push({ ...scr, id, project: a.project, revision: 1, approved: null }); return id; }
+        const at = mockDesign.screens.findIndex((x) => x.id === scr.id);
+        mockDesign.screens[at] = { ...mockDesign.screens[at], name: scr.name, url: scr.url, constraints: scr.constraints, revision: (mockDesign.screens[at].revision ?? 0) + 1 };
+        return scr.id;
+      }
       case 'tasks_list':
+        // kaza queda sin tareas para revisar los estados vacíos
+        return rel(a.project) === 'kaza' ? [] : mockTasks();
       case 'task_runs':
-      case 'brain_preview':
+        return mockRuns(Number(a.task));
       case 'health_list':
+        return rel(a.project) === 'bitacola' && a.session == null ? mockHealth() : [];
+      case 'brain_preview':
       case 'health_ci':
-      case 'design_list':
         return [];
-      case 'brain_save':
-      case 'brain_forget':
+      case 'design_list':
+        return mockDesign.screens.filter((x) => x.project === a.project).map(({ project: _p, ...x }) => x);
+      case 'design_shots':
+        return mockDesign.shots.filter((x) => x.screen === a.screen).map(({ screen: _s, ...x }) => x).reverse();
+      case 'design_components':
+        return mockDesign.shots.find((x) => x.id === a.shot && x.screen === a.screen)?.source === 'captura' ? [
+          { selector: 'header', name: 'Cabecera', kind: 'header', radius: '0px', x: 0, y: 0, width: 1280, height: 96 },
+          { selector: '#acceder', name: 'Acceder', kind: 'button', radius: '8px', x: 480, y: 440, width: 320, height: 52 },
+        ] : [];
+      case 'design_references':
+        return mockDesign.references.filter((x) => x.screen === a.screen);
+      case 'design_reference_add': {
+        const id = mockDesign.next++;
+        mockDesign.references.push({ id, screen: a.screen, name: a.name, mime: 'image/png', data: a.data });
+        return id;
+      }
+      case 'design_reference_remove':
+        mockDesign.references = mockDesign.references.filter((x) => x.screen !== a.screen || x.id !== a.reference);
+        return null;
+      case 'design_image':
+        return mockPng(Number(a.shot));
+      case 'design_review': {
+        const scr = mockDesign.screens.find((x) => x.id === a.screen)!;
+        if (scr.revision !== a.review.revision || scr.approved !== a.review.baseline) fail('la referencia o las restricciones cambiaron. Compara de nuevo');
+        const shot = mockDesign.shots.find((x) => x.id === a.review.shot)!;
+        if (a.review.approve) { if (!a.review.confirmed) fail('confirma la revisión'); shot.status = 'approved'; scr.approved = shot.id; } else shot.status = 'discarded';
+        return null;
+      }
+      case 'design_capture':
+      case 'design_import': {
+        const id = mockDesign.next++;
+        mockDesign.shots.push({ id, screen: a.screen, width: 1280, height: 800, source: cmd === 'design_capture' ? 'captura' : 'importada', url: null, note: a.note ?? '', status: 'candidate', observed: Date.now() });
+        return id;
+      }
+      case 'design_send':
+        if (!a.brief.confirmed) fail('confirma el envío');
+        return null;
+      case 'design_preview':
+        return null;
+      case 'brain_save': {
+        if (!a.confirmed) fail('confirma el contenido y la procedencia del recuerdo');
+        const d = a.draft;
+        if (d.id != null) {
+          const at = mockBrainEntries.findIndex((e) => e.id === d.id);
+          if (at < 0 || mockBrainEntries[at].version !== d.version) fail('el recuerdo cambió');
+          mockBrainEntries[at] = { ...mockBrainEntries[at], ...d, version: d.version + 1, updated: Math.floor(Date.now() / 1000) };
+          return d.id;
+        }
+        const id = 5000 + mockBrainEntries.length;
+        mockBrainEntries.push({ ...d, id, version: 1, project: d.global ? null : a.project, created: Math.floor(Date.now() / 1000), updated: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_forget': {
+        const at = mockBrainEntries.findIndex((e) => e.id === a.id && e.version === a.version);
+        if (at < 0) fail('el recuerdo cambió o está fuera de este ámbito');
+        mockBrainEntries.splice(at, 1);
+        mockLinks.splice(0, mockLinks.length, ...mockLinks.filter((l) => l.from !== a.id && l.to !== a.id));
+        return null;
+      }
+      case 'brain_links':
+        return mockLinks.filter((l) => l.project === a.project);
+      case 'brain_link_save': {
+        if (!a.confirmed) fail('confirma la relación');
+        if (a.link.from === a.link.to) fail('un recuerdo no puede relacionarse consigo mismo');
+        const id = mockLinks.length + 1;
+        mockLinks.push({ ...a.link, id, project: a.project, created: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_link_remove':
+        mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
+        return null;
+      case 'skills_list':
+        return mockSkillCatalog;
+      case 'skills_assignments':
+        return mockSkillCatalog.flatMap(({ name: skill }) => mockSkillRoles.map((role) => {
+          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? true;
+          const local = mockSkillAssignments.get(JSON.stringify([a.project, skill, role]));
+          return { skill, role, enabled: local ?? global, inherited: !!a.project && local == null };
+        }));
+      case 'skills_set_assignment': {
+        const key = JSON.stringify([a.project, a.skill, a.role]);
+        if (a.enabled == null) mockSkillAssignments.delete(key); else mockSkillAssignments.set(key, a.enabled);
+        return null;
+      }
+      case 'skills_set_session_role': {
+        const session = mockSessions.find((item) => item.id === a.session && item.project === a.project);
+        if (!session) fail('Sesión desconocida');
+        session.skillRole = a.role;
+        void emit('sessions-changed', { project: a.project });
+        return null;
+      }
       case 'health_run':
       case 'health_import':
-      case 'design_save':
         return fail('Este flujo necesita la app de escritorio de Filigranas');
       case 'jev_usage':
         return { tokens: 0, costUsd: 0 };
+      case 'jev_statusbar':
+        return { mode: mockJevSettings.mode, used: 0, limit: 100 };
       case 'jev_status':
         return mockJevStatus();
       case 'jev_configure':
@@ -702,3 +824,79 @@ async function demoSession(id: number) {
 };
 
 console.info('[filigranas] núcleo simulado activo');
+
+// Tareas de ejemplo solo para el modo navegador (desarrollo y pruebas visuales).
+function mockTasks() {
+  const now = Date.now();
+  const base = { parentId: null, goal: '', criteria: '', risk: 'medio', verification: 'pruebas', tests: null, waitingFor: [] as number[], sessions: [] as unknown[] };
+  const t = (id: number, title: string, status: string, priority: string, dependencies: number[], extra: Record<string, unknown> = {}) =>
+    ({ ...base, id, title, status, priority, dependencies, createdAt: now - id * 3600e3, updatedAt: now - id * 600e3, ...extra });
+  return [
+    t(1, 'Esquema de la cola de reintentos', 'done', 'high', [], { goal: 'Tabla y migración de la cola.' }),
+    t(2, 'Worker de reintentos con backoff', 'running', 'high', [1], { goal: 'Reintentar envíos con espera exponencial.', criteria: 'Reintenta 5 veces y registra el fallo.', sessions: [{ id: 1, name: 'sesión 1', engine: 'codex', branch: 'ide/reintentos', worktree: null, baseCommit: null, closed: false, github: null }] }),
+    t(3, 'Pruebas de la cola', 'waiting_approval', 'normal', [2], { waitingFor: [2] }),
+    t(4, 'Panel de estado de envíos', 'ready', 'normal', [1]),
+    t(5, 'Migrar alertas al nuevo canal', 'blocked', 'low', [2, 4], { waitingFor: [2, 4] }),
+    t(6, 'Documentar la API de reintentos', 'backlog', 'low', [2]),
+    t(7, 'Revisión de seguridad del worker', 'review', 'high', [2]),
+  ];
+}
+function mockHealth(): HealthRun[] {
+  const observed = Math.floor(Date.now() / 1000);
+  return [
+    {
+      id: 101, task: null, tool: 'git', version: '2.50', source: 'diff --check · árbol de trabajo',
+      revision: '84ab176', digest: null, outcome: 'findings', observed,
+      findings: [
+        { fingerprint: 'example-whitespace', path: 'src/lib/autonomy.ts', line: 11, rule: 'Espacios al final de línea', severity: 'error', previous: false, status: 'open', resolution: '' },
+        { fingerprint: 'example-queue', path: 'src/lib/queue.ts', line: 3, rule: 'Cobertura de la cola', severity: 'warning', previous: false, status: 'open', resolution: '' },
+      ],
+    },
+    {
+      id: 100, task: null, tool: 'pnpm', version: '11.13.1', source: 'pnpm run test',
+      revision: '84ab176', digest: null, outcome: 'passed', observed: observed - 120, findings: [],
+    },
+  ];
+}
+
+function mockRuns(task: number) {
+  if (task !== 2) return [];
+  return [{ id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],
+    routing: { source: 'jev', reason: 'Cambio acotado con pruebas existentes', effort: 'medio', recommendedEffort: 'medio', confidence: 0.82, model: 'gpt-6-sol', inputTokens: null, outputTokens: null, costEstimateUsd: null, durationMs: null, complexity: 'media', review: null, context: null } }];
+}
+
+const mockSkillCatalog = [
+  { name: 'implement', description: 'Implementa un encargo con pruebas.' },
+  { name: 'design-loop', description: 'Bucle de diseño con capturas.' },
+  { name: 'debug', description: 'Diagnóstico de problemas.' },
+  { name: 'research', description: 'Investigación y fuentes.' },
+  { name: 'code-review', description: 'Revisión de código.' },
+  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.' },
+];
+const mockSkillRoles = ['pm', 'researcher', 'designer', 'senior', 'junior', 'auditor', 'auditor2'];
+const mockSkillAssignments = new Map<string, boolean>();
+
+const mockDesign = {
+  references: [] as { id: number; screen: number; name: string; mime: string; data: string }[],
+  next: 10,
+  screens: [{ id: 1, project: '/Users/demo/repositorios/calaix', name: 'Inicio de sesión', url: 'http://localhost:5173/login', constraints: '[bloqueo 0,0,100,12] Cabecera y logotipo\nTipografía SF Pro en toda la pantalla', revision: 3, approved: 2 as number | null }] as any[],
+  shots: [
+    { id: 2, screen: 1, width: 1280, height: 800, source: 'captura', url: 'http://localhost:5173/login', note: 'referencia', status: 'approved', observed: Date.now() - 86400e3 },
+    { id: 3, screen: 1, width: 1280, height: 800, source: 'captura', url: 'http://localhost:5173/login', note: 'botón principal más grande', status: 'candidate', observed: Date.now() - 3600e3 },
+  ] as any[],
+};
+function mockPng(seed: number) {
+  const c = document.createElement('canvas');
+  c.width = 1280; c.height = 800;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#f4f5f7'; g.fillRect(0, 0, 1280, 800);
+  g.fillStyle = '#1d2330'; g.fillRect(0, 0, 1280, 96);
+  g.fillStyle = '#fff'; g.font = '600 30px sans-serif'; g.fillText('calaix', 48, 60);
+  g.fillStyle = '#fff'; g.fillRect(440, 200, 400, 380);
+  g.strokeStyle = '#d6d9df'; g.strokeRect(440, 200, 400, 380);
+  g.fillStyle = '#222'; g.font = '600 26px sans-serif'; g.fillText('Inicia sesión', 480, 260);
+  g.fillStyle = '#eceef2'; g.fillRect(480, 300, 320, 44); g.fillRect(480, 360, 320, 44);
+  g.fillStyle = seed % 2 ? '#2b5fd9' : '#3a3f4b';
+  const h = seed % 2 ? 60 : 44; g.fillRect(480, 440, 320, h);
+  return c.toDataURL('image/png').split(',')[1];
+}

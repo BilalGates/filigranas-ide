@@ -231,6 +231,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
 
   return {
     draw, fit, focus, zoom, select, morph, update, restyle,
+    setPad(p: [number, number, number, number]) { o.pad = p; },
     highlight(set: Set<string> | null) { st.hl = set; restyle(); },
     get selected() { return st.sel; },
     get nodes() { return o.nodes; },

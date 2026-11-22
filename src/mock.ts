@@ -566,7 +566,8 @@ mockIPC(
         return scr.id;
       }
       case 'tasks_list':
-        return mockTasks();
+        // kaza queda sin tareas para revisar los estados vacíos
+        return rel(a.project) === 'kaza' ? [] : mockTasks();
       case 'task_runs':
         return mockRuns(Number(a.task));
       case 'brain_preview':

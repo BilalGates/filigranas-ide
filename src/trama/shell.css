@@ -112,9 +112,10 @@
 .statusbar .status-live .dot { width: 6px; height: 6px; }
 .statusbar .status-live .amb { color: var(--amber); }
 
-/* ── Barra superior opaca: proyecto y rama a la izquierda ─────────── */
-.titlebar { z-index: 30 !important; background: #08090b !important; border-bottom: 1px solid var(--line); backdrop-filter: none; }
-html.is-light .titlebar { background: #eceef1 !important; }
+/* ── Barra superior: proyecto y rama a la izquierda ─────────── */
+/* translúcida, algo más oscura que el fondo para separarla del resto */
+.titlebar { z-index: 30 !important; background: rgb(0 0 0 / 0.42) !important; border-bottom: 1px solid var(--line); backdrop-filter: blur(24px) saturate(1.2); }
+html.is-light .titlebar { background: rgb(0 0 0 / 0.06) !important; }
 .titlebar .tb-left { display: flex; align-items: center; min-width: 0; }
 .tb-switch { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; }
 .tb-proj, .tb-branch { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; border-radius: 8px; color: var(--tx); font-size: 13px; white-space: nowrap; max-width: 260px; }

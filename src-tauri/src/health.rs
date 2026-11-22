@@ -237,10 +237,12 @@ fn list(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<Vec
 }
 
 #[tauri::command]
-pub fn health_list(state: State<AppState>, project: String, session: Option<i64>) -> CmdResult<Vec<Run>> {
-    let conn = state.db.lock().map_err(err)?;
-    let (project, _) = stored_scope(&conn, &project, session)?;
-    list(&conn, &project, session)
+pub async fn health_list(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Vec<Run>> {
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        let (project, _) = stored_scope(&conn, &project, session)?;
+        list(&conn, &project, session)
+    }).await
 }
 
 #[tauri::command]
@@ -386,16 +388,19 @@ pub fn health_resolve(state: State<AppState>, project: String, session: Option<i
 }
 
 #[tauri::command]
-pub fn health_ci(state: State<AppState>, project: String, session: Option<i64>) -> CmdResult<Vec<crate::github::Pull>> {
-    let conn = state.db.lock().map_err(err)?;
-    let (project, item) = stored_scope(&conn, &project, session)?;
-    drop(conn);
-    let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
-    let branch = crate::pr::value(Path::new(cwd), &["symbolic-ref","--quiet","--short","HEAD"]).ok()
-        .or_else(|| item.as_ref().and_then(|item| item.branch.clone()));
-    let Some(branch) = branch else { return Ok(Vec::new()); };
-    let conn = state.db.lock().map_err(err)?;
-    crate::github::pulls(&conn, &project, None, &branch)
+pub async fn health_ci(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Vec<crate::github::Pull>> {
+    crate::background_read(app, move |state| {
+        let (project, item) = {
+            let conn = state.db.lock().map_err(err)?;
+            stored_scope(&conn, &project, session)?
+        };
+        let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
+        let branch = crate::pr::value(Path::new(cwd), &["symbolic-ref", "--quiet", "--short", "HEAD"]).ok()
+            .or_else(|| item.as_ref().and_then(|item| item.branch.clone()));
+        let Some(branch) = branch else { return Ok(Vec::new()); };
+        let conn = state.db.lock().map_err(err)?;
+        crate::github::pulls(&conn, &project, None, &branch)
+    }).await
 }
 
 #[cfg(test)]

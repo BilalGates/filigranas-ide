@@ -41,13 +41,15 @@ fn run(project: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
-async fn spawn(project: String, args: Vec<String>) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+async fn spawn(app: AppHandle, project: String, args: &[&'static str]) -> Result<String, String> {
+    let args = args.to_vec();
+    crate::background_read(app, move |state| {
+        let project = {
+            let conn = state.db.lock().map_err(err)?;
+            crate::workspace::project_path(&conn, &project)?
+        };
         run(&project, &args)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }).await
 }
 
 // Las mutaciones del checkout se serializan con Larry y la publicación.
@@ -69,8 +71,8 @@ fn args(list: &[&str]) -> Vec<String> {
 }
 
 #[tauri::command]
-pub async fn git_fetch(project: String) -> Result<String, String> {
-    spawn(project, args(&["fetch", "--all", "--prune"])).await
+pub async fn git_fetch(app: AppHandle, project: String) -> Result<String, String> {
+    spawn(app, project, &["fetch", "--all", "--prune"]).await
 }
 
 /// Solo avance rápido: si las ramas han divergido, git lo dice y no mezcla.
@@ -160,8 +162,8 @@ pub struct Stash {
 }
 
 #[tauri::command]
-pub async fn git_stash_list(project: String) -> Result<Vec<Stash>, String> {
-    let out = spawn(project, args(&["stash", "list", "--format=%gd%x09%s"])).await?;
+pub async fn git_stash_list(app: AppHandle, project: String) -> Result<Vec<Stash>, String> {
+    let out = spawn(app, project, &["stash", "list", "--format=%gd%x09%s"]).await?;
     Ok(out
         .lines()
         .filter_map(|l| l.split_once('\t'))

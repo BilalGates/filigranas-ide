@@ -42,7 +42,7 @@ fn scan(root: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
             continue;
         }
         let path = entry.path();
-        if path.is_dir() && path.join(".git").exists() {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) && path.join(".git").exists() {
             found.push((name, path));
         }
     }
@@ -109,9 +109,8 @@ pub(crate) fn project_path(conn: &Connection, path: &str) -> CmdResult<String> {
 }
 
 #[tauri::command]
-pub fn get_workspace(state: State<AppState>) -> CmdResult<Workspace> {
-    let conn = state.db.lock().map_err(err)?;
-    load(&conn)
+pub async fn get_workspace(app: AppHandle) -> CmdResult<Workspace> {
+    crate::background_read(app, |state| load(&*state.db.lock().map_err(err)?)).await
 }
 
 #[tauri::command]
@@ -252,6 +251,8 @@ mod tests {
         std::fs::create_dir_all(tmp.join("sin-git")).unwrap();
         std::fs::create_dir_all(tmp.join(".oculto/.git")).unwrap();
         std::fs::write(tmp.join("archivo.txt"), "x").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(tmp.join("beta"), tmp.join("alias")).unwrap();
 
         let names: Vec<_> = scan(&tmp).unwrap().into_iter().map(|(n, _)| n).collect();
         assert_eq!(names, vec!["Alpha", "beta"]);

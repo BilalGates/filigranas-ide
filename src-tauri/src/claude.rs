@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -358,8 +358,7 @@ pub async fn session_create(app: AppHandle, project: String, engine: String, tas
     .map_err(err)?
 }
 
-/// Crea un chat en el checkout compartido del proyecto. Claude Code acepta un UUID
-/// propio; los agentes ACP asignan el suyo al crearla y se guarda entonces.
+/// Crea un chat. Las tareas nuevas disponen de una rama y un worktree propios.
 pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i64>, skill_role: Option<crate::skills::Role>) -> CmdResult<Created> {
     let state = app.state::<AppState>();
     let provider = match engine {
@@ -370,25 +369,49 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
     };
     let names = numbered();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
-    let session = {
+    let _git = task.map(|_| state.publication.try_lock()
+        .map_err(|_| "hay una operación Git en curso")).transpose()?;
+    let checkout = if let Some(task) = task {
+        {
+            let conn = state.db.lock().map_err(err)?;
+            tasks::validate_start(&conn, project, task)?;
+        }
+        let dir = app.path().app_data_dir().map_err(err)?;
+        Some(crate::isolate::create_task_checkout(&dir, Path::new(project), engine)?)
+    } else {
+        None
+    };
+    let save = || -> CmdResult<db::Session> {
         let mut conn = state.db.lock().map_err(err)?;
         let tx = conn.transaction().map_err(err)?;
-        if let Some(task) = task {
-            tasks::validate_start(&tx, project, task)?;
-        }
+        if let Some(task) = task { tasks::validate_start(&tx, project, task)?; }
         let s = db::create_session(&tx, project, engine, &provider, &names).map_err(err)?;
         if let Some(role) = skill_role { crate::skills::assign_session(&tx, s.id, role)?; }
-        if let Some(task) = task {
-            tasks::link(&tx, project, task, s.id)?;
+        if let Some(checkout) = &checkout {
+            db::set_session_worktree(&tx, s.id, &checkout.worktree, &checkout.branch, &checkout.base, &checkout.base_commit).map_err(err)?;
         }
+        if let Some(task) = task { tasks::link(&tx, project, task, s.id)?; }
         crate::work::join(&tx, project, s.id)?;
+        let session = db::session(&tx, s.id).map_err(err)?.ok_or("la sesión no se guardó")?;
         tx.commit().map_err(err)?;
-        s
+        Ok(session)
     };
-    let conn = state.db.lock().map_err(err)?;
-    let notice = Some("Este chat comparte la carpeta y la rama de la sesión de trabajo. Organiza su área desde Trabajo; no se crea un worktree.".into());
-    let session = db::session(&conn, session.id).map_err(err)?.ok_or("la sesión no se guardó")?;
-    drop(conn);
+    let session = match save() {
+        Ok(session) => session,
+        Err(error) => {
+            if let Some(checkout) = &checkout {
+                if let Err(cleanup) = crate::isolate::discard_unregistered(Path::new(project), checkout) {
+                    return Err(format!("{error}. Se conserva {} para recuperar su contenido: {cleanup}", checkout.worktree));
+                }
+            }
+            return Err(error);
+        }
+    };
+    let notice = match &checkout {
+        Some(checkout) if checkout.main_dirty => Some("La tarea aislada parte del último commit. Los cambios pendientes del proyecto siguen en su carpeta original.".into()),
+        Some(_) => None,
+        None => Some("Este chat comparte la carpeta y la rama de la sesión de trabajo. Organiza su área desde Trabajo.".into()),
+    };
     tasks::changed(app);
     Ok(Created { session, notice })
 }

@@ -1,5 +1,5 @@
-//! Una sesión de trabajo agrupa chats en el checkout del proyecto.
-//! Las asignaciones coordinan turnos; no son un sandbox del sistema de archivos.
+//! Una sesión de trabajo coordina turnos, copias de trabajo y entrega.
+use std::collections::HashSet;
 use std::path::{Component, Path};
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -48,6 +48,7 @@ pub struct Agent {
     pub paths: Vec<String>,
     pub running: bool,
     pub closed: bool,
+    pub isolated: bool,
 }
 
 pub fn current(conn: &Connection, project: &str) -> CmdResult<Option<Work>> {
@@ -60,13 +61,13 @@ pub fn current(conn: &Connection, project: &str) -> CmdResult<Option<Work>> {
     ).optional().map_err(err)?;
     work.map(|mut work| {
         let mut stmt = conn.prepare(
-            "SELECT a.session_id,s.name,a.paths,s.closed,EXISTS(SELECT 1 FROM task_runs r WHERE r.session_id=s.id AND r.ended_ms IS NULL)
+            "SELECT a.session_id,s.name,a.paths,s.closed,EXISTS(SELECT 1 FROM task_runs r WHERE r.session_id=s.id AND r.ended_ms IS NULL),s.worktree IS NOT NULL
              FROM work_agents a JOIN sessions s ON s.id=a.session_id WHERE a.work_id=?1 ORDER BY s.id",
         ).map_err(err)?;
         work.agents = stmt.query_map([work.id], |r| {
             let paths: String = r.get(2)?;
             Ok(Agent { session_id: r.get(0)?, name: r.get(1)?, paths: serde_json::from_str(&paths).unwrap_or_else(|_| vec![".".into()]),
-                closed: r.get(3)?, running: r.get(4)? })
+                closed: r.get(3)?, running: r.get(4)?, isolated: r.get(5)? })
         }).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
         Ok(work)
     }).transpose()
@@ -187,12 +188,12 @@ pub fn assign(conn: &Connection, project: &str, session: i64, paths: Vec<String>
     if work.state != "active" { return Err("reanuda la sesión antes de cambiar el reparto".into()); }
     if runs::session_active(conn, session).map_err(err)? { return Err("espera a que termine el turno para cambiar su asignación".into()); }
     let s = db::session(conn, session).map_err(err)?.ok_or("sesión cerrada o inexistente")?;
-    if s.project != project || s.worktree.is_some() || crate::chat::is_pm(conn, session).map_err(err)? {
-        return Err("el agente no pertenece al checkout compartido de este proyecto".into());
+    if s.project != project || crate::chat::is_pm(conn, session).map_err(err)? {
+        return Err("el agente no pertenece a este proyecto".into());
     }
     let paths = normalize_paths(paths)?;
     for path in &paths {
-        let mut ancestor = std::path::PathBuf::from(project);
+        let mut ancestor = std::path::PathBuf::from(s.cwd());
         for component in Path::new(path).components() {
             ancestor.push(component);
             if std::fs::symlink_metadata(&ancestor).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -221,14 +222,24 @@ pub fn check_merge(repo: &Path, base: &str, head: &str) -> CmdResult<()> {
 pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<()> {
     if let Some(id) = session {
         let s = db::session(conn, id).map_err(err)?.ok_or("sesión inexistente")?;
-        if s.worktree.is_some() { return Ok(()); } // Compatibilidad histórica.
+        if s.worktree.is_some() {
+            let work_state: Option<(i64, String)> = conn.query_row(
+                "SELECT w.id,w.state FROM work_agents a JOIN work_sessions w ON w.id=a.work_id WHERE a.session_id=?1",
+                [id], |r| Ok((r.get(0)?, r.get(1)?))
+            ).optional().map_err(err)?;
+            if let Some((work, status)) = work_state {
+                if status != "active" { return Err("reanuda el trabajo antes de ejecutar otro turno en esta sesión aislada".into()); }
+                conn.execute("UPDATE work_sessions SET tests=NULL,evidence=NULL,reviewed_head=NULL WHERE id=?1", [work]).map_err(err)?;
+            }
+            return Ok(());
+        }
         let work = active(conn, project)?;
         if work.state != "active" { return Err("la sesión está en revisión para su PR; reanúdala para seguir trabajando".into()); }
         check_branch(project, &work)?;
         join(conn, project, id)?;
         let paths = work.agents.iter().find(|a| a.session_id == id).map(|a| a.paths.clone()).unwrap_or_else(|| vec![".".into()]);
         for agent in &work.agents {
-            if agent.session_id != id && agent.running && paths.iter().any(|a| agent.paths.iter().any(|b| overlap(a,b))) {
+            if agent.session_id != id && agent.running && !agent.isolated && paths.iter().any(|a| agent.paths.iter().any(|b| overlap(a,b))) {
                 return Err(format!("{} está trabajando en archivos que se solapan con tu asignación. Espera a que termine o reparte áreas distintas", agent.name));
             }
         }
@@ -241,9 +252,15 @@ pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> Cm
 }
 
 pub fn context(conn: &Connection, project: &str, session: Option<i64>, input: String) -> CmdResult<String> {
-    if session.map(|id| db::session(conn, id)).transpose().map_err(err)?.flatten().is_some_and(|s| s.worktree.is_some()) { return Ok(input); }
+    let isolated = session.map(|id| db::session(conn, id)).transpose().map_err(err)?.flatten().is_some_and(|s| s.worktree.is_some());
     let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") else { return Ok(input); };
     let scope = session.and_then(|id| work.agents.iter().find(|a| a.session_id == id));
+    if isolated {
+        return Ok(match scope {
+            Some(agent) => format!("{input}\n\nTrabajas en una copia aislada. Área asignada: {}. Mantén los cambios en esta copia. Deja la integración al usuario.", agent.paths.join(", ")),
+            None => input,
+        });
+    }
     let rules = match scope {
         Some(agent) => format!("Tu área asignada: {}. Modifica solo estas rutas. Si necesitas otra área, pide al coordinador que cambie el reparto y espera. No hagas commits, push, merge, checkout, stash ni operaciones del índice; los gestiona Larry desde el IDE. Conserva el trabajo ajeno.", agent.paths.join(", ")),
         None => "Coordina el reparto y revisa resultados. Mientras haya ejecutores activos, no edites archivos ni ejecutes operaciones Git que escriban. Usa los chats ejecutores para implementar. El cierre se realiza desde Trabajo con una PR a main.".into(),
@@ -261,6 +278,20 @@ pub fn git_idle(conn: &Connection, project: &str) -> CmdResult<()> {
     Ok(())
 }
 
+fn require_integrated(conn: &Connection, work: &Work) -> CmdResult<()> {
+    let mut checked = HashSet::new();
+    // Un relevo conserva el mismo worktree. Solo su último titular puede
+    // haber actualizado la huella de la integración.
+    for agent in work.agents.iter().rev().filter(|agent| agent.isolated) {
+        let Some(session) = db::session_any(conn, agent.session_id).map_err(err)? else { continue };
+        if session.worktree.as_ref().is_some_and(|path| checked.insert(path.clone()))
+            && !crate::isolate::integration_verified(&session)? {
+            return Err(format!("integra primero los cambios de {}", session.name));
+        }
+    }
+    Ok(())
+}
+
 fn prepare(conn: &Connection, project: &str, tests: &str, evidence: &str) -> CmdResult<()> {
     let work = active(conn, project)?;
     idle(conn, project)?;
@@ -268,6 +299,7 @@ fn prepare(conn: &Connection, project: &str, tests: &str, evidence: &str) -> Cmd
     if !["passed", "not_applicable"].contains(&tests) || evidence.trim().is_empty() {
         return Err("registra pruebas correctas o no aplicables y su evidencia antes de finalizar".into());
     }
+    require_integrated(conn, &work)?;
     let repo = Path::new(project);
     if !pr::value(repo, &["status", "--porcelain"])?.is_empty() {
         return Err("revisa y crea los commits con Larry antes de finalizar; quedan cambios sin commit".into());
@@ -288,6 +320,7 @@ pub fn publication(conn: &Connection, project: &str, dir: &Path, base: &str) -> 
     idle(conn, project)?;
     check_branch(project, &work)?;
     if work.state != "review" || base != "main" { return Err("finaliza la sesión desde Trabajo para revisar su PR hacia main".into()); }
+    require_integrated(conn, &work)?;
     if !pr::value(dir, &["status", "--porcelain"])?.is_empty() || work.reviewed_head.as_deref() != Some(pr::value(dir, &["rev-parse", "HEAD"])?.as_str()) {
         return Err("el trabajo cambió después de las pruebas. Reanuda la sesión y vuelve a verificarlo".into());
     }
@@ -458,6 +491,31 @@ mod tests {
         tx.rollback().unwrap();
         assert_eq!(pr::value(Path::new(&project), &["worktree", "list", "--porcelain"]).unwrap().matches("worktree ").count(), 1);
         drop(conn); // Windows no borra la base mientras siga abierta.
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn isolated_handoff_blocks_review_until_its_latest_owner_integrates() {
+        let (dir, project, mut conn) = fixture();
+        start(&mut conn, &project, "Aislar cambios", "feat", "cambio aislado", false).unwrap();
+        let first = db::create_session(&conn, &project, "claude", "a", &["uno"]).unwrap();
+        let checkout = crate::isolate::create_task_checkout(&dir, Path::new(&project), "claude").unwrap();
+        db::set_session_worktree(&conn, first.id, &checkout.worktree, &checkout.branch, &checkout.base, &checkout.base_commit).unwrap();
+        assign(&conn, &project, first.id, vec!["isolated.txt".into()]).unwrap();
+        let handoff = db::create_handoff(&mut conn, first.id, "codex", "b", &["dos"], "").unwrap();
+        std::fs::write(Path::new(&checkout.worktree).join("isolated.txt"), "contenido\n").unwrap();
+        assert!(prepare(&conn, &project, "passed", "verificado").unwrap_err().contains("integra primero"));
+        let (_, fingerprint) = crate::isolate::integrate(&handoff).unwrap();
+        db::set_session_integrated(&conn, handoff.id, Some(&fingerprint)).unwrap();
+        pr::value(Path::new(&project), &["add", "isolated.txt"]).unwrap();
+        pr::value(Path::new(&project), &["commit", "-qm", "feat: trabajo aislado"]).unwrap();
+        prepare(&conn, &project, "passed", "verificado").unwrap();
+        assert!(begin(&mut conn, &project, handoff.id).unwrap_err().contains("reanuda"));
+        let repo = Path::new(&project);
+        assert!(publication(&conn, &project, repo, "main").unwrap().is_some());
+        std::fs::write(Path::new(&checkout.worktree).join("isolated.txt"), "cambio posterior\n").unwrap();
+        assert!(publication(&conn, &project, repo, "main").unwrap_err().contains("integra primero"));
+        drop(conn);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

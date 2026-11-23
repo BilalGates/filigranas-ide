@@ -193,7 +193,7 @@ mockIPC(
         if (mockWorks.get(a.project)?.state && mockWorks.get(a.project)?.state !== 'finished') return fail('ya hay una sesión de trabajo abierta');
         const slug = String(a.description).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0,72).replace(/-$/, '');
         const work: WorkSession = { id: nextWork++, objective: a.objective, branch: `${a.kind}/${slug}`, baseCommit: '84ab176', state: 'active', tests: null, evidence: null, reviewedHead: null, prUrl: null,
-          agents: mockSessions.filter(s => s.project === a.project && !s.worktree).map(s => ({sessionId:s.id,name:s.name,paths:['.'],running:false,closed:false})) };
+          agents: mockSessions.filter(s => s.project === a.project && !s.worktree).map(s => ({sessionId:s.id,name:s.name,paths:['.'],running:false,closed:false,isolated:false})) };
         mockWorks.set(a.project, work);
         mockBranches.set(a.project, work.branch);
         void emit('project-changed');
@@ -433,8 +433,8 @@ mockIPC(
           name,
           providerSession: crypto.randomUUID(),
           effort: null,
-          worktree: null,
-          branch: mockWorks.get(a.project)?.branch ?? null,
+          worktree: a.task == null ? null : `${ROOT}/worktrees/fixture-${id}`,
+          branch: a.task == null ? mockWorks.get(a.project)?.branch ?? null : `ide/${a.engine}-${id}`,
           base: 'main',
           baseCommit: '84ab176',
           integrated: null,
@@ -444,9 +444,9 @@ mockIPC(
           skillRole: a.skillRole ?? 'senior',
         };
         mockSessions.push(created);
-        mockWorks.get(a.project)?.agents.push({sessionId:id,name,paths:['.'],running:false,closed:false});
+        mockWorks.get(a.project)?.agents.push({ sessionId: id, name, paths: ['.'], running: false, closed: false, isolated: !!created.worktree });
         void emit('tasks-changed');
-        return { ...created, notice: 'Comparte la rama y el checkout de la sesión de trabajo.' };
+        return { ...created, notice: created.worktree ? null : 'Comparte la rama y el checkout de la sesión de trabajo.' };
       }
       case 'session_history':
         return [];
@@ -680,6 +680,8 @@ mockIPC(
       case 'brain_link_remove':
         mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
         return null;
+      case 'skills_rule_status':
+        return { agentsFile: true, copiedTrafficRule: false, linksTrafficReference: true };
       case 'skills_list':
         return mockSkillCatalog.map(({ name, description }) => ({ name, description }));
       case 'skills_assignments':

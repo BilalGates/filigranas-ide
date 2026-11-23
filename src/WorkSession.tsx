@@ -8,7 +8,7 @@ function Assignment({ agent, disabled, save }: { agent: WorkAgent; disabled: boo
   const [paths, setPaths] = useState(agent.paths.join('\n'));
   useEffect(() => setPaths(agent.paths.join('\n')), [agent.paths.join('\n')]);
   return <form className="work-assignment" onSubmit={(e) => { e.preventDefault(); void save(paths.split('\n').map((p) => p.trim()).filter(Boolean)); }}>
-    <span>{agent.name} · {agent.running ? 'en marcha' : 'disponible'}</span>
+    <span>{agent.name} · {agent.isolated ? 'copia aislada' : 'copia compartida'} · {agent.running ? 'en marcha' : 'disponible'}</span>
     <label>Archivos o carpetas, uno por línea
       <textarea aria-label={`Área de ${agent.name}`} rows={2} value={paths} disabled={disabled || agent.running} onChange={(e) => setPaths(e.target.value)} />
     </label>

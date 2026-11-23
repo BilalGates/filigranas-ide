@@ -466,7 +466,9 @@ export type BrainLink = { id: number | null; from: number; to: number; kind: Bra
 export type SkillInfo = { name: string; description: string };
 export type SkillRole = 'pm' | 'researcher' | 'designer' | 'senior' | 'junior' | 'auditor' | 'auditor2';
 export type SkillAssignment = { skill: string; role: SkillRole; enabled: boolean; inherited: boolean };
+export type RuleStatus = { agentsFile: boolean; copiedTrafficRule: boolean; linksTrafficReference: boolean };
 export const skills = {
+  ruleStatus: (project: string) => invoke<RuleStatus>('skills_rule_status', { project }),
   list: () => invoke<SkillInfo[]>('skills_list'),
   assignments: (project: string | null) => invoke<SkillAssignment[]>('skills_assignments', { project }),
   setAssignment: (project: string | null, skill: string, role: SkillRole, enabled: boolean | null) =>
@@ -491,7 +493,7 @@ export const localServices = {
 };
 
 // Sesiones de trabajo compartidas, independientes de los chats de proveedor.
-export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean };
+export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean; isolated: boolean };
 export type WorkSession = { id: number; objective: string; branch: string; baseCommit: string | null; state: 'active' | 'review' | 'finished'; tests: string | null; evidence: string | null; reviewedHead: string | null; prUrl: string | null; agents: WorkAgent[] };
 export const workSessions = {
   current: (project: string) => invoke<WorkSession | null>('work_current', { project }),

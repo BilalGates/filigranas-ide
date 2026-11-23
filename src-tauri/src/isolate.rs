@@ -12,7 +12,6 @@ use crate::{db, CmdResult};
 // sin commit, para revisarlos y que Larry los agrupe; si algo choca no se
 // aplica nada y la rama y el worktree se conservan.
 
-#[cfg(test)]
 pub struct Isolation {
     pub worktree: String,
     pub branch: String,
@@ -22,24 +21,23 @@ pub struct Isolation {
     pub main_dirty: bool,
 }
 
-/// Carpeta de worktrees de un proyecto dentro del directorio de datos.
-#[cfg(test)]
-fn worktree_dir(data_dir: &Path, project: &Path, name: &str, id: i64) -> PathBuf {
-    let project_name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "proyecto".into());
-    data_dir.join("worktrees").join(project_name).join(format!("{name}-{id}"))
+/// Conserva los worktrees nuevos dentro del perfil y les da un nombre único
+/// incluso si SQLite revierte el alta de la sesión.
+pub fn create_task_checkout(data_dir: &Path, project: &Path, engine: &str) -> CmdResult<Isolation> {
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    create(data_dir, project, engine, &token)?
+        .ok_or_else(|| "crea un primer commit antes de abrir un agente aislado para esta tarea".into())
 }
 
-/// Crea rama y worktree para una sesión. `None` si el proyecto no tiene
-/// commits todavía (no hay de dónde partir): la sesión usa el proyecto.
-#[cfg(test)]
-pub fn create(data_dir: &Path, project: &Path, name: &str, id: i64) -> CmdResult<Option<Isolation>> {
+pub(crate) fn create(data_dir: &Path, project: &Path, name: &str, token: impl std::fmt::Display) -> CmdResult<Option<Isolation>> {
     let Ok(head) = git(project, &["rev-parse", "--verify", "--quiet", "HEAD"]) else { return Ok(None) };
     let base_commit = String::from_utf8_lossy(&head).trim().to_string();
     let base = git(project, &["symbolic-ref", "--short", "-q", "HEAD"])
         .map(|b| String::from_utf8_lossy(&b).trim().to_string())
         .unwrap_or_else(|_| base_commit.chars().take(7).collect());
     let main_dirty = !git(project, &["status", "--porcelain"])?.is_empty();
-    let dir = worktree_dir(data_dir, project, name, id);
+    let directory = project.file_name().ok_or("el proyecto no tiene nombre")?;
+    let dir = data_dir.join("worktrees").join(directory).join(format!("{name}-{token}"));
     if dir.exists() {
         return Err(format!("ya existe la carpeta {}", dir.display()));
     }
@@ -58,10 +56,16 @@ pub fn create(data_dir: &Path, project: &Path, name: &str, id: i64) -> CmdResult
             _ => '-',
         })
         .collect();
-    let branch = format!("ide/{slug}-{id}");
+    let branch = format!("ide/{slug}-{token}");
     let dir_str = dir.to_string_lossy().into_owned();
-    git(project, &["worktree", "add", "-b", &branch, &dir_str, &base_commit])?;
+    git(project, &["worktree", "add", "--no-track", "-b", &branch, &dir_str, &base_commit])?;
     Ok(Some(Isolation { worktree: dir_str, branch, base, base_commit, main_dirty }))
+}
+
+pub fn discard_unregistered(project: &Path, checkout: &Isolation) -> CmdResult<()> {
+    git(project, &["worktree", "remove", &checkout.worktree])?;
+    git(project, &["branch", "-d", &checkout.branch])?;
+    Ok(())
 }
 
 fn git_stdin(repo: &Path, args: &[&str], input: &[u8]) -> CmdResult<String> {
@@ -340,15 +344,19 @@ fn isolated(state: &AppState, id: i64) -> CmdResult<(db::Session, PathBuf, Strin
 
 /// Cambios de la sesión frente al commit del que partió.
 #[tauri::command]
-pub fn session_changes(state: State<AppState>, id: i64) -> CmdResult<Status> {
-    let (_, wt, base) = isolated(&state, id)?;
-    status_since(&wt, &base)
+pub async fn session_changes(app: AppHandle, id: i64) -> CmdResult<Status> {
+    crate::background_read(app, move |state| {
+        let (_, wt, base) = isolated(state, id)?;
+        status_since(&wt, &base)
+    }).await
 }
 
 #[tauri::command]
-pub fn session_diff_texts(state: State<AppState>, id: i64, path: String, orig: Option<String>) -> CmdResult<DiffTexts> {
-    let (_, wt, base) = isolated(&state, id)?;
-    diff_texts_at(&wt, &base, &path, orig.as_deref())
+pub async fn session_diff_texts(app: AppHandle, id: i64, path: String, orig: Option<String>) -> CmdResult<DiffTexts> {
+    crate::background_read(app, move |state| {
+        let (_, wt, base) = isolated(state, id)?;
+        diff_texts_at(&wt, &base, &path, orig.as_deref())
+    }).await
 }
 
 /// Integra el trabajo de la sesión en el checkout principal.
@@ -473,6 +481,36 @@ mod tests {
             paused: None,
             skill_role: crate::skills::Role::default(),
         }
+    }
+
+    #[test]
+    fn new_task_checkouts_isolate_the_same_file_and_keep_prior_project_edits() {
+        let root = std::env::temp_dir().join(format!("filigranas-isolation-{}", uuid::Uuid::new_v4()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-b", "main"]).unwrap();
+        std::fs::write(repo.join("fixture.txt"), "BASE\n").unwrap();
+        git(&repo, &["add", "fixture.txt"]).unwrap();
+        git(&repo, &["-c", "user.name=Prueba", "-c", "user.email=test@example.invalid", "commit", "-m", "base"]).unwrap();
+        std::fs::write(repo.join("fixture.txt"), "PROYECTO\n").unwrap();
+
+        let profile = root.join("profile");
+        let codex = create_task_checkout(&profile, &repo, "codex").unwrap();
+        let claude = create_task_checkout(&profile, &repo, "claude").unwrap();
+        assert!(codex.main_dirty && claude.main_dirty);
+        assert_eq!(codex.base_commit, claude.base_commit);
+        assert_ne!(codex.branch, claude.branch);
+        let a = Path::new(&codex.worktree).join("fixture.txt");
+        let b = Path::new(&claude.worktree).join("fixture.txt");
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "BASE\n");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "BASE\n");
+        std::fs::write(&a, "CODEX\n").unwrap();
+        std::fs::write(&b, "CLAUDE\n").unwrap();
+        assert!(discard_unregistered(&repo, &codex).is_err());
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "CODEX\n");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "CLAUDE\n");
+        assert_eq!(std::fs::read_to_string(repo.join("fixture.txt")).unwrap(), "PROYECTO\n");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

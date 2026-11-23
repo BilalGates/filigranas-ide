@@ -28,9 +28,17 @@ const server = await createServer({
           response.writeHead(400).end();
         }
       });
+      if (process.env.FILIGRANAS_TRAMA_FIELD === '1') {
+        vite.middlewares.use('/__trama_campo_referencia', async (_request, response) => {
+          const original = await readFile('design/trama-v2/reference/index.html', 'utf8');
+          const page = original.replace(/<link[^>]*fonts\.google(?:apis|static)\.com[^>]*>/gu, '').replace('</body>', '<script type="module" src="/tests/trama_campo_referencia.js"></script></body>');
+          response.writeHead(200, { 'content-type': 'text/html' }).end(page);
+        });
+      }
       vite.middlewares.use('/__trama_nativo', async (_request, response) => {
         const probe = process.env.FILIGRANAS_TRAMA_AGENTS === '1' ? 'trama_agentes_webview'
-          : process.env.FILIGRANAS_TRAMA_SCENES === '1' ? 'trama_escenas_webview' : 'trama_perfil_webview';
+          : process.env.FILIGRANAS_TRAMA_SCENES === '1' ? 'trama_escenas_webview'
+          : process.env.FILIGRANAS_TRAMA_FIELD === '1' ? 'trama_campo_webview' : 'trama_perfil_webview';
         const template = await readFile('index.html', 'utf8');
         const html = await vite.transformIndexHtml('/__trama_nativo', template.replace(
           '<script type="module" src="/src/main.tsx"></script>',

@@ -209,6 +209,8 @@ async function run() {
   if (!Number.isFinite(seconds) || seconds < 15 || seconds > 3600) throw new Error('Duración inválida');
   const tasksPerProject = 240;
   localStorage.setItem('filigranas.destino', 'inicio');
+  localStorage.setItem('filigranas.movimiento', 'completo');
+  localStorage.setItem('filigranas.campo', '1');
   localStorage.setItem('filigranas.flow.lente', 'exec');
   await measure('arranque', async () => {
     await import('../src/main.tsx');

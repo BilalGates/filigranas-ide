@@ -237,18 +237,15 @@ html[data-motion='sin-ambiente'] .tr-nb .live { animation: trBreath 2.6s ease-in
 }
 .tr-tip kbd { margin-left: 8px; color: var(--tx3); font: 11px var(--mono); }
 
-/* campo ambiental: canvas 1/16 + retícula de puntos en el compositor */
+/* Campo ambiental dibujado con la retícula del Artifact. */
 .tr-field {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  -webkit-mask: radial-gradient(circle at 50% 50%, #000 0 1.1px, rgb(0 0 0 / 0.55) 1.9px, transparent 2.8px) 0 0 / 8px 8px repeat;
-  mask: radial-gradient(circle at 50% 50%, #000 0 1.1px, rgb(0 0 0 / 0.55) 1.9px, transparent 2.8px) 0 0 / 8px 8px repeat;
   transition: opacity 0.8s;
 }
 .tr-field canvas { width: 100%; height: 100%; display: block; }
-html[data-motion='reducido'] .tr-field { opacity: 0.6; }
 html.is-light .tr-field { opacity: 0.35; }
 
 /* ── respiración ligada a estados reales ───────────────────────────── */

@@ -10,6 +10,26 @@
 
 Se cotejaron las 19 evidencias de «Evidencias visuales de Trama v2» del Escritorio con las copias archivadas. Coinciden byte a byte. Las 24 capturas y montajes del trabajo de integración amplían la referencia de tamaños y estados. [Auditoría anterior](../auditoria-trama/) · [Integración anterior](../trama-paridad/).
 
+## Comparativas de las siete vistas en una misma WKWebView
+
+El recorrido del 23 de noviembre renderiza Filigranas y el HTML canónico en la misma ventana de desarrollo, a 1440 × 900 y 1×. Valida el SHA-256 del HTML y de sus fuentes archivadas. Durante las capturas fija los estados de los agentes del HTML, dibuja el campo de reposo y espera a que la aplicación confirme cada escena. Las tomas mantienen el marco nativo. El cálculo de píxeles usa la intersección de las superficies de trabajo.
+
+| Vista | Estado compartido que se comprobó | Qué queda por igualar |
+| --- | --- | --- |
+| Inicio | Nueve nombres de proyecto, tres grupos y sigilos de 68 × 68. | Orden dentro de los grupos, agentes activos y avisos de CI y permisos. |
+| Workspace | El plan de ocho tareas y diez enlaces en el historial local del PM. | Las tarjetas de arquitectura y actividad y el estado de permiso del turno. |
+| Flow | Ejecución con t2 seleccionada en el conjunto de ejemplo. | Cronología e inspector con los mismos eventos de Jev. |
+| Studio | Panel de Git, v3 aprobada y seleccionada, cuatro versiones y seis referencias. | Vista previa interactiva y distribución del inspector. |
+| Entrega | El antes y después de git_ops.rs y los dos hallazgos en línea. | Los estados de GitHub e integración y el encuadre del diff. |
+| Brain | Diez recuerdos confirmados y m1 seleccionado en el mapa. | Inferencias, orden de nodos y composición de la ficha. |
+| Ajustes | Skills y reglas globales, con 42 asignaciones y 11 activas. | Filas de las instrucciones y catálogo del turno comparable. |
+
+En Inicio se recuperan la retícula de proyectos y el generador de sigilos del HTML. La franja de commits usa una clase propia para que los estilos del botón de acción de la aplicación no pinten su fondo. En Studio se agrupan las coordenadas y la edición de restricciones en controles desplegables. En Entrega se usa una cabecera para el archivo y se conserva su ruta y la de origen cuando hay un renombre. Flow muestra el porcentaje del ejemplo en el inspector y Ajustes restaura los indicadores de la matriz del HTML.
+
+La primera pasada en modo Completo encontró un viaje en el que la opacidad de Ajustes quedó por debajo de 0,99 durante la ventana de 3,5 s. También se conservó una captura anterior con el diff montado y la vista de Entrega negra. En macOS la entrada usa el mismo desplazamiento de 6 puntos, fundido y duración de 420 ms, sin aplicar un filtro a toda la capa. En tres vueltas con la ventana de desarrollo siempre visible, las 21 visitas alcanzaron la opacidad final. El p95 de los intervalos de WebKit fue de 17–18 ms y el máximo de 38 ms. La cadencia del compositor y las sesiones de varias horas quedan por verificar.
+
+Los nueve sigilos coincidieron en los cuatro canales del lienzo, a 68 × 68 por proyecto. Las comparativas del Escritorio incluyen las dos tomas originales, montajes, superposiciones y mapas de diferencias. La aceptación de las siete vistas sigue abierta. [Mediciones de la comparación](evidencias/comparativa-wkwebview.json).
+
 ## Resultado por área
 
 | Área | Referencia a 1440 × 900 | Paridad visual | Función comprobada | Pendiente para aceptar | Resultado |
@@ -94,7 +114,7 @@ El inventario se extrae del CSS y JavaScript de la referencia. Los nombres de la
 
 | Referencia | Implementación | Evidencia |
 | --- | --- | --- |
-| `viewIn` | `tv-viewIn` y ajuste WKWebView con desenfoque de 3 a 0 px. Workspace tiene entrada con desplazamiento y opacidad. | Se recorrieron los destinos en macOS tras restaurar el desenfoque. Falta contrastar la transición de Workspace con la referencia. |
+| `viewIn` | `tv-viewIn` en navegador. WKWebView usa el mismo fundido de 420 ms y desplazamiento de 6 puntos que Workspace. | En 21 visitas la opacidad llegó a 0,99. El filtro de capa completa se retiró de la entrada nativa tras detectar una vista negra. |
 | `spin`, `glow`, `core` | Halo de ejecución, `tv-spin`, `tv-glow`, `tv-core` | Comprobación de la activación de `tv-spin` en Ajustes. Falta prueba con proveedor activo. |
 | `drift`, `thinkCore` | `tv-drift`, `tv-thinkCore` y fuente separada del PM en el canvas | Comprobación de `tv-drift` y cambios de píxel con actividad sintética. |
 | `beat`, `beatHalo` | `tv-beat`, `tv-beatHalo`, doble latido de permisos | Comprobación de `tv-beat`. Falta aprobación real pendiente en Workspace. |
@@ -131,3 +151,6 @@ Los dos lienzos se compararon en la misma WKWebView a 1440 × 900 y 1×. Se fija
 7. Ejecutar `tests/auditoria_trama_browser.py --channel chrome --app URL_DEL_SERVIDOR` para comprobar la persistencia al recargar y los flujos independientes. Usar `design/trama-v2/parity.py --reference-only` para validar los hashes de la referencia y reproducir sus capturas. Con `--section studio --width 1440 --studio-fixture CARPETA` se extraen los contenidos del lienzo y las seis referencias.
 
 8. Para comparar el campo en la misma WKWebView, usar `FILIGRANAS_TRAMA_FIELD=1` y el perfil de escenas. El servidor toma el lienzo de la aplicación y después abre una página de prueba basada en el HTML canónico. El hook conserva el dibujo original y añade la comparación. Los lienzos se cotejan sin reescalar.
+
+
+9. Para repetir las siete comparativas, usar el perfil de escenas del paso 5, `FILIGRANAS_TRAMA_COMPARATIVAS` con una carpeta temporal vacía y `FILIGRANAS_PERFIL_RESULTADO` apuntando a `escena.json` dentro de esa carpeta. Con el servidor activo, ejecutar `python tests/trama_comparativas.py --prepare "$VITE_TRAMA_SCENE_ROOT"` para añadir los demás repositorios sintéticos. Mantener a la vista la ventana de 1440 × 900. Se puede fijar temporalmente `alwaysOnTop: true` en la configuración de desarrollo. Ejecutar `python tests/trama_comparativas.py --pid PID --output "$FILIGRANAS_TRAMA_COMPARATIVAS"` para capturar ambos recorridos y verificar los sigilos y la opacidad final. `--verify` comprueba los informes ya capturados.

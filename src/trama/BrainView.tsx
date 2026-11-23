@@ -525,8 +525,8 @@ function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask,
   return (
     <>
       <div className="sec">
-        <div className="row" style={{ marginBottom: 8 }}><i className="kd" style={{ ['--c' as string]: c, background: c }} /><span className="lab">{KIND[m.k][0]}</span><span className="grow" /><span className="chip mint"><Icon name="check" size={10} /> Confirmado</span></div>
-        <p className={`statement${m.status === 'sustituido' ? ' strike' : ''}`}>{m.x}</p>
+        <div className="row" style={{ marginBottom: 8 }}><i className="kd" style={{ ['--c' as string]: c, background: c }} /><span className="lab">{KIND[m.k][0]}</span><span className="grow" /><span className="chip">aprobado por ti</span></div>
+        <p className={`statement in brain-memory-statement${m.status === 'sustituido' ? ' strike' : ''}`}>{m.x}</p>
         <div className="row wrap" style={{ marginTop: 10 }}>
           <button className="btn sm" disabled={!full} onClick={() => full && onEdit(full)}><Icon name="edit" size={12} /> Corregir</button>
           {lens !== 'focus' && <button className="btn sm" onClick={() => onFocus(m.id)}><Icon name="focus" size={12} /> Foco</button>}
@@ -534,38 +534,57 @@ function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask,
           <button className="btn sm danger" disabled={!full} onClick={() => setForget(true)}>Olvidar</button>
         </div>
       </div>
-      <div className="sec"><span className="lab">Por qué existe</span><p className="mut2" style={{ margin: '6px 0 8px', whiteSpace: 'pre-wrap' }}>{m.why || 'Sin justificación registrada.'}</p>
-        <div className="col" style={{ gap: 4 }}>{m.origins.map((o, i) => {
-          const url = o.t === 'pr' ? o.url : null;
-          const detail = <><Icon name={ORIGT[o.t][0]} size={14} /><span className="grow">{o.label}</span><span className="mut">{ORIGT[o.t][1]}</span></>;
-          if (o.t === 'task') return <button key={i} className="orow" onClick={() => onTask(o.ref as number, m.project)}>{detail}</button>;
-          if (url) return <button key={i} className="orow" onClick={() => void pr.open(url).catch((e) => setError(String(e)))}>{detail}</button>;
-          return <div key={i} className="orow">{detail}</div>;
-        })}</div>
-      </div>
-      <div className="sec"><span className="lab">Vigencia</span><div className="vig">
-        {m.status === 'sustituido' ? <><span className="chip">Sustituido</span> {rels.filter((r) => r.type === 'sustituye' && r.inv).map((r) => <button key={r.id} className="lnk" onClick={() => onSel(r.to)}>Ver el recuerdo que lo sustituye</button>)}</>
-          : m.status === 'caducado' ? <><span className="chip amber">Caducado</span> <span className="mut2">vigente hasta el {fecha(m.validUntil!)}</span></>
-          : <><span className="chip mint">Vigente</span> <span className="mut2">{m.validUntil ? `hasta el ${fecha(m.validUntil)}` : `desde el ${fecha(full?.created ?? m.date)}`}</span></>}
-      </div>{full && <div className="mut2" style={{ marginTop: 6, fontSize: 12 }}>{full.global ? 'Global' : full.task ? `Acotado a la tarea #${full.task}` : 'Del proyecto'} · {full.share ? 'se comparte con los agentes' : 'privado'} · versión {full.version}</div>}</div>
-      <div className="sec"><span className="lab">Relaciones</span>
-        {Object.keys(grouped).length ? Object.values(grouped).map((rs) => (
-          <div key={`${rs[0].type}${rs[0].inv}`} className="relg"><span className="relt" style={{ color: RELT[rs[0].type][1] }}>{relLabel(rs[0].type, rs[0].inv)}</span>
-            {rs.map((r) => { const o = mems.find((x) => x.id === r.to); return o ? <div key={r.id} className="relrow"><button className="lnk" onClick={() => onSel(o.id)}>{o.x}</button><button className="tbtn" aria-label="Quitar relación" onClick={() => project && brain.unlink(project, r.id).then(onChanged, (e) => setError(String(e)))}><Icon name="close" size={11} /></button></div> : null; })}
-          </div>)) : <p className="mut2">Sin relaciones registradas. Filigranas no inventa relaciones: solo existen las que creas aquí.</p>}
+      <div className="sec">
+        <dl className="kv brain-inspector-meta">
+          <dt>Procedencia</dt>
+          <dd>{m.origins.length ? m.origins.map((origin, i) => {
+            const url = origin.t === 'pr' ? origin.url : null;
+            if (origin.t === 'task') return <button key={i} className="lnk" onClick={() => onTask(origin.ref as number, m.project)}>{origin.label}</button>;
+            if (url) return <button key={i} className="lnk" onClick={() => void pr.open(url).catch((e) => setError(String(e)))}>{origin.label}</button>;
+            return <span key={i}>{origin.label}</span>;
+          }) : '—'}</dd>
+          <dt>Ámbito</dt><dd>{m.project == null ? 'Global' : full?.task ? `Tarea #${full.task}` : 'Proyecto'}</dd>
+          <dt>Usado en</dt><dd className="row wrap">{m.used.length ? m.used.map((task) => (
+            <button key={task.id} className="chip btnchip" title={task.title} onClick={() => onTask(task.id, m.project)}>#{task.id}</button>
+          )) : 'Sin uso registrado'}</dd>
+          <dt>Relacionado</dt><dd>
+            {rels.length ? Object.values(grouped).map((rs) => (
+              <div key={rs[0].id} className="relg">
+                {rs[0].type !== 'relacionado' && <span className="relt" style={{ color: RELT[rs[0].type][1] }}>{relLabel(rs[0].type, rs[0].inv)}</span>}
+                {rs.map((relation) => {
+                  const other = mems.find((memory) => memory.id === relation.to);
+                  return other && <div key={relation.id} className="relrow">
+                    <button className="lnk" onClick={() => onSel(other.id)}>{other.x}</button>
+                    {project && sameProject && <button className="tbtn" aria-label="Quitar relación" onClick={() =>
+                      brain.unlink(project, relation.id).then(onChanged, (e) => setError(String(e)))}><Icon name="close" size={11} /></button>}
+                  </div>;
+                })}
+              </div>
+            )) : '—'}
+          </dd>
+        </dl>
         {project && sameProject && (
-          <div className="col" style={{ gap: 6, marginTop: 8 }}>
+          <details className="brain-inspector-details"><summary className="lab">Añadir relación</summary><div className="col" style={{ gap: 6, marginTop: 8 }}>
             <div className="row">
               <label className="fsel"><select value={kind} onChange={(e) => setKind(e.currentTarget.value as BrainLinkKind)} aria-label="Tipo de relación">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <option key={k} value={k}>{RELT[k][0]}</option>)}</select><Icon name="down" size={11} /></label>
               <label className="fsel wide" style={{ flex: 1 }}><select value={target} onChange={(e) => setTarget(e.currentTarget.value ? Number(e.currentTarget.value) : '')} aria-label="Recuerdo relacionado"><option value="">Elige un recuerdo…</option>{mems.filter((x) => x.id !== m.id && (x.project === project || x.project == null)).map((x) => <option key={x.id} value={x.id}>{tr(x.x, 60)}</option>)}</select><Icon name="down" size={11} /></label>
             </div>
             <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.currentTarget.checked)} /> Confirmo que esta relación es correcta</label>
             <button className="btn sm" disabled={!ok || target === ''} onClick={() => brain.link(project, { id: null, from: m.id, to: Number(target), kind, note: '' }, true).then(() => { setTarget(''); setOk(false); onChanged(); }, (e) => setError(String(e)))}><Icon name="link" size={12} /> Relacionar</button>
-          </div>
+          </div></details>
         )}
+        <details className="brain-inspector-details" open={m.status !== 'vigente' || undefined}>
+          <summary className="lab">Vigencia y contexto</summary>
+          {m.why && m.why !== m.x && <p className="mut2 brain-memory-context">{m.why}</p>}
+          <div className="vig">
+            {m.status === 'sustituido' ? <><span className="chip">Sustituido</span> {rels.filter((r) => r.type === 'sustituye' && r.inv).map((r) => <button key={r.id} className="lnk" onClick={() => onSel(r.to)}>Ver el recuerdo que lo sustituye</button>)}</>
+              : m.status === 'caducado' ? <><span className="chip amber">Caducado</span> <span className="mut2">vigente hasta el {fecha(m.validUntil!)}</span></>
+              : <><span className="chip mint">Vigente</span> <span className="mut2">{m.validUntil ? `hasta el ${fecha(m.validUntil)}` : `desde el ${fecha(full?.created ?? m.date)}`}</span></>}
+          </div>
+          {full && <p className="mut2">{full.share ? 'Se comparte con los agentes' : 'Privado'} · versión {full.version}</p>}
+        </details>
         {error && <ErrorNote error={error} />}
       </div>
-      <div className="sec"><span className="lab">Aplicado en</span><div className="row wrap" style={{ marginTop: 6 }}>{m.used.length ? m.used.map((t) => <button key={t.id} className="chip btnchip" onClick={() => onTask(t.id, m.project)}>#{t.id} · {tr(t.title, 26)}</button>) : <span className="mut2">{full?.global ? 'Global: puede enviarse a cualquier tarea relevante' : 'Se envía a las tareas del proyecto cuando es relevante'}</span>}</div></div>
       {forget && full && (
         <Modal title="Olvidar recuerdo" onClose={() => setForget(false)}>
           <p>Se borrará «{m.x}» y sus relaciones. Los agentes dejarán de recibirlo. No se puede deshacer.</p>

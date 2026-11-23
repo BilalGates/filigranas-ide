@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
-import { Composer, ConversationLog, KIND_LETTER, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
-import ConversationPlan from './trama/ConversationPlan';
+import { Composer, ConversationLog, ConversationObservation, KIND_LETTER, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { useReportActivity } from './ui';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
 
@@ -15,7 +15,8 @@ type Props = {
   switching?: boolean;
   providerPicker?: ReactNode;
   onDiff: (c: Change) => void;
-  onOpenFlow?: (task?: number) => void;
+  workflow?: ConversationWorkflow;
+  observation?: HTMLElement | null;
   session?: { id: number; name: string; worktree: string | null };
   task?: { id: number; title: string } | null;
   onClearTask?: () => void;
@@ -30,7 +31,7 @@ type Props = {
  * del hilo guardado; los turnos nuevos llegan como eventos y se pintan a
  * medida que avanzan. Las aprobaciones esperan aquí la decisión del usuario.
  */
-export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, onOpenFlow, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
+export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, workflow, observation, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
   const sessionId = session?.id ?? null;
   const directName = session?.name;
   const history = useChatHistory(project, sessionId);
@@ -210,8 +211,9 @@ export default function Coordinator({ project, hidden, switching, providerPicker
 
   return (
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
-
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} plan={!hidden && onOpenFlow && <ConversationPlan project={project} onOpen={onOpenFlow} />}>
+      {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
+        agent={directName ?? 'Project manager'} project={session?.worktree ?? project} onDiff={onDiff} />}
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} workflow={hidden ? undefined : workflow}>
         {opening && <div className="muted">abriendo el coordinador…</div>}
         {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {history.error && <div className="co-error">{history.error}</div>}

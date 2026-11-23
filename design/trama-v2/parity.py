@@ -106,23 +106,42 @@ def entrega_fixture(page, destination):
 
 
 def workspace_fixture(page, destination):
-    state = page.evaluate("""() => {
+    state = page.evaluate(r"""() => {
       if (!S.msgs) initMsgs();
       const [user, plan, architecture, , diff] = S.msgs.pm;
       const plain = (html) => {
         const node = document.createElement('div');
-        node.innerHTML = html;
+        node.innerHTML = html.replaceAll('<b>', '**').replaceAll('</b>', '**');
         return node.textContent;
       };
+      go('workspace');
+      const chart = Array.from(document.querySelectorAll('#archsvg g')).slice(0, 4).map((node) => {
+        return Array.from(node.querySelectorAll('text')).map((label) => label.textContent);
+      });
+      const edgeLabel = document.querySelector('#archsvg g:last-child text').textContent;
+      const title = document.querySelector('#archsvg').closest('.rich').querySelector('.rh b').textContent;
+      const label = ([name, detail], index) => `n${index}["${name}<br/>${detail}"]`;
+      const chartLines = chart.slice(1).map((node, i) =>
+        `${i ? 'n' + i : label(chart[0], 0)} -->${i === 1 ? '|' + edgeLabel + '|' : ''} ${label(node, i + 1)}`);
+      const code = CODE['git_ops.rs'].map(([kind, text = '']) => (kind === 'a' ? '+' : kind === 'd' ? '-' : ' ') + text);
+      const patch = ['@@ -1 +1 @@', ...code].join('\n');
       return {
         tasks: TK.map(({id, title, status, deps, prio}) => ({id, title, status, deps, prio})),
+        sessions: ['sen', 'cod', 'jun'].map((id) => {
+          const agent = AG.find((entry) => entry.id === id);
+          return { id, task: agent.task, name: agent.role, engine: agent.engine === 'Codex' ? 'codex' : 'claude', state: agent.state,
+            items: S.msgs[id].filter((item) => item.k === 'ai' || item.k === 'brief').map((item, index) =>
+              ({ id: id + '-' + index, type: 'agentMessage', text: plain(item.x), by: item.k === 'brief' ? 'Project manager' : agent.role })),
+          };
+        }),
         items: [
           {id:'request', type:'userMessage', content:[{type:'text',text:user.x}]},
           {id:'plan', type:'plan', text:plain(plan.x)},
-          {id:'architecture', type:'agentMessage', text:plain(architecture.x), by:'Project manager'},
+          {id:'architecture', type:'agentMessage', text:[plain(architecture.x),'', '```mermaid','flowchart LR',
+            'accTitle: ' + title, ...chartLines, '```'].join('\n'), by:'Project manager'},
           {id:'diff', type:'agentMessage', text:plain(diff.x), by:'Project manager'},
           {id:'git-change', type:'fileChange', status:'completed',
-            changes:[{path:'src-tauri/src/git_ops.rs', kind:{type:'update'}, diff:''}]}
+            changes:[{path:'src-tauri/src/git_ops.rs', kind:{type:'update'}, diff:patch}]}
         ]
       };
     }""")

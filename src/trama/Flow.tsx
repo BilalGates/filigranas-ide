@@ -15,10 +15,11 @@ import { Modal } from './ui';
 const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
-type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number };
-type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null };
+type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number; files?: string };
+type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; context?: string | null; event?: string };
 const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
-type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean };
+type DemoDecision = { scores: [string, number][]; cost: string; escalation?: string };
+type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean; decisions?: Record<string, DemoDecision> };
 const LANE_H = 66, COL_W = 214, NODE_W = 194, NODE_H = 50;
 const FS: Record<string, FStatus> = { running: 'running', verifying: 'running', waiting_approval: 'waiting', blocked: 'blocked', failed: 'blocked', paused_quota: 'blocked', done: 'done', cancelled: 'done' };
 const LAB: Record<FStatus, [string, string]> = { running: ['en marcha', 'en marcha'], waiting: ['espera permiso', 'esperan permiso'], blocked: ['bloqueada', 'bloqueadas'], done: ['completada', 'completadas'], backlog: ['pendiente', 'pendientes'] };
@@ -36,7 +37,7 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
     task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
-    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs,
+    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs, cost: r.routing?.costEstimateUsd ?? r.costEstimateUsd, context: r.routing?.eventAdvice ?? r.routing?.context,
   })));
   const used = new Set(base.map((t) => t.agent));
   const lanesShown = agents.filter((a) => a.id === 'pm' || used.has(a.id) || a.state !== 'idle');
@@ -72,8 +73,17 @@ function demoModel(): FModel {
   tasks.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const today = new Date(); today.setHours(20, 0, 0, 0);
   const R = (task: string, min: number, model: string, reason: string, complexity: string, confidence: number): FRun => ({ task, at: today.getTime() + min * 60000, provider: model === 'Codex' ? 'codex' : 'claude', model, outcome: 'ok', reason, complexity, confidence, effort: null, source: 'shadow', tokens: null, duration: null });
-  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red. Opus no mejora lo bastante la confianza para justificar su coste; se escala si fallan los tests dos veces.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 18, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
-  return { agents, tasks, runs, demo: true };
+  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red. Opus no mejora lo bastante la confianza para justificar su coste; se escala si fallan los tests dos veces.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 21, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
+  tasks[1].files = 'src-tauri/src/git_ops.rs';
+  runs[2].event = 'contexto';
+  runs.push({ ...runs[1], at: today.getTime() + 26 * 60000, event: 'compactar' },
+    { ...runs[2], at: today.getTime() + 31 * 60000, event: 'intervención' });
+  return { agents, tasks, runs, demo: true, decisions: {
+    t1: { scores: [['Haiku', 78], ['Sonnet', 61], ['Opus', 30]], cost: 'bajo' },
+    t2: { scores: [['Haiku', 24], ['Sonnet', 82], ['Opus', 66]], cost: 'medio', escalation: 'a Opus tras 2 fallos de tests' },
+    t3: { scores: [['Codex', 80], ['Sonnet', 58], ['Haiku', 41]], cost: 'bajo' },
+    t4: { scores: [['Haiku', 72], ['Sonnet', 70], ['Opus', 22]], cost: 'bajo' },
+  } };
 }
 
 export default function Flow({ project, projectName, initialTask, agentSessions, pm, onOpenSession, onEditTask, onAuto, onDirect, onStartPm }: {
@@ -437,7 +447,9 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
   const a = m.agents.find((x) => x.id === t.agent) ?? NONE;
   const miss = t.deps.map((d) => m.tasks.find((x) => x.id === d)).filter((d): d is FTask => !!d && d.status !== 'done');
   const runs = m.runs.filter((r) => r.task === t.id).sort((x, y) => y.at - x.at);
-  const last = runs[0];
+  const last = runs.find((run) => run.event !== 'compactar' && run.event !== 'intervención');
+  const decision = m.decisions?.[t.id];
+  const maxScore = decision ? Math.max(1, ...decision.scores.map(([, score]) => score)) : 1;
   const blocked = !!t.real && t.real.waitingFor.length > 0;
   return (
     <>
@@ -464,6 +476,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
         <dt>Agente</dt><dd className="row"><AgDot a={a} s={12} />{a.name}</dd>
         <dt>Depende de</dt><dd className="row wrap">{t.deps.length ? t.deps.map((d) => <button key={d} className={`chip btnchip ${m.tasks.find((x) => x.id === d)?.status === 'done' ? 'mint' : ''}`} onClick={() => onSel(d)}>{m.demo ? d : `#${d}`}</button>) : '—'}</dd>
         <dt>Desbloquea</dt><dd className="row wrap">{m.tasks.filter((x) => x.deps.includes(t.id)).map((x) => <button key={x.id} className="chip btnchip" onClick={() => onSel(x.id)}>{x.num != null ? `#${x.num}` : x.id}</button>)}{!m.tasks.some((x) => x.deps.includes(t.id)) && '—'}</dd>
+        {t.files && <><dt>Reparto</dt><dd className="mono">{t.files}</dd></>}
         <dt>Prioridad</dt><dd>{t.prio}</dd>
         {t.progress != null && <><dt>Avance</dt><dd className="row">
           <span className="dotnum">{t.progress}%</span>
@@ -474,8 +487,22 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
       </dl></div>
       <div className="sec">
         <div className="row" style={{ marginBottom: 8 }}><Icon name="route" size={14} /><b>{last ? `Por qué ${last.model ?? last.provider}` : 'Decisión de Jev'}</b><span className="grow" />{last?.complexity && <span className="chip">{last.complexity}</span>}</div>
-        <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}</div>
-        {last && <dl className="kv" style={{ marginTop: 10 }}><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd><dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd><dt>Esfuerzo</dt><dd>{last.effort ?? '—'}</dd></dl>}
+        <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}
+          {last?.context && <div className="mut" style={{ marginTop: 6 }}>{last.context}</div>}
+        </div>
+        {decision && <div className="cands" aria-label="Candidatos del ejemplo">{decision.scores.map(([model, score]) => (
+          <div key={model} className={`cand${last?.model === model ? ' pick' : ''}`}><span>{model}</span>
+            <span className="barw" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} className={i < Math.round(score / maxScore * 12) ? 'f' : undefined} />)}</span>
+            <span className="mono">{score}</span>
+          </div>
+        ))}</div>}
+        {last && <dl className="kv" style={{ marginTop: 10 }}>
+          {!decision && <><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd></>}
+          <dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd>
+          {last.effort && <><dt>Esfuerzo</dt><dd>{last.effort}</dd></>}
+          {(decision || last.cost != null) && <><dt>Coste</dt><dd>{decision?.cost ?? `${last.cost?.toLocaleString('es-ES', { maximumSignificantDigits: 3 })} USD`}</dd></>}
+          {decision?.escalation && <><dt>Escalado</dt><dd>{decision.escalation}</dd></>}
+        </dl>}
       </div>
       <div className="sec"><span className="lab">Historial</span>
         {runs.length ? <ol className="tev">{runs.slice(0, 8).map((r, i) => <li key={i}><span className="mono mut2">{new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span><span>{r.provider}{r.model ? ` · ${r.model}` : ''} · {r.outcome}{r.tokens ? ` · ${r.tokens.toLocaleString('es-ES')} tokens` : ''}</span></li>)}</ol>
@@ -492,11 +519,13 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (svg.current) ro.observe(svg.current); return () => ro.disconnect(); }, []);
   const day = new Date(); day.setHours(0, 0, 0, 0);
   const runs = (m?.runs ?? []).filter((r) => r.at >= day.getTime() || m?.demo).sort((a, b) => a.at - b.at);
-  const t0 = runs.length ? runs[0].at - 5 * 60000 : Date.now() - 3600000, t1 = Math.max(t0 + 30 * 60000, (runs.at(-1)?.at ?? Date.now()) + 5 * 60000);
+  const demoStart = runs[0]?.at - 2 * 60000;
+  const t0 = m?.demo ? demoStart : runs.length ? runs[0].at - 5 * 60000 : Date.now() - 3600000;
+  const t1 = m?.demo ? t0 + 45 * 60000 : Math.max(t0 + 30 * 60000, (runs.at(-1)?.at ?? Date.now()) + 5 * 60000);
   const X = (t: number) => 24 + ((t - t0) / (t1 - t0)) * (w - 48);
   const M: Record<string, string> = { haiku: '#7fd6ff', sonnet: '#b09cff', opus: '#ffc27a', codex: '#8fc4ff' };
   const color = (r: FRun) => Object.entries(M).find(([k]) => `${r.model ?? r.provider}`.toLowerCase().includes(k))?.[1] ?? '#ccc';
-  const ticks = Array.from({ length: 5 }, (_, i) => t0 + ((t1 - t0) * i) / 4);
+  const ticks = Array.from({ length: 5 }, (_, i) => t0 + (m?.demo ? 10 * 60000 * i : ((t1 - t0) * i) / 4));
   const q = (label: string, quota: ReturnType<typeof useProviderQuota>) => quota.windows.length
     ? quota.windows.map((win) => { const left = Math.max(0, 100 - win.percent); return <div key={label + win.label} className="qrow"><span>{label} {win.label}</span><span className="qdots">{Array.from({ length: 20 }, (_, i) => <i key={i} className={i < left / 5 ? (left >= 70 ? 'h' : 'f') : ''} />)}</span><span className="mono">{Math.round(left)}%</span></div>; })
     : [<div key={label} className="qrow"><span>{label}</span><span className="qdots unk">{Array.from({ length: 20 }, (_, i) => <i key={i} />)}</span><span className="mut2">desconocida</span></div>];
@@ -507,12 +536,13 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
         <svg ref={svg} role="img" aria-label="Línea temporal de ejecuciones y decisiones de Jev">
           <line x1="24" x2={w - 24} y1="44" y2="44" stroke="rgba(255,255,255,.1)" strokeDasharray="1 4" />
           {ticks.map((t, i) => <text key={i} x={X(t)} y={100} textAnchor="middle" className="tlt">{new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</text>)}
-          {runs.map((r, i) => { const x = X(r.at), y = [28, 58, 82][i % 3], c = color(r), on = sel === r.task; return (
+          {runs.map((r, i) => { const x = X(r.at), y = m?.demo ? r.event ? (i % 2 ? 58 : 72) : (i % 2 ? 24 : 34) : [28, 58, 82][i % 3];
+            const c = color(r), on = sel === r.task; return (
             <g key={i} className={`rt${on ? ' on' : ''}`} tabIndex={0} role="button" aria-label={`${r.task}: ${r.model ?? r.provider}`} onClick={() => onSel(r.task)} onKeyDown={(e) => e.key === 'Enter' && onSel(r.task)}>
               <line x1={x} x2={x} y1="44" y2={y} stroke={c} strokeOpacity=".45" />
               <title>{r.source ? ROUTING_SOURCE[r.source] : 'Origen sin registrar'}</title>
-              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={r.source === 'jev' || r.source === 'shadow' ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
-              <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.model ?? r.provider}</text>
+              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={!r.event && (r.source === 'jev' || r.source === 'shadow') ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
+              <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.event ?? r.model ?? r.provider}</text>
             </g>); })}
         </svg>
       </div>

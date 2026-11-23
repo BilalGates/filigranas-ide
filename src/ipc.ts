@@ -114,7 +114,7 @@ export type CItem = {
   status?: string;
   aggregatedOutput?: string | null;
   exitCode?: number | null;
-  changes?: { path: string; kind: { type: string } }[];
+  changes?: { path: string; kind: { type: string }; diff?: string }[];
   server?: string;
   tool?: string;
   // Herramientas dinámicas del IDE (delegar, estado_sesiones, esperar_sesion).

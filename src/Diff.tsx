@@ -10,14 +10,20 @@ import { loadMonaco } from './monacoLoader';
  * editar se abre el archivo desde el árbol. Se refresca cuando cambia algo
  * en el proyecto o la sesión termina un turno.
  */
-export default function Diff({ project, change, inline = false, findings, showHeader = true }: {
-  project: string; change: DiffTarget; inline?: boolean; findings?: HealthRun['findings']; showHeader?: boolean;
+export default function Diff({ project, change, inline = false, findings, finding, showHeader = true }: {
+  project: string; change: DiffTarget; inline?: boolean; findings?: HealthRun['findings']; finding?: { fingerprint: string }; showHeader?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [limited, setLimited] = useState(false);
   const findingsRef = useRef(findings);
   const showFindings = useRef<(() => void) | null>(null);
+  const selectedFinding = useRef(finding);
+  const jumpToFinding = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    selectedFinding.current = finding;
+    jumpToFinding.current?.();
+  }, [finding]);
   useEffect(() => {
     findingsRef.current = findings;
     showFindings.current?.();
@@ -101,7 +107,14 @@ export default function Diff({ project, change, inline = false, findings, showHe
               }
             });
           };
+          jumpToFinding.current = () => {
+            const selected = findingsRef.current?.find((item) => item.fingerprint === selectedFinding.current?.fingerprint);
+            if (selected?.line == null) return;
+            const line = lines?.get(selected.line);
+            if (line !== undefined) code?.revealLineInCenter(line, monaco.editor.ScrollType.Immediate);
+          };
           showFindings.current();
+          jumpToFinding.current();
           setLimited(limited);
         } else if (!diff) {
           diff = monaco.editor.createDiffEditor(host.current, { ...baseOptions(), readOnly: true, renderOverviewRuler: false });
@@ -129,6 +142,7 @@ export default function Diff({ project, change, inline = false, findings, showHe
     return () => {
       alive = false;
       showFindings.current = null;
+      jumpToFinding.current = null;
       window.clearTimeout(timer);
       unlisten.then((off) => off());
       unlistenSession.then((off) => off());

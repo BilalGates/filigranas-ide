@@ -34,8 +34,9 @@ export default function Threads({ projectName, view, hasPm, pmEngine, sessions, 
   }, [menu]);
   const agents = sessionAgents(sessions, activity, hasPm ? { engine: pmEngine } : null);
   const pm = agents.find((a) => a.id === 'pm');
-  const isolated = sessions.filter((s) => s.worktree);
-  const direct = sessions.filter((s) => !s.worktree);
+  const assigned = sessions.filter((s) => s.task);
+  const isolated = sessions.filter((s) => s.worktree && !s.task);
+  const direct = sessions.filter((s) => !s.worktree && !s.task);
   const item = (s: Session) => {
     const a = agents.find((x) => x.session === s.id)!;
     const first = s.task?.split('\n')[0]?.trim();
@@ -78,6 +79,7 @@ export default function Threads({ projectName, view, hasPm, pmEngine, sessions, 
             ) : (
               <button className="thread ghost-thread" onClick={onStartPm}><span className="eng"><Icon name="agent" size={12} /></span><span className="tx"><span className="t1">Project manager</span><span className="t2">Empezar a coordinar {projectName}</span></span></button>
             )}
+            {assigned.length > 0 && <><div className="tgroup">Sesiones de la tarea</div>{assigned.map(item)}</>}
             {isolated.length > 0 && <><div className="tgroup">Sesiones aisladas</div>{isolated.map(item)}</>}
             {direct.length > 0 && <><div className="tgroup">Directas</div>{direct.map(item)}</>}
             {!sessions.length && <div className="threads-empty">Sin sesiones abiertas. Crea una con <Icon name="plus" size={11} /> o deja que el PM reparta el trabajo.</div>}

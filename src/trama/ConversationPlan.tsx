@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { tasks, type Task } from '../ipc';
+import { tasks, type Session, type Task } from '../ipc';
 import { dependencyLevels } from './graph';
+import { ConversationCard } from './ConversationCards';
+import { AgDot, sessionAgents, useAgentsActivity } from './kit';
 import { Icon } from './icons';
 
 const HEIGHT = 120;
@@ -10,18 +12,18 @@ const COLORS: Record<string, string> = {
   blocked: 'var(--coral)', verifying: 'var(--skyhi)', failed: 'var(--coral)',
 };
 
-export default function ConversationPlan({ project, onOpen }: { project: string; onOpen: (task?: number) => void }) {
-  const [items, setItems] = useState<Task[]>([]);
-  const [width, setWidth] = useState(0);
-  const preview = useRef<HTMLDivElement>(null);
+export function useConversationTasks(project: string | null) {
+  const [snapshot, setSnapshot] = useState<{ project: string; items: Task[]; limit: number | null } | null>(null);
+  const current = snapshot?.project === project ? snapshot : null;
   useEffect(() => {
+    if (!project) return;
     let alive = true;
     let generation = 0;
     let timer = 0;
     const load = () => {
       const request = ++generation;
-      void tasks.list(project).then((next) => {
-        if (alive && request === generation) setItems(next);
+      void Promise.all([tasks.list(project), tasks.parallelLimit(project).catch(() => null)]).then(([items, limit]) => {
+        if (alive && request === generation) setSnapshot({ project, items, limit });
       }, () => {});
     };
     const unlisten = listen('tasks-changed', () => {
@@ -35,6 +37,12 @@ export default function ConversationPlan({ project, onOpen }: { project: string;
       void unlisten.then((off) => off());
     };
   }, [project]);
+  return current;
+}
+
+export default function ConversationPlan({ items, limit, onOpen }: { items: Task[]; limit: number | null; onOpen: (task?: number) => void }) {
+  const [width, setWidth] = useState(0);
+  const preview = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!preview.current) return;
     const resize = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
@@ -60,11 +68,9 @@ export default function ConversationPlan({ project, onOpen }: { project: string;
 
   if (!items.length) return null;
   return (
-    <section className="co-rich-plan" aria-label="Plan de trabajo">
-      <div className="co-plan-head">
-        <Icon name="flow" size={14} /><b>Plan · {items.length} {items.length === 1 ? 'tarea' : 'tareas'}</b>
-        <button className="co-btn" onClick={() => onOpen()}>Abrir en Flow <Icon name="chev" size={13} /></button>
-      </div>
+    <ConversationCard label="Plan de trabajo" icon="flow" title={`Plan · ${items.length} ${items.length === 1 ? 'tarea' : 'tareas'}`}
+      detail={limit != null && <span className="muted">{limit} en paralelo</span>}
+      action={<button className="co-btn" onClick={() => onOpen()}>Abrir en Flow <Icon name="chev" size={13} /></button>}>
       <div ref={preview} className="co-plan-graph">
         {width > 48 && <svg width={width} height={HEIGHT} aria-label="Dependencias del plan">
           {[...model.values()].flatMap((end) => end.task.dependencies.flatMap((id) => {
@@ -90,6 +96,41 @@ export default function ConversationPlan({ project, onOpen }: { project: string;
           })}
         </svg>}
       </div>
-    </section>
+    </ConversationCard>
   );
+}
+
+export type ConversationWorkflow = {
+  sessions: Session[];
+  onOpenFlow: (task?: number) => void;
+  onSession: (id: number) => void;
+  onObserve: (id: number) => void;
+};
+
+const IN_FLIGHT = new Set(['running', 'verifying', 'waiting_approval']);
+export function ConversationTeam({ items, sessions, onObserve, onSession }: { items: Task[] } & ConversationWorkflow) {
+  const activity = useAgentsActivity();
+  const linked = new Map<number, Task>();
+  for (const item of items) {
+    for (const session of item.sessions) {
+      const active = activity[String(session.id)];
+      if (!session.closed && !linked.has(session.id) && (active || IN_FLIGHT.has(item.status))) linked.set(session.id, item);
+    }
+  }
+  const rows = sessionAgents(sessions, activity, null).flatMap((agent) => {
+    const task = agent.session == null ? undefined : linked.get(agent.session);
+    return agent.session != null && task ? [{ agent, task, id: agent.session }] : [];
+  });
+
+  if (!rows.length) return null;
+  return <section className="tv co-team" aria-label="Actividad de las tareas">
+    {rows.slice(0, 8).map(({ agent, task, id }) => <div className="co-team-row" key={id}>
+      <AgDot a={agent} />
+      <div><div>{agent.name} <span className="mut">· {task.title}</span></div><div className="co-team-status">{agent.did}</div></div>
+      <div className="co-team-actions">
+        <button className="co-btn" onClick={() => onObserve(id)}><Icon name="eye" size={13} /> Observar<span className="sr-only"> {task.title}</span></button>
+        <button className="co-btn" onClick={() => onSession(id)}>{agent.state === 'waiting' ? 'Ver permiso' : 'Entrar'}<span className="sr-only"> {agent.name}</span></button>
+      </div>
+    </div>)}
+  </section>;
 }

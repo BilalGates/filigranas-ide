@@ -4,6 +4,7 @@ import datetime
 import json
 import re
 import subprocess
+import sqlite3
 import time
 from pathlib import Path
 from urllib.request import urlopen
@@ -11,10 +12,12 @@ from urllib.request import urlopen
 from PIL import Image, ImageChops, ImageDraw
 from trama_semaforo import WINDOW
 
-VIEWS = ("inicio", "workspace", "flow", "studio", "entrega", "brain", "ajustes")
+BASE_VIEWS = ("inicio", "workspace", "flow", "studio", "entrega", "brain", "ajustes")
+VIEWS = ("inicio", "workspace", "workspace-arquitectura", "workspace-observar", "flow", "flow-dependencias",
+         "studio", "studio-comparacion", "entrega", "entrega-hallazgo", "brain", "brain-agrupado", "ajustes")
 
 
-def prepare(root):
+def prepare(root, workspace_db=None):
     if not re.fullmatch(r"/(?:private/)?tmp/trama-escenas-[^/]+/repos", str(root)):
         raise ValueError("Se requiere una raíz temporal de escenas")
     with urlopen("http://127.0.0.1:14572/__trama_fixtures", timeout=5) as response:
@@ -38,6 +41,47 @@ def prepare(root):
                 )
         if commits:
             subprocess.run(["git", "-C", project, "fast-import", "--quiet"], input="".join(commits), text=True, check=True)
+
+
+    if workspace_db:
+        prepare_workspace(root / "filigranas-ide", workspace_db)
+
+
+def prepare_workspace(project, db):
+    fixture = json.loads(Path("docs/trama-aceptacion-final/evidencias/fixture-workspace.json").read_text())
+    expected = Path.home() / "Library/Application Support/com.filigranas.ide.trama-escenas/filigranas.db"
+    if db.resolve() != expected.resolve() or not db.is_file():
+        raise ValueError("Solo se admite la base existente del perfil aislado de escenas")
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA foreign_keys=ON")
+        task_ids = dict(conn.execute("SELECT title,id FROM tasks WHERE project=?", (str(project),)))
+        if len(task_ids) != 8 or set(task_ids) != {item["title"] for item in fixture["tasks"]}:
+            raise ValueError("El proyecto temporal debe contener las ocho tareas del Artifact")
+        tasks = {item["id"]: item["title"] for item in fixture["tasks"]}
+        conn.execute(
+            "INSERT INTO chat_history(scope,items) VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET items=excluded.items",
+            ("pm:" + str(project), json.dumps(fixture["items"], ensure_ascii=False)),
+        )
+        for session in fixture["sessions"]:
+            alias = "trama-fixture-" + session["id"]
+            row = conn.execute(
+                "SELECT id FROM sessions WHERE project=? AND provider_session=?", (str(project), alias),
+            ).fetchone()
+            if row:
+                session_id = row[0]
+            else:
+                session_id = conn.execute(
+                    "INSERT INTO sessions(project,engine,name,provider_session,task) VALUES(?,?,?,?,?)",
+                    (str(project), session["engine"], session["name"], alias, tasks[session["task"]]),
+                ).lastrowid
+            conn.execute(
+                "INSERT INTO task_sessions(session_id,task_id) VALUES(?,?) ON CONFLICT(session_id) DO NOTHING",
+                (session_id, task_ids[tasks[session["task"]]]),
+            )
+            conn.execute(
+                "INSERT INTO chat_history(scope,items) VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET items=excluded.items",
+                ("session:" + str(session_id), json.dumps(session["items"], ensure_ascii=False)),
+            )
 
 
 def take(pid, output):
@@ -134,22 +178,38 @@ def verify(reports):
     actual = reports["native"]["views"]["inicio"]["sigils"]
     if len(expected) != 9 or actual != expected:
         raise RuntimeError("Los nueve sigilos deberían coincidir en los cuatro canales")
-    for name, view in reports["native"]["views"].items():
+    for name in BASE_VIEWS:
+        view = reports["native"]["views"][name]
         samples = view["active"]
         if len(samples) != 3 or any(sample["routeMs"] is None for sample in samples):
             raise RuntimeError(f"La transición de {name} no alcanzó su opacidad final en todas las vueltas")
-    print("Nueve sigilos idénticos y 21 transiciones completadas")
+    reference = reports["artifact"]["views"]
+    native = reports["native"]["views"]
+    for field in ("architecture", "changes"):
+        if native["workspace"][field] != reference["workspace"][field]:
+            raise RuntimeError(f"Workspace no coincide en {field}")
+    if len(native["workspace"]["team"]) != reference["workspace"]["team"]:
+        raise RuntimeError("El número de sesiones en las tarjetas de Workspace difiere")
+    if not native["workspace-observar"]["readOnly"]:
+        raise RuntimeError("La observación permite escribir en el hilo")
+    for field in ("candidates", "timeline"):
+        if native["flow"][field] != reference["flow"][field]:
+            raise RuntimeError(f"Flow no coincide en {field}")
+    if [entry["value"] for entry in reports["native"]["motion"]] != ["completo", "sin-ambiente", "reducido"]:
+        raise RuntimeError("Falta comprobar algún modo de movimiento")
+    print("Nueve sigilos idénticos, tarjetas e inspector contrastados, tres modos y 21 transiciones completadas")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepare", type=Path)
+    parser.add_argument("--workspace-db", type=Path, help="siembra el historial y los vínculos en el perfil aislado ya inicializado")
     parser.add_argument("--pid", type=int)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--verify", action="store_true", help="verifica los informes ya capturados")
     args = parser.parse_args()
     if args.prepare is not None:
-        prepare(args.prepare)
+        prepare(args.prepare, args.workspace_db)
     elif args.output and args.verify:
         verify({side: json.loads((args.output / f"{side}.json").read_text()) for side in ("native", "artifact")})
     elif args.pid and args.output:

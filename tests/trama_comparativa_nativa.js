@@ -1,7 +1,8 @@
 import { getIdentifier } from '@tauri-apps/api/app';
-import { api, brain, git, health, skills } from '../src/ipc';
+import { api, brain, git, health, sessions, skills } from '../src/ipc';
+import { verifyMotion } from './trama_movimiento.js';
 import { captureStudioState } from './trama_studio_escena';
-import { canvasHash, capture, frames, post, until } from './trama_comparativa';
+import { canvasHash, capture, frames, post, sleep, until } from './trama_comparativa';
 
 const report = { side: 'native', views: {} };
 const visible = (selector) => [...document.querySelectorAll(selector)].find((el) => el.getClientRects().length);
@@ -81,6 +82,8 @@ async function run() {
   }));
 
   localStorage.setItem('filigranas.destino', 'inicio');
+  localStorage.setItem('filigranas.disposicion', 'chat');
+  localStorage.setItem('filigranas.flow.lente', 'exec');
   localStorage.setItem('filigranas.movimiento', 'reducido');
   localStorage.setItem('filigranas.ajustes', 'skills');
   localStorage.setItem('filigranas.brain.lente', 'map');
@@ -88,7 +91,8 @@ async function run() {
   localStorage.setItem('filigranas.retomar', JSON.stringify({ project: project.path, view: 'coach', dest: 'workspace', at: Date.now() }));
   await import('../src/main.tsx');
   await until(() => !document.hidden && visible('.tr-nav'), 'la navegación nativa en primer plano', 20000);
-  const read = (name) => capture(report, name, name === 'workspace' ? ['.threads', 'main.center'] : 'main[aria-label]');
+  const read = (name) => capture(report, name, name.startsWith('workspace')
+    ? ['.threads', 'main.center', ...(name === 'workspace-observar' ? ['#workspace-right-panel'] : [])] : 'main[aria-label]');
 
   await open('filigranas-ide');
   await navigate('Inicio');
@@ -103,11 +107,61 @@ async function run() {
   await read('inicio');
 
   await open('filigranas-ide');
+  const workspaceFixture = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-workspace.json').then((response) => response.json());
+  const savedSessions = await sessions.list(project.path);
+  const { useReportActivity } = await import('../src/ui');
+  const { createElement } = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  function Activity({ id, state }) {
+    useReportActivity(String(id), state === 'waiting' ? 'esperando permiso' : 'en marcha');
+    return null;
+  }
+  const activityHost = document.createElement('div');
+  document.body.append(activityHost);
+  const activity = createRoot(activityHost);
+  activity.render(workspaceFixture.sessions.map((item) => {
+    const session = savedSessions.find((entry) => entry.providerSession === 'trama-fixture-' + item.id);
+    if (!session) throw new Error('Falta la sesión sintética ' + item.id);
+    return createElement(Activity, { id: session.id, state: item.state, key: session.id });
+  }));
   const plan = await until(() => visible('.co-plan-graph svg'), 'el plan de Workspace');
   const nodes = [...plan.querySelectorAll('g[role="button"]')];
   if (nodes.length !== 8 || plan.querySelectorAll('path').length !== 10) throw new Error('El plan de Workspace requiere 8 tareas y 10 enlaces');
-  report.views.workspace = { nodes: nodes.map((node) => node.getAttribute('aria-label')), edges: 10 };
+  const architecture = await until(() => visible('[aria-label="Arquitectura propuesta"]'), 'la tarjeta de arquitectura');
+  const preview = await until(() => visible('.co-patch'), 'la vista previa del diff');
+  await until(() => {
+    const rows = [...document.querySelectorAll('.co-team-row')];
+    const height = rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0);
+    const parentHeight = rows[0]?.parentElement.getBoundingClientRect().height;
+    return rows.length === 3 && rows.every((row) => row.getBoundingClientRect().height >= 36)
+      && parentHeight <= height + 10 && plan.getBoundingClientRect().height === 120
+      && plan.closest('section').getBoundingClientRect().height > 120;
+  }, 'el plan y las tres tarjetas sin recorte');
+  report.views.workspace = {
+    nodes: nodes.map((node) => node.getAttribute('aria-label')), edges: 10,
+    architecture: [...architecture.querySelectorAll('svg g > rect')].length,
+    changes: [...preview.querySelectorAll('code')].map((line) => line.textContent),
+    team: [...document.querySelectorAll('.co-team-status')].map((status) => status.textContent),
+  };
+  if (document.querySelector('.app.has-panel')) throw new Error('Workspace debe empezar en la disposición de conversación');
+  const conversation = document.querySelector('.coach[aria-label="Coordinador"] .co-log');
+  conversation.scrollTop = conversation.scrollHeight;
   await read('workspace');
+  architecture.scrollIntoView({ block: 'center' });
+  report.views['workspace-arquitectura'] = { nodes: 4, edges: 3 };
+  await read('workspace-arquitectura');
+  const observe = document.querySelector('.co-team-row .co-team-actions button');
+  observe.click();
+  const observation = await until(() => visible('.workspace-observation-log .co-text'), 'la conversación de Senior en el panel');
+  if (!visible('.coach[aria-label="Coordinador"]') || !observation.textContent.includes('Encargo del PM')) {
+    throw new Error('Observar cambió la conversación principal o abrió otra sesión');
+  }
+  report.views['workspace-observar'] = { agent: 'Senior', pmVisible: true, readOnly: !document.querySelector('.workspace-observation textarea') };
+  await read('workspace-observar');
+  button('Cerrar observación').click();
+  await until(() => !visible('.workspace-observation') && !document.querySelector('.app.has-panel'), 'la vuelta a la disposición anterior');
+  activity.unmount();
+  activityHost.remove();
 
   await open('bitacora');
   await navigate('Flow');
@@ -120,10 +174,29 @@ async function run() {
   await until(() => button('Ejecución'), 'la lente Ejecución').then((el) => el.click());
   const flow = await until(() => visible('.flowg .gn[data-gid="t2"].sel'), 'la tarea t2');
   report.views.flow = { lens: 'exec', selected: flow.dataset.gid, nodes: document.querySelectorAll('.flowg .gn').length };
+  report.views.flow.candidates = [...document.querySelectorAll('.insp .cand')].map((row) => row.textContent);
+  report.views.flow.timeline = document.querySelectorAll('.route .rt').length;
   await read('flow');
+  button('Dependencias').click();
+  await until(() => button('Dependencias')?.getAttribute('aria-pressed') === 'true', 'la lente Dependencias');
+  report.views['flow-dependencias'] = { selected: 't2' };
+  await read('flow-dependencias');
+  button('Ejecución').click();
 
   report.views.studio = await captureStudioState(project, { button, destination, until: wait, visible });
   await read('studio');
+  await until(() => [...document.querySelectorAll('.studio .ver')].find((item) => item.textContent.trim().startsWith('v4 ')), 'la v4').then((el) => el.click());
+  await until(() => {
+    const compare = document.querySelector('.studio .toolbar button[aria-label="Comparar"]');
+    return compare && !compare.disabled && compare;
+  }, 'el divisor de Studio').then((el) => el.click());
+  const comparison = await until(() => visible('.studio-inspector-compare'), 'las versiones en el inspector');
+  if (!comparison.textContent.startsWith('v3 ↔ v4')) throw new Error('Se están comparando otras versiones');
+  report.views['studio-comparacion'] = { baseline: 3, candidate: 4 };
+  await read('studio-comparacion');
+  const divider = document.querySelector('[aria-label="Divisor antes y después"]');
+  divider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  await until(() => divider.getAttribute('aria-valuenow') === '55', 'el divisor movido con el teclado');
 
   await navigate('Entrega');
   const file = spec.files.find((item) => item.path.endsWith('git_ops.rs'));
@@ -133,6 +206,11 @@ async function run() {
   await until(() => ['f1', 'f2'].every((id) => inline().some((line) => line.endsWith(id))), 'los dos hallazgos inline');
   report.views.entrega = { path: file.path, inline: inline() };
   await read('entrega');
+  const finding = await until(() => [...document.querySelectorAll('.audit .fitem')].find((item) => item.textContent.startsWith('f1')), 'el hallazgo f1');
+  finding.click();
+  await until(() => finding.classList.contains('on') && visible('.diff-finding-error')?.textContent.includes('L27'), 'la línea 27 de f1');
+  report.views['entrega-hallazgo'] = { id: 'f1', line: 27 };
+  await read('entrega-hallazgo');
 
   await navigate('Brain');
   const selected = await until(() => visible(`.gn[data-gid="${selectedMemory}"]`), 'el recuerdo m1');
@@ -140,6 +218,11 @@ async function run() {
   await until(() => selected.classList.contains('sel'), 'la selección del recuerdo m1');
   report.views.brain = { selected: 'm1', confirmed: fixture.memory.filter((entry) => entry.ok).length, inferred: 0 };
   await read('brain');
+  await until(() => button('Agrupar'), 'el agrupamiento de Brain').then((el) => el.click());
+  const groups = () => document.querySelectorAll('.brg .gn[data-gid^="K-"]').length;
+  await until(() => groups() === 5, 'los cinco grupos de recuerdos');
+  report.views['brain-agrupado'] = { groups: groups() };
+  await read('brain-agrupado');
 
   await navigate('Ajustes');
   await until(() => button('Skills y reglas'), 'Skills y reglas').then((el) => el.click());
@@ -163,6 +246,7 @@ async function run() {
       (report.views[name].active ??= []).push({ routeMs, ...cadence });
     }
   }
+  report.motion = await verifyMotion({ button, destination, sleep, until, visible });
 }
 
 try { await run(); } catch (error) {

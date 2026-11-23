@@ -132,6 +132,8 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
 
   if (!project) return <Root label="Studio"><div className="studio-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Studio trabaja sobre las pantallas de diseño del proyecto abierto.</p></div></div></Root>;
   const newScreen = () => setEditing({ id: null, name: '', url: '', constraints: '', revision: null, approved: null });
+  const version = (item: DesignShot) => shots ? `v${shots.length - shots.findIndex((entry) => entry.id === item.id)}` : '';
+  const compareTitle = comparable && cmp && reference && shot ? `${version(reference)} ↔ ${version(shot)}` : null;
   const composer = shot && screen ? (
     <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
       onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
@@ -213,7 +215,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
         </section>
         <aside className="insp" aria-label="Inspector de diseño">
           {screen ? (
-            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} onSize={setSize}
+            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} compareTitle={compareTitle} onSize={setSize}
               candidateImage={shot ? images[shot.id] : undefined} referenceImage={comparable && reference ? images[reference.id] : undefined}
               components={components} selected={selected} onSelect={chooseComponent} onRegion={changeRegion} onSave={saveConstraints}
               composer={composer} references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
@@ -390,9 +392,9 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   );
 }
 
-function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
+function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, compareTitle, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
   screen: DesignScreen; shot: DesignShot | null; region: DesignRegion; parsed: { locks: Lock[]; rest: string }; busy: boolean; sent: { text: string; label: string; at: number }[]; size: [number, number];
-  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; composer: React.ReactNode; references: React.ReactNode;
+  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; compareTitle: string | null; composer: React.ReactNode; references: React.ReactNode;
   candidateImage?: string; referenceImage?: string; onSize: (size: [number, number]) => void; onRegion: (r: DesignRegion) => void; onSave: (locks: Lock[], rest: string) => void; onCapture: (note: string) => void; onImport: (f: File, note: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -408,7 +410,11 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
   }} />;
   return (
     <>
-      <div className="sec"><span className="lab">Selección</span>
+      {compareTitle && <div className="studio-inspector-compare" aria-label="Versiones comparadas">
+        <div className="sec"><h3>{compareTitle}</h3></div>
+        {composer}
+      </div>}
+      {!compareTitle && <div className="sec"><span className="lab">Selección</span>
         {shot && components && components.length > 0 && <label className="studio-components">Componente
           <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
             <option value="">Seleccionar componente…</option>
@@ -453,8 +459,8 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
             </div>
           </>
         )}
-      </div>
-      <div className="sec"><span className="lab">Protegido · se conserva entre versiones</span>
+      </div>}
+      <div className="sec"><span className="lab">Restricciones aprobadas · se mantienen entre iteraciones</span>
         <div style={{ marginTop: 6 }}>
           {parsed.locks.length ? parsed.locks.map((l, i) => (
             <div key={i} className="lockrow"><Icon name="lock" size={13} /><button className="grow lnk" style={{ textAlign: 'left' }} onClick={() => { const component = l.selector && components?.find((item) => item.selector === l.selector); if (component) onSelect(component); else onRegion(l.region); }}>{l.text || 'Región sin nombre'}</button>
@@ -470,7 +476,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>
       </div>
-      {composer}
+      {!compareTitle && composer}
       {references}
       <div className="sec"><span className="lab">Nueva versión</span>
         <div className="studio-region-fields">

@@ -84,6 +84,9 @@ export default function App() {
   // Archivos con marcas de conflicto tras una integración.
   const [conflictFiles, setConflictFiles] = useState<string[] | null>(null);
   const [rightView, setRightView] = useState<RightTab>('git');
+  const [observed, setObserved] = useState<number | null>(null);
+  const beforeObservation = useRef<{ tab: RightTab; hidden: boolean } | null>(null);
+  const [observationTarget, setObservationTarget] = useState<HTMLDivElement | null>(null);
   const [dirty, setDirty] = useState(false);
   const [agentSessions, setAgentSessions] = useState<Session[]>([]);
   const [flowFocus, setFlowFocus] = useState<{ project: string; task: number } | null>(null);
@@ -476,10 +479,25 @@ export default function App() {
     setWorktree(null);
     closeFile();
     setConflictFiles(null);
-    setRightView((tab) => (tab === 'conflicts' ? 'git' : tab));
+    setObserved(null);
+    beforeObservation.current = null;
+    setRightView((tab) => (tab === 'conflicts' || tab === 'observe' ? 'git' : tab));
     setView('coach');
   };
   const hasPm = !!current && pmProjects.has(current.path);
+  const workflow = current && dest === 'workspace' ? {
+    sessions: agentSessions.filter((agent) => agent.project === current.path),
+    onOpenFlow: (task?: number) => {
+      setFlowFocus(task == null ? null : { project: current.path, task });
+      setDest('flow');
+    },
+    onSession: (id: number) => setView(id),
+    onObserve: (id: number) => {
+      if (rightView !== 'observe') beforeObservation.current = { tab: rightView, hidden: noRight };
+      setObserved(id);
+      revealRight('observe');
+    },
+  } : undefined;
   const startPm = (path = current?.path) => {
     if (!path) return;
     if (path !== project) selectProject(path);
@@ -673,10 +691,19 @@ export default function App() {
     ? /^([a-zA-Z]:)?[\\/]/.test(editorPath) ? editorPath : `${editorRoot.replace(/[\\/]+$/, '')}/${editorPath}`
     : current?.path ?? null;
   const editorTab = current && editorPath ? { name: editorPath.split(/[\\/]/).pop() ?? '', path: editorPath, diff: !!diff } : null;
-  const panelOpen = !noRight && (!!current || rightView === 'browser');
+  const observing = agentSessions.find((session) => session.id === observed && session.project === current?.path);
+  const observedPanel = dest === 'workspace' && rightView === 'observe' && !noRight ? observing : undefined;
+  const closeObservation = () => {
+    setObserved(null);
+    setNoRight(beforeObservation.current?.hidden ?? true);
+    setRightView(beforeObservation.current?.tab ?? 'git');
+    beforeObservation.current = null;
+  };
+  const panelOpen = !noRight && (!!current || rightView === 'browser') && (rightView !== 'observe' || !!observing);
   const browserOpen = panelOpen && rightView === 'browser';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
     if (tab === 'browser') return false;
+    if (tab === 'observe') return !!observing;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
@@ -694,7 +721,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
+    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
       <AmbientField dim={fieldDim} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
@@ -878,11 +905,11 @@ export default function App() {
           {current && hasPm && pmReady && (pmSession
             ? <SessionView key={'coach-claude:' + current.path} session={pmSession} project={current.path}
                 hidden={view !== 'coach'} switching={switching === project} providerPicker={view === 'coach' ? providerPicker : undefined} onDiff={showDiff} onModel={reportModel}
-                manager={{ task: coachTask, clearTask: () => setCoachTask(null) }} />
+                workflow={workflow} manager={{ task: coachTask, clearTask: () => setCoachTask(null) }} />
             : <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} hidden={view !== 'coach'}
                 switching={switching === project} providerPicker={view === 'coach' ? providerPicker : undefined}
                 task={coachTask} onClearTask={() => setCoachTask(null)} onModel={reportModel}
-                onOpenFlow={(task) => { setFlowFocus(task == null ? null : { project: current.path, task }); setDest('flow'); }} />
+                workflow={workflow} />
           )}
           {current &&
             agentSessions.map((s) => (
@@ -893,6 +920,7 @@ export default function App() {
                 providerPicker={view === s.id ? providerPicker : undefined}
                 project={current.path}
                 hidden={view !== s.id}
+                observation={observedPanel?.id === s.id ? observationTarget : null}
                 onDiff={showDiff}
                 quotaNear={view === s.id && quota.near}
                 onOpenFile={(path) => {
@@ -978,12 +1006,14 @@ export default function App() {
         })}
       </nav>
 
-      {layout === 'code' && panelOpen && dest === 'workspace' && (
+      {layout === 'code' && panelOpen && rightView !== 'observe' && dest === 'workspace' && (
         <button className="tr-btn sm ws-back" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
           <Icon name="chat" size={13} /> Conversación
         </button>
       )}
-      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile} root={ws.root} location={panelLocation}>
+      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
+        observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation } : undefined}
+        root={ws.root} location={panelLocation}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {current && conflictFiles && (
           <Conflicts
@@ -1025,6 +1055,11 @@ export default function App() {
           />
         )}
         {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
+        {observedPanel && <section className="workspace-observation" aria-label={`Observando a ${observedPanel.name}`}>
+          <div ref={setObservationTarget} className="workspace-observation-log" />
+          <WorkspaceChanges key={observedPanel.id} project={observedPanel.project} session={observedPanel.worktree ? observedPanel.id : null}
+            onDiff={showDiff} onEntrega={() => { setEntregaScope(observedPanel.worktree ? observedPanel.id : null); setDest('entrega'); }} />
+        </section>}
         {panelOpen && current && rightView === 'editor' &&
           editorTab &&
           <>

@@ -1,5 +1,9 @@
+import { createPortal } from 'react-dom';
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { chats, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
+import { ConversationArchitecture, ConversationChange } from './trama/ConversationCards';
+import ConversationPlan, { ConversationTeam, useConversationTasks, type ConversationWorkflow } from './trama/ConversationPlan';
+import { readArchitecture } from './trama/conversationContent';
 import Splitter, { SIZES } from './Splitter';
 import { beep, shortcut } from './ui';
 
@@ -42,25 +46,22 @@ export type Ask = {
   decide: (d: Decision) => void;
 };
 
-/** Texto con bloques ``` como código; el resto conserva los saltos de línea. */
-function Prose({ text }: { text: string }) {
-  return (
-    <>
-      {text.split(/```[^\n]*\n?/).map((part, i) =>
-        i % 2 ? (
-          <pre key={i} className="co-code">
-            {part.replace(/\n$/, '')}
-          </pre>
-        ) : (
-          part.trim() && (
-            <p key={i} className="co-text">
-              {part.trim()}
-            </p>
-          )
-        ),
-      )}
-    </>
-  );
+function inlineProse(text: string) {
+  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).map((part, i) => {
+    if (i % 2 === 0) return part;
+    return part.startsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <code key={i}>{part.slice(1, -1)}</code>;
+  });
+}
+
+/** Conserva los bloques de código y reconoce las cadenas de arquitectura. */
+function Prose({ text, onOpenFlow }: { text: string; onOpenFlow?: () => void }) {
+  return text.split(/^```/m).map((part, i) => {
+    if (i % 2 === 0) return part.trim() && <p key={i} className="co-text">{inlineProse(part.trim())}</p>;
+    const firstLine = part.indexOf('\n');
+    const body = (firstLine < 0 ? part : part.slice(firstLine + 1)).trimEnd();
+    const architecture = firstLine >= 0 && part.slice(0, firstLine).trim() === 'mermaid' ? readArchitecture(body) : null;
+    return architecture ? <ConversationArchitecture key={i} data={architecture} onOpen={onOpenFlow} /> : <pre key={i} className="co-code">{body}</pre>;
+  });
 }
 
 type LogProps = {
@@ -70,32 +71,37 @@ type LogProps = {
   agent: string;
   project: string;
   onDiff: (c: Change) => void;
-  plan?: ReactNode;
+  workflow?: ConversationWorkflow;
   /** Avisos al final: cargando, vacío, errores. */
   children?: ReactNode;
 };
 
 /** Lista de mensajes que sigue el final salvo que el usuario haya subido. */
-export function ConversationLog({ items, asks, agent, project, onDiff, plan, children }: LogProps) {
+export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children }: LogProps) {
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
+  const snapshot = useConversationTasks(workflow ? project : null);
   useLayoutEffect(() => {
     const el = log.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [items, asks]);
+  }, [items, asks, snapshot]);
 
-  let lastPlan: CItem['id'] | null = null;
-  if (plan) {
-    for (let i = items.length - 1; i >= 0; i--) {
-      if (items[i].type === 'plan' && items[i].text) { lastPlan = items[i].id; break; }
-    }
+  const plan = workflow && snapshot && <ConversationPlan {...snapshot} onOpen={workflow.onOpenFlow} />;
+  const afterArchitecture = workflow && snapshot && <ConversationTeam items={snapshot.items} {...workflow} />;
+  const onOpenFlow = workflow?.onOpenFlow;
+
+  let lastPlan: string | undefined, lastArchitecture: string | undefined;
+  if (snapshot) for (let i = items.length - 1; i >= 0 && (!lastPlan || !lastArchitecture); i--) {
+    const item = items[i];
+    if (item.type === 'plan' && item.text) lastPlan ??= item.id;
+    if (item.type === 'agentMessage' && item.text?.includes('```mermaid')) lastArchitecture ??= item.id;
   }
-
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
 
   // ⌘Y aprueba y ⌘N rechaza la petición de permiso más antigua.
   useEffect(() => {
+    if (!asks.length) return;
     const on = (e: KeyboardEvent) => {
       const a = asks[0];
       if (!a || !mod(e) || e.shiftKey || !shown(log.current)) return;
@@ -122,8 +128,9 @@ export function ConversationLog({ items, asks, agent, project, onDiff, plan, chi
     >
       {items.map((it) => (
         <Fragment key={it.id}>
-          <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} />
+          <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow} />
           {it.id === lastPlan && plan}
+          {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
         </Fragment>
       ))}
       {asks.map((a) => (
@@ -155,7 +162,18 @@ export function ConversationLog({ items, asks, agent, project, onDiff, plan, chi
   );
 }
 
-function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void }) {
+export function ConversationObservation({ target, items, agent, project, onDiff }: {
+  target: HTMLElement; items: CItem[]; agent: string; project: string; onDiff: (change: Change) => void;
+}) {
+  return createPortal(
+    <ConversationLog items={items} asks={[]} agent={agent} project={project} onDiff={onDiff}>
+      {!items.length && <p className="co-text muted">Sin mensajes en esta sesión.</p>}
+    </ConversationLog>,
+    target,
+  );
+}
+
+function ItemView({ it, agent, rel, onDiff, onOpenFlow }: { it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void; onOpenFlow?: () => void }) {
   switch (it.type) {
     case 'userMessage':
       return (
@@ -168,7 +186,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
       return (
         <div className="co-msg">
           <div className="co-by">{it.by ?? agent}</div>
-          <Prose text={it.text ?? ''} />
+          <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} />
         </div>
       );
     case 'reasoning':
@@ -200,16 +218,7 @@ function ItemView({ it, agent, rel, onDiff }: { it: CItem; agent: string; rel: (
     case 'fileChange':
       return (
         <div className="co-files">
-          {(it.changes ?? []).map((c) => (
-            <button
-              key={c.path}
-              className="co-file"
-              onClick={() => onDiff({ path: rel(c.path), orig: null, status: KIND_LETTER[c.kind.type] ?? 'M', adds: null, dels: null })}
-              title="ver diff"
-            >
-              <span className={`co-status is-${it.status}`}>{KIND_LETTER[c.kind.type] ?? 'M'}</span> {rel(c.path)}
-            </button>
-          ))}
+          {(it.changes ?? []).map((change) => <ConversationChange key={change.path} change={change} path={rel(change.path)} status={it.status} onDiff={onDiff} />)}
         </div>
       );
     case 'dynamicToolCall': {

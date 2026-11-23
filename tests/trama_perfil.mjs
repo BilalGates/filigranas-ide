@@ -46,7 +46,7 @@ async function referenceRoutes(vite) {
   });
   vite.middlewares.use('/__trama_capturada', async (request, response) => {
     const name = request.url?.slice(1);
-    if (!/^(native|artifact)-(inicio|workspace|flow|studio|entrega|brain|ajustes)$/.test(name ?? '')) {
+    if (!/^(native|artifact)-(inicio|workspace(?:-arquitectura|-observar)?|flow(?:-dependencias)?|studio(?:-comparacion)?|entrega(?:-hallazgo)?|brain(?:-agrupado)?|ajustes)$/.test(name ?? '')) {
       response.writeHead(400).end();
       return;
     }

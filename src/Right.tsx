@@ -9,12 +9,13 @@ export const RIGHT_PANELS = {
   browser: { title: 'Navegador', icon: 'globe' },
   containers: { title: 'Contenedores', icon: 'box', keys: '⌘⇧O' },
   conflicts: { title: 'Conflictos', icon: 'warn' },
+  observe: { title: 'Observación', icon: 'eye' },
   editor: { title: 'Editor', icon: 'file', keys: '⌘E' },
 } satisfies Record<string, { title: string; icon: string; keys?: string }>;
 
 export type RightTab = keyof typeof RIGHT_PANELS;
 
-export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'conflicts']);
+export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'conflicts', 'observe']);
 
 type Props = {
   tab: RightTab;
@@ -22,6 +23,7 @@ type Props = {
   onEditor: () => void;
   editor: { name: string; path: string; diff: boolean } | null;
   onCloseEditor: () => void;
+  observation?: { title: string; close: () => void };
   /** Carpeta de repositorios elegida al abrir Filigranas y ruta que muestra el panel. */
   root?: string | null;
   location?: string | null;
@@ -50,7 +52,7 @@ function Crumb({ path }: { path: string }) {
   );
 }
 
-export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, root, location, children }: Props) {
+export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, observation, root, location, children }: Props) {
   const panel = RIGHT_PANELS[tab];
   const editing = tab === 'editor' && editor;
   const crumb = root && location && PATH_PANELS.has(tab) ? fromRoot(root, location) : null;
@@ -65,7 +67,7 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ro
         {crumb ? (
           <h2 id="right-panel-title" className="is-path" title={`${panel.title} · ${location}`} aria-label={`${editing ? editor.name : panel.title} · ${crumb}`}><Crumb path={crumb} /></h2>
         ) : (
-          <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{editing ? editor.name : panel.title}</h2>
+          <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{observation?.title ?? (editing ? editor.name : panel.title)}</h2>
         )}
         {editing && editor.diff && <span className="right-panel-kind">diff</span>}
         <span className="grow" />
@@ -74,6 +76,7 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ro
             <Icon name="file" size={14} />
           </button>
         )}
+        {observation && <button className="tb-btn" onClick={observation.close} aria-label="Cerrar observación"><Icon name="close" size={12} /></button>}
         {editing && (
           <button className="tb-btn" onClick={onCloseEditor} aria-label={`Cerrar ${editor.name}`} title={shortcut('cerrar archivo · ⌘W')}>
             <Icon name="close" size={12} />

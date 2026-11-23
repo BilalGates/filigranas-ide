@@ -27,6 +27,10 @@ export async function capture(report, view, selector) {
   const height = Math.max(...rects.map((rect) => rect.bottom)) - y;
   report.views[view].viewport = { width: innerWidth, height: innerHeight, scale: devicePixelRatio };
   report.views[view].body = { x, y, width, height };
+  if (report.side === 'native' && (view === 'workspace' || view === 'workspace-arquitectura')) {
+    const diagram = document.querySelector('.co-architecture').getBoundingClientRect();
+    report.views[view].diagram = { x: diagram.x, y: diagram.y, width: diagram.width, height: diagram.height };
+  }
   report.ready = view;
   await post(report);
   const name = report.side + '-' + view;

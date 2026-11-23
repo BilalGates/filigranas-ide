@@ -28,6 +28,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   onConflicts: (files: string[]) => void;
   onBranchesChanged: () => void;
 }) {
+  const [finding, setFinding] = useState<{ fingerprint: string }>();
   const [stage, setStage] = useState<Stage | null>(null);
   const [scopeId, setScopeId] = useState<number | null>(initialScope);
   const [diff, setDiff] = useState<DiffTarget | null>(null);
@@ -110,7 +111,19 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   ];
   const nowStage = (S.find((s) => s[3] === 'fail' || s[3] === 'now') ?? S[3])[0];
   const active = stage ?? (diff ? 'cambios' : status?.changes.length === 0 ? 'rama' : nowStage);
-  const selectStage = (s: Stage) => { setStage(s); if (s !== 'cambios') setDiff(null); else if (!diff && changes[0]) setDiff({ ...changes[0], session: sid ?? undefined }); };
+  const selectStage = (s: Stage) => { setFinding(undefined); setStage(s); if (s !== 'cambios') setDiff(null); else if (!diff && changes[0]) setDiff({ ...changes[0], session: sid ?? undefined }); };
+
+  const openFinding = (item: HealthRun['findings'][number]) => {
+    if (!item.path) return;
+    const change = changes.find((entry) => entry.path === item.path);
+    if (!change || item.line == null) {
+      onFile(item.path, sid, chosen?.worktree ?? null);
+      return;
+    }
+    setDiff({ ...change, session: sid ?? undefined });
+    setStage('cambios');
+    setFinding({ fingerprint: item.fingerprint });
+  };
 
   return (
     <Root label="Entrega">
@@ -152,7 +165,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
             </>}
           </aside>
           <section className="diffv" aria-label="Contenido">
-            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings}
+            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings} finding={finding}
               onDiff={(c) => { setDiff(c); setStage('cambios'); }} onFile={onFile} onConflicts={onConflicts} onChanged={() => { onBranchesChanged(); void load(); }} onStage={selectStage} />
           </section>
           <aside className="audit" aria-label="Auditoría">
@@ -161,7 +174,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
               <p className="mut2">{lastRun ? `Última revisión: ${lastRun.tool} · ${OUTCOME[lastRun.outcome] ?? lastRun.outcome} · ${ago(lastRun.observed)}. Cada hallazgo enlaza a su archivo.` : 'Sin revisiones todavía. Ejecuta una comprobación desde Tests para ver hallazgos verificables.'}</p>
               {open.length > 0 && <Treemap findings={open} onFile={(p) => onFile(p, sid, chosen?.worktree ?? null)} />}
               {open.slice(0, 12).map((f) => (
-                <button key={f.fingerprint} className="fitem" onClick={() => f.path && onFile(f.path, sid, chosen?.worktree ?? null)}>
+                <button key={f.fingerprint} className={`fitem${finding?.fingerprint === f.fingerprint ? ' on' : ''}`} onClick={() => openFinding(f)}>
                   <span className={`sev ${f.severity === 'error' ? 'h' : f.severity === 'warning' ? 'm' : 'l'}`} />
                   <span><span className="ft">{f.rule}</span><span className="mono mut2 fmeta">{f.path ?? '—'}{f.line ? `:${f.line}` : ''} · {f.severity}</span></span>
                 </button>
@@ -233,16 +246,17 @@ function Treemap({ findings, onFile }: { findings: HealthRun['findings']; onFile
   );
 }
 
-function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, onDiff, onFile, onConflicts, onChanged, onStage }: {
+function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, finding, onDiff, onFile, onConflicts, onChanged, onStage }: {
   stage: Stage; project: string; diff: DiffTarget | null; chosen: Session | null; sid: number | null; status: GitStatus | null; log: LogRow[] | null; work: Work | null; tasks: Task[] | null; agentSessions: Session[];
   findings?: HealthRun['findings'];
+  finding?: { fingerprint: string };
   onDiff: (c: DiffTarget) => void; onFile: (path: string, session: number | null, root: string | null) => void; onConflicts: (f: string[]) => void; onChanged: () => void; onStage: (s: Stage) => void;
 }) {
   const head = (icon: string, title: string, extra?: React.ReactNode) => <div className="tabs"><span className="tab on"><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
   if (stage === 'cambios' && diff) return (
     <>
       {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
-      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} inline showHeader={false} /></div>
+      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} finding={finding} inline showHeader={false} /></div>
     </>
   );
   if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;

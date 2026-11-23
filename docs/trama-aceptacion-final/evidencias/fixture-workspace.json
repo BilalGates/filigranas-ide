@@ -74,6 +74,77 @@
       "prio": "normal"
     }
   ],
+  "sessions": [
+    {
+      "id": "sen",
+      "task": "t2",
+      "name": "Senior",
+      "engine": "claude",
+      "state": "working",
+      "items": [
+        {
+          "id": "sen-0",
+          "type": "agentMessage",
+          "text": "Encargo del PM · t2: implementar fetch, pull, push y stash en git_ops.rs. Reparto: src-tauri/src/git_ops.rs. Criterio: tests verdes y errores de red legibles.",
+          "by": "Project manager"
+        },
+        {
+          "id": "sen-1",
+          "type": "agentMessage",
+          "text": "Empiezo por fetch y pull reutilizando run_git(). Push queda detrás de la confirmación existente.",
+          "by": "Senior"
+        },
+        {
+          "id": "sen-2",
+          "type": "agentMessage",
+          "text": "fetch y pull listos. Sigo con **stash** y **stash pop**; el conflicto de pop devolverá un estado en lugar de un error.",
+          "by": "Senior"
+        }
+      ]
+    },
+    {
+      "id": "cod",
+      "task": "t3",
+      "name": "Programador",
+      "engine": "codex",
+      "state": "waiting",
+      "items": [
+        {
+          "id": "cod-0",
+          "type": "agentMessage",
+          "text": "Encargo del PM · t3: contrato tipado en src/ipc.ts para las cuatro operaciones.",
+          "by": "Project manager"
+        },
+        {
+          "id": "cod-1",
+          "type": "agentMessage",
+          "text": "El reparto de esta sesión es src-tauri/, pero el contrato vive en src/ipc.ts. Necesito permiso para editar fuera del reparto.",
+          "by": "Programador"
+        }
+      ]
+    },
+    {
+      "id": "jun",
+      "task": "t4",
+      "name": "Junior",
+      "engine": "claude",
+      "state": "working",
+      "items": [
+        {
+          "id": "jun-0",
+          "type": "agentMessage",
+          "text": "Encargo del PM · t4: tests para fetch y pull con repositorios temporales.",
+          "by": "Project manager"
+        },
+        {
+          "id": "jun-1",
+          "type": "agentMessage",
+          "text": "Copio el patrón de isolate.rs: repositorio temporal con remoto local.",
+          "by": "Junior"
+        }
+      ]
+    }
+  ],
   "items": [
     {
       "id": "request",
@@ -88,18 +159,18 @@
     {
       "id": "plan",
       "type": "plan",
-      "text": "Lo parto en 8 tareas. Rust y el contrato IPC avanzan en paralelo; la interfaz espera a los dos. Auditoría doble antes de la PR."
+      "text": "Lo parto en **8 tareas**. Rust y el contrato IPC avanzan en paralelo; la interfaz espera a los dos. Auditoría doble antes de la PR."
     },
     {
       "id": "architecture",
       "type": "agentMessage",
-      "text": "Arquitectura propuesta. Larry sigue sin hacer push: el push pasa por tu autorización.",
+      "text": "Arquitectura propuesta. Larry sigue sin hacer push: el push pasa por tu autorización.\n\n```mermaid\nflowchart LR\naccTitle: GitPanel → IPC → Rust → git\nn0[\"GitPanel.tsx<br/>interfaz\"] --> n1[\"ipc.ts<br/>contrato\"]\nn1 -->|push · autorización| n2[\"git_ops.rs<br/>Rust\"]\nn2 --> n3[\"git CLI<br/>sistema\"]\n```",
       "by": "Project manager"
     },
     {
       "id": "diff",
       "type": "agentMessage",
-      "text": "El Senior ya tiene fetch y pull. Vista previa del cambio:",
+      "text": "El Senior ya tiene **fetch** y **pull**. Vista previa del cambio:",
       "by": "Project manager"
     },
     {
@@ -112,7 +183,7 @@
           "kind": {
             "type": "update"
           },
-          "diff": ""
+          "diff": "@@ -1 +1 @@\n // Operaciones remotas. Larry nunca las ejecuta: requieren confirmación.\n use crate::{git::run_git, CmdResult};\n \n #[tauri::command]\n pub fn git_fetch(project: String) -> CmdResult<String> {\n     run_git(&project, &[\"fetch\", \"--prune\"])\n }\n \n #[tauri::command]\n pub fn git_pull(project: String) -> CmdResult<String> {\n-    run_git(&project, &[\"pull\"])\n+    run_git(&project, &[\"pull\", \"--ff-only\"])\n+        .map_err(|e| network_hint(&e))\n }\n \n #[tauri::command]\n+pub fn git_stash(project: String, pop: bool) -> CmdResult<StashState> {\n+    let args = if pop { [\"stash\", \"pop\"] } else { [\"stash\", \"push\"] };\n+    match run_git(&project, &args) {\n+        Ok(_) => Ok(StashState::Clean),\n+        Err(e) if e.contains(\"CONFLICT\") => Ok(StashState::Conflict),\n+        Err(e) => Err(e),\n+    }\n+}\n \n // push: exige rama remota existente y autorización explícita\n pub fn git_push(project: String, branch: String) -> CmdResult<String> {\n     run_git(&project, &[\"push\", \"origin\", &branch])\n }"
         }
       ]
     }

@@ -9,13 +9,40 @@ try {
   document.body.classList.add('calm');
   S.brain.inf = false;
   if (sessionStorage.getItem('trama.comparativa.native') == null) throw new Error('Falta el recorrido nativo');
-  for (const [name, route] of Object.entries({ inicio: 'home', workspace: 'workspace', flow: 'flow', studio: 'studio', entrega: 'review', brain: 'brain', ajustes: 'ajustes' })) {
+  const scenes = [
+    ['inicio', 'home'],
+    ['workspace', 'workspace'],
+    ['workspace-arquitectura', 'workspace'],
+    ['workspace-observar', 'workspace', () => { S.ws.peek = 'sen'; S.ws.layout = 'split'; }],
+    ['flow', 'flow'],
+    ['flow-dependencias', 'flow', () => { S.flow.lens = 'deps'; }],
+    ['studio', 'studio'],
+    ['studio-comparacion', 'studio', () => { S.studio.cmp = true; S.studio.cmpA = 3; S.studio.cmpB = 4; }],
+    ['entrega', 'review'],
+    ['entrega-hallazgo', 'review'],
+    ['brain', 'brain'],
+    ['brain-agrupado', 'brain', () => { S.brain.group = true; }],
+    ['ajustes', 'ajustes'],
+  ];
+  for (const [name, route, configure] of scenes) {
+    configure?.();
     go(route);
+    if (name === 'workspace-arquitectura') document.querySelector('#archsvg').scrollIntoView({ block: 'center' });
+    if (name === 'entrega-hallazgo') document.querySelector('[data-find="f1"]').click();
     const states = AG.map((agent) => agent.state);
     AG.forEach((agent) => { agent.state = 'idle'; });
     fieldDraw(0);
     AG.forEach((agent, index) => { agent.state = states[index]; });
     report.views[name] = { route };
+    if (name === 'workspace') {
+      report.views[name].architecture = document.querySelectorAll('#archsvg rect').length;
+      report.views[name].changes = [...document.querySelectorAll('.diffmini div')].map((line) => line.textContent);
+      report.views[name].team = document.querySelectorAll('.strip .prog').length;
+    }
+    if (name === 'flow') {
+      report.views[name].candidates = [...document.querySelectorAll('#finsp .cand')].map((row) => row.textContent);
+      report.views[name].timeline = document.querySelectorAll('#routesvg [data-rt]').length;
+    }
     if (name === 'inicio') report.views.inicio.sigils = Object.fromEntries(
       await Promise.all([...document.querySelectorAll('canvas[data-sigil]')].map(async (canvas) =>
         [canvas.dataset.sigil, await canvasHash(canvas)])),

@@ -72,6 +72,15 @@ async function run() {
     }
   }
   const selectedMemory = await seedMemory(project.path, fixture.memory);
+  const kinds = { restriccion: 'constraint', solucion: 'outcome', preferencia: 'preference' };
+  const inferred = new Map();
+  for (const item of fixture.memory.filter((entry) => !entry.ok)) {
+    const id = await brain.propose(project.path, {
+      id: null, version: null, global: false, task: null, kind: kinds[item.k], title: item.x,
+      body: item.x, source: item.src, sourceTask: null, sourceRun: null, share: false, validUntil: null,
+    });
+    inferred.set(item.id, { id, title: item.x });
+  }
   const spec = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-entrega.json').then((res) => res.json());
   const results = spec.findings.map((f) => ({
     ruleId: f.id, level: f.severity, message: { text: f.label },
@@ -104,7 +113,13 @@ async function run() {
     sigils: Object.fromEntries(await Promise.all(fixture.projects.map(async ({ n }) =>
       [n, await canvasHash(button(`Abrir ${n}`).querySelector('canvas'))]))),
   };
+  const failure = await until(() => [...document.querySelectorAll('.home .aitem')].find((item) =>
+    item.textContent.includes('CI fallido en kaza') && item.textContent.includes('PR #16')), 'el CI fallido del SHA actual');
+  report.views.inicio.failure = { project: 'kaza', number: 16 };
   await read('inicio');
+  failure.querySelector('button').click();
+  await until(() => visible('[aria-label="Estado de CI"]')?.textContent.includes('13 correctos · 1 fallidos · 0 pendientes'), 'el CI fallido al abrir Entrega');
+  report.views.inicio.failure.actionOpensCi = true;
 
   await open('filigranas-ide');
   const workspaceFixture = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-workspace.json').then((response) => response.json());
@@ -112,6 +127,18 @@ async function run() {
   const { useReportActivity } = await import('../src/ui');
   const { createElement } = await import('react');
   const { createRoot } = await import('react-dom/client');
+  const { useState } = await import('react');
+  const { useSharedPermissions } = await import('../src/trama/pendingPermissions.ts');
+  const decisions = [];
+  // Usa el canal real de permisos de la interfaz y una respuesta local.
+  function Permission() {
+    const [active, setActive] = useState(true);
+    useSharedPermissions(project.path, Number.MAX_SAFE_INTEGER, 'Programador · Codex', project.path, active ? [{
+      key: 'trama-permiso-editar', title: 'espera tu permiso', command: 'editar src/ipc.ts   # fuera del reparto: src-tauri/',
+      decide: (decision) => { decisions.push(decision); setActive(false); },
+    }] : []);
+    return null;
+  }
   function Activity({ id, state }) {
     useReportActivity(String(id), state === 'waiting' ? 'esperando permiso' : 'en marcha');
     return null;
@@ -119,11 +146,12 @@ async function run() {
   const activityHost = document.createElement('div');
   document.body.append(activityHost);
   const activity = createRoot(activityHost);
-  activity.render(workspaceFixture.sessions.map((item) => {
+  activity.render([createElement(Permission, { key: 'permission' }), ...workspaceFixture.sessions.map((item) => {
     const session = savedSessions.find((entry) => entry.providerSession === 'trama-fixture-' + item.id);
     if (!session) throw new Error('Falta la sesión sintética ' + item.id);
     return createElement(Activity, { id: session.id, state: item.state, key: session.id });
-  }));
+  })]);
+  const permission = await until(() => visible('.coach[aria-label="Coordinador"] .co-approval'), 'el permiso de la sesión en el hilo del PM');
   const plan = await until(() => visible('.co-plan-graph svg'), 'el plan de Workspace');
   const nodes = [...plan.querySelectorAll('g[role="button"]')];
   if (nodes.length !== 8 || plan.querySelectorAll('path').length !== 10) throw new Error('El plan de Workspace requiere 8 tareas y 10 enlaces');
@@ -156,10 +184,23 @@ async function run() {
   if (!visible('.coach[aria-label="Coordinador"]') || !observation.textContent.includes('Encargo del PM')) {
     throw new Error('Observar cambió la conversación principal o abrió otra sesión');
   }
-  report.views['workspace-observar'] = { agent: 'Senior', pmVisible: true, readOnly: !document.querySelector('.workspace-observation textarea') };
+  const source = await until(() => visible('.workspace-observation-diff .view-lines')?.textContent.includes('run_git'), 'el diff de la sesión en observación');
+  conversation.scrollTop = conversation.scrollHeight;
+  report.views['workspace-observar'] = { agent: 'Senior', pmVisible: true, readOnly: !document.querySelector('.workspace-observation .co-compose'), codeVisible: source };
   await read('workspace-observar');
   button('Cerrar observación').click();
   await until(() => !visible('.workspace-observation') && !document.querySelector('.app.has-panel'), 'la vuelta a la disposición anterior');
+  permission.scrollIntoView({ block: 'end' });
+  const permissionTitle = permission.querySelector('.co-approval-title b').textContent;
+  const permissionCommand = permission.querySelector('.co-approval-command').textContent;
+  report.views['workspace-permiso'] = { source: permissionTitle, command: permissionCommand, actions: permission.querySelectorAll('button').length };
+  await read('workspace-permiso');
+  const reject = permission.querySelector('[aria-label="Ahora no"]');
+  reject.click();
+  reject.click();
+  await until(() => !visible('.coach[aria-label="Coordinador"] .co-approval'), 'la retirada del permiso decidido');
+  if (decisions.length !== 1 || decisions[0] !== 'decline') throw new Error('Se decidió un permiso más de una vez');
+  report.views['workspace-permiso'].decision = decisions[0];
   activity.unmount();
   activityHost.remove();
 
@@ -211,8 +252,22 @@ async function run() {
   await until(() => finding.classList.contains('on') && visible('.diff-finding-error')?.textContent.includes('L27'), 'la línea 27 de f1');
   report.views['entrega-hallazgo'] = { id: 'f1', line: 27 };
   await read('entrega-hallazgo');
+  // El HTML vuelve a empezar por la primera línea al abrir el escenario de CI.
+  await navigate('Flow');
+  await navigate('Entrega');
+  await until(() => /Operaciones\s+remotas/.test(visible('.rev-diff .view-lines')?.textContent ?? ''), 'el diff desde el inicio');
+  button('Actualizar').click();
+  const ci = await until(() => document.querySelector('[aria-label="Recorrido de la entrega"] [aria-label="CI: 14/14"]'), 'el CI verde del SHA actual');
+  ci.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await until(() => visible('[aria-label="Estado de CI"]')?.textContent.includes('14 correctos · 0 fallidos · 0 pendientes'), 'el inspector de CI aprobado');
+  const codeVisible = /Operaciones\s+remotas/.test(visible('.rev-diff .view-lines')?.textContent ?? '');
+  if (!codeVisible) throw new Error('El CI cerró el diff que estaba abierto');
+  const observations = await health.ci(project.path, null);
+  report.views['entrega-ci'] = { number: 17, checks: observations.find((pull) => pull.number === 17).checks, codeVisible };
+  await read('entrega-ci');
 
   await navigate('Brain');
+  await until(() => button('Inferidos'), 'el filtro de inferencias').then((el) => el.click());
   const selected = await until(() => visible(`.gn[data-gid="${selectedMemory}"]`), 'el recuerdo m1');
   selected.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
   await until(() => selected.classList.contains('sel'), 'la selección del recuerdo m1');
@@ -223,6 +278,38 @@ async function run() {
   await until(() => groups() === 5, 'los cinco grupos de recuerdos');
   report.views['brain-agrupado'] = { groups: groups() };
   await read('brain-agrupado');
+  button('Agrupar').click();
+  button('Inferidos').click();
+  const memory = inferred.get('m10');
+  const count = () => document.querySelectorAll('.brg .gn[data-gid^="-"]').length;
+  await until(() => count() === 3, 'las tres inferencias en el grafo');
+  const node = document.querySelector(`.brg .gn[data-gid="-${memory.id}"]`);
+  node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+  const inference = await until(() => document.querySelector('#binsp textarea[aria-label="Inferencia"]'), 'la inferencia m10 seleccionada');
+  document.activeElement?.blur();
+  const isApproved = async () => (await brain.search(project.path, 'Botones sin rellenos', null)).find((item) => item.title === memory.title);
+  if (await isApproved()) throw new Error('Una inferencia pendiente se indexó como recuerdo confirmado');
+  report.views['brain-inferencias'] = { selected: 'm10', count: count() };
+  await read('brain-inferencias');
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  setValue.call(inference, memory.title + ' Revisado.');
+  inference.dispatchEvent(new Event('input', { bubbles: true }));
+  await until(() => button('Guardar corrección')?.disabled === false, 'la corrección disponible');
+  button('Guardar corrección').click();
+  await until(async () => (await brain.inferences(project.path)).some((entry) => entry.id === memory.id && entry.draft.title.endsWith(' Revisado.')), 'la corrección de la inferencia en SQLite');
+  await until(() => button('Aprobar')?.disabled === false, 'la corrección guardada');
+  if (await isApproved()) throw new Error('La corrección aprobó la inferencia');
+  report.views['brain-inferencias'].correctedWhilePending = true;
+  setValue.call(inference, memory.title);
+  inference.dispatchEvent(new Event('input', { bubbles: true }));
+  await until(() => button('Guardar corrección')?.disabled === false, 'la restauración de la inferencia de prueba disponible');
+  button('Guardar corrección').click();
+  await until(() => button('Aprobar')?.disabled === false, 'la aprobación disponible');
+  button('Aprobar').click();
+  const approved = await until(isApproved, 'el recuerdo aprobado en SQLite');
+  if (approved.share) throw new Error('La aprobación activó el envío a los agentes automáticamente');
+  report.views['brain-inferencias'].approvedOnlyAfterConfirmation = true;
+  await brain.forget(project.path, approved.id, approved.version);
 
   await navigate('Ajustes');
   await until(() => button('Skills y reglas'), 'Skills y reglas').then((el) => el.click());

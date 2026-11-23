@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -83,6 +83,8 @@ const meta: Record<string, { groupId: number | null; archived: boolean }> = {
 
 // Datos sintéticos de Brain, solo para la vista de desarrollo en navegador.
 const mockBrainEntries: Array<BrainEntry & { project: string | null }> = [];
+const mockBrainInferences: Array<BrainInference & { project: string }> = [];
+let mockInferenceId = 1;
 const mockLinks: any[] = [];
 const mockSeeded = new Set<number>();
 function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
@@ -650,6 +652,33 @@ mockIPC(
         return null;
       case 'design_preview':
         return null;
+      case 'brain_inferences':
+        return mockBrainInferences.filter((entry) => entry.project === a.project);
+      case 'brain_propose': {
+        const draft = { ...a.draft, share: false };
+        const existing = mockBrainInferences.find((entry) => entry.project === a.project && entry.draft.title === draft.title);
+        if (existing) return existing.id;
+        const id = mockInferenceId++;
+        mockBrainInferences.push({ id, draft, project: a.project, created: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_correct_inference':
+      case 'brain_decide_inference': {
+        const index = mockBrainInferences.findIndex((entry) => entry.project === a.project && entry.id === a.id);
+        if (index < 0) return fail('La inferencia ya no está disponible');
+        const { draft } = mockBrainInferences[index];
+        if (cmd === 'brain_correct_inference') {
+          if (draft.body === draft.title) draft.body = a.title;
+          draft.title = a.title;
+          return null;
+        }
+        mockBrainInferences.splice(index, 1);
+        if (!a.approve) return null;
+        const id = 6000 + a.id;
+        const now = Math.floor(Date.now() / 1000);
+        mockBrainEntries.push({ ...draft, id, version: 1, project: a.project, created: now, updated: now });
+        return id;
+      }
       case 'brain_save': {
         if (!a.confirmed) fail('confirma el contenido y la procedencia del recuerdo');
         const d = a.draft;

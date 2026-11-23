@@ -3,6 +3,8 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type Rea
 import { chats, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
 import { ConversationArchitecture, ConversationChange } from './trama/ConversationCards';
 import ConversationPlan, { ConversationTeam, useConversationTasks, type ConversationWorkflow } from './trama/ConversationPlan';
+import { useDelegatedPermissions } from './trama/pendingPermissions';
+import { StDot } from './trama/kit';
 import { readArchitecture } from './trama/conversationContent';
 import Splitter, { SIZES } from './Splitter';
 import { beep, shortcut } from './ui';
@@ -39,6 +41,8 @@ export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', upda
 export type Ask = {
   key: string;
   title: string;
+  agent?: string;
+  root?: string;
   command?: string;
   files?: string[];
   detail?: string;
@@ -82,10 +86,12 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
   const stick = useRef(true);
 
   const snapshot = useConversationTasks(workflow ? project : null);
+  const delegated = useDelegatedPermissions(project, !!workflow);
+  const queue = [...asks, ...delegated];
   useLayoutEffect(() => {
     const el = log.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [items, asks, snapshot]);
+  }, [items, asks, snapshot, delegated.length]);
 
   const plan = workflow && snapshot && <ConversationPlan {...snapshot} onOpen={workflow.onOpenFlow} />;
   const afterArchitecture = workflow && snapshot && <ConversationTeam items={snapshot.items} {...workflow} />;
@@ -99,15 +105,15 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
   }
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
 
-  // ⌘Y aprueba y ⌘N rechaza la petición de permiso más antigua.
+  // El atajo se corresponde con la acción marcada en cada tarjeta.
   useEffect(() => {
-    if (!asks.length) return;
+    if (!queue.length) return;
     const on = (e: KeyboardEvent) => {
-      const a = asks[0];
-      if (!a || !mod(e) || e.shiftKey || !shown(log.current)) return;
+      const a = queue[0];
+      if (e.defaultPrevented || !a || !mod(e) || e.shiftKey || !shown(log.current)) return;
       if (e.code === 'KeyY') {
         e.preventDefault();
-        a.decide('accept');
+        a.decide(a.agent ? 'acceptForSession' : 'accept');
       } else if (e.code === 'KeyN') {
         e.preventDefault();
         a.decide('decline');
@@ -115,7 +121,7 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
     };
     window.addEventListener('keydown', on);
     return () => window.removeEventListener('keydown', on);
-  }, [asks]);
+  }, [queue]);
 
   return (
     <div
@@ -133,27 +139,19 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
           {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
         </Fragment>
       ))}
-      {asks.map((a) => (
-        <div className="co-approval" key={a.key} role="group" aria-label="Petición de permiso">
-          <div className="co-approval-title">{a.title}</div>
-          {a.command && <pre className="co-code">{a.command}</pre>}
-          {a.files?.map((f) => (
-            <div key={f} className="co-file">
-              {rel(f)}
-            </div>
+      {queue.map((ask) => (
+        <div className="co-approval" key={ask.key} role="group" aria-label="Petición de permiso">
+          <div className="co-approval-title"><span className="tv co-approval-signal"><StDot st="waiting" s={14} /></span>{ask.agent && <b>{ask.agent}</b>}<span>{ask.title}</span></div>
+          {ask.command && <pre className="co-code co-approval-command">{ask.command}</pre>}
+          {ask.files?.map((file) => (
+            <div key={file} className="co-file">{ask.root && file.startsWith(ask.root + '/') ? file.slice(ask.root.length + 1) : rel(file)}</div>
           ))}
-          {a.detail && <pre className="co-code">{a.detail}</pre>}
-          {a.reason && <p className="co-text muted">{a.reason}</p>}
+          {ask.detail && <pre className="co-code">{ask.detail}</pre>}
+          {ask.reason && <p className="co-text muted">{ask.reason}</p>}
           <div className="co-actions">
-            <button className="co-btn is-primary" onClick={() => a.decide('accept')}>
-              aprobar
-            </button>
-            <button className="co-btn" onClick={() => a.decide('acceptForSession')}>
-              aprobar en esta sesión
-            </button>
-            <button className="co-btn" onClick={() => a.decide('decline')}>
-              rechazar
-            </button>
+            <button className="co-btn co-allow" onClick={() => ask.decide('acceptForSession')}>Permitir en esta sesión{ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
+            <button className="co-btn co-secondary" onClick={() => ask.decide('accept')}>Solo esta vez{!ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
+            <button className="co-btn co-secondary" aria-label="Ahora no" onClick={() => ask.decide('decline')}>Ahora no<kbd aria-hidden="true">⌘N</kbd></button>
           </div>
         </div>
       ))}

@@ -60,7 +60,7 @@ export const browser = {
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
-export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
+export type GitStatus = { branch: string | null; head: string | null; headSha?: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
 export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
 type DiffTexts = { old: string; new: string };
 
@@ -299,6 +299,7 @@ export type HomeSummary = {
   work: WorkSession | null;
   branch: string | null;
   dates: string[] | null;
+  ci?: PrInfo | null;
 };
 
 // Larry: propuesta y creación de commits locales.
@@ -449,7 +450,13 @@ export type BrainGraphFilter = {
   memoryOnly?: boolean; validity?: BrainValidity | null; focusId?: number | null;
 };
 type BrainReference = { id: number; version: number; source: string };
+export type BrainInference = { id: number; draft: BrainDraft; created: number };
 export const brain = {
+  inferences: (project: string) => invoke<BrainInference[]>('brain_inferences', { project }),
+  propose: (project: string, draft: BrainDraft) => invoke<number>('brain_propose', { project, draft }),
+  correctInference: (project: string, id: number, title: string) => invoke<void>('brain_correct_inference', { project, id, title }),
+  decide: (project: string, id: number, approve: boolean) =>
+    invoke<number | null>('brain_decide_inference', { project, id, approve }),
   graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
   entry: (project: string | null, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
   search: (project: string | null, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),

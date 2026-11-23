@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api, type HomeSummary, type Project, type Session, type Workspace } from '../ipc';
 import { STATUS } from '../Tasks';
@@ -13,9 +14,11 @@ import type { Resume } from './nav';
 // trama del equipo, proyectos con sigilo y actividad, atención y agentes)
 // alimentada solo con datos reales.
 type Snap = HomeSummary & { activity: number[] | null; last: number | null };
+const EMPTY_SNAPS: Record<string, Snap> = {};
 const ATTENTION = new Set(['waiting_approval', 'blocked', 'failed', 'paused_quota']);
 const RUNNING = new Set(['running', 'verifying']);
 const DAYS = 21;
+const REFRESH_MS = 30_000;
 
 function activityOf(dates: string[]) {
   const bins = new Array(DAYS).fill(0);
@@ -27,7 +30,8 @@ function activityOf(dates: string[]) {
   return bins;
 }
 
-export default function Home({ ws, project, agentSessions, pm, resume, onWs, onProject, onSession, onWork, onResume, onFlow, onError }: {
+export default function Home({ active, ws, project, agentSessions, pm, resume, onWs, onProject, onSession, onWork, onResume, onFlow, onCi, onError }: {
+  active: boolean;
   ws: Workspace;
   project: string | null;
   agentSessions: Session[];
@@ -39,10 +43,11 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   onWork: (path: string, task?: number) => void;
   onResume: () => void;
   onFlow: (path: string) => void;
+  onCi: (path: string) => void;
   onError: (e: string) => void;
 }) {
   const { activity } = useUi();
-  const [snaps, setSnaps] = useState<Record<string, Snap>>({});
+  const [summary, setSummary] = useState<{ key: string; snaps: Record<string, Snap> }>();
   const [creating, setCreating] = useState(false);
   const [showAllAttention, setShowAllAttention] = useState(false);
   const projects = useMemo(() => ws.projects.filter((p) => !p.archived), [ws.projects]);
@@ -50,35 +55,60 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   const focusPath = (resumeAvailable ? resume.project : project) ?? projects[0]?.path ?? null;
   const paths = projects.slice(0, 30).map(({ path }) => path);
   if (focusPath && !paths.includes(focusPath)) paths.push(focusPath);
-  const scope = JSON.stringify(paths);
+  const scope = JSON.stringify([paths, focusPath]);
+  const snaps = summary?.key === scope ? summary.snaps : EMPTY_SNAPS;
+  const shown = useRef(active);
+  const resumeSummary = useRef<() => void>(() => {});
+  shown.current = active;
 
   useEffect(() => {
     let alive = true;
     let loading = false;
-    const selection: string[] = JSON.parse(scope);
+    let expiresAt = 0;
+    let revision = 0;
+    let refresh: number;
+    const [selection, focus]: [string[], string | null] = JSON.parse(scope);
     const load = async () => {
-      if (!alive || loading || document.hidden) return;
+      if (!alive || !shown.current || loading || document.hidden || Date.now() < expiresAt) return;
+      const id = revision;
       loading = true;
       try {
-        const items = await api.homeSummary(selection, focusPath);
-        if (!alive) return;
-        setSnaps(Object.fromEntries(items.map((item) => [item.path, {
+        const items = await api.homeSummary(selection, focus);
+        if (!alive || id !== revision) return;
+        expiresAt = Date.now() + REFRESH_MS;
+        setSummary({ key: scope, snaps: Object.fromEntries(items.map((item) => [item.path, {
           ...item,
           activity: item.dates ? activityOf(item.dates) : null,
           last: item.dates?.length ? Math.max(...item.dates.map((date) => new Date(date).getTime())) : null,
-        }])));
+        }])) });
       } catch {
         // Keep the last available summary and retry after the next refresh.
-      } finally { loading = false; }
+      } finally {
+        loading = false;
+        if (alive && id !== revision) invalidate();
+      }
     };
+    const invalidate = () => {
+      revision++;
+      expiresAt = 0;
+      window.clearTimeout(refresh);
+      if (shown.current && !loading) refresh = window.setTimeout(load, 180);
+    };
+    const subscriptions = ['project-changed', 'tasks-changed', 'sessions-changed'].map((event) => listen(event, invalidate));
+    resumeSummary.current = load;
     const initial = window.setTimeout(load);
-    const timer = window.setInterval(load, 30000);
+    const timer = window.setInterval(load, REFRESH_MS);
     document.addEventListener('visibilitychange', load);
     return () => {
-      alive = false; window.clearTimeout(initial); window.clearInterval(timer);
+      alive = false; window.clearTimeout(refresh); window.clearTimeout(initial); window.clearInterval(timer);
       document.removeEventListener('visibilitychange', load);
+      for (const subscription of subscriptions) void subscription.then((unlisten) => unlisten());
     };
-  }, [scope, focusPath]);
+  }, [scope]);
+  useEffect(() => {
+    if (active) resumeSummary.current();
+    else { setCreating(false); setShowAllAttention(false); }
+  }, [active]);
 
   const focus = focusPath ? snaps[focusPath] : undefined;
   const focusName = ws.projects.find((p) => p.path === focusPath)?.name ?? '';
@@ -96,6 +126,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
 
   const attention = useMemo(() => {
     const out: { key: string; st: 'waiting' | 'blocked' | 'paused'; title: string; text: string; action: string; run: () => void; warn?: boolean }[] = [];
+    if (!active) return out;
     if (project) for (const [key, state] of Object.entries(activity)) {
       if (state !== 'permiso') continue;
       const s = key === 'coach' ? null : agentSessions.find((x) => String(x.id) === key);
@@ -105,6 +136,12 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
     for (const { path, name } of projects) {
       const snap = snaps[path];
       if (!snap) continue;
+      if (snap.ci?.checksState === 'failure' && snap.ci.checksKnown) {
+        const [passed, failed, waiting] = snap.ci.checks;
+        out.push({ key: `ci:${path}`, st: 'blocked', title: `CI fallido en ${name}`,
+          text: `PR #${snap.ci.number} · ${failed} de ${passed + failed + waiting} checks`,
+          action: 'Abrir entrega', run: () => onCi(path) });
+      }
       for (const t of snap.tasks ?? []) {
         if (!ATTENTION.has(t.status)) continue;
         out.push({ key: `t${path}:${t.id}`, st: t.status === 'paused_quota' ? 'paused' : t.status === 'waiting_approval' ? 'waiting' : 'blocked', title: `${STATUS[t.status]}: ${t.title}`, text: `${name} · tarea #${t.id}`, action: 'Abrir tarea', run: () => onWork(path, t.id) });
@@ -112,7 +149,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
       if (snap.work?.state === 'review') out.push({ key: `w${path}`, st: 'waiting', title: 'Sesión de trabajo lista para revisar', text: `${name} · ${snap.work.objective}`, action: 'Revisar', run: () => onWork(path) });
     }
     return out;
-  }, [activity, snaps, agentSessions, project, projects, ws.projects, onSession, onWork]);
+  }, [active, activity, snaps, agentSessions, project, projects, ws.projects, onSession, onWork, onCi]);
 
   const working = sessionAgents(agentSessions, activity, pm).filter((a) => a.state === 'working' || a.state === 'thinking');
   const groups = useMemo(() => {
@@ -127,6 +164,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
   };
   const date = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
 
+  if (!active) return null;
   return (
     <Root label="Inicio">
       <div className="home scr">
@@ -220,7 +258,9 @@ function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: S
   const att = snap?.tasks?.filter((t) => ATTENTION.has(t.status)).length ?? 0;
   const run = snap?.tasks?.filter((t) => RUNNING.has(t.status)).length ?? 0;
   const live = agents.filter((a) => a.state !== 'idle');
-  const calm = !live.length && !att && !run && !snap?.work;
+  const ci = snap?.ci;
+  const failedCi = ci?.checksKnown && ci.checksState === 'failure';
+  const calm = !live.length && !att && !run && !snap?.work && !ci;
   return (
     <button className={`prow${current ? ' on' : ''}`} onClick={onOpen} aria-current={current ? true : undefined} aria-label={`Abrir ${p.name}`} title={p.path}>
       <span className="glyph"><Sigil name={p.name} /></span>
@@ -237,6 +277,9 @@ function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: S
         {att > 0 && <span className="chip amber">{att} con atención</span>}
         {run > 0 && <span className="chip sky">{run} en curso</span>}
         {snap?.work && <span className="chip">{snap.work.state === 'review' ? 'en revisión' : 'sesión de trabajo'}</span>}
+        {ci && <span className={`chip${failedCi ? ' coral' : ''}`} title={`Observación de ${ci.head.slice(0, 7)}`}>
+          {failedCi ? 'CI fallido' : `PR #${ci.number} ${ci.isDraft ? 'en borrador' : ci.checksState === 'success' && ci.review === 'APPROVED' ? 'lista' : 'en revisión'}`}
+        </span>}
         {calm && snap && <span className="mut">en calma</span>}
       </span>
       <span className="tm" title={last ? 'Último commit' : undefined}>{last}</span>

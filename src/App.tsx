@@ -132,6 +132,7 @@ export default function App() {
   const [dest, setDestState] = useState<Dest>(loadDest);
   const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
   const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
+  const [focusCi, setFocusCi] = useState<string | null>(null);
   const [entregaScope, setEntregaScope] = useState<number | null>(null);
   const [studioView, setStudioView] = useState<'captures' | 'canvas'>('captures');
   const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
@@ -752,10 +753,10 @@ export default function App() {
         browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
         github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
           onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
-      {dest === 'inicio' && (
-        <Boundary name="Inicio">
-        <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
+      <Boundary name="Inicio">
+        <Home active={dest === 'inicio'} ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
           pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
+          onCi={(path) => { if (path !== project) selectProject(path); setEntregaScope(null); setFocusCi(path); setDest('entrega'); }}
           onFlow={(path) => { if (path !== project) selectProject(path); setDest('flow'); }}
           onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
           onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
@@ -767,8 +768,7 @@ export default function App() {
             if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
             setDest('workspace');
           }} />
-        </Boundary>
-      )}
+      </Boundary>
       {dest === 'flow' && (
         <Boundary name="Flow">
         <Flow key={project} project={project} projectName={current?.name ?? null} initialTask={flowFocus?.project === project ? flowFocus?.task : null} agentSessions={agentSessions}
@@ -798,7 +798,7 @@ export default function App() {
       )}
       {dest === 'entrega' && (
         <Boundary name="Entrega">
-        <Entrega key={project} initialScope={entregaScope} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Entrega key={project} initialScope={entregaScope} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
           onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
         </Boundary>
@@ -1056,8 +1056,8 @@ export default function App() {
         )}
         {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
         {observedPanel && <section className="workspace-observation" aria-label={`Observando a ${observedPanel.name}`}>
-          <div ref={setObservationTarget} className="workspace-observation-log" />
           <WorkspaceChanges key={observedPanel.id} project={observedPanel.project} session={observedPanel.worktree ? observedPanel.id : null}
+            conversation={<div ref={setObservationTarget} className="workspace-observation-log" />}
             onDiff={showDiff} onEntrega={() => { setEntregaScope(observedPanel.worktree ? observedPanel.id : null); setDest('entrega'); }} />
         </section>}
         {panelOpen && current && rightView === 'editor' &&

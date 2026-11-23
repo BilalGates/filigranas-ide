@@ -69,6 +69,7 @@ pub struct Status {
     /// `None` con la cabeza separada; entonces `head` es el commit.
     branch: Option<String>,
     head: Option<String>,
+    head_sha: Option<String>,
     upstream: Option<String>,
     ahead: u32,
     behind: u32,
@@ -91,7 +92,10 @@ fn parse_status(out: &str) -> Status {
             "#" => {
                 let (key, value) = rest.split_once(' ').unwrap_or((rest, ""));
                 match key {
-                    "branch.oid" if value != "(initial)" => s.head = Some(value.chars().take(7).collect()),
+                    "branch.oid" if value != "(initial)" => {
+                        s.head = Some(value.chars().take(7).collect());
+                        s.head_sha = Some(value.into());
+                    }
                     "branch.head" if value != "(detached)" => s.branch = Some(value.into()),
                     "branch.upstream" => s.upstream = Some(value.into()),
                     "branch.ab" => {
@@ -318,6 +322,7 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc c.txt\0\
 ? nuevo.md\0";
         let mut s = parse_status(out);
         assert_eq!((s.branch.as_deref(), s.head.as_deref()), (Some("main"), Some("ce227ba")));
+        assert_eq!(s.head_sha.as_deref(), Some("ce227ba9844a60d13c00f803c237e86967283247"));
         assert_eq!((s.upstream.as_deref(), s.ahead, s.behind), (Some("origin/main"), 2, 1));
         let summary: Vec<_> = s.changes.iter().map(|c| (c.status, c.path.as_str(), c.orig.as_deref())).collect();
         assert_eq!(

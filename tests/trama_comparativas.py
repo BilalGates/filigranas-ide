@@ -2,6 +2,7 @@
 import argparse
 import datetime
 import json
+import os
 import re
 import subprocess
 import sqlite3
@@ -13,8 +14,8 @@ from PIL import Image, ImageChops, ImageDraw
 from trama_semaforo import WINDOW
 
 BASE_VIEWS = ("inicio", "workspace", "flow", "studio", "entrega", "brain", "ajustes")
-VIEWS = ("inicio", "workspace", "workspace-arquitectura", "workspace-observar", "flow", "flow-dependencias",
-         "studio", "studio-comparacion", "entrega", "entrega-hallazgo", "brain", "brain-agrupado", "ajustes")
+VIEWS = ("inicio", "workspace", "workspace-arquitectura", "workspace-observar", "workspace-permiso", "flow", "flow-dependencias",
+         "studio", "studio-comparacion", "entrega", "entrega-hallazgo", "entrega-ci", "brain", "brain-agrupado", "brain-inferencias", "ajustes")
 
 
 def prepare(root, workspace_db=None):
@@ -45,6 +46,8 @@ def prepare(root, workspace_db=None):
 
     if workspace_db:
         prepare_workspace(root / "filigranas-ide", workspace_db)
+        observe_ci(workspace_db, root / "kaza", number=16, state="failure", counts=[13, 1, 0])
+        observe_ci(workspace_db, root / "kaza", number=99, state="success", counts=[14, 0, 0], wrong_sha=True)
 
 
 def prepare_workspace(project, db):
@@ -54,6 +57,8 @@ def prepare_workspace(project, db):
         raise ValueError("Solo se admite la base existente del perfil aislado de escenas")
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("DELETE FROM github_pulls WHERE project=? AND repository=? AND number=17",
+                     (str(project), "trama-prueba/filigranas-ide"))
         task_ids = dict(conn.execute("SELECT title,id FROM tasks WHERE project=?", (str(project),)))
         if len(task_ids) != 8 or set(task_ids) != {item["title"] for item in fixture["tasks"]}:
             raise ValueError("El proyecto temporal debe contener las ocho tareas del Artifact")
@@ -84,7 +89,29 @@ def prepare_workspace(project, db):
             )
 
 
-def take(pid, output):
+def observe_ci(db, project, *, number, state, counts, wrong_sha=False):
+    if not re.fullmatch(r"/(?:private/)?tmp/trama-escenas-[^/]+/repos/(kaza|filigranas-ide)", str(project)):
+        raise ValueError("El CI de prueba requiere un repositorio sintético")
+    expected = Path.home() / "Library/Application Support/com.filigranas.ide.trama-escenas/filigranas.db"
+    if db.resolve() != expected.resolve() or not db.is_file():
+        raise ValueError("El CI de prueba requiere la base aislada")
+    branch = subprocess.check_output(["git", "-C", project, "branch", "--show-current"], text=True).strip()
+    head = subprocess.check_output(["git", "-C", project, "rev-parse", "HEAD"], text=True).strip()
+    repository = f"trama-prueba/{project.name}"
+    snapshot = dict(number=number, url=f"https://github.com/{repository}/pull/{number}", state="OPEN",
+                    isDraft=False, branch=branch, base="main", head="0"*40 if wrong_sha else head,
+                    checks=counts, checksState=state, checksKnown=True, review="APPROVED", mergeState="CLEAN",
+                    observedAt=int(time.time()))
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """INSERT INTO github_pulls(project,repository,branch,number,snapshot)
+               VALUES(?,?,?,?,?) ON CONFLICT(project,repository,number) DO UPDATE SET
+               snapshot=excluded.snapshot, observed_at=unixepoch()""",
+            (str(project), repository, branch, number, json.dumps(snapshot)),
+        )
+
+
+def take(pid, output, workspace_db=None):
     process = subprocess.check_output(["ps", "-p", str(pid), "-o", "comm="], text=True).strip()
     if "/target/debug/filigranas" not in process:
         raise ValueError("Se requiere el ejecutable de desarrollo")
@@ -127,6 +154,9 @@ def take(pid, output):
             if not shot.exists():
                 partial = output / "capturando.png"
                 subprocess.run(["screencapture", "-x", "-o", "-l", str(window["id"]), partial], check=True)
+                if workspace_db and side == "native" and scene == "entrega-hallazgo":
+                    root = Path(os.environ["VITE_TRAMA_SCENE_ROOT"])
+                    observe_ci(workspace_db, root / "filigranas-ide", number=17, state="success", counts=[14, 0, 0])
                 partial.rename(shot)
                 print(shot.name, flush=True)
         time.sleep(0.15)
@@ -192,11 +222,23 @@ def verify(reports):
         raise RuntimeError("El número de sesiones en las tarjetas de Workspace difiere")
     if not native["workspace-observar"]["readOnly"]:
         raise RuntimeError("La observación permite escribir en el hilo")
+    assert native["workspace-observar"]["codeVisible"] and reference["workspace-observar"]["codeVisible"]
     for field in ("candidates", "timeline"):
         if native["flow"][field] != reference["flow"][field]:
             raise RuntimeError(f"Flow no coincide en {field}")
     if [entry["value"] for entry in reports["native"]["motion"]] != ["completo", "sin-ambiente", "reducido"]:
         raise RuntimeError("Falta comprobar algún modo de movimiento")
+    assert native["workspace-permiso"]["decision"] == "decline"
+    for field in ("source", "command", "actions"):
+        assert native["workspace-permiso"][field] == reference["workspace-permiso"][field]
+    assert native["inicio"]["failure"]["project"] == "kaza"
+    assert native["inicio"]["failure"]["number"] == 16
+    assert native["inicio"]["failure"]["actionOpensCi"]
+    assert native["entrega-ci"]["checks"] == reference["entrega-ci"]["checks"] == [14, 0, 0]
+    assert native["entrega-ci"]["codeVisible"] and reference["entrega-ci"]["codeVisible"]
+    assert native["brain-inferencias"]["count"] == reference["brain-inferencias"]["count"] == 3
+    assert native["brain-inferencias"]["approvedOnlyAfterConfirmation"]
+    assert native["brain-inferencias"]["correctedWhilePending"]
     print("Nueve sigilos idénticos, tarjetas e inspector contrastados, tres modos y 21 transiciones completadas")
 
 
@@ -213,7 +255,7 @@ def main():
     elif args.output and args.verify:
         verify({side: json.loads((args.output / f"{side}.json").read_text()) for side in ("native", "artifact")})
     elif args.pid and args.output:
-        reports = take(args.pid, args.output)
+        reports = take(args.pid, args.output, args.workspace_db)
         compare(args.output, reports)
         verify(reports)
     else:

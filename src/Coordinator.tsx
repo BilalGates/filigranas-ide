@@ -1,7 +1,8 @@
+import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
-import { Composer, ConversationLog, ConversationObservation, KIND_LETTER, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
 import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { useReportActivity } from './ui';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
@@ -177,18 +178,19 @@ export default function Coordinator({ project, hidden, switching, providerPicker
     coordinator.respond(a.requestId, decision).catch((e) => setError(String(e)));
   };
 
-  const asks: Ask[] = approvals.map((a, i) => {
+  const ownedAsks: Ask[] = approvals.map((a) => {
     const files = a.method.includes('fileChange') ? (items.find((it) => it.id === a.params.itemId)?.changes ?? []) : [];
     return {
-      key: `${i}-${JSON.stringify(a.requestId)}`,
+      key: JSON.stringify(a.requestId),
       title: a.method.includes('fileChange') ? 'quiere cambiar archivos' : 'quiere ejecutar',
       command: a.params.command ?? undefined,
-      files: files.map((c) => `${KIND_LETTER[c.kind.type] ?? 'M'} ${c.path}`),
+      files: files.map((c) => c.path),
       reason: a.params.reason ?? undefined,
       decide: (d) => respond(a, d),
     };
   });
 
+  const asks = useSharedPermissions(project, sessionId, directName ?? 'Codex', session?.worktree ?? project, ownedAsks);
   const state = approvals.length ? 'esperando permiso' : running ? 'en marcha' : error && !info ? 'fallida' : 'inactiva';
   useReportActivity(session ? null : 'coach', state);
   useEffect(() => onActivity?.(state), [onActivity, state]);

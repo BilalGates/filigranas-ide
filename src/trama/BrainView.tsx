@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainKind, type BrainLink, type BrainLinkKind, type BrainNodeKind, type BrainValidity, type Project, type Task } from '../ipc';
+import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainInference, type BrainKind, type BrainLink, type BrainLinkKind, type BrainNodeKind, type BrainValidity, type Project, type Task } from '../ipc';
 import { STATUS } from '../Tasks';
 import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
@@ -9,11 +9,11 @@ import { BrainNetwork, brainNetworkLabel, NetworkConnections } from './BrainNetw
 
 // Brain de Trama v2 sobre la memoria real: brain_graph (recuerdos, tareas y PR
 // con sus aristas), brain_search/entry para la ficha completa y brain_links
-// para las relaciones tipadas que crea el usuario. Todo recuerdo guardado está
-// confirmado; nada se presenta como inferencia ni relación verificada.
+// para las relaciones tipadas que crea el usuario. Las inferencias pendientes
+// se leen aparte del índice de recuerdos y del contexto de los agentes.
 type Lens = 'map' | 'focus' | 'index' | 'ctx';
 type BNode = BrainGraphData['nodes'][number];
-type Mem = { id: number; key: string; k: BrainKind; x: string; why: string; source: string; date: number; project: string | null; status: BrainValidity; validUntil: number | null; matched: boolean; origins: Origin[]; used: { id: number; title: string }[] };
+type Mem = { id: number; key: string; k: BrainKind; x: string; why: string; source: string; date: number; project: string | null; status: BrainValidity; validUntil: number | null; matched: boolean; inferred?: BrainInference; origins: Origin[]; used: { id: number; title: string }[] };
 type Origin = { t: 'doc' | 'task' | 'pr' | 'run'; label: string; ref: string | number; url?: string | null };
 export const KIND: Record<BrainKind, [string, string, string]> = {
   decision: ['Decisiones', '#9db6ff', 'decisión'],
@@ -84,6 +84,8 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
   const projectName = projects.find((item) => item.path === p)?.name;
   const linkProject = p ?? project;
   const [graph, setGraph] = useState<BrainGraphData | null>(null);
+  const [inferences, setInferences] = useState<BrainInference[]>([]);
+  const [showInferences, setShowInferences] = useState(true);
   const [links, setLinks] = useState<BrainLink[]>([]);
   const [sel, setSel] = useState<number | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
@@ -115,25 +117,41 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
     const request = ++latest.current;
     if (!validDays) return;
     try {
-      const [g, l] = await Promise.all([
+      const [g, l, pending] = await Promise.all([
         brain.graph({ query: graphQuery, project: p, kind: graphKind, from, until,
           memoryOnly: !inNetwork, validity, focusId }),
         linkProject ? brain.links(linkProject) : Promise.resolve([] as BrainLink[]),
+        p && !inNetwork && lens !== 'ctx' ? brain.inferences(p) : Promise.resolve([] as BrainInference[]),
       ]);
       if (request !== latest.current) return;
-      setGraph(g); setLinks(l); setError(null);
+      setGraph(g); setLinks(l); setInferences(pending); setError(null);
     } catch (err) { if (request === latest.current) setError(String(err)); }
-  }, [p, linkProject, validDays, from, until, graphQuery, graphKind, inNetwork, validity, focusId]);
+  }, [p, linkProject, validDays, from, until, graphQuery, graphKind, inNetwork, validity, focusId, lens]);
   useEffect(() => {
     setGraph(null);
     setLinks([]);
+    setInferences([]);
     void load();
     return () => { latest.current++; };
   }, [load]);
   useEffect(() => { setSel(null); setFocus(null); setHist([]); setNetworkNode(null); }, [p, fromDay, toDay]);
 
   const mems = useMemo(() => graph ? buildMems(graph) : [], [graph]);
-  const filtered = useMemo(() => mems.filter((memory) => memory.matched), [mems]);
+  const visibleInferences = useMemo(() => {
+    if (!p || !showInferences || inNetwork || lens === 'ctx' || validity) return [];
+    const normalize = (text: string) => text.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+    const words = normalize(query).trim().split(/\s+/);
+    return inferences.slice(0, 60).filter(({ created, draft }) =>
+      (!graphKind || graphKind === draft.kind) && (from == null || created >= from) && (until == null || created < until)
+      && words.every((word) => normalize(`${draft.title} ${draft.body} ${draft.source}`).includes(word)))
+      .map((inferred): Mem => ({
+        id: -inferred.id, key: `suggested:${inferred.id}`, k: inferred.draft.kind, x: inferred.draft.title,
+        why: inferred.draft.body, source: inferred.draft.source, project: p, date: inferred.created, status: 'vigente',
+        validUntil: inferred.draft.validUntil, matched: true, inferred, origins: [], used: [],
+      }));
+  }, [p, showInferences, inNetwork, lens, validity, query, inferences, graphKind, from, until]);
+  const visibleMemories = useMemo(() => [...mems, ...visibleInferences], [mems, visibleInferences]);
+  const filtered = useMemo(() => visibleMemories.filter((memory) => memory.matched), [visibleMemories]);
   const selectedNode = inNetwork ? graph?.nodes.find((node) => node.key === networkNode) : undefined;
   const selectNetwork = (key: string | null) => {
     setNetworkNode(key);
@@ -147,18 +165,19 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
     else if (node.kind === 'project' && node.project) setScope(node.project);
     else if (KINDS.includes(node.kind as BrainKind)) openFocus(node.id);
   };
-  const m = sel != null ? mems.find((x) => x.id === sel) ?? null : null;
+  const m = sel != null ? visibleMemories.find((x) => x.id === sel) ?? null : null;
   const pick = (id: number | null) => { setSel(id); if (id != null) setInspOpen(true); };
-  const openFocus = (id: number) => { setHist([]); setFocus(id); setSel(id); setLens('focus'); };
+  const openFocus = (id: number) => { if (id < 0) { pick(id); return; } setHist([]); setFocus(id); setSel(id); setLens('focus'); };
 
   const vig = mems.filter((x) => x.status === 'vigente').length;
-  const empty = graph && mems.length === 0;
+  const empty = graph && visibleMemories.length === 0;
   return (
     <Root label="Brain">
-      <div className={`brain${inspOpen ? ' insp-open' : ''}`}>
+      <div className={`brain${lens === 'map' && !inNetwork ? ' map-inspection' : ''}${inspOpen ? ' insp-open' : ''}`}>
         <div className="brainh">
           <h2 className="vt">Brain{projectName ? ` · ${projectName}` : ''}</h2>
-          <span className="chip">{vig} vigentes</span>
+          <span className="chip">{mems.length} aprobados</span>
+          {inferences.length > 0 && <span className="chip dash">{Math.min(inferences.length, 60)}{inferences.length > 60 ? '+' : ''} inferidos por confirmar</span>}
           {mems.length - vig > 0 && <span className="chip dash">{mems.length - vig} sustituidos o caducados</span>}
           <label className="bsearch"><Icon name="search" size={14} /><input placeholder="Buscar en la memoria" value={q} maxLength={300} onChange={(e) => setQ(e.currentTarget.value)} aria-label="Buscar en la memoria" /></label>
           <span className="grow" />
@@ -174,7 +193,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
           </div>
           <div className="seg" role="group" aria-label="Vista">
             {([['map', 'map', 'Mapa'], ['focus', 'focus', 'Foco'], ['index', 'list', 'Índice'], ['ctx', 'layers', 'Contexto']] as [Lens, string, string][]).map(([id, ic, l]) => (
-              <button key={id} className={lens === id ? 'on' : ''} aria-label={l} aria-pressed={lens === id} disabled={id === 'ctx' && p == null} onClick={() => { if (id === 'focus' && focus == null && sel != null) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
+              <button key={id} className={lens === id ? 'on' : ''} aria-label={l} aria-pressed={lens === id} disabled={id === 'ctx' && p == null} onClick={() => { if (id === 'focus' && focus == null && sel != null && sel > 0) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
             ))}
           </div>
           <button className="btn sm" onClick={() => setEditing({ project: p, draft: newDraft(p == null) })}><Icon name="plus" size={12} /> Recuerdo</button>
@@ -188,6 +207,8 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
               {KINDS.map((kind) => <option key={kind} value={kind}>{KIND[kind][0]}</option>)}
             </select><Icon name="down" size={11} /></label> : <>
             <label className="fsel"><span className="sr">Tipo</span><select value={fk} onChange={(e) => setFk(e.currentTarget.value as BrainKind | 'all')} aria-label="Tipo"><option value="all">Todos los tipos</option>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][0]}</option>)}</select><Icon name="down" size={11} /></label>
+            {p && <button className={`btn sm${showInferences ? ' on' : ''}`} aria-pressed={showInferences}
+              onClick={() => { setShowInferences(!showInferences); if ((sel ?? 0) < 0) setSel(null); }}>Inferidos</button>}
             {lens === 'map' && <button className={`btn sm${grouped ? ' on' : ''}`} aria-pressed={grouped} onClick={() => setGrouped(!grouped)}><Icon name="layers" size={12} /> Agrupar</button>}
             <label className="fsel"><span className="sr">Vigencia</span><select value={fv} onChange={(e) => setFv(e.currentTarget.value as typeof fv)} aria-label="Vigencia"><option value="all">Cualquier vigencia</option><option value="vigente">Vigentes</option><option value="sustituido">Sustituidos</option><option value="caducado">Caducados</option></select><Icon name="down" size={11} /></label>
             </>}
@@ -199,7 +220,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
                 <button className="btn sm" onClick={() => { setFromDay(''); setToDay(''); }}>Quitar fechas</button>
               </div>
             </details>
-            <span className="mut2 bcount">{inNetwork ? `${graph?.nodes.length ?? 0} nodos` : `${filtered.length} de ${mems.length}`}{graph?.limited && ' · vista parcial'}</span>
+            <span className="mut2 bcount">{inNetwork ? `${graph?.nodes.length ?? 0} nodos` : `${filtered.length} de ${mems.length + (showInferences ? Math.min(inferences.length, 60) : 0)}`}{graph?.limited && ' · vista parcial'}</span>
             {lens === 'focus' && hist.length > 0 && <button className="btn sm ghost" onClick={() => { const h = [...hist]; const prev = h.pop()!; setHist(h); setFocus(prev); setSel(prev); }}><Icon name="back" size={12} /> Volver</button>}
             <span className="grow" />
             {!inNetwork && <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>}
@@ -219,7 +240,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
                 <span className="sample">Nada se guarda sin tu confirmación.</span>
               </div>
             ) : lens === 'map' || lens === 'focus' ? (
-              <BrainGraphView lens={lens} mems={filtered} all={mems} links={links} sel={sel} focus={focus ?? sel ?? filtered[0]?.id ?? null} q={q}
+              <BrainGraphView lens={lens} mems={filtered} all={visibleMemories} links={links} sel={sel} focus={focus ?? ((sel ?? 0) > 0 ? sel : mems[0]?.id) ?? null} q={q}
                 grouped={grouped} scopeLabel={projectName ?? 'Memoria'}
                 onSel={pick} onFocus={openFocus} onRel={(id) => { if (focus != null) setHist([...hist, focus]); setFocus(id); setSel(id); }}
                 onMore={(k) => { setFk(k); setLens('index'); }} onTask={onOpenTask} onError={setError} />
@@ -227,7 +248,8 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
             : p && <Ctx key={p} project={p} mems={mems} />}
         </div>
         <aside className="insp" id="binsp" aria-label="Ficha del recuerdo">
-          {m ? <Insp key={`${m.id}:${revision}`} m={m} mems={mems} links={links} project={linkProject} scopeAll={p == null} lens={lens}
+          {m?.inferred && m.project ? <InferenceInspector key={m.id} memory={m.inferred} project={m.project}
+            onChanged={load} onDecided={(id) => { pick(id); void load(); }} /> : m ? <Insp key={`${m.id}:${revision}`} m={m} mems={mems} links={links} project={linkProject} scopeAll={p == null} lens={lens}
             onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(draft) => setEditing({ draft, project: m.project })} onChanged={load} onForgot={() => { setSel(null); void load(); }} />
             : selectedNode && graph ? <div className="sec">
                 <span className="lab">{brainNetworkLabel(selectedNode.kind)}</span><h3>{selectedNode.title}</h3>
@@ -267,7 +289,7 @@ function memNode(n: GNode, sel: boolean) {
   }
   if (n.kind === 'radial') {
     const m = n.m as Mem;
-    const color = KIND[m.k][1], left = n.x < 0, r = n.h / 2, live = m.status === 'vigente';
+    const color = KIND[m.k][1], left = n.x < 0, r = n.h / 2, live = !m.inferred && m.status === 'vigente';
     const ring = `<circle class="memory-ring" r="${r + 9}" fill="none" stroke="${color}" stroke-opacity=".35"/>`;
     return `<circle class="memory-dot" r="${r}" fill="${live ? color : '#0b0c0f'}" stroke="${color}" ${live ? '' : 'stroke-dasharray="2 2"'}/>${ring}<text class="memory-label" x="${(left ? -1 : 1) * (r + 7)}" y="4" text-anchor="${left ? 'end' : 'start'}">${escapeXml(tr(m.x, 34))}</text>`;
   }
@@ -305,7 +327,7 @@ function mapModel(mems: Mem[], links: BrainLink[], label: string, grouped: boole
       const radius = 200 + (j % 2) * 70;
       const id = String(m.id);
       nodes.push({ id, kind: 'radial', m, x: Math.cos(direction) * radius * 1.25, y: Math.sin(direction) * radius,
-        w: Math.max(32, tr(m.x, 34).length * 8), h: m.status === 'vigente' ? 14 : 12, aria: `${KIND[kind][2]}: ${m.x}` });
+        w: Math.max(32, tr(m.x, 34).length * 8), h: !m.inferred && m.status === 'vigente' ? 14 : 12, aria: `${KIND[kind][2]}: ${m.x}${m.inferred ? ' · por confirmar' : ''}` });
       edges.push({ from: center.id, to: id, cls: 'memory-anchor' });
     }
     if (all.length > shown.length) nodes.push({ id: `more-${kind}`, kind: 'more', k: kind, n: all.length - shown.length,
@@ -444,11 +466,11 @@ function MemIndex({ mems, sel, onSel, onFocus, q, onClear }: { mems: Mem[]; sel:
         <div key={k}>
           <div className="mgroup"><i style={{ background: KIND[k][1] }} />{KIND[k][0]}<span className="mut2">{l.length}</span></div>
           {l.map((m) => (
-            <div key={m.id} data-mem={m.id} className={`mem${m.status === 'sustituido' ? ' sup' : ''}${sel === m.id ? ' sel' : ''}`} role="option" aria-selected={sel === m.id} tabIndex={sel === m.id || (sel == null && m === l[0]) ? 0 : -1}
+            <div key={m.id} data-mem={m.id} className={`mem${m.inferred ? ' inf' : ''}${m.status === 'sustituido' ? ' sup' : ''}${sel === m.id ? ' sel' : ''}`} role="option" aria-selected={sel === m.id} tabIndex={sel === m.id || (sel == null && m === l[0]) ? 0 : -1}
               onClick={() => onSel(m.id)} onDoubleClick={() => onFocus(m.id)} onKeyDown={(e) => e.key === 'Enter' && onFocus(m.id)}>
               <span className="mk" style={{ ['--c' as string]: KIND[k][1] }} />
-              <div><div className="mt">{m.x}</div><div className="ms">confirmado · {fecha(m.date)}{m.source ? ` · ${m.source}` : ''}{m.used.length ? ` · acotado a ${m.used.length} ${m.used.length === 1 ? 'tarea' : 'tareas'}` : ''}{m.project ? ` · ${m.project.split('/').pop()}` : ' · global'}</div></div>
-              <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>{m.status === 'sustituido' ? <span className="chip">sustituido</span> : m.status === 'caducado' ? <span className="chip amber">caducado</span> : null}</div>
+              <div><div className="mt">{m.x}</div><div className="ms">{m.inferred ? 'por confirmar' : 'confirmado'} · {fecha(m.date)}{m.source ? ` · ${m.source}` : ''}{m.used.length ? ` · acotado a ${m.used.length} ${m.used.length === 1 ? 'tarea' : 'tareas'}` : ''}{m.project ? ` · ${m.project.split('/').pop()}` : ' · global'}</div></div>
+              <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>{m.inferred ? <span className="chip dash">inferido</span> : m.status === 'sustituido' ? <span className="chip">sustituido</span> : m.status === 'caducado' ? <span className="chip amber">caducado</span> : null}</div>
             </div>
           ))}
         </div>); })}
@@ -498,6 +520,51 @@ function Ctx({ project, mems }: { project: string; mems: Mem[] }) {
       )}
     </div>
   );
+}
+
+function InferenceInspector({ memory, project, onChanged, onDecided }: {
+  memory: BrainInference; project: string; onChanged: () => Promise<void>; onDecided: (id: number | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { draft } = memory;
+  const [title, setTitle] = useState(draft.title);
+  const dirty = title.trim() !== draft.title;
+  const correct = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await brain.correctInference(project, memory.id, title.trim());
+      await onChanged();
+    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+  const decide = (approve: boolean) => {
+    setBusy(true);
+    setError(null);
+    void brain.decide(project, memory.id, approve).then(onDecided, (e) => setError(String(e))).finally(() => setBusy(false));
+  };
+  return <>
+    <div className="sec">
+      <div className="row brain-inference-heading"><i aria-hidden="true" style={{ borderColor: KIND[draft.kind][1] }} /><span className="lab grow">{KIND[draft.kind][0]}</span><span className="chip dash">inferencia por confirmar</span></div>
+      <textarea className="in brain-memory-statement" rows={3} maxLength={160} aria-label="Inferencia" value={title} disabled={busy}
+        onChange={(event) => setTitle(event.currentTarget.value)} />
+      <div className="row wrap brain-inference-actions">
+        <button className="btn sm pearl" disabled={busy || dirty} onClick={() => decide(true)}><Icon name="check" size={12} /> Aprobar</button>
+        <button className="btn sm" disabled={busy || !dirty || !title.trim()} onClick={() => void correct()}><Icon name="edit" size={12} /> Guardar corrección</button>
+        <span className="grow" />
+        <button className="btn sm danger" disabled={busy} onClick={() => decide(false)}><Icon name="trash" size={12} /> Olvidar</button>
+      </div>
+    </div>
+    <div className="sec">
+      <dl className="kv brain-inspector-meta">
+        <dt>Procedencia</dt><dd>{draft.source}</dd>
+        <dt>Ámbito</dt><dd>{draft.task == null ? 'Proyecto' : `Tarea #${draft.task}`}</dd>
+        <dt>Usado en</dt><dd>Aún sin uso</dd>
+      </dl>
+      {draft.body !== draft.title && <p className="mut2 brain-memory-context">{draft.body}</p>}
+      {error && <ErrorNote error={error} />}
+    </div>
+  </>;
 }
 
 function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask, onEdit, onChanged, onForgot }: {
@@ -636,6 +703,10 @@ function EntryForm({ project, draft, onClose, onSaved }: { project: string | nul
       {error && <div style={{ marginTop: 10 }}><ErrorNote error={error} /></div>}
       <div className="acts">
         <button className="tr-btn ghost" onClick={onClose}>Cancelar</button>
+        {project && !form.global && draft.id == null && <button className="tr-btn ghost" disabled={!valid || busy}
+          onClick={() => { setBusy(true); brain.propose(project, form).then((id) => onSaved(-id), (e) => setError(String(e))).finally(() => setBusy(false)); }}>
+          Guardar como inferencia
+        </button>}
         <button className={`tr-btn pearl${busy ? ' busy' : ''}`} disabled={!ok || !valid || busy} onClick={() => { setBusy(true); brain.save(project, form, true).then(onSaved, (e) => setError(String(e))).finally(() => setBusy(false)); }}>Guardar</button>
       </div>
     </Modal>

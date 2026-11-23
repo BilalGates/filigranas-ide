@@ -14,14 +14,24 @@ try {
     ['workspace', 'workspace'],
     ['workspace-arquitectura', 'workspace'],
     ['workspace-observar', 'workspace', () => { S.ws.peek = 'sen'; S.ws.layout = 'split'; }],
+    ['workspace-permiso', 'workspace', () => { S.ws.peek = null; S.ws.layout = 'chat'; }],
     ['flow', 'flow'],
     ['flow-dependencias', 'flow', () => { S.flow.lens = 'deps'; }],
     ['studio', 'studio'],
     ['studio-comparacion', 'studio', () => { S.studio.cmp = true; S.studio.cmpA = 3; S.studio.cmpB = 4; }],
     ['entrega', 'review'],
     ['entrega-hallazgo', 'review'],
+    ['entrega-ci', 'review', () => {
+      S.approved = true;
+      S.rev.st = 'ci';
+      STN[6][3] = STN[7][3] = 'done';
+      STN[6][2] = 'PR #17';
+      STN[7][2] = '14/14';
+      STN[8][3] = 'now';
+    }],
     ['brain', 'brain'],
     ['brain-agrupado', 'brain', () => { S.brain.group = true; }],
+    ['brain-inferencias', 'brain', () => { S.brain.group = false; S.brain.inf = true; S.brain.sel = 'm10'; }],
     ['ajustes', 'ajustes'],
   ];
   for (const [name, route, configure] of scenes) {
@@ -34,6 +44,19 @@ try {
     fieldDraw(0);
     AG.forEach((agent, index) => { agent.state = states[index]; });
     report.views[name] = { route };
+    if (name === 'entrega-ci') {
+      const [passed, total] = STN[7][2].split('/').map(Number);
+      report.views[name].checks = [passed, total - passed, 0];
+      report.views[name].codeVisible = Boolean(document.querySelector('.codev .finding'));
+    }
+    if (name === 'workspace-permiso') {
+      const permission = document.querySelector('.msgs .perm');
+      report.views[name].source = permission.querySelector('b').textContent;
+      report.views[name].command = permission.querySelector('code').textContent;
+      report.views[name].actions = permission.querySelectorAll('button').length;
+    }
+    if (name === 'workspace-observar') report.views[name].codeVisible = Boolean(document.querySelector('.codev .cl'));
+    if (name === 'brain-inferencias') report.views[name].count = MEM.filter((memory) => !memory.ok).length;
     if (name === 'workspace') {
       report.views[name].architecture = document.querySelectorAll('#archsvg rect').length;
       report.views[name].changes = [...document.querySelectorAll('.diffmini div')].map((line) => line.textContent);

@@ -94,15 +94,17 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .app > .center .center-head { height: 48px; padding: 0 14px; gap: 11px; }
 .app > .center .ch-name { font-size: 14px; font-weight: 600; }
 .app > .center .ch-meta { color: var(--tx2); }
-.co-log { gap: 16px; padding: 18px max(22px, calc((100% - 780px) / 2)) 11px; font-size: 14px; }
+.co-log { gap: 14px; padding: 18px max(22px, calc((100% - 716px) / 2)) 11px; font-size: 13.5px; }
+.app:not(.has-panel) > .center .co-log { padding-inline: max(22px, calc((100% - 716px) / 2 + 22px)) max(22px, calc((100% - 716px) / 2 - 22px)); }
 .co-text { line-height: 1.6; color: var(--tx); }
 .co-by { font-size: 12px; color: var(--tx2); }
 .co-msg.is-user { background: rgba(255, 255, 255, 0.055); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); padding: 10px 14px; }
-.co-compose { width: min(780px, calc(100% - 44px)); margin: 0 auto 14px; border-radius: 13px; background: rgba(20, 22, 26, 0.95); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.095), 0 18px 40px -20px rgba(0, 0, 0, 0.7); }
+.co-compose { width: min(760px, calc(100% - 44px)); margin: 0 auto 14px; border-radius: 13px; background: rgba(20, 22, 26, 0.95); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.095), 0 18px 40px -20px rgba(0, 0, 0, 0.7); }
+.app:not(.has-panel) > .center .co-compose { margin-inline: auto max(12px, calc((100% - 760px) / 2 - 22px)); }
 .co-compose:focus-within { box-shadow: inset 0 0 0 1px rgba(157, 182, 255, 0.4), 0 0 0 4px rgba(91, 134, 255, 0.07), 0 18px 40px -20px rgba(0, 0, 0, 0.7); }
 .co-compose textarea { font-size: 14px; }
 .send { border-radius: 8px !important; width: 28px; height: 28px; }
-.co-approval { border-radius: 12px; background: linear-gradient(180deg, rgba(255, 178, 94, 0.08), rgba(255, 178, 94, 0.03)); box-shadow: inset 0 0 0 1px rgba(255, 178, 94, 0.35); }
+.co-approval { flex: 0 0 auto; gap: 0; padding: 10px 12px; border-radius: 10px; background: linear-gradient(180deg, rgba(255, 178, 94, 0.08), rgba(255, 178, 94, 0.03)); box-shadow: inset 0 0 0 1px rgba(255, 178, 94, 0.25); }
 .app > .rail { background: transparent; }
 .app > .right.panel { background: rgba(9, 10, 12, 0.72); box-shadow: inset 0 0 0 1px var(--line); }
 .welcome h1 { font-size: 30px; letter-spacing: -0.02em; }
@@ -416,3 +418,30 @@ html.is-light .tb-q { background: var(--raised-2); }
 
 .workspace-observation, .workspace-observation-log { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .workspace-observation-log > .co-log { padding: 12px 16px; }
+.app .right.is-observing { width: min(var(--observe-w, 590px), var(--right-width-limit)); }
+.workspace-observation-diff { flex: 1.65; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.workspace-observation-diff > .viewer { flex: 1; min-height: 0; }
+.workspace-observation-caption { padding: 7px 16px; color: var(--tx3); font-size: var(--fs-s); }
+.workspace-change[aria-pressed="true"] { background: var(--press); }
+
+.co-approval-title { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.co-approval-signal.tv { display: inline-flex; flex: none; height: auto; overflow: visible; background: transparent; }
+.co-approval-title > span:last-child { color: var(--tx3); }
+.co-approval-command { margin: 7px 0 9px; padding: 7px 9px; border-radius: 7px; background: rgba(0, 0, 0, 0.4); box-shadow: none; font: 12px var(--mono); color: var(--tx); }
+.co-approval .co-btn { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
+.co-approval .co-allow { color: var(--amber); background: rgba(255, 178, 94, 0.1); box-shadow: inset 0 0 0 1px rgba(255, 178, 94, 0.35); }
+.co-approval .co-secondary { box-shadow: none; }
+.co-approval kbd { font: 11px var(--mono); color: var(--tx3); padding: 1px 5px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--line2); }
+
+.tv .mem.inf .mk { background: transparent; border: 1px dashed var(--c); }
+.tv .brain-inference-heading { margin-bottom: 8px; }
+.tv .brain-inference-heading > i { flex: none; width: 9px; height: 9px; border: 1.4px solid; border-radius: 50%; }
+.tv textarea.brain-memory-statement { resize: vertical; }
+.tv .brain-inference-actions { margin-top: 8px; gap: 5px; }
+.tv .brain-inference-actions .btn { height: 24px; gap: 4px; padding-inline: 7px; font-size: 12px; }
+@media (min-width: 1200px) {
+  .tv .brain.map-inspection { grid-template-rows: auto minmax(0, 1fr) 0; }
+  .tv .map-inspection > .stage { grid-row: 2; }
+  .tv .map-inspection > .bfilters { grid-row: 2; justify-self: end; align-self: start; max-width: min(790px, calc(100% - 24px)); margin: 12px; padding: 5px 9px; border: 0; border-radius: 9px; background: rgba(16,18,22,.92); box-shadow: inset 0 0 0 1px var(--line); }
+}
+.tv .ci-inspector { margin-top: 8px; overflow-wrap: anywhere; }

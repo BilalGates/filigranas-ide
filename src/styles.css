@@ -1457,7 +1457,7 @@ button.co-file:hover {
 .co-compose textarea {
   display: block;
   width: 100%;
-  height: var(--compose-h, 76px);
+  height: var(--compose-h, 46px);
   min-height: 44px;
   padding: 0;
   border: 0;

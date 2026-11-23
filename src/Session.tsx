@@ -1,3 +1,4 @@
+import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { sessions, type AcpOption, type Change, type CItem, type ChatAttachment, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
@@ -536,7 +537,8 @@ export default function Session({ session, project, hidden, switching, providerP
     });
   };
 
-  const asks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
+  const ownedAsks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
+  const asks = useSharedPermissions(project, manager || isCodex ? null : session.id, session.name, session.worktree ?? project, ownedAsks);
   const state = isCodex ? directState : pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
   useReportActivity(manager ? 'coach' : String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;

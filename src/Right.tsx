@@ -58,9 +58,9 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ob
   const crumb = root && location && PATH_PANELS.has(tab) ? fromRoot(root, location) : null;
 
   return (
-    <aside id="workspace-right-panel" className="panel right"
+    <aside id="workspace-right-panel" className={`panel right${observation ? ' is-observing' : ''}`}
       aria-labelledby="right-panel-title" hidden={hidden}>
-      <Splitter size={SIZES.git} axis="x" invert
+      <Splitter size={observation ? SIZES.observe : SIZES.git} axis="x" invert
         label="Ancho del panel derecho" className="is-right" />
       <header className="panel-head">
         <Icon name={panel.icon} size={15} />

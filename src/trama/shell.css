@@ -145,7 +145,6 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .status-project { flex: 1; min-width: 0; gap: 5px; }
 .status-meters { flex: none; gap: 7px; }
 .statusbar .status-live { flex: none; gap: 6px; }
-.statusbar .status-jev-budget { flex: none; color: var(--tx3); }
 .statusbar .status-live .amb { color: var(--amber); }
 .usage-popup { left: auto; right: 8px; }
 @media (max-width: 1210px) {

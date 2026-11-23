@@ -19,14 +19,14 @@ export type CanvasPair = [CanvasFrame, CanvasFrame];
 
 export const CANVAS_CONSTRAINT = 'Cabecera y semáforo macOS';
 
-export function sidebarReference(workspace: Workspace, project: string, sessions: Session[], manager: boolean, view: number | 'work' | 'coach'): CanvasFrame {
+export function sidebarReference(workspace: Workspace, project: string, sessions: Session[], manager: boolean, view: number | 'coach'): CanvasFrame {
   const groups = [...workspace.groups, { id: null, name: 'sin clasificar' }].flatMap((group) => {
     const rows = workspace.projects.flatMap((item, index): CanvasRow[] => {
       if (item.archived || item.groupId !== group.id) return [];
       const active = item.path === project;
       const row: CanvasRow = { id: `p${index}`, kind: 'folder', label: item.name, indent: 0, active };
       if (!active) return [row];
-      const children: CanvasRow[] = [{ id: 'work', kind: 'tasks', label: 'Trabajo', indent: 1, active: view === 'work' }];
+      const children: CanvasRow[] = [];
       if (manager) children.push({ id: 'manager', kind: 'session', label: 'Project manager', indent: 1, active: view === 'coach' });
       children.push(...sessions.map((session): CanvasRow => ({
         id: `s${session.id}`, kind: 'session', label: session.name, indent: 1, active: session.id === view,

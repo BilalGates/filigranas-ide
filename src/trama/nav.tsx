@@ -28,10 +28,14 @@ export function saveDest(d: Dest) {
 }
 
 /** Último punto de trabajo, para «Retomar». Solo guarda lo que existe. */
-export type Resume = { project: string; view: 'coach' | 'work' | number; dest: Dest; at: number };
+export type Resume = { project: string; view: 'coach' | number; dest: Dest; at: number };
 const RESUME = 'filigranas.retomar';
 export function loadResume(): Resume | null {
-  try { return JSON.parse(localStorage.getItem(RESUME) ?? 'null'); } catch { return null; }
+  try {
+    const r = JSON.parse(localStorage.getItem(RESUME) ?? 'null') as (Omit<Resume, 'view'> & { view: Resume['view'] | 'work' }) | null;
+    // La vista Trabajo ya no existe: un resumen guardado con ella vuelve al PM.
+    return r && { ...r, view: r.view === 'work' ? 'coach' : r.view };
+  } catch { return null; }
 }
 export function saveResume(r: Resume) {
   try { localStorage.setItem(RESUME, JSON.stringify(r)); } catch { /* sin almacenamiento */ }

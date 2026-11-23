@@ -9,7 +9,7 @@ import { AgDot, sessionAgents } from './kit';
 // completo de proyectos (grupos, archivo, compartir) sigue a un clic.
 export default function Threads({ projectName, view, hasPm, pmEngine, sessions, onView, onNew, onStartPm, onClose, onProjects, footer }: {
   projectName: string | null;
-  view: 'coach' | 'work' | number;
+  view: 'coach' | number;
   hasPm: boolean;
   pmEngine: string;
   sessions: Session[];

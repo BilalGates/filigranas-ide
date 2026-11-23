@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc';
-import { PRIORITY as PRIO, STATUS } from '../Tasks';
+import { PRIORITY as PRIO, STATUS } from './taskMeta';
+import TaskForm from './TaskForm';
 import { useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
@@ -70,13 +71,14 @@ function demoModel(): FModel {
   return { agents, tasks, runs, demo: true };
 }
 
-export default function Flow({ project, projectName, agentSessions, pm, onOpenSession, onEditTask, onAuto, onDirect, onStartPm }: {
+export default function Flow({ project, projectName, agentSessions, pm, focusTask, onOpenSession, onAuto, onDirect, onStartPm }: {
   project: string | null;
   projectName: string | null;
   agentSessions: Session[];
   pm: { engine: string } | null;
   onOpenSession: (id: number | 'coach') => void;
-  onEditTask: (id: number) => void;
+  /** Tarea que hay que seleccionar al abrir Flow (desde Inicio o la paleta). */
+  focusTask?: number | null;
   onAuto: (task: Task) => void;
   onDirect: (engine: string, task: number) => void;
   onStartPm: () => void;
@@ -92,6 +94,9 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
   const [demo, setDemo] = useState(false);
   const [help, setHelp] = useState(false);
   const [inspOpen, setInspOpen] = useState(false);
+  // Editor de tareas: null cerrado, 0 nueva, n la tarea n.
+  const [editing, setEditing] = useState<number | null>(null);
+  const [limit, setLimit] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!project) return;
@@ -106,6 +111,20 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
     } catch (e) { setError(String(e)); }
   }, [project]);
   useEffect(() => { setList(null); setSel(null); setDemo(false); void load(); const t = window.setInterval(load, 8000); return () => window.clearInterval(t); }, [load]);
+
+  useEffect(() => {
+    setLimit(null);
+    if (project) taskApi.parallelLimit(project).then(setLimit, (e) => setError(String(e)));
+  }, [project]);
+  useEffect(() => {
+    if (focusTask == null || !list) return;
+    if (list.some((t) => t.id === focusTask)) { setSel(String(focusTask)); setInspOpen(true); }
+  }, [focusTask, list]);
+  const onEditTask = (id: number) => setEditing(id);
+  const link = (task: number, session: number) => {
+    if (!project) return;
+    taskApi.link(project, task, session).then(() => load(), (e) => setError(String(e)));
+  };
 
   const agents = useMemo(() => sessionAgents(agentSessions, activity, pm), [agentSessions, activity, pm]);
   const model = useMemo<FModel | null>(() => demo ? demoModel() : list ? realModel(list, runs, agents) : null, [demo, list, runs, agents]);
@@ -137,6 +156,15 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
               <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} onClick={() => setLens(id)}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
             ))}
           </div>
+          {!demo && limit != null && <label className="flow-limit" title="Tareas que pueden ejecutarse a la vez en este proyecto">
+            Simultáneas <input className="in" type="number" min={1} step={1} key={limit} defaultValue={limit} aria-label="Máximo de tareas simultáneas" onBlur={(e) => {
+              const value = e.target.valueAsNumber;
+              if (value === limit) return;
+              const element = e.target;
+              if (!element.validity.valid || !Number.isInteger(value)) { element.value = String(limit); return; }
+              taskApi.parallelLimit(project, value).then(setLimit, (err) => { element.value = String(limit); setError(String(err)); });
+            }} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} />
+          </label>}
           {demo ? <button className="btn sm" onClick={() => { setDemo(false); setSel(null); }}><Icon name="close" size={12} /> Salir de la demo</button>
             : <button className="btn sm" onClick={() => onEditTask(0)}><Icon name="plus" size={12} /> Tarea</button>}
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
@@ -149,11 +177,13 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
             : <FlowGraph m={model} lens={lens} sel={sel} filter={filter} onSel={pick} onOpen={(id) => { const t = model.tasks.find((x) => x.id === id); if (t?.num) onEditTask(t.num); }} />}
         </div>
         <aside className="insp" id="finsp" aria-label="Inspector">
-          {model && <Inspector m={model} sel={sel} onSel={pick} onOpenSession={onOpenSession} onEditTask={onEditTask} onAuto={onAuto} onDirect={onDirect} />}
+          {model && <Inspector m={model} sel={sel} onSel={pick} onOpenSession={onOpenSession} onEditTask={onEditTask} onAuto={onAuto} onDirect={onDirect} sessions={agentSessions} onLink={link} />}
         </aside>
         <Route m={model} sel={sel} onSel={pick} />
       </div>
       {help && <FlowHelp onClose={() => setHelp(false)} />}
+      {editing != null && <TaskForm key={editing} project={project} all={list ?? []} task={editing ? list?.find((t) => t.id === editing) ?? null : null}
+        onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); void load().then(() => { setSel(String(id)); setInspOpen(true); }); }} />}
     </Root>
   );
 }
@@ -187,7 +217,7 @@ function FlowHelp({ onClose }: { onClose: () => void }) {
       <div className="tr-col" style={{ gap: 10, lineHeight: 1.55 }}>
         <p><b>Ejecución</b> muestra un carril por agente (Project manager y sesiones abiertas). Cada tarea se coloca en el carril de la sesión que la trabaja y en la columna de su nivel de dependencias.</p>
         <p><b>Dependencias</b> ordena las tareas por niveles: las de un mismo nivel pueden ejecutarse en paralelo dentro del límite del proyecto.</p>
-        <p><b>Lista</b> resume todas las tareas para filtrarlas y abrirlas. Editar una tarea abre su ficha completa en el Workspace.</p>
+        <p><b>Lista</b> resume todas las tareas para filtrarlas y abrirlas. «Tarea» y «Editar» abren el editor aquí mismo; el número de tareas simultáneas se ajusta en la barra superior.</p>
         <p>Las líneas indican dependencia, delegación del PM, ejecución en curso, espera de permiso o bloqueo. Abajo, la línea de Jev registra qué modelo eligió para cada ejecución y por qué. Flow no inventa progreso: solo muestra estados que el núcleo registra.</p>
       </div>
       <div className="acts"><button className="tr-btn pearl" onClick={onClose}>Entendido</button></div>
@@ -358,7 +388,8 @@ function FlowList({ m, sel, filter, onSel }: { m: FModel; sel: string | null; fi
   );
 }
 
-function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect }: {
+function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect, sessions, onLink }: {
+  sessions: Session[]; onLink: (task: number, session: number) => void;
   m: FModel; sel: string | null; onSel: (id: string | null) => void; onOpenSession: (id: number | 'coach') => void; onEditTask: (id: number) => void; onAuto: (t: Task) => void; onDirect: (engine: string, task: number) => void;
 }) {
   if (sel?.startsWith('L-')) {
@@ -405,6 +436,13 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
               <button className="btn sm" disabled={blocked} onClick={() => onAuto(t.real!)}><Icon name="agent" size={12} /> PM</button>
               <button className="btn sm ghost" disabled={blocked} onClick={() => onDirect('codex', t.real!.id)}>Codex</button>
               <button className="btn sm ghost" disabled={blocked} onClick={() => onDirect('claude', t.real!.id)}>Claude</button>
+              {(() => {
+                const free = sessions.filter((s) => !t.real!.sessions.some((l) => l.id === s.id));
+                return free.length > 0 && <select className="in flow-link" aria-label="Vincular una sesión abierta" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onLink(t.real!.id, id); }}>
+                  <option value="">Vincular sesión…</option>
+                  {free.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.engine}</option>)}
+                </select>;
+              })()}
             </div>
           )}
         </div>

@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    "Investigar comandos git y errores de red",
+    "fetch, pull, push y stash en git_ops.rs",
+    "Contrato IPC en ipc.ts",
+    "Tests de git_ops",
+    "Acciones en el panel de Git",
+    "Commits visibles antes de confirmar",
+    "Auditoría de seguridad de los comandos",
+    "Publicar PR hacia main"
+  ],
+  "edges": 10,
+  "keyboardOpensSelection": true
+}

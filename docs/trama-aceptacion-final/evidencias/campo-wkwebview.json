@@ -1,0 +1,11 @@
+{
+  "width": 1440,
+  "height": 900,
+  "differences": 0,
+  "maxChannelDelta": 0,
+  "active": {
+    "samples": 210,
+    "p95Ms": 18,
+    "maxMs": 18
+  }
+}

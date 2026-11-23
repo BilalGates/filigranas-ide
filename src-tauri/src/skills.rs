@@ -149,6 +149,50 @@ fn turn_catalog(conn: &Connection, project: &str, role: Role, root: &Path, text:
     Ok(result)
 }
 
+const MAC_TRAFFIC_REFERENCE: &str = include_str!("../resources/skills/design-loop/references/semaforo-macos.md");
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleStatus {
+    agents_file: bool,
+    copied_traffic_rule: bool,
+    links_traffic_reference: bool,
+}
+
+fn rule_status(text: Option<&str>) -> RuleStatus {
+    let agents_file = text.is_some();
+    let text = text.unwrap_or("");
+    let canonical = MAC_TRAFFIC_REFERENCE.lines().find(|line| line.starts_with("- Usa 16 puntos"))
+        .unwrap_or("").trim_start_matches("- ");
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    RuleStatus {
+        agents_file,
+        copied_traffic_rule: !canonical.is_empty() && normalized.contains(canonical),
+        links_traffic_reference: text.contains("semaforo-macos.md"),
+    }
+}
+
+#[tauri::command]
+pub async fn skills_rule_status(app: AppHandle, project: String) -> CmdResult<RuleStatus> {
+    crate::background_read(app, move |state| {
+        let project = {
+            let conn = state.db.lock().map_err(err)?;
+            project_path(&conn, &project)?
+        };
+        let root = Path::new(&project);
+        let file = root.join("AGENTS.md");
+        match std::fs::symlink_metadata(&file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(rule_status(None)),
+            Err(error) => Err(err(error)),
+            Ok(_) => {
+                let file = crate::paths::inside(root, &file)?;
+                let text = crate::files::read_file(&file)?;
+                Ok(rule_status(Some(&text)))
+            }
+        }
+    }).await
+}
+
 #[derive(Serialize)]
 pub struct SkillInfo {
     name: String,
@@ -225,6 +269,15 @@ pub fn skills_set_session_role(app: AppHandle, project: String, session: i64, ro
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn traffic_rules_report_distinguishes_a_reference_from_a_repeated_rule() {
+        assert!(!rule_status(None).agents_file);
+        let linked = rule_status(Some("Aplica [la norma](references/semaforo-macos.md)."));
+        assert!(linked.agents_file && linked.links_traffic_reference && !linked.copied_traffic_rule);
+        let repeated = rule_status(Some(MAC_TRAFFIC_REFERENCE));
+        assert!(repeated.agents_file && repeated.copied_traffic_rule);
+    }
 
     #[test]
     fn catalog_uses_real_paths_and_only_exposes_skill_metadata() {

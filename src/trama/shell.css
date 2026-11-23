@@ -169,6 +169,20 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .tv .studio-region-fields input { width: 100%; padding: 4px 6px; }
 .tv .studio-review { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--fs-s); }
 
+.tv .settings-scope {
+  display: grid;
+  gap: 6px;
+  margin: 16px 8px 0;
+}
+.tv .settings-scope .seg { display: flex; flex-wrap: wrap; }
+.tv .skill-insights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+  max-width: 900px;
+  margin-top: 18px;
+}
+.tv .skill-insights > .pane { padding: 12px; }
 .tv .tr-settings-card { margin-block: 14px; border: 1px solid var(--line2); border-radius: var(--r3); }
 .tv .tr-settings-heading { padding: 10px 14px; border-bottom: 1px solid var(--line2); }
 .tv .tr-settings-body { padding: 0 14px; }

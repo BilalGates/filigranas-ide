@@ -169,6 +169,7 @@ pub fn run() {
             brain_links::brain_link_save,
             brain_links::brain_link_remove,
             skills::skills_list,
+            skills::skills_rule_status,
             skills::skills_assignments,
             skills::skills_set_assignment,
             skills::skills_set_session_role,

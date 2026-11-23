@@ -241,8 +241,8 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
   const head = (icon: string, title: string, extra?: React.ReactNode) => <div className="tabs"><span className="tab on"><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
   if (stage === 'cambios' && diff) return (
     <>
-      {head('file', diff.label ?? diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
-      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} inline /></div>
+      {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
+      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} inline showHeader={false} /></div>
     </>
   );
   if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;

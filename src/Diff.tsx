@@ -10,8 +10,8 @@ import { loadMonaco } from './monacoLoader';
  * editar se abre el archivo desde el árbol. Se refresca cuando cambia algo
  * en el proyecto o la sesión termina un turno.
  */
-export default function Diff({ project, change, inline = false, findings }: {
-  project: string; change: DiffTarget; inline?: boolean; findings?: HealthRun['findings'];
+export default function Diff({ project, change, inline = false, findings, showHeader = true }: {
+  project: string; change: DiffTarget; inline?: boolean; findings?: HealthRun['findings']; showHeader?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,11 +142,11 @@ export default function Diff({ project, change, inline = false, findings }: {
 
   return (
     <section className="viewer" aria-label="Diff">
-      <div className="viewer-head">
+      {showHeader && <div className="viewer-head">
         <span className="muted">{change.orig ? `${change.orig} → ` : ''}{change.path.slice(0, sep)}</span>
         <span>{change.path.slice(sep)}</span>
         <span className="muted">diff · {change.label ?? 'HEAD'}</span>
-      </div>
+      </div>}
       {error && <div className="viewer-msg" role="alert">{error}</div>}
       {!error && inline && limited && <div className="viewer-msg" role="status">Comparación aproximada por tamaño del archivo.</div>}
       <div ref={host} className={`monaco${inline ? ' is-unified' : ''}`} hidden={!!error} />

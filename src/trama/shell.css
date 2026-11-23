@@ -13,12 +13,9 @@
   flex-direction: column;
   animation: tv-viewIn 0.42s var(--ease);
 }
-/* Mantiene la misma función de filtro en ambos extremos de la transición de WKWebView. */
-html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-native-view-in; }
-@keyframes trama-native-view-in {
-  from { opacity: 0; transform: translateY(6px); filter: blur(3px); }
-  to { opacity: 1; transform: translateY(0); filter: blur(0); }
-}
+/* WKWebView puede dejar una vista compuesta en el primer fotograma si el
+   filtro se anima junto con su opacidad. Conserva la entrada en la capa nativa. */
+html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trIn; }
 .tv.tr-root > * { flex: 1; min-height: 0; }
 .tv .home-agline { width: 100%; text-align: left; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; }
 .tv .home-agline:hover { background: rgba(255, 255, 255, 0.04); }
@@ -221,13 +218,14 @@ html.is-light .threads-side .threads-new .ctx.threads-menu { background: var(--r
 .tr-root .skill-scope { width: fit-content; margin-bottom: 12px; }
 .tr-root .skill-scroll { overflow: auto; margin: 12px 0; }
 .tr-root .skill-matrix { min-width: 570px; }
-.tr-root .skill-matrix tbody th { text-align: left; font-weight: 500; }
-.tr-root .skill-matrix th span { display: block; font-size: 10px; }
+.tr-root .skill-matrix tbody th { text-align: left; font-weight: 500; color: var(--tx); border-top: 1px solid var(--line); }
+.tr-root .skill-matrix th .skill-key { font-size: 11px; color: var(--tx3); }
 .tr-root .skill-matrix td { text-align: center; }
 .tr-root .skill-controls { position: relative; display: inline-grid; vertical-align: middle; }
-.tr-root .skill-cell { width: 25px; height: 25px; border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); display: grid; place-items: center; }
-.tr-root .skill-cell.on { color: var(--mint); background: color-mix(in srgb, var(--mint) 18%, transparent); }
-.tr-root .skill-cell:hover { border-color: currentColor; }
+.tr-root .skill-cell { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; box-shadow: inset 0 0 0 1px var(--line2); transition: background .2s; }
+.tr-root .skill-cell.on { background: rgba(255,255,255,.85); box-shadow: 0 0 10px rgba(220,225,255,.25); }
+.tr-root .skill-cell.on::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #0b0c10; }
+.tr-root .skill-cell:hover { outline: 1px solid var(--tx3); }
 .tr-root .skill-reset { position: absolute; inset: -5px -17px auto auto; width: 17px; height: 17px; display: grid; place-items: center; color: var(--tx3); }
 .tr-root .skill-reset:hover { color: var(--tx); }
 .tr-root .skill-status { margin: 4px 0 12px; }

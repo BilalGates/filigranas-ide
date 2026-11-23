@@ -20,8 +20,8 @@ export const KIND: Record<BrainKind, [string, string, string]> = {
   constraint: ['Restricciones', '#ffc27a', 'restricción'],
   preference: ['Preferencias', '#e9b4ff', 'preferencia'],
   fact: ['Hechos', '#7fe3c4', 'hecho'],
-  evidence: ['Evidencias', '#7fd6ff', 'evidencia'],
-  outcome: ['Resultados', '#ffc9d8', 'resultado'],
+  evidence: ['Evidencias', '#ffc9d8', 'evidencia'],
+  outcome: ['Resultados', '#79d5ff', 'resultado'],
 };
 export const RELT: Record<BrainLinkKind, [string, string]> = { depende: ['Depende de', '#9db6ff'], refina: ['Refina', '#7fe3c4'], sustituye: ['Sustituye a', '#8d939c'], contradice: ['Contradice', '#ff6b5d'], relacionado: ['Relacionado', '#bcc1c9'] };
 const ORIGT: Record<Origin['t'], [string, string]> = { task: ['flow', 'Tarea'], pr: ['pr', 'Pull request'], doc: ['source', 'Fuente'], run: ['route', 'Ejecución'] };
@@ -157,7 +157,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
     <Root label="Brain">
       <div className={`brain${inspOpen ? ' insp-open' : ''}`}>
         <div className="brainh">
-          <h2 className="vt">Brain</h2>
+          <h2 className="vt">Brain{projectName ? ` · ${projectName}` : ''}</h2>
           <span className="chip">{vig} vigentes</span>
           {mems.length - vig > 0 && <span className="chip dash">{mems.length - vig} sustituidos o caducados</span>}
           <label className="bsearch"><Icon name="search" size={14} /><input placeholder="Buscar en la memoria" value={q} maxLength={300} onChange={(e) => setQ(e.currentTarget.value)} aria-label="Buscar en la memoria" /></label>
@@ -285,7 +285,8 @@ function mapModel(mems: Mem[], links: BrainLink[], label: string, grouped: boole
   const center: GNode = { id: 'P', kind: 'project', aria: label, x: 0, y: 0, w: Math.max(32, label.length * 7), h: 32, keep: true };
   const nodes: GNode[] = [center];
   const edges: GEdge[] = [];
-  const order: BrainKind[] = ['decision', 'fact', 'preference', 'constraint', 'evidence', 'outcome'];
+  const order: BrainKind[] = ['decision', 'fact', 'preference', 'constraint', 'outcome'];
+  if (mems.some((memory) => memory.k === 'evidence')) order.push('evidence');
   for (const [i, kind] of order.entries()) {
     const angle = i / order.length * 2 * Math.PI - Math.PI / 2;
     const all = mems.filter((m) => m.k === kind);

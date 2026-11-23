@@ -574,14 +574,25 @@
 :scope .projects-head{justify-content:space-between}
 :scope .projects-head h3{margin:0;font-size:13px;font-weight:600}
 :scope .projects-list{margin:0;padding:0;list-style:none}
-:scope .prow{width:100%;text-align:left;color:inherit}
+:scope .pgroup{margin:14px 0 4px;font-size:11px;color:var(--tx3);font-weight:600;display:flex;gap:8px;align-items:center}
+:scope .pgroup::after{content:"";flex:1;height:1px;background:var(--line)}
+:scope .prow{display:grid;width:100%;text-align:left;color:inherit;grid-template-columns:34px minmax(120px,1.1fr) minmax(0,1.6fr) minmax(120px,.9fr) 70px;align-items:center;gap:12px;padding:8px 10px;border-radius:10px;cursor:pointer;transition:background .15s}
+:scope .prow:hover{background:rgba(255,255,255,.035)}
+:scope .prow .glyph{width:34px;height:34px;border-radius:9px;overflow:hidden;box-shadow:inset 0 0 0 1px var(--line2)}
+:scope .prow .glyph canvas{width:100%;height:100%;display:block}
+:scope .prow .nm{font-weight:600;font-size:13px}
+:scope .prow .br{font:11px var(--mono);color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:scope .prow .project-activity{height:22px;display:flex;align-items:center;gap:3px}
+:scope .prow .project-activity i{width:5px;border-radius:2px;background:var(--tx4);opacity:.9}
+:scope .prow .stt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);flex-wrap:wrap}
+:scope .prow .tm{font:11px var(--mono);color:var(--tx3);text-align:right}
 :scope .prow.on{background:rgba(157,182,255,.07)}
 :scope .prow:focus-visible{outline:2px solid var(--sky);outline-offset:-2px}
 :scope .prow .pn{display:grid;min-width:0}
 :scope .prow .nm,:scope .prow .br{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 @container projects (max-width:620px){
   :scope .prow{grid-template-columns:34px minmax(0,1fr) minmax(82px,auto) auto;gap:8px}
-  :scope .prow .act{grid-column:2;grid-row:2}
+  :scope .prow .project-activity{grid-column:2;grid-row:2}
   :scope .prow .stt,:scope .prow .tm{grid-row:1 / 3}
 }
 @container projects (max-width:360px){

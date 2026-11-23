@@ -41,8 +41,20 @@ export function StDot({ st, h = '#9db6ff', s = 12 }: { st: AgState; h?: string; 
 }
 export const I = ({ n, s }: { n: string; s?: number }) => <Icon name={n} size={s ?? 16} />;
 
-const hash = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
-const rng = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+function sigilHash(name: string) {
+  let hash = 7;
+  for (const character of name) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return hash;
+}
+
+function sigilRandom(seed: number) {
+  let state = seed % 2147483647;
+  if (state <= 0) state += 2147483646;
+  return () => {
+    state = state * 16807 % 2147483647;
+    return (state - 1) / 2147483646;
+  };
+}
 
 /** Sigilo del proyecto: dos manchas de luz tramadas, deterministas por nombre. */
 export function Sigil({ name }: { name: string }) {
@@ -50,9 +62,10 @@ export function Sigil({ name }: { name: string }) {
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
-    const W = (cv.width = 68), H = (cv.height = 68), c = cv.getContext('2d')!, R = rng(hash(name));
+    const W = (cv.width = 68), H = (cv.height = 68), c = cv.getContext('2d')!;
+    const hash = sigilHash(name), R = sigilRandom(hash);
     const P = [[91, 134, 255], [233, 180, 255], [255, 190, 140], [120, 228, 190], [150, 210, 255], [255, 150, 170]];
-    const a = P[hash(name) % P.length], b = P[(hash(name) >>> 3) % P.length];
+    const a = P[hash % P.length], b = P[(hash >>> 3) % P.length];
     const bl = [{ x: R() * W, y: R() * H, c: a }, { x: R() * W, y: R() * H, c: b }];
     c.fillStyle = '#0b0c0f'; c.fillRect(0, 0, W, H);
     for (let y = 0; y < H; y += 4) for (let x = 0; x < W; x += 4) {
@@ -62,7 +75,7 @@ export function Sigil({ name }: { name: string }) {
       if (z < 0.5) continue;
       c.fillStyle = `rgb(${r | 0},${g | 0},${bb | 0})`; c.fillRect(x + (4 - z) / 2, y + (4 - z) / 2, z, z);
     }
-    c.fillStyle = 'rgba(255,255,255,.94)'; c.font = '600 22px -apple-system,Inter,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = 'rgba(255,255,255,.92)'; c.font = '600 22px -apple-system,Inter,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillText((name[0] ?? '?').toUpperCase(), W / 2, H / 2 + 1);
   }, [name]);
   return <canvas ref={ref} aria-hidden="true" />;

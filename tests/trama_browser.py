@@ -200,6 +200,7 @@ def check_studio_surfaces(browser, url):
     page.get_by_role("button", name="Abrir calaix", exact=True).click()
     destination(page, "Studio")
     expect(page.get_by_label("Ancho de captura")).to_have_value("1440")
+    page.get_by_text("Coordenadas de la región", exact=True).click()
     page.get_by_label("Ancho %", exact=True).fill("55")
     page.get_by_text("Comparar esta región", exact=True).click()
     expect(page.get_by_role("slider", name="Divisor de la región")).to_be_visible()

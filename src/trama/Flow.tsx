@@ -72,7 +72,7 @@ function demoModel(): FModel {
   tasks.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const today = new Date(); today.setHours(20, 0, 0, 0);
   const R = (task: string, min: number, model: string, reason: string, complexity: string, confidence: number): FRun => ({ task, at: today.getTime() + min * 60000, provider: model === 'Codex' ? 'codex' : 'claude', model, outcome: 'ok', reason, complexity, confidence, effort: null, source: 'shadow', tokens: null, duration: null });
-  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 18, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
+  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red. Opus no mejora lo bastante la confianza para justificar su coste; se escala si fallan los tests dos veces.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 18, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
   return { agents, tasks, runs, demo: true };
 }
 
@@ -465,6 +465,10 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect 
         <dt>Depende de</dt><dd className="row wrap">{t.deps.length ? t.deps.map((d) => <button key={d} className={`chip btnchip ${m.tasks.find((x) => x.id === d)?.status === 'done' ? 'mint' : ''}`} onClick={() => onSel(d)}>{m.demo ? d : `#${d}`}</button>) : '—'}</dd>
         <dt>Desbloquea</dt><dd className="row wrap">{m.tasks.filter((x) => x.deps.includes(t.id)).map((x) => <button key={x.id} className="chip btnchip" onClick={() => onSel(x.id)}>{x.num != null ? `#${x.num}` : x.id}</button>)}{!m.tasks.some((x) => x.deps.includes(t.id)) && '—'}</dd>
         <dt>Prioridad</dt><dd>{t.prio}</dd>
+        {t.progress != null && <><dt>Avance</dt><dd className="row">
+          <span className="dotnum">{t.progress}%</span>
+          <span className="prog" aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} className={i < Math.round(t.progress! / 10) ? 'f' : undefined} />)}</span>
+        </dd></>}
         {t.real?.criteria && <><dt>Criterios</dt><dd>{t.real.criteria}</dd></>}
         {t.real && <><dt>Verificación</dt><dd>{t.real.verification}{t.real.tests ? ` · ${t.real.tests}` : ''}</dd></>}
       </dl></div>

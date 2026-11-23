@@ -427,11 +427,11 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           <dl className="kv"><dt>Tamaño</dt><dd>{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
             <dt>Radio</dt><dd>{selected.radius}</dd><dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
         </>}
-        {shot && !selected && <div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
+        {shot && !selected && <details open={!full}><summary className="lab">Coordenadas de la región</summary><div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
           <label key={key}>{({ x: 'X', y: 'Y', width: 'Ancho', height: 'Alto' })[key]} %
             <input className="in" type="number" min={0} max={100} value={Math.round(region[key])} onChange={(event) => onRegion({ ...region, [key]: event.target.valueAsNumber || 0 })} />
           </label>
-        ))}</div>}
+        ))}</div></details>}
         {shot && !full && validRegion(region) && candidateImage && referenceImage && <details className="studio-region-compare">
           <summary>Comparar esta región</summary>
           <label>Divisor de la región<input type="range" min={0} max={100} value={wipe} onChange={(e) => setWipe(e.currentTarget.valueAsNumber)} /></label>
@@ -461,9 +461,11 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
               <button className="tbtn" disabled={busy} onClick={() => onSave(parsed.locks.filter((_, j) => j !== i), parsed.rest)} aria-label="Desproteger" title="Desproteger"><Icon name="close" size={12} /></button></div>
           )) : <p className="mut2">Nada protegido todavía.</p>}
         </div>
-        <label className="lab" style={{ display: 'block', marginTop: 10 }}>Restricciones generales</label>
-        <textarea className="in" rows={3} style={{ width: '100%', marginTop: 4 }} value={rest} onChange={(e) => setRest(e.currentTarget.value)} aria-label="Restricciones generales" />
-        <button className="btn sm" style={{ marginTop: 6 }} disabled={busy || rest === parsed.rest} onClick={() => onSave(parsed.locks, rest)}>Guardar restricciones</button>
+        <details style={{ marginTop: 8 }}>
+          <summary className="lab">Restricciones generales</summary>
+          <textarea className="in" rows={3} style={{ width: '100%', marginTop: 4 }} value={rest} onChange={(e) => setRest(e.currentTarget.value)} aria-label="Restricciones generales" />
+          <button className="btn sm" style={{ marginTop: 6 }} disabled={busy || rest === parsed.rest} onClick={() => onSave(parsed.locks, rest)}>Guardar restricciones</button>
+        </details>
       </div>
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>

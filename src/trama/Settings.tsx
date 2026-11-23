@@ -77,7 +77,7 @@ const SKILL_NAMES: Record<string, string> = {
 function SkillsSec({ project, scope }: { project: string | null; scope: string | null }) {
   return <>
     <h2 className="vt">Skills y reglas</h2>
-    <p className="lead">Elige qué skills de Filigranas recibe cada rol en su siguiente turno.</p>
+    <p className="lead">Activa o desactiva las skills que recibe cada rol en su siguiente turno.</p>
     <SkillMatrix key={`scope:${scope ?? 'global'}:${project ?? ''}`} project={scope} rulesProject={project} />
     <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
     <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
@@ -115,16 +115,14 @@ function SkillMatrix({ project, rulesProject }: { project: string | null; rulesP
     {cells && <div className="skill-scroll"><table className="mx skill-matrix" aria-label="Asignación de skills por rol">
       <thead><tr><th scope="col">Skill</th>{ROLES.map(([id, name]) => <th key={id} scope="col">{name}</th>)}</tr></thead>
       <tbody>{list.map((skill) => <tr key={skill.name}>
-        <th scope="row" title={skill.description}>{SKILL_NAMES[skill.name] ?? skill.name}<span className="mono mut2">{skill.name}</span></th>
+        <th scope="row" title={skill.description}>{SKILL_NAMES[skill.name] ?? skill.name} <span className="mono skill-key">{skill.name}</span></th>
         {ROLES.map(([role, name]) => {
           const cell = cells.find((item) => item.skill === skill.name && item.role === role);
           return <td key={role}><span className="skill-controls">
             <button className={`skill-cell${cell?.enabled ? ' on' : ''}`} disabled={saving || !cell}
               aria-pressed={cell?.enabled ?? false} aria-label={`${skill.name} para ${name}`}
               title={cell?.inherited ? 'Hereda del ámbito global' : undefined}
-              onClick={() => void change(skill.name, role, !cell?.enabled)}>
-              {cell?.enabled ? <Icon name="check" size={13} /> : <span aria-hidden="true">−</span>}
-            </button>
+              onClick={() => void change(skill.name, role, !cell?.enabled)} />
             {project && cell && !cell.inherited && <button className="skill-reset" disabled={saving}
               title="Heredar del ámbito global" aria-label={`Heredar ${skill.name} para ${name}`}
               onClick={() => void change(skill.name, role, null)}><Icon name="close" size={10} /></button>}

@@ -228,7 +228,7 @@ function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: S
         <span className="nm">{p.name}</span>
         {snap?.branch && <span className="br">{snap.branch}</span>}
       </span>
-      <span className="act" role="img" aria-label="Commits de las últimas tres semanas" title="Commits de las últimas tres semanas">
+      <span className="project-activity" role="img" aria-label="Commits de las últimas tres semanas" title="Commits de las últimas tres semanas">
         {(act ?? Array<number>(21).fill(0)).map((value, i) => <i key={i}
           style={{ height: value ? 4 + (value / mx) * 16 : 2, background: value >= mx * 0.7 ? 'var(--tx2)' : undefined }} />)}
       </span>

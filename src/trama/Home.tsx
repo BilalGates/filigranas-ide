@@ -125,8 +125,7 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
     try { const chosen = await open({ directory: true, defaultPath: ws.root ?? undefined }); if (typeof chosen === 'string') onWs(await api.setRoot(chosen)); }
     catch (e) { onError(String(e)); }
   };
-  let date = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
-  date = date[0].toUpperCase() + date.slice(1);
+  const date = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
     <Root label="Inicio">
@@ -170,8 +169,8 @@ export default function Home({ ws, project, agentSessions, pm, resume, onWs, onP
             <div className="projects-head">
               <h3>Proyectos</h3>
               <div className="projects-actions">
-                <button className="btn" onClick={openFolder}><Icon name="folder" size={15} /> Abrir carpeta…</button>
-                <button className="btn pearl" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> Nuevo proyecto…</button>
+                <button className="btn sm" onClick={openFolder}><Icon name="folder" size={13} /> Abrir carpeta</button>
+                <button className="btn sm" onClick={() => setCreating(true)}><Icon name="plus" size={13} /> Nuevo proyecto</button>
               </div>
             </div>
             {projects.length === 0 && <div className="empty"><EmptyArt /><h3>Sin proyectos</h3><p>La carpeta {ws.root} no tiene proyectos todavía.</p></div>}
@@ -227,23 +226,20 @@ function ProjectRow({ p, snap, current, agents, onOpen }: { p: Project; snap?: S
       <span className="glyph"><Sigil name={p.name} /></span>
       <span className="pn">
         <span className="nm">{p.name}</span>
-        <span className="project-details">
-          {snap?.branch && <span className="branch-line"><Icon name="branch" size={12} /><span className="br">{snap.branch}</span></span>}
-          {!calm && <span className="stt">
-            {live.map((a) => <AgDot key={a.id} a={a} s={12} />)}
-            {att > 0 && <span className="chip amber">{att} con atención</span>}
-            {run > 0 && <span className="chip sky">{run} en curso</span>}
-            {snap?.work && <span className="chip">{snap.work.state === 'review' ? 'en revisión' : 'sesión de trabajo'}</span>}
-          </span>}
-        </span>
+        {snap?.branch && <span className="br">{snap.branch}</span>}
       </span>
-      <span className="project-history">
-        {act?.some(Boolean) && <span className="project-activity" role="img" aria-label="Commits de las últimas tres semanas" title="Commits de las últimas tres semanas">
-          {act.map((value, i) => <i key={i} className={value ? 'has-commits' : undefined} style={{ height: value ? 4 + (value / mx) * 13 : 2 }} />)}
-        </span>}
-        {last && <span className="tm" title="Último commit">{last === 'ahora' ? 'Ahora' : `Hace ${last}`}</span>}
+      <span className="act" role="img" aria-label="Commits de las últimas tres semanas" title="Commits de las últimas tres semanas">
+        {(act ?? Array<number>(21).fill(0)).map((value, i) => <i key={i}
+          style={{ height: value ? 4 + (value / mx) * 16 : 2, background: value >= mx * 0.7 ? 'var(--tx2)' : undefined }} />)}
       </span>
-      <span className="project-open"><Icon name="chev" size={16} /></span>
+      <span className="stt">
+        {live.map((a) => <AgDot key={a.id} a={a} s={12} />)}
+        {att > 0 && <span className="chip amber">{att} con atención</span>}
+        {run > 0 && <span className="chip sky">{run} en curso</span>}
+        {snap?.work && <span className="chip">{snap.work.state === 'review' ? 'en revisión' : 'sesión de trabajo'}</span>}
+        {calm && snap && <span className="mut">en calma</span>}
+      </span>
+      <span className="tm" title={last ? 'Último commit' : undefined}>{last}</span>
     </button>
   );
 }
@@ -260,21 +256,28 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
     const c = cv.getContext('2d')!;
     const sphere = document.createElement('canvas');
     const sc = sphere.getContext('2d')!;
-    let raf = 0, last = 0;
+    let raf = 0, seed = 11;
     let W = 0, H = 0, d = 0, cx = 0, cy = 0;
+    const noise = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed - 1) / 2147483646;
+    };
+    const thresholds = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
     const resize = () => {
       const box = cv.parentElement!.getBoundingClientRect();
       const scale = Math.min(2, devicePixelRatio || 1);
       if (box.width === W && box.height === H && d === scale) return;
-      W = box.width; H = box.height; d = scale; cx = W * 0.62; cy = H * 0.5;
+      W = box.width; H = box.height; d = scale; cx = W * 0.6; cy = H * 0.5;
       cv.width = sphere.width = Math.round(W * d);
       cv.height = sphere.height = Math.round(H * d);
       sc.setTransform(d, 0, 0, d, 0, 0);
       for (let y = 4; y < H; y += 6) for (let x = 4; x < W; x += 6) {
         const dd = Math.hypot(x - cx, (y - cy) * 1.1), l = Math.max(0, 1 - dd / (H * 0.42));
         if (l < 0.05) continue;
+        const threshold = thresholds[((y / 6 | 0) & 3) * 4 + ((x / 6 | 0) & 3)] / 16;
+        if (l < 0.45 && l * 2.2 < threshold) continue;
         const z = Math.min(4.4, l * 6);
-        sc.fillStyle = `rgba(${(200 + l * 55) | 0},${(205 + l * 50) | 0},255,${0.2 + l * 0.75})`;
+        sc.fillStyle = `rgba(${(200 + l * 55) | 0},${(205 + l * 50) | 0},255,${0.25 + l * 0.75})`;
         sc.fillRect(x - z / 2, y - z / 2, z, z);
       }
       kick.current();
@@ -282,8 +285,6 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
     const frame = (t: number) => {
       if (!W || !H || document.hidden) return;
       const live = ambientEnabled();
-      if (live && t - last < 50 && last) { raf = requestAnimationFrame(frame); return; }
-      last = t;
       c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, W, H);
       const { agents: A, label: lb, sub: sb, resting: rest } = data.current;
       // en reposo la esfera respira despacio; con actividad, luce plena
@@ -293,31 +294,31 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
       A.slice(0, 7).forEach((a, i) => {
         const y = H * (n === 1 ? 0.5 : 0.14 + (i * 0.72) / (Math.min(n, 7) - 1));
         const hex = a.h.replace('#', ''), rgb = [0, 2, 4].map((k) => parseInt(hex.slice(k, k + 2), 16)).join(',');
-        const on = a.state === 'working' || a.state === 'waiting', ph = (t / 1500 + i * 0.17) % 1;
+        const on = a.state === 'working' || a.state === 'waiting', ph = (t / 1400 + i * 0.17) % 1;
         for (let k = 0; k < 60; k++) {
-          const p = k / 60, x = 18 + p * (cx - 62), yy = y + (cy - y) * (p * p * (3 - 2 * p)) + Math.sin(k * 12.9 + i * 7.3);
+          const p = k / 60, x = 18 + p * (cx - 60), yy = y + (cy - y) * (p * p * (3 - 2 * p)) + (live ? (noise() - 0.5) * 2 : 0);
           const near = live && on && Math.abs(p - ph) < 0.05;
-          const al = a.state === 'idle' || a.state === 'paused' ? 0.18 : 0.38 + (near ? 0.55 : 0);
+          const al = a.state === 'idle' || a.state === 'paused' ? 0.15 : 0.35 + (near ? 0.6 : 0);
           c.fillStyle = a.state === 'waiting' ? `rgba(255,178,94,${al})` : `rgba(${rgb},${al})`;
           const z = near ? 2.6 : 1.4; c.fillRect(x, yy, z, z);
         }
-        c.fillStyle = `rgba(${rgb},.95)`; c.font = '600 10.5px Iosevka,"JetBrains Mono",monospace';
+        c.fillStyle = `rgba(${rgb},.95)`; c.font = '600 10px Iosevka,"JetBrains Mono",monospace';
         c.fillText(a.name.toUpperCase(), 18, y - 8);
       });
-      c.strokeStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.moveTo(cx + 30, cy - 30); c.lineTo(cx + 56, cy - 56); c.stroke();
-      c.fillStyle = '#fff'; c.font = '600 12px -apple-system,Inter,sans-serif'; c.fillText(lb, cx + 60, cy - 62);
-      c.fillStyle = 'rgba(255,255,255,.65)'; c.font = '11px Iosevka,"JetBrains Mono",monospace'; c.fillText(sb, cx + 60, cy - 47);
+      c.strokeStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.moveTo(cx + 30, cy - 30); c.lineTo(cx + 58, cy - 58); c.stroke();
+      c.fillStyle = '#fff'; c.font = '600 11px -apple-system,Inter,sans-serif'; c.fillText(lb, cx + 62, cy - 62);
+      c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '10px Iosevka,"JetBrains Mono",monospace'; c.fillText(sb, cx + 62, cy - 48);
       if (!A.length) {
         // reposo: dos hilos tenues para los motores disponibles, sin actividad
         ['CODEX · LIBRE', 'CLAUDE · LIBRE'].forEach((name, i) => {
           const y = H * (0.36 + i * 0.28);
           for (let k = 0; k < 60; k++) { const p = k / 60, x = 18 + p * (cx - 62), yy = y + (cy - y) * (p * p * (3 - 2 * p)); c.fillStyle = `rgba(190,200,230,${0.1 + 0.08 * breath})`; c.fillRect(x, yy, 1.3, 1.3); }
-          c.fillStyle = 'rgba(190,200,230,.5)'; c.font = '600 10.5px Iosevka,"JetBrains Mono",monospace'; c.fillText(name, 18, y - 8);
+          c.fillStyle = 'rgba(190,200,230,.5)'; c.font = '600 10px Iosevka,"JetBrains Mono",monospace'; c.fillText(name, 18, y - 8);
         });
       }
       if (live) raf = requestAnimationFrame(frame);
     };
-    kick.current = () => { cancelAnimationFrame(raf); last = 0; raf = requestAnimationFrame(frame); };
+    kick.current = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); };
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(cv.parentElement!);

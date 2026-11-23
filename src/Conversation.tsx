@@ -70,12 +70,13 @@ type LogProps = {
   agent: string;
   project: string;
   onDiff: (c: Change) => void;
+  plan?: ReactNode;
   /** Avisos al final: cargando, vacío, errores. */
   children?: ReactNode;
 };
 
 /** Lista de mensajes que sigue el final salvo que el usuario haya subido. */
-export function ConversationLog({ items, asks, agent, project, onDiff, children }: LogProps) {
+export function ConversationLog({ items, asks, agent, project, onDiff, plan, children }: LogProps) {
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -83,6 +84,13 @@ export function ConversationLog({ items, asks, agent, project, onDiff, children 
     const el = log.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items, asks]);
+
+  let lastPlan: CItem['id'] | null = null;
+  if (plan) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].type === 'plan' && items[i].text) { lastPlan = items[i].id; break; }
+    }
+  }
 
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
 
@@ -115,6 +123,7 @@ export function ConversationLog({ items, asks, agent, project, onDiff, children 
       {items.map((it) => (
         <Fragment key={it.id}>
           <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} />
+          {it.id === lastPlan && plan}
         </Fragment>
       ))}
       {asks.map((a) => (

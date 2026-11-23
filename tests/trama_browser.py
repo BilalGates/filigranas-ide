@@ -85,6 +85,19 @@ def check_brain(browser, url):
     page.close()
 
 
+def check_workspace_plan(browser, url):
+    page, errors = start(browser, url)
+    page.get_by_role("button", name="Abrir bitacola", exact=True).click()
+    page.get_by_role("button", name=re.compile("^Project manager")).first.click()
+    plan = page.get_by_role("region", name="Plan de trabajo")
+    expect(plan.get_by_role("button", name="Abrir en Flow")).to_be_visible()
+    plan.get_by_role("button", name="Worker de reintentos con backoff", exact=True).press("Enter")
+    expect(page.get_by_role("main", name="Flow")).to_be_visible()
+    expect(page.locator(".flowg .gn.sel")).to_have_attribute("aria-label", re.compile("Worker de reintentos con backoff"))
+    assert not errors, errors
+    page.close()
+
+
 def check_delivery(browser, url):
     page, errors = start(browser, url)
     page.get_by_role("button", name="Abrir bitacola", exact=True).click()
@@ -296,7 +309,7 @@ def main():
     args = parser.parse_args()
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(channel=args.channel)
-        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame, check_workspace_inspector, check_studio_surfaces, check_settings_and_network, check_studio_references_and_components, check_skill_roles):
+        for check in (check_resume, check_brain, check_delivery, check_delivery_worktree, check_frame, check_workspace_inspector, check_studio_surfaces, check_settings_and_network, check_studio_references_and_components, check_skill_roles, check_workspace_plan):
             check(browser, args.app)
             print(f"{check.__name__}: correcto")
         browser.close()

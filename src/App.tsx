@@ -86,6 +86,7 @@ export default function App() {
   const [rightView, setRightView] = useState<RightTab>('git');
   const [dirty, setDirty] = useState(false);
   const [agentSessions, setAgentSessions] = useState<Session[]>([]);
+  const [flowFocus, setFlowFocus] = useState<{ project: string; task: number } | null>(null);
   // Proyecto cuya lista de sesiones ya está cargada (mientras carga, vacía).
   const [sessionsOf, setSessionsOf] = useState<string | null>(null);
   const [pmChat, setPmChat] = useState<{ project: string; session: Session | null } | null>(null);
@@ -743,7 +744,7 @@ export default function App() {
       )}
       {dest === 'flow' && (
         <Boundary name="Flow">
-        <Flow key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Flow key={project} project={project} projectName={current?.name ?? null} initialTask={flowFocus?.project === project ? flowFocus?.task : null} agentSessions={agentSessions}
           pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           onEditTask={(id) => {
@@ -880,7 +881,8 @@ export default function App() {
                 manager={{ task: coachTask, clearTask: () => setCoachTask(null) }} />
             : <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} hidden={view !== 'coach'}
                 switching={switching === project} providerPicker={view === 'coach' ? providerPicker : undefined}
-                task={coachTask} onClearTask={() => setCoachTask(null)} onModel={reportModel} />
+                task={coachTask} onClearTask={() => setCoachTask(null)} onModel={reportModel}
+                onOpenFlow={(task) => { setFlowFocus(task == null ? null : { project: current.path, task }); setDest('flow'); }} />
           )}
           {current &&
             agentSessions.map((s) => (

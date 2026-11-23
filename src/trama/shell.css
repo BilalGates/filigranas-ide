@@ -13,11 +13,11 @@
   flex-direction: column;
   animation: tv-viewIn 0.42s var(--ease);
 }
-/* WKWebView puede dejar la capa del filtro en el primer fotograma al navegar. */
+/* Mantiene la misma función de filtro en ambos extremos de la transición de WKWebView. */
 html[data-native][data-platform='mac'] .tv.tr-root { animation-name: trama-native-view-in; }
 @keyframes trama-native-view-in {
-  from { opacity: 0.88; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateY(6px); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
 }
 .tv.tr-root > * { flex: 1; min-height: 0; }
 .tv .home-agline { width: 100%; text-align: left; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; }
@@ -342,3 +342,30 @@ html.is-light .tb-q { background: var(--raised-2); }
 
 .co-needs-work { display: flex; align-items: center; gap: 12px; line-height: 1.45; }
 .co-needs-work .co-link { flex: none; font-weight: 600; }
+
+.co-rich-plan {
+  margin: 0 0 12px;
+  border: 1px solid var(--line2);
+  border-radius: 11px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, .18);
+}
+.co-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.co-plan-head .co-btn { margin-inline-start: auto; display: flex; align-items: center; }
+.co-plan-graph { height: 120px; }
+.co-plan-graph g { cursor: pointer; }
+.co-plan-graph text { font: 10.5px var(--mono); fill: var(--tx2); }
+.co-plan-graph path { fill: none; stroke: var(--line3); stroke-width: 1.2; }
+.co-plan-graph path.is-live {
+  stroke: var(--violet);
+  stroke-width: 2;
+  stroke-dasharray: 1.5 7;
+  stroke-linecap: round;
+  animation: tv-flowd 1.1s linear infinite;
+}

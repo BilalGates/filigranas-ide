@@ -104,6 +104,31 @@ def entrega_fixture(page, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(fixture, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
+
+def workspace_fixture(page, destination):
+    state = page.evaluate("""() => {
+      if (!S.msgs) initMsgs();
+      const [user, plan, architecture, , diff] = S.msgs.pm;
+      const plain = (html) => {
+        const node = document.createElement('div');
+        node.innerHTML = html;
+        return node.textContent;
+      };
+      return {
+        tasks: TK.map(({id, title, status, deps, prio}) => ({id, title, status, deps, prio})),
+        items: [
+          {id:'request', type:'userMessage', content:[{type:'text',text:user.x}]},
+          {id:'plan', type:'plan', text:plain(plan.x)},
+          {id:'architecture', type:'agentMessage', text:plain(architecture.x), by:'Project manager'},
+          {id:'diff', type:'agentMessage', text:plain(diff.x), by:'Project manager'},
+          {id:'git-change', type:'fileChange', status:'completed',
+            changes:[{path:'src-tauri/src/git_ops.rs', kind:{type:'update'}, diff:''}]}
+        ]
+      };
+    }""")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
 def save_comparison(reference, app, destination, reference_label, label):
     with Image.open(reference) as ref_file, Image.open(app) as app_file:
         ref, actual = ref_file.convert("RGB"), app_file.convert("RGB")
@@ -125,6 +150,7 @@ def main():
     parser.add_argument("--app", default="http://127.0.0.1:1420")
     parser.add_argument("--artifact", help="Ruta al HTML exportado del Artifact")
     parser.add_argument("--reference-only", action="store_true", help="Captura solo la referencia canónica")
+    parser.add_argument("--workspace-fixture", type=Path, help="Exporta las tareas y la conversación del PM")
     parser.add_argument("--entrega-fixture", type=Path, help="Exporta los diffs y los hallazgos de Entrega")
     parser.add_argument("--studio-fixture", type=Path, help="Exporta los cuatro contenidos de lienzo y las referencias de Studio")
     parser.add_argument("--reference-label", default="Artifact de referencia")
@@ -147,6 +173,8 @@ def main():
         parser.error("--studio-fixture requiere la referencia canónica a 1440 y la sección Studio")
     if args.entrega_fixture and (not args.reference_only or artifact != CANONICAL or sizes != [(1440, 900)] or not any(s[0] == "entrega" for s in sections)):
         parser.error("--entrega-fixture requiere la referencia canónica a 1440 y la sección Entrega")
+    if args.workspace_fixture and (not args.reference_only or artifact != CANONICAL or sizes != [(1440, 900)] or not any(s[0] == "workspace" for s in sections)):
+        parser.error("--workspace-fixture requiere la referencia canónica a 1440 y Workspace")
     args.output.mkdir(parents=True, exist_ok=True)
     results = []
 
@@ -171,6 +199,8 @@ def main():
                         studio_fixture(ref, args.studio_fixture)
                     if name == "entrega" and args.entrega_fixture:
                         entrega_fixture(ref, args.entrega_fixture)
+                    if name == "workspace" and args.workspace_fixture:
+                        workspace_fixture(ref, args.workspace_fixture)
                     results.append(result)
                     context.close()
                     continue

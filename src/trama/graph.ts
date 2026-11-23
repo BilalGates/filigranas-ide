@@ -30,6 +30,21 @@ export const MARKERS = `<marker id="mk-dep" viewBox="0 0 10 10" refX="9" refY="5
 <marker id="mk-del" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M2 2L7 5L2 8M5 2l5 3-5 3" fill="none" stroke="#b09cff" stroke-width="1.2"/></marker>
 <marker id="mk-rel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><circle cx="5" cy="5" r="2.2" fill="#9db6ff"/></marker>`;
 
+export function dependencyLevels(list: { id: string; deps: string[] }[]) {
+  const by = new Map(list.map((t) => [t.id, t])), memo = new Map<string, number>();
+  const d = (id: string, seen: Set<string>): number => {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const deps = (by.get(id)?.deps ?? []).filter((x) => by.has(x));
+    const v = deps.length ? Math.max(...deps.map((x) => d(x, seen) + 1)) : 0;
+    memo.set(id, v);
+    return v;
+  };
+  list.forEach((t) => d(t.id, new Set()));
+  return memo;
+}
+
 const reduced = () => effectiveMotion() === 'reducido';
 
 export function escapeXml(s: string) {

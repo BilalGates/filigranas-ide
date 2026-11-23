@@ -1,0 +1,120 @@
+{
+  "tasks": [
+    {
+      "id": "t1",
+      "title": "Investigar comandos git y errores de red",
+      "status": "done",
+      "deps": [],
+      "prio": "normal"
+    },
+    {
+      "id": "t2",
+      "title": "fetch, pull, push y stash en git_ops.rs",
+      "status": "running",
+      "deps": [
+        "t1"
+      ],
+      "prio": "alta"
+    },
+    {
+      "id": "t3",
+      "title": "Contrato IPC en ipc.ts",
+      "status": "waiting",
+      "deps": [
+        "t1"
+      ],
+      "prio": "normal"
+    },
+    {
+      "id": "t4",
+      "title": "Tests de git_ops",
+      "status": "running",
+      "deps": [
+        "t2"
+      ],
+      "prio": "normal"
+    },
+    {
+      "id": "t5",
+      "title": "Acciones en el panel de Git",
+      "status": "blocked",
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "prio": "alta"
+    },
+    {
+      "id": "t6",
+      "title": "Commits visibles antes de confirmar",
+      "status": "backlog",
+      "deps": [
+        "t5"
+      ],
+      "prio": "normal"
+    },
+    {
+      "id": "t7",
+      "title": "Auditoría de seguridad de los comandos",
+      "status": "backlog",
+      "deps": [
+        "t2",
+        "t4"
+      ],
+      "prio": "alta"
+    },
+    {
+      "id": "t8",
+      "title": "Publicar PR hacia main",
+      "status": "backlog",
+      "deps": [
+        "t6",
+        "t7"
+      ],
+      "prio": "normal"
+    }
+  ],
+  "items": [
+    {
+      "id": "request",
+      "type": "userMessage",
+      "content": [
+        {
+          "type": "text",
+          "text": "Añade fetch, pull, push y stash al panel de Git, y que los commits se vean antes de confirmarlos."
+        }
+      ]
+    },
+    {
+      "id": "plan",
+      "type": "plan",
+      "text": "Lo parto en 8 tareas. Rust y el contrato IPC avanzan en paralelo; la interfaz espera a los dos. Auditoría doble antes de la PR."
+    },
+    {
+      "id": "architecture",
+      "type": "agentMessage",
+      "text": "Arquitectura propuesta. Larry sigue sin hacer push: el push pasa por tu autorización.",
+      "by": "Project manager"
+    },
+    {
+      "id": "diff",
+      "type": "agentMessage",
+      "text": "El Senior ya tiene fetch y pull. Vista previa del cambio:",
+      "by": "Project manager"
+    },
+    {
+      "id": "git-change",
+      "type": "fileChange",
+      "status": "completed",
+      "changes": [
+        {
+          "path": "src-tauri/src/git_ops.rs",
+          "kind": {
+            "type": "update"
+          },
+          "diff": ""
+        }
+      ]
+    }
+  ]
+}

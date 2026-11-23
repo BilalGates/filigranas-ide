@@ -4,7 +4,7 @@ import { tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc'
 import { PRIORITY as PRIO, STATUS } from '../Tasks';
 import { useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
-import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
+import { createGraph, dependencyLevels, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
 import { AgDot, EmptyArt, Root, StDot, sessionAgents, STATE_LABEL, type AgState, type Agent } from './kit';
 import { Modal } from './ui';
@@ -25,21 +25,6 @@ const LAB: Record<FStatus, [string, string]> = { running: ['en marcha', 'en marc
 const ST2AG: Record<FStatus, AgState> = { done: 'done', running: 'working', waiting: 'waiting', blocked: 'blocked', backlog: 'idle' };
 const NONE: Agent = { id: 'none', session: null, name: 'Sin asignar', engine: '—', h: '#8d939c', state: 'idle', did: 'Tareas sin sesión abierta', branch: null };
 
-function levels(list: { id: string; deps: string[] }[]) {
-  const by = new Map(list.map((t) => [t.id, t])), memo = new Map<string, number>();
-  const d = (id: string, seen: Set<string>): number => {
-    if (memo.has(id)) return memo.get(id)!;
-    if (seen.has(id)) return 0;
-    seen.add(id);
-    const deps = (by.get(id)?.deps ?? []).filter((x) => by.has(x));
-    const v = deps.length ? Math.max(...deps.map((x) => d(x, seen) + 1)) : 0;
-    memo.set(id, v);
-    return v;
-  };
-  list.forEach((t) => d(t.id, new Set()));
-  return memo;
-}
-
 function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent[]): FModel {
   const lanes = new Map(agents.filter((a) => a.session != null).map((a) => [a.session!, a.id]));
   const base = tasks.map((t) => {
@@ -47,7 +32,7 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
     const r = runs[t.id]?.[0];
     return { id: String(t.id), num: t.id, title: t.title, status: FS[t.status] ?? 'backlog', label: STATUS[t.status] ?? t.status, agent: s ? lanes.get(s.id)! : 'none', deps: t.dependencies.map(String), lvl: 0, prio: PRIORITY[t.priority] ?? t.priority, model: r?.routing?.model ?? r?.model ?? null, real: t, goal: t.goal };
   });
-  const lv = levels(base);
+  const lv = dependencyLevels(base);
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
     task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
@@ -83,7 +68,7 @@ function demoModel(): FModel {
     T('t7', 'Auditoría de seguridad de los comandos', 'aud', 'backlog', ['t2', 't4'], 'Opus + Codex', 0, 'alta'),
     T('t8', 'Publicar PR hacia main', 'pm', 'backlog', ['t6', 't7'], 'Codex', 0),
   ];
-  const lv = levels(tasks);
+  const lv = dependencyLevels(tasks);
   tasks.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const today = new Date(); today.setHours(20, 0, 0, 0);
   const R = (task: string, min: number, model: string, reason: string, complexity: string, confidence: number): FRun => ({ task, at: today.getTime() + min * 60000, provider: model === 'Codex' ? 'codex' : 'claude', model, outcome: 'ok', reason, complexity, confidence, effort: null, source: 'shadow', tokens: null, duration: null });
@@ -91,9 +76,10 @@ function demoModel(): FModel {
   return { agents, tasks, runs, demo: true };
 }
 
-export default function Flow({ project, projectName, agentSessions, pm, onOpenSession, onEditTask, onAuto, onDirect, onStartPm }: {
+export default function Flow({ project, projectName, initialTask, agentSessions, pm, onOpenSession, onEditTask, onAuto, onDirect, onStartPm }: {
   project: string | null;
   projectName: string | null;
+  initialTask?: number | null;
   agentSessions: Session[];
   pm: { engine: string } | null;
   onOpenSession: (id: number | 'coach') => void;
@@ -107,11 +93,11 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
   const setLens = (l: Lens) => { setLensState(l); try { localStorage.setItem('filigranas.flow.lente', l); } catch { /* */ } };
   const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof taskApi.flow>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(initialTask == null ? null : String(initialTask));
   const [filter, setFilter] = useState<FStatus | null>(null);
   const [demo, setDemo] = useState(false);
   const [help, setHelp] = useState(false);
-  const [inspOpen, setInspOpen] = useState(false);
+  const [inspOpen, setInspOpen] = useState(initialTask != null);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     if (!project) return;
@@ -154,14 +140,19 @@ export default function Flow({ project, projectName, agentSessions, pm, onOpenSe
 
   if (!project) return <Root label="Flow"><div className="flow-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Flow supervisa las tareas y agentes del proyecto abierto.</p></div></div></Root>;
   const empty = model && !model.demo && model.tasks.length === 0;
-  const title = model?.demo ? 'Demostración · git local' : projectName ?? '';
+  const title = model?.demo ? 'Sesión · git local' : projectName ?? '';
   return (
     <Root label="Flow">
       <div className={`flow${inspOpen ? ' insp-open' : ''}`}>
-        <div className="flowh">
+        <div className={`flowh${model?.demo ? ' is-demo' : ''}`}>
           <h2 className="vt">{title}</h2>
-          {model?.demo && <span className="simtag">demostración · no son datos tuyos</span>}
-          {model && model.tasks.length > 0 && (
+          {model?.demo && <>
+            <span className="chip mono">feat/git-local</span>
+            <span className="chip flow-scope">reparto: src-tauri/ · src/GitPanel.tsx</span>
+            <span className="chip flow-scope">límite paralelo 3</span>
+            <span className="simtag" title="Tareas y agentes de demostración">Demo</span>
+          </>}
+          {model && !model.demo && model.tasks.length > 0 && (
             <div className="ovw" role="group" aria-label="Estado de la ejecución">
               <div className="ovbar" aria-hidden="true">{model.tasks.slice(0, 40).map((t) => <i key={t.id} className={`s-${t.status}`} style={t.status === 'running' ? { background: model.agents.find((a) => a.id === t.agent)?.h } : undefined} />)}</div>
               {(['running', 'waiting', 'blocked', 'done', 'backlog'] as FStatus[]).map((s) => c[s] ? (
@@ -348,7 +339,7 @@ function FlowGraph({ m, lens, sel, filter, onSel, onOpen }: { m: FModel; lens: L
     const { nodes, edges, under } = graphModel(mref.current, lens);
     if (!g.current) {
       g.current = createGraph(svg.current!, {
-        nodes, edges, under, node: (n) => nodeSvg(n, mref.current), edgePath, edgeDecor, selected: sel, pad: [46, 24, 24, 40], maxFit: 1.1,
+        nodes, edges, under, node: (n) => nodeSvg(n, mref.current), edgePath, edgeDecor, selected: sel, pad: m.demo ? [40, 10, 10, 10] : [46, 24, 24, 40], maxFit: m.demo ? 1.25 : 1.1,
         label: 'Grafo de ejecución: flechas para recorrer, Intro para enfocar',
         onSelect: (id) => cb.current.onSel(id), onOpen: (id) => cb.current.onOpen(id),
         onKey: (k, s) => {

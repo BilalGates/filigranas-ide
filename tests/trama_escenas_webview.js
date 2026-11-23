@@ -40,6 +40,7 @@ async function run() {
   localStorage.setItem('filigranas.destino', 'inicio');
   localStorage.setItem('filigranas.movimiento', 'reducido');
   localStorage.setItem('filigranas.ajustes', 'skills');
+  if (import.meta.env.VITE_TRAMA_WORKSPACE) localStorage.setItem('filigranas.pm', JSON.stringify([project]));
   await import('../src/main.tsx');
   await until(() => button('Abrir filigranas-ide'), 'el proyecto').then((el) => el.click());
   const navigate = async (name) => {
@@ -74,6 +75,19 @@ async function run() {
   await until(() => document.querySelector('[aria-label="Catálogo efectivo"]')?.textContent.includes('implement'), 'el catálogo Senior');
   report.views.ajustes = { roles: 7, skills: 6, cells: roleDefaults.length, active: 11, duplicates: 'referencia enlazada' };
   await record('ajustes');
+
+  if (import.meta.env.VITE_TRAMA_WORKSPACE) {
+    await until(() => document.querySelector('.tr-nav button[aria-label^="Workspace ("]'), 'Workspace').then((el) => el.click());
+    const plan = await until(() => document.querySelector('.co-plan-graph svg'), 'el plan de Workspace');
+    const nodes = [...plan.querySelectorAll('g[role="button"]')];
+    if (nodes.length !== 8) throw new Error('El plan de Workspace requiere ocho nodos');
+    report.views.workspace = { nodes: nodes.map((node) => node.getAttribute('aria-label')), edges: plan.querySelectorAll('path').length };
+    await record('workspace');
+    nodes[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const selected = await until(() => document.querySelector('.flowg .gn.sel'), 'la tarea seleccionada en Flow');
+    if (!selected.getAttribute('aria-label').startsWith(report.views.workspace.nodes[1])) throw new Error('Flow seleccionó una tarea distinta');
+    report.views.workspace.keyboardOpensSelection = true;
+  }
 }
 
 try { await run(); } catch (error) { report.error = String(error); }

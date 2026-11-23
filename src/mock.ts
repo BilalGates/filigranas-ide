@@ -403,7 +403,9 @@ mockIPC(
       case 'chat_pm':
         return mockManagers.get(a.project) ?? null;
       case 'chat_history':
-        return [];
+        return a.session == null && rel(a.project) === 'bitacola'
+          ? [{ id: 'plan-fixture', type: 'plan', text: 'Revisar la cola y verificar el flujo antes de entregar.' }]
+          : [];
       case 'chat_switch': {
         if (a.session != null) {
           const at = mockSessions.findIndex((session) => session.id === a.session);

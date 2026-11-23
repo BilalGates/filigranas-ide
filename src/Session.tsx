@@ -641,6 +641,7 @@ export default function Session({ session, project, hidden, switching, providerP
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
+        {autoNotes.map((note, i) => <div key={i} className="co-auto"><Icon name="check" size={12} />{note}</div>)}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
             <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>

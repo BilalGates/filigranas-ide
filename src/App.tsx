@@ -869,7 +869,7 @@ export default function App() {
                   setDiff(null);
                   openEditor();
                 }}
-                onConflicts={showConflicts} onStartWork={() => openWork()}
+                onConflicts={showConflicts} onStartWork={() => openEntrega('tarea', null)}
                 onModel={reportModel}
               />
             ))}

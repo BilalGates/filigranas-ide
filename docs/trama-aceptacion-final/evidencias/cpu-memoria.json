@@ -1,0 +1,34 @@
+{
+  "base": {
+    "samples": 16,
+    "cpuMedianPct": 6.35,
+    "cpuMaxPct": 13.8,
+    "rssMedianMiB": 107.05,
+    "rssMaxMiB": 126.08,
+    "rssFinalMinuteMedianMiB": 107.05
+  },
+  "despues": {
+    "samples": 15,
+    "cpuMedianPct": 3.6,
+    "cpuMaxPct": 12.0,
+    "rssMedianMiB": 108.75,
+    "rssMaxMiB": 124.25,
+    "rssFinalMinuteMedianMiB": 108.75
+  },
+  "largo-base": {
+    "samples": 318,
+    "cpuMedianPct": 4.3,
+    "cpuMaxPct": 26.9,
+    "rssMedianMiB": 99.41,
+    "rssMaxMiB": 125.86,
+    "rssFinalMinuteMedianMiB": 96.61
+  },
+  "largo-despues": {
+    "samples": 313,
+    "cpuMedianPct": 3.4,
+    "cpuMaxPct": 40.4,
+    "rssMedianMiB": 102.25,
+    "rssMaxMiB": 114.66,
+    "rssFinalMinuteMedianMiB": 89.44
+  }
+}

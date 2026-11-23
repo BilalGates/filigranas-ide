@@ -1,0 +1,17 @@
+{
+  "entrega": {
+    "exactFile": "src-tauri/src/git_ops.rs",
+    "findings": 4,
+    "inline": [
+      "L27 · f1",
+      "L20 · f2"
+    ]
+  },
+  "ajustes": {
+    "roles": 7,
+    "skills": 6,
+    "cells": 42,
+    "active": 11,
+    "duplicates": "referencia enlazada"
+  }
+}

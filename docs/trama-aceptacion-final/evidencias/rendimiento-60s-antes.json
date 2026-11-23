@@ -1,0 +1,267 @@
+{
+  "phases": [
+    {
+      "name": "arranque",
+      "elapsedMs": 2773,
+      "ipc": {
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 4564,
+          "worstMs": 2286
+        },
+        "get_workspace": {
+          "count": 2,
+          "totalMs": 21,
+          "worstMs": 18
+        },
+        "tools_status": {
+          "count": 2,
+          "totalMs": 4556,
+          "worstMs": 2278
+        },
+        "watch_project": {
+          "count": 2,
+          "totalMs": 19,
+          "worstMs": 17
+        },
+        "tasks_list": {
+          "count": 90,
+          "totalMs": 99435,
+          "worstMs": 2073
+        },
+        "session_list": {
+          "count": 90,
+          "totalMs": 99448,
+          "worstMs": 2073
+        },
+        "work_current": {
+          "count": 90,
+          "totalMs": 99454,
+          "worstMs": 2073
+        },
+        "git_head": {
+          "count": 90,
+          "totalMs": 100269,
+          "worstMs": 2081
+        },
+        "git_log": {
+          "count": 90,
+          "totalMs": 101393,
+          "worstMs": 2091
+        },
+        "jev_statusbar": {
+          "count": 2,
+          "totalMs": 2204,
+          "worstMs": 1395
+        },
+        "jev_usage": {
+          "count": 1,
+          "totalMs": 10,
+          "worstMs": 10
+        }
+      },
+      "react": {
+        "count": 38,
+        "medianMs": 1,
+        "p95Ms": 6,
+        "maxMs": 13
+      },
+      "frames": {
+        "count": 34,
+        "medianMs": 17,
+        "p95Ms": 92,
+        "maxMs": 2130
+      },
+      "over50ms": 3,
+      "over100ms": 1,
+      "input": {
+        "count": 0,
+        "medianMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      }
+    },
+    {
+      "name": "navegación y grafo",
+      "elapsedMs": 16544,
+      "ipc": {
+        "tasks_list": {
+          "count": 320,
+          "totalMs": 208932,
+          "worstMs": 1356
+        },
+        "session_list": {
+          "count": 300,
+          "totalMs": 206243,
+          "worstMs": 1356
+        },
+        "work_current": {
+          "count": 320,
+          "totalMs": 208713,
+          "worstMs": 1356
+        },
+        "git_head": {
+          "count": 300,
+          "totalMs": 208686,
+          "worstMs": 1362
+        },
+        "git_log": {
+          "count": 320,
+          "totalMs": 216244,
+          "worstMs": 1375
+        },
+        "session_orphans": {
+          "count": 2,
+          "totalMs": 1895,
+          "worstMs": 1235
+        },
+        "design_list": {
+          "count": 10,
+          "totalMs": 28,
+          "worstMs": 3
+        },
+        "git_status": {
+          "count": 20,
+          "totalMs": 3742,
+          "worstMs": 306
+        },
+        "git_branches": {
+          "count": 10,
+          "totalMs": 1721,
+          "worstMs": 256
+        },
+        "git_stash_list": {
+          "count": 10,
+          "totalMs": 3278,
+          "worstMs": 337
+        },
+        "health_list": {
+          "count": 10,
+          "totalMs": 2346,
+          "worstMs": 319
+        },
+        "health_ci": {
+          "count": 10,
+          "totalMs": 2433,
+          "worstMs": 326
+        },
+        "git_diff_texts": {
+          "count": 10,
+          "totalMs": 214,
+          "worstMs": 39
+        },
+        "jev_statusbar": {
+          "count": 1,
+          "totalMs": 289,
+          "worstMs": 289
+        }
+      },
+      "react": {
+        "count": 217,
+        "medianMs": 1,
+        "p95Ms": 3,
+        "maxMs": 9
+      },
+      "frames": {
+        "count": 469,
+        "medianMs": 17,
+        "p95Ms": 42,
+        "maxMs": 1374
+      },
+      "over50ms": 17,
+      "over100ms": 11,
+      "input": {
+        "count": 25,
+        "medianMs": 110,
+        "p95Ms": 1411,
+        "maxMs": 1434
+      }
+    },
+    {
+      "name": "navegación sostenida con PTY",
+      "elapsedMs": 60549,
+      "ipc": {
+        "pty_open": {
+          "count": 1,
+          "totalMs": 8,
+          "worstMs": 8
+        },
+        "pty_write": {
+          "count": 1,
+          "totalMs": 1,
+          "worstMs": 1
+        },
+        "tasks_list": {
+          "count": 682,
+          "totalMs": 431066,
+          "worstMs": 1374
+        },
+        "session_list": {
+          "count": 660,
+          "totalMs": 430704,
+          "worstMs": 1374
+        },
+        "work_current": {
+          "count": 660,
+          "totalMs": 430720,
+          "worstMs": 1374
+        },
+        "git_head": {
+          "count": 660,
+          "totalMs": 436157,
+          "worstMs": 1382
+        },
+        "git_log": {
+          "count": 660,
+          "totalMs": 443616,
+          "worstMs": 1394
+        },
+        "jev_statusbar": {
+          "count": 4,
+          "totalMs": 88,
+          "worstMs": 82
+        },
+        "codex_rate_limits": {
+          "count": 1,
+          "totalMs": 1866,
+          "worstMs": 1866
+        },
+        "pty_close": {
+          "count": 1,
+          "totalMs": 54,
+          "worstMs": 54
+        }
+      },
+      "react": {
+        "count": 383,
+        "medianMs": 1,
+        "p95Ms": 5,
+        "maxMs": 10
+      },
+      "frames": {
+        "count": 2745,
+        "medianMs": 17,
+        "p95Ms": 18,
+        "maxMs": 1397
+      },
+      "over50ms": 23,
+      "over100ms": 11,
+      "input": {
+        "count": 22,
+        "medianMs": 108,
+        "p95Ms": 1375,
+        "maxMs": 1457
+      }
+    }
+  ],
+  "hardware": {
+    "scale": 1,
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": {
+    "repositories": 32,
+    "tasks": 240
+  },
+  "terminalBytes": 2473
+}

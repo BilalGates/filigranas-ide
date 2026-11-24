@@ -10,6 +10,7 @@ export type Entry = { name: string; path: string; dir: boolean };
 
 export const api = {
   workspace: () => invoke<Workspace>('get_workspace'),
+  homeSummary: (paths: string[], focus: string | null) => invoke<HomeSummary[]>('home_summary', { paths, focus }),
   defaultRoot: () => invoke<string>('default_root'),
   setRoot: (path: string) => invoke<Workspace>('set_root', { path }),
   createProject: (name: string) => invoke<Workspace>('create_project', { name }),
@@ -59,9 +60,9 @@ export const browser = {
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
-export type GitStatus = { branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
+export type GitStatus = { branch: string | null; head: string | null; headSha?: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
 export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
-type DiffTexts = { old: string; new: string };
+export type DiffTexts = { old: string; new: string };
 
 export const git = {
   head: (project: string) => invoke<string>('git_head', { project }),
@@ -113,7 +114,7 @@ export type CItem = {
   status?: string;
   aggregatedOutput?: string | null;
   exitCode?: number | null;
-  changes?: { path: string; kind: { type: string } }[];
+  changes?: { path: string; kind: { type: string }; diff?: string }[];
   server?: string;
   tool?: string;
   // Herramientas dinámicas del IDE (delegar, estado_sesiones, esperar_sesion).
@@ -286,10 +287,21 @@ export const jev = {
 };
 export const tasks = {
   list: (project: string) => invoke<Task[]>('tasks_list', { project }),
+  flow: (project: string) => invoke<{ tasks: Task[]; runs: Record<number, TaskRun[]> }>('task_flow', { project }),
   save: (project: string, input: TaskEdit) => invoke<number>('task_save', { project, input }),
   link: (project: string, task: number, session: number) => invoke<void>('task_link', { project, task, session }),
   runs: (project: string, task: number) => invoke<TaskRun[]>('task_runs', { project, task }),
   parallelLimit: (project: string, limit: number | null = null) => invoke<number>('task_parallel_limit', { project, limit }),
+};
+
+export type HomeSummary = {
+  path: string;
+  tasks: Pick<Task, 'id' | 'title' | 'status' | 'updatedAt'>[];
+  sessions: Session[];
+  work: WorkSession | null;
+  branch: string | null;
+  dates: string[] | null;
+  ci?: PrInfo | null;
 };
 
 // Larry: propuesta y creación de commits locales.
@@ -427,12 +439,26 @@ export type BrainDraft = {
 };
 export type BrainEntry = BrainDraft & { created: number; updated: number };
 export type BrainNodeKind = BrainKind | 'task' | 'pr' | 'project';
-type BrainNode = { key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null; matched: boolean; project: string | null; body: string | null; source: string | null };
+export type BrainValidity = 'vigente' | 'sustituido' | 'caducado';
+type BrainNode = {
+  key: string; kind: BrainNodeKind; title: string; date: number; id: number; url: string | null;
+  matched: boolean; project: string | null; body: string | null; source: string | null;
+  sourceTask?: number | null; sourceRun?: number | null; validUntil?: number | null; validity?: BrainValidity | null;
+};
 export type BrainEdge = { from: string; to: string; kind: 'project_member' | 'scope' | 'task_source' | 'run_source' | 'pull_source' | 'parent' | 'dependency' | 'pull' };
 export type BrainGraphData = { nodes: BrainNode[]; edges: BrainEdge[]; limited: boolean };
-export type BrainGraphFilter = { query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null };
+export type BrainGraphFilter = {
+  query: string | null; project: string | null; kind: BrainNodeKind | null; from: number | null; until: number | null;
+  memoryOnly?: boolean; validity?: BrainValidity | null; focusId?: number | null;
+};
 type BrainReference = { id: number; version: number; source: string };
+export type BrainInference = { id: number; draft: BrainDraft; created: number };
 export const brain = {
+  inferences: (project: string) => invoke<BrainInference[]>('brain_inferences', { project }),
+  propose: (project: string, draft: BrainDraft) => invoke<number>('brain_propose', { project, draft }),
+  correctInference: (project: string, id: number, title: string) => invoke<void>('brain_correct_inference', { project, id, title }),
+  decide: (project: string, id: number, approve: boolean) =>
+    invoke<number | null>('brain_decide_inference', { project, id, approve }),
   graph: (filter: BrainGraphFilter) => invoke<BrainGraphData>('brain_graph', { filter }),
   entry: (project: string | null, id: number) => invoke<BrainEntry>('brain_entry', { project, id }),
   search: (project: string | null, query: string, kind: BrainKind | null) => invoke<BrainEntry[]>('brain_search', { project, query, kind }),
@@ -449,7 +475,9 @@ export type BrainLink = { id: number | null; from: number; to: number; kind: Bra
 export type SkillInfo = { name: string; description: string };
 export type SkillRole = 'pm' | 'researcher' | 'designer' | 'senior' | 'junior' | 'auditor' | 'auditor2';
 export type SkillAssignment = { skill: string; role: SkillRole; enabled: boolean; inherited: boolean };
+export type RuleStatus = { agentsFile: boolean; copiedTrafficRule: boolean; linksTrafficReference: boolean };
 export const skills = {
+  ruleStatus: (project: string) => invoke<RuleStatus>('skills_rule_status', { project }),
   list: () => invoke<SkillInfo[]>('skills_list'),
   assignments: (project: string | null) => invoke<SkillAssignment[]>('skills_assignments', { project }),
   setAssignment: (project: string | null, skill: string, role: SkillRole, enabled: boolean | null) =>
@@ -474,7 +502,7 @@ export const localServices = {
 };
 
 // Sesiones de trabajo compartidas, independientes de los chats de proveedor.
-export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean };
+export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean; isolated: boolean };
 export type WorkSession = { id: number; objective: string; branch: string; baseCommit: string | null; state: 'active' | 'review' | 'finished'; tests: string | null; evidence: string | null; reviewedHead: string | null; prUrl: string | null; agents: WorkAgent[] };
 export const workSessions = {
   current: (project: string) => invoke<WorkSession | null>('work_current', { project }),

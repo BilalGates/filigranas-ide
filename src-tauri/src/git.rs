@@ -36,7 +36,7 @@ pub(crate) fn git_output(repo: &Path, args: &[&str]) -> CmdResult<std::process::
     cmd.output().map_err(|e| format!("no se pudo ejecutar git: {e}"))
 }
 
-fn repo(state: &State<AppState>, project: &str) -> CmdResult<PathBuf> {
+fn repo(state: &AppState, project: &str) -> CmdResult<PathBuf> {
     Ok(PathBuf::from(project_path(&*state.db.lock().map_err(err)?, project)?))
 }
 
@@ -69,6 +69,7 @@ pub struct Status {
     /// `None` con la cabeza separada; entonces `head` es el commit.
     branch: Option<String>,
     head: Option<String>,
+    head_sha: Option<String>,
     upstream: Option<String>,
     ahead: u32,
     behind: u32,
@@ -91,7 +92,10 @@ fn parse_status(out: &str) -> Status {
             "#" => {
                 let (key, value) = rest.split_once(' ').unwrap_or((rest, ""));
                 match key {
-                    "branch.oid" if value != "(initial)" => s.head = Some(value.chars().take(7).collect()),
+                    "branch.oid" if value != "(initial)" => {
+                        s.head = Some(value.chars().take(7).collect());
+                        s.head_sha = Some(value.into());
+                    }
                     "branch.head" if value != "(detached)" => s.branch = Some(value.into()),
                     "branch.upstream" => s.upstream = Some(value.into()),
                     "branch.ab" => {
@@ -121,6 +125,8 @@ fn parse_status(out: &str) -> Status {
 /// Añade líneas añadidas/eliminadas desde `git diff HEAD --numstat -z`.
 /// Los binarios («-») quedan sin contar.
 fn apply_numstat(changes: &mut [Change], out: &str) {
+    let mut by_path: std::collections::HashMap<_, _> = changes.iter_mut()
+        .map(|change| (change.path.clone(), change)).collect();
     let mut fields = out.split('\0');
     while let Some(entry) = fields.next() {
         let mut cols = entry.splitn(3, '\t');
@@ -131,7 +137,7 @@ fn apply_numstat(changes: &mut [Change], out: &str) {
             fields.next();
             path = fields.next().unwrap_or("").to_string();
         }
-        if let Some(c) = changes.iter_mut().find(|c| c.path == path) {
+        if let Some(c) = by_path.get_mut(&path) {
             c.adds = adds;
             c.dels = dels;
         }
@@ -139,16 +145,19 @@ fn apply_numstat(changes: &mut [Change], out: &str) {
 }
 
 #[tauri::command]
-pub fn git_status(state: State<AppState>, project: String) -> CmdResult<Status> {
-    status_at(&repo(&state, &project)?, "HEAD")
+pub async fn git_status(app: tauri::AppHandle, project: String) -> CmdResult<Status> {
+    crate::background_read(app, move |state| status_at(&repo(state, &project)?, "HEAD")).await
 }
 
 #[tauri::command]
-pub fn git_head(state: State<AppState>, project: String) -> CmdResult<String> {
-    let repo = repo(&state, &project)?;
-    match git(&repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
+pub async fn git_head(app: tauri::AppHandle, project: String) -> CmdResult<String> {
+    crate::background_read(app, move |state| head_at(&repo(state, &project)?)).await
+}
+
+pub(crate) fn head_at(repo: &Path) -> CmdResult<String> {
+    match git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]) {
         Ok(branch) => Ok(String::from_utf8_lossy(&branch).trim().to_owned()),
-        Err(_) => git(&repo, &["rev-parse", "--short", "HEAD"])
+        Err(_) => git(repo, &["rev-parse", "--short", "HEAD"])
             .map(|head| format!("HEAD · {}", String::from_utf8_lossy(&head).trim())),
     }
 }
@@ -205,8 +214,8 @@ pub struct DiffTexts {
 /// Versión en HEAD y versión en disco de un archivo cambiado, para el diff.
 /// Un archivo nuevo no tiene versión antigua; uno borrado, nueva.
 #[tauri::command]
-pub fn git_diff_texts(state: State<AppState>, project: String, path: String, orig: Option<String>) -> CmdResult<DiffTexts> {
-    diff_texts_at(&repo(&state, &project)?, "HEAD", &path, orig.as_deref())
+pub async fn git_diff_texts(app: tauri::AppHandle, project: String, path: String, orig: Option<String>) -> CmdResult<DiffTexts> {
+    crate::background_read(app, move |state| diff_texts_at(&repo(state, &project)?, "HEAD", &path, orig.as_deref())).await
 }
 
 /// Versión en `against` y versión en disco de un archivo de `repo`.
@@ -251,18 +260,29 @@ fn parse_log(out: &str) -> Vec<LogRow> {
 /// Historial de todas las ramas locales y remotas conocidas, el más
 /// reciente primero. Un repositorio sin commits devuelve una lista vacía.
 #[tauri::command]
-pub fn git_log(state: State<AppState>, project: String) -> CmdResult<Vec<LogRow>> {
-    let repo = repo(&state, &project)?;
-    let out = git(&repo, &["log", "--branches", "--remotes", "--tags", "HEAD", "--topo-order", LOG_LIMIT, "--format=%h%x1f%p%x1f%D%x1f%aN%x1f%aI%x1f%s"])?;
-    Ok(parse_log(&String::from_utf8_lossy(&out)))
+pub async fn git_log(app: tauri::AppHandle, project: String) -> CmdResult<Vec<LogRow>> {
+    crate::background_read(app, move |state| {
+        let out = log_at(&repo(state, &project)?, "--format=%h%x1f%p%x1f%D%x1f%aN%x1f%aI%x1f%s")?;
+        Ok(parse_log(&String::from_utf8_lossy(&out)))
+    }).await
+}
+
+fn log_at(repo: &Path, format: &str) -> CmdResult<Vec<u8>> {
+    git(repo, &["log", "--branches", "--remotes", "--tags", "HEAD", "--topo-order", LOG_LIMIT, format])
+}
+
+pub(crate) fn commit_dates(repo: &Path) -> CmdResult<Vec<String>> {
+    let out = log_at(repo, "--format=%aI")?;
+    Ok(String::from_utf8_lossy(&out).lines().map(str::to_owned).collect())
 }
 
 /// Ramas locales, por nombre.
 #[tauri::command]
-pub fn git_branches(state: State<AppState>, project: String) -> CmdResult<Vec<String>> {
-    let repo = repo(&state, &project)?;
-    let out = git(&repo, &["for-each-ref", "--format=%(refname:short)", "--sort=refname", "refs/heads"])?;
-    Ok(String::from_utf8_lossy(&out).lines().map(str::to_string).collect())
+pub async fn git_branches(app: tauri::AppHandle, project: String) -> CmdResult<Vec<String>> {
+    crate::background_read(app, move |state| {
+        let out = git(&repo(state, &project)?, &["for-each-ref", "--format=%(refname:short)", "--sort=refname", "refs/heads"])?;
+        Ok(String::from_utf8_lossy(&out).lines().map(str::to_string).collect())
+    }).await
 }
 
 /// Cambia a una rama local existente. Es la única escritura de este módulo:
@@ -302,6 +322,7 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc c.txt\0\
 ? nuevo.md\0";
         let mut s = parse_status(out);
         assert_eq!((s.branch.as_deref(), s.head.as_deref()), (Some("main"), Some("ce227ba")));
+        assert_eq!(s.head_sha.as_deref(), Some("ce227ba9844a60d13c00f803c237e86967283247"));
         assert_eq!((s.upstream.as_deref(), s.ahead, s.behind), (Some("origin/main"), 2, 1));
         let summary: Vec<_> = s.changes.iter().map(|c| (c.status, c.path.as_str(), c.orig.as_deref())).collect();
         assert_eq!(

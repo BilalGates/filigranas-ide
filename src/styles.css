@@ -1169,13 +1169,13 @@ html[data-resizing] .right {
   padding: 24px max(24px, calc((100% - 760px) / 2)) 20px;
   user-select: text;
 }
-.co-log > * {
+.co-log-inner > * {
   animation: rise 240ms var(--ease) both;
 }
 .co-empty {
   color: var(--tx3);
 }
-.co-log > .co-empty:only-child {
+.co-log-inner > .co-empty:only-child {
   margin: auto;
   font-size: 26px;
   font-weight: 600;
@@ -1457,7 +1457,7 @@ button.co-file:hover {
 .co-compose textarea {
   display: block;
   width: 100%;
-  height: var(--compose-h, 76px);
+  height: var(--compose-h, 46px);
   min-height: 44px;
   padding: 0;
   border: 0;
@@ -2803,8 +2803,6 @@ html.is-light .git-log-body {
   flex: 1;
   min-height: 0;
 }
-.monaco .diff-unified-added { background: rgb(111 224 179 / 0.12); }
-.monaco .diff-unified-removed { background: rgb(255 107 93 / 0.12); }
 .viewer-msg {
   padding: 20px;
   color: var(--tx3);

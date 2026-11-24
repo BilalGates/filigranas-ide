@@ -31,6 +31,9 @@ fn layout_traffic_lights(window: &WebviewWindow) {
 pub fn apply_effects(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
+        use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+        use std::time::Duration;
+        use dispatch2::{DispatchQueue, DispatchTime};
         use tauri::window::{Color, Effect, EffectState, EffectsBuilder};
 
         let effects = EffectsBuilder::new()
@@ -44,12 +47,26 @@ pub fn apply_effects(window: &WebviewWindow) {
         }
         layout_traffic_lights(window);
         let handle = window.clone();
+        let pending = Arc::new(AtomicBool::new(false));
+        let settle = Duration::from_millis(48);
         window.on_window_event(move |event| {
-            // AppKit/Tao vuelven a colocar los botones al redimensionar o
-            // salir de pantalla completa. Aplicar después su layout nativo.
             if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } | tauri::WindowEvent::Focused(true)) {
+                // Window events may arrive before AppKit's final titlebar layout.
+                // Keep one trailing correction on the main queue during a live resize.
+                if pending.swap(true, Ordering::Relaxed) {
+                    return;
+                }
                 let target = handle.clone();
-                let _ = handle.run_on_main_thread(move || layout_traffic_lights(&target));
+                let queued = Arc::clone(&pending);
+                let scheduled = DispatchTime::try_from(settle).ok().and_then(|when| {
+                    DispatchQueue::main().after(when, move || {
+                        queued.store(false, Ordering::Relaxed);
+                        layout_traffic_lights(&target);
+                    }).ok()
+                });
+                if scheduled.is_none() {
+                    pending.store(false, Ordering::Relaxed);
+                }
             }
         });
     }

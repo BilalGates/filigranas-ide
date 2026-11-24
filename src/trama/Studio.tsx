@@ -24,6 +24,15 @@ const sendRegion = (r: DesignRegion) => {
   return { x, y, width: Math.min(100 - x, Math.ceil(r.x + r.width) - x), height: Math.min(100 - y, Math.ceil(r.y + r.height) - y) };
 };
 const isFull = (r: DesignRegion) => r.width >= 99.9 && r.height >= 99.9;
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+function liveSource(value: string | null | undefined) {
+  if (!value || value.length > 500) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' && LOCAL_HOSTS.includes(url.hostname) &&
+      !url.username && !url.password && !url.search ? url.href : null;
+  } catch { return null; }
+}
 const componentRegion = (component: DesignComponent, shot: DesignShot): DesignRegion => ({
   x: component.x * 100 / shot.width, y: component.y * 100 / shot.height,
   width: component.width * 100 / shot.width, height: component.height * 100 / shot.height,
@@ -45,7 +54,8 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [region, setRegion] = useState<DesignRegion>(FULL);
-  const [tool, setTool] = useState<Tool>('region');
+  const [tool, setTool] = useState<Tool>('select');
+  const [live, setLive] = useState<{ shot: number; url: string; interact: boolean } | null>(null);
   const [compareId, setCompareId] = useState<number | null>(null);
   const shotsRequest = useRef(0);
   const [cmp, setCmp] = useState<Cmp>(null);
@@ -56,6 +66,8 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   const [leftOpen, setLeftOpen] = useState(false);
   const screen = screens?.find((s) => s.id === screenId) ?? null;
   const shot = shots?.find((s) => s.id === shotId) ?? null;
+  const source = liveSource(shot?.url);
+  const preview = live && shot?.id === live.shot && live.url === source && !cmp ? live : null;
   const baseline = screen?.approved != null ? shots?.find((s) => s.id === screen.approved) ?? null : null;
   const reference = (compareId == null ? baseline : shots?.find((item) => item.id === compareId)) ?? null;
   const comparable = !!shot && !!reference && reference.id !== shot.id && reference.width === shot.width && reference.height === shot.height;
@@ -132,17 +144,49 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
 
   if (!project) return <Root label="Studio"><div className="studio-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Studio trabaja sobre las pantallas de diseño del proyecto abierto.</p></div></div></Root>;
   const newScreen = () => setEditing({ id: null, name: '', url: '', constraints: '', revision: null, approved: null });
+  const version = (item: DesignShot) => shots ? `v${shots.length - shots.findIndex((entry) => entry.id === item.id)}` : '';
+  const compareTitle = comparable && cmp && reference && shot ? `${version(reference)} ↔ ${version(shot)}` : null;
+  const comparison = compareTitle && shot && reference && (
+    <div className="sec studio-inspector-compare" aria-label="Versiones comparadas">
+      <h3>{compareTitle}</h3>
+      <div className="row studio-compare-versions">
+        <select className="in" aria-label="Versión anterior" value={reference.id} onChange={(event) => setCompareId(Number(event.currentTarget.value))}>
+          {shots?.filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height)
+            .map((item) => <option key={item.id} value={item.id}>{version(item)}</option>)}
+        </select>
+        <span className="mut">frente a</span>
+        <select className="in" aria-label="Versión posterior" value={shot.id} onChange={(event) => setShotId(Number(event.currentTarget.value))}>
+          {shots?.filter((item) => item.id !== reference.id && item.width === reference.width && item.height === reference.height)
+            .map((item) => <option key={item.id} value={item.id}>{version(item)}</option>)}
+        </select>
+      </div>
+      <span className="lab">Comparación visual</span>
+      <p className="mut studio-inspector-note">Mueve el divisor para inspeccionar las dos versiones.</p>
+    </div>
+  );
+  const composer = shot && screen ? (
+    <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
+      onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
+      onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
+      onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
+        compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
+  ) : null;
   return (
     <Root label="Studio">
-      <div className="studio-views" role="group" aria-label="Vista de Studio">
-        <button className="btn sm" aria-pressed={view === 'captures'} onClick={() => onView('captures')}>Pantallas y versiones</button>
-        <button className="btn sm" aria-pressed={view === 'canvas'} onClick={() => onView('canvas')}>Diseñar barra lateral</button>
-      </div>
-      {view === 'canvas' ? <section className="studio-sidebar-design" aria-label="Diseño de barra lateral">{canvas}</section> :
+      {view === 'canvas' ? <>
+        <div className="studio-views">
+          <button className="btn sm" onClick={() => onView('captures')}><Icon name="back" size={13} /> Pantallas y versiones</button>
+        </div>
+        <section className="studio-sidebar-design" aria-label="Diseño de barra lateral">{canvas}</section>
+      </> :
       <div className={`studio${inspOpen ? ' insp-open' : ''}${leftOpen ? ' left-open' : ''}`}>
         <aside className="slist" aria-label="Pantallas y versiones">
-          <div className="ph"><h3 className="grow">Pantallas</h3><button className="tbtn" onClick={newScreen} aria-label="Nueva pantalla" title="Nueva pantalla"><Icon name="plus" size={14} /></button></div>
-          {(screens ?? []).map((s) => (
+          <div className="ph">
+            <h3 className="grow">Pantallas</h3>
+            <button className="tbtn" aria-label="Diseñar barra lateral" title="Diseñar barra lateral" onClick={() => onView('canvas')}><Icon name="sidebar" size={14} /></button>
+            <button className="tbtn" onClick={newScreen} aria-label="Nueva pantalla" title="Nueva pantalla"><Icon name="plus" size={14} /></button>
+          </div>
+          {[...(screens ?? [])].sort((a, b) => (a.id ?? 0) - (b.id ?? 0)).map((s) => (
             <button key={s.id} className={`scrn${s.id === screenId ? ' on' : ''}`} onClick={() => { if (s.id === screenId) return; ++shotsRequest.current; setShots(null); setShotId(null); setScreenId(s.id); setRegion(FULL); setCompareId(null); setCmp(null); }}>
               <Icon name="screen" size={14} /><span className="grow">{s.name}</span>{s.approved != null && <span className="chip tiny mint">aprobada</span>}
             </button>
@@ -154,7 +198,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
               {shots === null ? <div className="tr-skel" style={{ height: 36 }} /> : shots.map((x, i) => (
                 <button key={x.id} className={`ver${x.id === shotId && !cmp ? ' on' : ''} st-${ST[x.status] ?? x.status}`} onClick={() => { setShotId(x.id); setCompareId(null); setCmp(null); }}>
                   <span className="th">{images[x.id] ? <img src={images[x.id]} alt="" /> : null}</span>
-                  <span className="vt2"><span className="v1">v{shots.length - i} <span className={`chip tiny ${x.id === screen.approved ? 'mint' : x.status === 'candidate' ? 'sky' : ''}`}>{x.id === screen.approved ? 'aprobada' : ST[x.status] ?? x.status}</span></span><span className="v2">{x.source}{x.note ? ` · ${x.note}` : ''}</span></span>
+                  <span className="vt2"><span className="v1">v{shots.length - i} <span className={`chip tiny ${x.id === screen.approved ? 'mint' : x.status === 'candidate' ? 'sky' : ''}`}>{x.id === screen.approved ? 'aprobada' : ST[x.status] ?? x.status}</span></span><span className="v2" title={x.source}>{x.note || x.source}</span></span>
                 </button>
               ))}
               {shots && !shots.length && <p className="mut2" style={{ margin: 0 }}>{screen.url ? 'Captura la URL o importa un PNG para crear la primera versión.' : 'Importa un PNG para crear la primera versión.'}</p>}
@@ -170,7 +214,17 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
             <div className="seg" role="group" aria-label="Tamaño de captura">
               {SIZES.slice(0, 4).map(([w, h]) => <button key={w} className={size[0] === w ? 'on' : ''} aria-pressed={size[0] === w} onClick={() => setSize([w, h])}>{w}</button>)}
             </div>
-            {screen?.url && <button className="btn sm ghost" onClick={() => act(async () => { await design.preview(project, screen.id!); onBrowser(); })} title="Abrir en el navegador integrado"><Icon name="globe" size={12} /> Vista previa</button>}
+            {shot && screen && !compareTitle && <div className="studio-version-compare">
+              <label className="fsel">Comparar con<select value={compareId ?? ''} onChange={(e) => { setCompareId(e.target.value ? Number(e.target.value) : null); setCmp('split'); }} aria-label="Comparar con versión">
+                <option value="">Referencia aprobada</option>
+                {(shots ?? []).filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height).map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.note || ST[item.status]}</option>)}
+              </select></label>
+            </div>}
+            {shot && source && !cmp && <button className="btn sm" aria-pressed={!!preview}
+              onClick={() => setLive(preview ? null : { shot: shot.id, url: source, interact: false })}><Icon name="globe" size={12} /> Vista en vivo</button>}
+            {preview && <button className="btn sm ghost" aria-pressed={preview.interact}
+              onClick={() => setLive({ ...preview, interact: !preview.interact })}>Interactuar</button>}
+            {screen?.url && <button className="btn sm ghost" onClick={() => act(async () => { await design.preview(project, screen.id!); onBrowser(); })} title="Abrir en el navegador integrado"><Icon name="globe" size={12} /> Abrir vista previa</button>}
             <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
           </div>
           {!screens ? <div className="flow-loading"><span className="spin" /></div>
@@ -183,39 +237,27 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
                 <div className="row"><CaptureButtons busy={busy} hasUrl={!!screen.url} size={size} onCapture={(note) => act(async () => { const id = await design.capture(project, screen.id!, size[0], size[1], note); await loadShots(screen.id!); setShotId(id); }, 'Captura guardada como candidata.')}
                   onImport={(f, note) => act(async () => { const id = await design.import(project, screen.id!, await fileBase64(f), note); await loadShots(screen.id!); setShotId(id); }, 'Imagen importada como candidata.')} /></div></div></div>
             ) : (
-              <Canvas key={shot.id} shot={shot} image={images[shot.id]} base={comparable && reference ? images[reference.id] : undefined} cmp={comparable ? cmp : null} tool={tool} region={region} onRegion={changeRegion} locks={visibleLocks} components={components ?? []} selected={selected} onSelect={chooseComponent} />
+              <Canvas key={shot.id} shot={shot} label={`${screen.name} · ${version(shot)}`} live={preview} image={images[shot.id]} base={comparable && reference ? images[reference.id] : undefined} cmp={comparable ? cmp : null} tool={tool} region={region} onRegion={changeRegion} locks={visibleLocks} components={components ?? []} selected={selected} onSelect={chooseComponent} />
             )}
           {shot && (
             <div className="toolbar" role="toolbar" aria-label="Herramientas">
               {([['select', 'cursor', 'Seleccionar', 'V'], ['region', 'region', 'Región', 'R'], ['hand', 'hand', 'Mover lienzo', 'H']] as [Tool, string, string, string][]).map(([id, ic, l, k]) => (
-                <button key={id} className={tool === id ? 'on' : ''} aria-pressed={tool === id} onClick={() => setTool(id)} title={`${l} (${k})`} aria-label={l}><Icon name={ic} size={17} /></button>
+                <button key={id} className={tool === id && !preview?.interact ? 'on' : ''} aria-pressed={tool === id && !preview?.interact} onClick={() => { setTool(id); if (preview?.interact) setLive({ ...preview, interact: false }); }} title={`${l} (${k})`} aria-label={l}><Icon name={ic} size={17} /></button>
               ))}
               <span className="sep" />
               <button disabled={isFull(region) || !validRegion(region) || busy || !!selected} onClick={() => saveConstraints([...parsed.locks, { region, text: `Región ${Math.round(region.x)},${Math.round(region.y)}` }], parsed.rest)} title="Proteger la región marcada" aria-label="Proteger región"><Icon name="lock" size={17} /></button>
               <button className={cmp ? 'on' : ''} aria-pressed={!!cmp} disabled={!comparable} onClick={() => setCmp(cmp ? null : 'split')} title={comparable ? 'Comparar con la versión elegida (C)' : 'Elige otra versión del mismo tamaño'} aria-label="Comparar"><Icon name="compare" size={17} /></button>
             </div>
           )}
-          {shot && screen && <div className="studio-version-compare">
-            <label className="fsel">Comparar con<select value={compareId ?? ''} onChange={(e) => { setCompareId(e.target.value ? Number(e.target.value) : null); setCmp('split'); }} aria-label="Comparar con versión">
-              <option value="">Referencia aprobada</option>
-              {(shots ?? []).filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height).map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.note || ST[item.status]}</option>)}
-            </select></label>
-          </div>}
-          {shot && screen && (
-            <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
-              onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
-              onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
-              onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
-                compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
-          )}
+
           {(error || notice) && <div className={`studio-toast${error ? ' err' : ''}`} role="status">{error ?? notice}<button className="tbtn" onClick={() => { setError(null); setNotice(null); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></div>}
         </section>
         <aside className="insp" aria-label="Inspector de diseño">
           {screen ? (
-            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} onSize={setSize}
+            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} comparison={comparison} onSize={setSize}
               candidateImage={shot ? images[shot.id] : undefined} referenceImage={comparable && reference ? images[reference.id] : undefined}
               components={components} selected={selected} onSelect={chooseComponent} onRegion={changeRegion} onSave={saveConstraints}
-              references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
+              composer={composer} references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
               onCapture={(note) => act(async () => { const id = await design.capture(project, screen.id!, size[0], size[1], note); await loadShots(screen.id!); setShotId(id); }, 'Captura guardada como candidata.')}
               onImport={(f, note) => act(async () => { const id = await design.import(project, screen.id!, await fileBase64(f), note); await loadShots(screen.id!); setShotId(id); }, 'Imagen importada como candidata.')} />
           ) : <div className="sec"><h3>Studio</h3><p className="mut2">Crea una pantalla para empezar a iterar su diseño con capturas reales.</p></div>}
@@ -235,7 +277,10 @@ function CaptureButtons({ busy, hasUrl, size, onCapture, onImport }: { busy: boo
   </>;
 }
 
-function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, components, selected, onSelect }: { shot: DesignShot; image?: string; base?: string; cmp: Cmp; tool: Tool; region: DesignRegion; onRegion: (r: DesignRegion) => void; locks: Lock[]; components: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void }) {
+function Canvas({ shot, label, live, image, base, cmp, tool, region, onRegion, locks, components, selected, onSelect }: {
+  shot: DesignShot; label: string; live: { url: string; interact: boolean } | null; image?: string; base?: string; cmp: Cmp; tool: Tool;
+  region: DesignRegion; onRegion: (r: DesignRegion) => void; locks: Lock[]; components: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void;
+}) {
   const wrap = useRef<HTMLDivElement>(null);
   const [cam, setCam] = useState({ k: 1, x: 0, y: 0 });
   const [cut, setCut] = useState(50);
@@ -245,8 +290,8 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, compone
     const r = wrap.current?.getBoundingClientRect();
     if (!r) return;
     const totalW = side ? shot.width * 2 + 80 : shot.width;
-    const k = Math.max(0.08, Math.min((r.width - 80) / totalW, (r.height - 210) / shot.height, 1.2));
-    setCam({ k, x: (r.width - totalW * k) / 2 - 20, y: Math.max(56, (r.height - shot.height * k) / 2 - 40) });
+    const k = Math.max(0.08, Math.min((r.width - 60) / totalW, (r.height - 120) / shot.height, 1.25));
+    setCam({ k, x: (r.width - totalW * k) / 2, y: Math.max(56, r.height / 2 - shot.height * k * 0.52) });
   }, [shot.width, shot.height, side]);
   useEffect(() => { fit(); }, [fit, shot.id]);
   useEffect(() => { const ro = new ResizeObserver(() => fit()); if (wrap.current) ro.observe(wrap.current); return () => ro.disconnect(); }, [fit]);
@@ -266,9 +311,11 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, compone
   const pct = (r: DesignRegion) => ({ left: `${r.x}%`, top: `${r.y}%`, width: `${r.width}%`, height: `${r.height}%` });
   const frame = (src: string | undefined, label: string, overlay: boolean, extra?: React.ReactNode) => (
     <div className="artboard-real" style={{ width: shot.width, height: shot.height }}>
-      <div className="frameLabel">{label}</div>
-      <div className="frame">{src ? <img src={src} alt={label} draggable={false} /> : <div className="tr-skel" style={{ position: 'absolute', inset: 0 }} />}{extra}
-        {overlay && locks.map((l, i) => <div key={i} className="lockbox" style={pct(l.region)}><span><Icon name="lock" size={11} /> {l.text}</span></div>)}
+      <div className="frameLabel"><span>{label}</span>{live && <span>vista previa en ejecución · {new URL(live.url).host}</span>}</div>
+      <div className="frame">{live ? <iframe className={`studio-live${live.interact ? ' is-interactive' : ''}`} src={live.url}
+        title="Vista previa local de Studio" sandbox="allow-scripts" referrerPolicy="no-referrer" tabIndex={live.interact ? 0 : -1} />
+        : src ? <img src={src} alt={label} draggable={false} /> : <div className="tr-skel" style={{ position: 'absolute', inset: 0 }} />}{extra}
+        {overlay && locks.map((l, i) => <div key={i} className="lockbox" style={pct(l.region)} role="img" aria-label={`Bloqueado · ${l.text}`}><span><Icon name="lock" size={12} /></span></div>)}
         {overlay && !selected && !isFull(region) && <div className="regbox" style={pct(region)} />}
         {overlay && !cmp && selected && <div className="studio-component-box selected" style={pct(componentRegion(selected, shot))}><span>{selected.name}</span></div>}
         {overlay && !cmp && tool === 'select' && hover && hover.selector !== selected?.selector && <div className="studio-component-box" style={pct(componentRegion(hover, shot))}><span>{hover.name}</span></div>}
@@ -317,7 +364,7 @@ function Canvas({ shot, image, base, cmp, tool, region, onRegion, locks, compone
               onKeyDown={(e) => { if (e.key === 'ArrowLeft') setCut((v) => Math.max(0, v - 5)); if (e.key === 'ArrowRight') setCut((v) => Math.min(100, v + 5)); }} />
           </>)
           : cmp === 'diff' && base ? frame(image, 'Diferencias con la referencia', true, <img className="diff-img" src={base} alt="" draggable={false} />)
-          : frame(image, `${shot.width} × ${shot.height} · ${shot.source}`, true)}
+          : frame(image, label, true)}
       </div>
       <div className="studio-zoomtools">
         <span className="zoomv" title="Escala respecto al tamaño real">{Math.round(cam.k * 100)}%</span>
@@ -352,8 +399,8 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   const selectable = selected != null || validRegion(region);
   const touches = locks.filter((l) => !isFull(region) && l.region.x < region.x + region.width && l.region.x + l.region.width > region.x && l.region.y < region.y + region.height && l.region.y + l.region.height > region.y);
   if (cmp) return (
-    <div className="scomp cmpc">
-      <div className="row wrap"><b>Antes → versión seleccionada</b><span className="mut2">{locks.length} {locks.length === 1 ? 'protección' : 'protecciones'} en la pantalla</span><span className="grow" />
+    <div className="sec studio-composer">
+      <div className="row wrap">
         <div className="seg" role="group" aria-label="Modo de comparación">{([['split', 'compare', 'Divisor'], ['side', 'side', 'Lado a lado'], ['diff', 'diff', 'Diferencias']] as [Cmp, string, string][]).map(([id, ic, l]) => <button key={id} className={cmp === id ? 'on' : ''} aria-pressed={cmp === id} onClick={() => onCmp(id)}><Icon name={ic} size={13} />{l}</button>)}</div>
       </div>
       <div className="row wrap" style={{ marginTop: 8 }}><span className="grow" />
@@ -363,11 +410,11 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
     </div>
   );
   if (!designers.length) return (
-    <div className="scomp"><div className="row wrap"><span className="mut2">Crea una sesión Claude para enviar un encargo.</span>
+    <div className="sec studio-composer"><div className="row wrap"><span className="mut2">Crea una sesión Claude para enviar un encargo.</span>
       <button className="btn sm" disabled={busy} onClick={onNewSession}>Nueva sesión Claude</button></div>{reviewActions}</div>
   );
   return (
-    <div className="scomp">
+    <div className="sec studio-composer">
       <div className="row wrap">
         <span className="chip sky"><Icon name={isFull(region) ? 'screen' : 'region'} size={11} /> {isFull(region) ? 'Toda la pantalla' : selected?.name ?? `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`}</span>
         {touches.length > 0 && <span className="chip amber"><Icon name="lock" size={11} /> {touches.map((l) => l.text).join(', ')}: protegido, no se tocará</span>}
@@ -389,9 +436,9 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   );
 }
 
-function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, references, onSize, onRegion, onSave, onCapture, onImport }: {
+function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, comparison, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
   screen: DesignScreen; shot: DesignShot | null; region: DesignRegion; parsed: { locks: Lock[]; rest: string }; busy: boolean; sent: { text: string; label: string; at: number }[]; size: [number, number];
-  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; references: React.ReactNode;
+  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; comparison: React.ReactNode; composer: React.ReactNode; references: React.ReactNode;
   candidateImage?: string; referenceImage?: string; onSize: (size: [number, number]) => void; onRegion: (r: DesignRegion) => void; onSave: (locks: Lock[], rest: string) => void; onCapture: (note: string) => void; onImport: (f: File, note: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -407,30 +454,32 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
   }} />;
   return (
     <>
-      <div className="sec"><span className="lab">Selección</span>
-        {shot && components && components.length > 0 && <label className="studio-components">Componente
-          <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
-            <option value="">Seleccionar componente…</option>
-            {components.map((item) => <option key={item.selector} value={item.selector}>{item.name} · {item.kind}</option>)}
-          </select>
-        </label>}
-        {shot && components?.length === 0 && <p className="mut2">Esta versión permite marcar regiones. Para seleccionar componentes, captura una página local desde Studio.</p>}
+      {comparison}
+      {!comparison && <div className="sec"><span className="lab">Selección</span>
         {shot && selected && <>
-          <div className="row wrap"><h3 className="grow">{selected.name}</h3>
+          <div className="row wrap studio-selection-heading"><h3 className="grow">{selected.name}</h3>
             <button className="btn sm" disabled={busy} onClick={() => {
               const locked = parsed.locks.some((item) => item.selector === selected.selector);
               onSave(locked ? parsed.locks.filter((item) => item.selector !== selected.selector)
                 : [...parsed.locks, { region, selector: selected.selector, text: selected.name }], parsed.rest);
             }}><Icon name="lock" size={13} /> {parsed.locks.some((item) => item.selector === selected.selector) ? 'Desproteger componente' : 'Proteger componente'}</button>
           </div>
-          <dl className="kv"><dt>Tamaño</dt><dd>{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
-            <dt>Radio</dt><dd>{selected.radius}</dd><dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
+          <dl className="kv studio-selection-meta"><dt>Tamaño</dt><dd className="mono">{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
+            <dt>Radio</dt><dd className="mono">{selected.radius}</dd>
+            <dt>Posición</dt><dd className="mono">{Math.round(selected.x)}, {Math.round(selected.y)} px</dd>
+            <dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
         </>}
-        {shot && !selected && <div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
+        {shot && components && components.length > 0 && <label className="studio-components">Componente
+          <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
+            <option value="">Seleccionar componente…</option>
+            {components.map((item) => <option key={item.selector} value={item.selector}>{item.name} · {item.kind}</option>)}
+          </select>
+        </label>}
+        {shot && !selected && <details open={!full}><summary className="lab">Coordenadas de la región</summary><div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
           <label key={key}>{({ x: 'X', y: 'Y', width: 'Ancho', height: 'Alto' })[key]} %
             <input className="in" type="number" min={0} max={100} value={Math.round(region[key])} onChange={(event) => onRegion({ ...region, [key]: event.target.valueAsNumber || 0 })} />
           </label>
-        ))}</div>}
+        ))}</div></details>}
         {shot && !full && validRegion(region) && candidateImage && referenceImage && <details className="studio-region-compare">
           <summary>Comparar esta región</summary>
           <label>Divisor de la región<input type="range" min={0} max={100} value={wipe} onChange={(e) => setWipe(e.currentTarget.valueAsNumber)} /></label>
@@ -442,7 +491,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           </div>
         </details>}
         {!validRegion(region) && <p role="status">La región debe quedar dentro de la pantalla.</p>}
-        {selected ? null : full ? <p className="mut2">Usa <span className="kbd">V</span> para seleccionar un componente. Pulsa <span className="kbd">R</span> y marca una región en la captura para acotar el cambio; con <span className="kbd">H</span> mueves el lienzo y con <span className="kbd">C</span> comparas con la referencia.</p> : (
+        {selected ? null : full ? <p className="mut studio-inspector-note">{components?.length ? 'Selecciona un componente en el lienzo.' : 'Captura una página local para seleccionar componentes.'} Con <b>R</b> marca una región y di qué cambiar.</p> : (
           <>
             <div className="row" style={{ marginTop: 6 }}><h3 className="grow">Región marcada</h3></div>
             <dl className="kv"><dt>Posición</dt><dd className="mono">{Math.round(region.x)} %, {Math.round(region.y)} %</dd><dt>Tamaño</dt><dd className="mono">{Math.round(region.width)} × {Math.round(region.height)} %{shot ? ` · ${Math.round((region.width / 100) * shot.width)} × ${Math.round((region.height / 100) * shot.height)} px` : ''}</dd></dl>
@@ -452,23 +501,26 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
             </div>
           </>
         )}
-      </div>
-      <div className="sec"><span className="lab">Protegido · se conserva entre versiones</span>
+      </div>}
+      <div className="sec"><span className="lab">Restricciones aprobadas · se mantienen entre iteraciones</span>
         <div style={{ marginTop: 6 }}>
           {parsed.locks.length ? parsed.locks.map((l, i) => (
             <div key={i} className="lockrow"><Icon name="lock" size={13} /><button className="grow lnk" style={{ textAlign: 'left' }} onClick={() => { const component = l.selector && components?.find((item) => item.selector === l.selector); if (component) onSelect(component); else onRegion(l.region); }}>{l.text || 'Región sin nombre'}</button>
               <button className="tbtn" disabled={busy} onClick={() => onSave(parsed.locks.filter((_, j) => j !== i), parsed.rest)} aria-label="Desproteger" title="Desproteger"><Icon name="close" size={12} /></button></div>
           )) : <p className="mut2">Nada protegido todavía.</p>}
         </div>
-        <label className="lab" style={{ display: 'block', marginTop: 10 }}>Restricciones generales</label>
-        <textarea className="in" rows={3} style={{ width: '100%', marginTop: 4 }} value={rest} onChange={(e) => setRest(e.currentTarget.value)} aria-label="Restricciones generales" />
-        <button className="btn sm" style={{ marginTop: 6 }} disabled={busy || rest === parsed.rest} onClick={() => onSave(parsed.locks, rest)}>Guardar restricciones</button>
+        <details style={{ marginTop: 8 }}>
+          <summary className="lab">Restricciones generales</summary>
+          <textarea className="in" rows={3} style={{ width: '100%', marginTop: 4 }} value={rest} onChange={(e) => setRest(e.currentTarget.value)} aria-label="Restricciones generales" />
+          <button className="btn sm" style={{ marginTop: 6 }} disabled={busy || rest === parsed.rest} onClick={() => onSave(parsed.locks, rest)}>Guardar restricciones</button>
+        </details>
       </div>
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>
       </div>
+      {composer}
       {references}
-      <div className="sec"><span className="lab">Nueva versión</span>
+      <details className="sec studio-new-version"><summary className="lab">Nueva versión</summary>
         <div className="studio-region-fields">
           <label>Ancho de captura<input className="in" type="number" min={64} max={4096} value={size[0] || ''} onChange={(event) => onSize([event.target.valueAsNumber || 0, size[1]])} /></label>
           <label>Alto de captura<input className="in" type="number" min={64} max={4096} value={size[1] || ''} onChange={(event) => onSize([size[0], event.target.valueAsNumber || 0])} /></label>
@@ -480,7 +532,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           <input ref={file} type="file" accept="image/png" hidden onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) { onImport(f, note); setNote(''); } e.currentTarget.value = ''; }} />
         </div>
         <dl className="kv" style={{ marginTop: 10 }}><dt>URL</dt><dd className="mono">{screen.url}</dd><dt>Revisión</dt><dd>{screen.revision ?? '—'}</dd>{shot && <><dt>Versión</dt><dd className="mono">{shot.width} × {shot.height} · {shot.source}</dd></>}</dl>
-      </div>
+      </details>
     </>
   );
 }

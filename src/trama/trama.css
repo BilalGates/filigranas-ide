@@ -157,6 +157,9 @@ html[data-backdrop][data-platform='win'] .app { background: rgb(6 7 9 / 0.74); }
   animation: trIn var(--d3) var(--ease);
 }
 .tr-dest[hidden] { display: none; }
+.app:not(.is-dest) > :is(.center, .sidebar, .rail, .right) {
+  animation: trIn var(--d3) var(--ease);
+}
 @keyframes trIn { from { opacity: 0; transform: translateY(6px); } }
 
 /* columna de destinos */
@@ -234,18 +237,15 @@ html[data-motion='sin-ambiente'] .tr-nb .live { animation: trBreath 2.6s ease-in
 }
 .tr-tip kbd { margin-left: 8px; color: var(--tx3); font: 11px var(--mono); }
 
-/* campo ambiental: canvas 1/16 + retícula de puntos en el compositor */
+/* Campo ambiental dibujado con la retícula del Artifact. */
 .tr-field {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  -webkit-mask: radial-gradient(circle at 50% 50%, #000 0 1.1px, rgb(0 0 0 / 0.55) 1.9px, transparent 2.8px) 0 0 / 8px 8px repeat;
-  mask: radial-gradient(circle at 50% 50%, #000 0 1.1px, rgb(0 0 0 / 0.55) 1.9px, transparent 2.8px) 0 0 / 8px 8px repeat;
   transition: opacity 0.8s;
 }
 .tr-field canvas { width: 100%; height: 100%; display: block; }
-html[data-motion='reducido'] .tr-field { opacity: 0.6; }
 html.is-light .tr-field { opacity: 0.35; }
 
 /* ── respiración ligada a estados reales ───────────────────────────── */

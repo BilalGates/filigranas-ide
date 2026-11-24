@@ -10,6 +10,7 @@ export type GraphOptions = {
   nodes: GNode[];
   edges: GEdge[];
   node: (n: GNode, selected: boolean) => string;
+  extent?: (n: GNode) => [left: number, top: number, right: number, bottom: number] | undefined;
   under?: () => string;
   edgePath?: (e: GEdge, a: GNode, b: GNode) => string | null;
   edgeDecor?: (e: GEdge, a: GNode, b: GNode) => string;
@@ -29,6 +30,21 @@ export const MARKERS = `<marker id="mk-dep" viewBox="0 0 10 10" refX="9" refY="5
 <marker id="mk-done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="#6fe0b3" stroke-width="1.6"/></marker>
 <marker id="mk-del" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M2 2L7 5L2 8M5 2l5 3-5 3" fill="none" stroke="#b09cff" stroke-width="1.2"/></marker>
 <marker id="mk-rel" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><circle cx="5" cy="5" r="2.2" fill="#9db6ff"/></marker>`;
+
+export function dependencyLevels(list: { id: string; deps: string[] }[]) {
+  const by = new Map(list.map((t) => [t.id, t])), memo = new Map<string, number>();
+  const d = (id: string, seen: Set<string>): number => {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const deps = (by.get(id)?.deps ?? []).filter((x) => by.has(x));
+    const v = deps.length ? Math.max(...deps.map((x) => d(x, seen) + 1)) : 0;
+    memo.set(id, v);
+    return v;
+  };
+  list.forEach((t) => d(t.id, new Set()));
+  return memo;
+}
 
 const reduced = () => effectiveMotion() === 'reducido';
 
@@ -108,7 +124,13 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
   }
   function bounds() {
     let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
-    for (const n of o.nodes) { a = Math.min(a, n.x - n.w / 2); b = Math.min(b, n.y - n.h / 2); c = Math.max(c, n.x + n.w / 2); d = Math.max(d, n.y + n.h / 2); }
+    for (const n of o.nodes) {
+      const [left, top, right, bottom] = o.extent?.(n) ?? [n.x - n.w / 2, n.y - n.h / 2, n.x + n.w / 2, n.y + n.h / 2];
+      a = Math.min(a, left);
+      b = Math.min(b, top);
+      c = Math.max(c, right);
+      d = Math.max(d, bottom);
+    }
     const p = o.pad ?? [30, 30, 30, 30];
     return [a - p[3], b - p[0], c + p[1], d + p[2]];
   }

@@ -1,0 +1,250 @@
+{
+  "phases": [
+    {
+      "name": "arranque",
+      "elapsedMs": 2859,
+      "ipc": {
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 2605,
+          "worstMs": 1417
+        },
+        "get_workspace": {
+          "count": 2,
+          "totalMs": 94,
+          "worstMs": 83
+        },
+        "tools_status": {
+          "count": 2,
+          "totalMs": 2097,
+          "worstMs": 1071
+        },
+        "watch_project": {
+          "count": 2,
+          "totalMs": 17,
+          "worstMs": 9
+        },
+        "home_summary": {
+          "count": 2,
+          "totalMs": 988,
+          "worstMs": 499
+        },
+        "jev_statusbar": {
+          "count": 2,
+          "totalMs": 24,
+          "worstMs": 16
+        },
+        "jev_usage": {
+          "count": 1,
+          "totalMs": 14,
+          "worstMs": 14
+        }
+      },
+      "react": {
+        "count": 11,
+        "medianMs": 3,
+        "p95Ms": 17,
+        "maxMs": 17
+      },
+      "frames": {
+        "count": 157,
+        "medianMs": 17,
+        "p95Ms": 21,
+        "maxMs": 101
+      },
+      "over50ms": 5,
+      "over100ms": 1,
+      "input": {
+        "count": 0,
+        "medianMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      }
+    },
+    {
+      "name": "navegación y grafo",
+      "elapsedMs": 8634,
+      "ipc": {
+        "session_orphans": {
+          "count": 2,
+          "totalMs": 5,
+          "worstMs": 4
+        },
+        "task_flow": {
+          "count": 5,
+          "totalMs": 38,
+          "worstMs": 12
+        },
+        "design_list": {
+          "count": 10,
+          "totalMs": 30,
+          "worstMs": 5
+        },
+        "git_status": {
+          "count": 22,
+          "totalMs": 1699,
+          "worstMs": 145
+        },
+        "git_log": {
+          "count": 20,
+          "totalMs": 1060,
+          "worstMs": 67
+        },
+        "git_branches": {
+          "count": 10,
+          "totalMs": 475,
+          "worstMs": 65
+        },
+        "git_stash_list": {
+          "count": 10,
+          "totalMs": 474,
+          "worstMs": 65
+        },
+        "health_list": {
+          "count": 10,
+          "totalMs": 204,
+          "worstMs": 27
+        },
+        "health_ci": {
+          "count": 10,
+          "totalMs": 480,
+          "worstMs": 55
+        },
+        "work_current": {
+          "count": 20,
+          "totalMs": 188,
+          "worstMs": 25
+        },
+        "tasks_list": {
+          "count": 10,
+          "totalMs": 204,
+          "worstMs": 26
+        },
+        "larry_groups": {
+          "count": 3,
+          "totalMs": 551,
+          "worstMs": 219
+        },
+        "git_diff_texts": {
+          "count": 10,
+          "totalMs": 158,
+          "worstMs": 20
+        },
+        "home_summary": {
+          "count": 2,
+          "totalMs": 451,
+          "worstMs": 229
+        }
+      },
+      "react": {
+        "count": 71,
+        "medianMs": 1,
+        "p95Ms": 7,
+        "maxMs": 12
+      },
+      "frames": {
+        "count": 472,
+        "medianMs": 17,
+        "p95Ms": 29,
+        "maxMs": 152
+      },
+      "over50ms": 7,
+      "over100ms": 2,
+      "input": {
+        "count": 25,
+        "medianMs": 51,
+        "p95Ms": 116,
+        "maxMs": 132
+      }
+    },
+    {
+      "name": "navegación sostenida con PTY",
+      "elapsedMs": 303457,
+      "ipc": {
+        "pty_open": {
+          "count": 1,
+          "totalMs": 14,
+          "worstMs": 14
+        },
+        "pty_write": {
+          "count": 1,
+          "totalMs": 1,
+          "worstMs": 1
+        },
+        "task_flow": {
+          "count": 71,
+          "totalMs": 694,
+          "worstMs": 13
+        },
+        "git_status": {
+          "count": 1,
+          "totalMs": 27,
+          "worstMs": 27
+        },
+        "home_summary": {
+          "count": 9,
+          "totalMs": 1976,
+          "worstMs": 287
+        },
+        "jev_statusbar": {
+          "count": 20,
+          "totalMs": 41,
+          "worstMs": 4
+        },
+        "codex_rate_limits": {
+          "count": 5,
+          "totalMs": 2058,
+          "worstMs": 448
+        },
+        "tools_status": {
+          "count": 1,
+          "totalMs": 687,
+          "worstMs": 687
+        },
+        "pty_close": {
+          "count": 1,
+          "totalMs": 54,
+          "worstMs": 54
+        }
+      },
+      "react": {
+        "count": 414,
+        "medianMs": 2,
+        "p95Ms": 12,
+        "maxMs": 16
+      },
+      "frames": {
+        "count": 17689,
+        "medianMs": 17,
+        "p95Ms": 18,
+        "maxMs": 92
+      },
+      "over50ms": 122,
+      "over100ms": 0,
+      "input": {
+        "count": 142,
+        "medianMs": 113,
+        "p95Ms": 128,
+        "maxMs": 165
+      }
+    }
+  ],
+  "hardware": {
+    "scale": 1,
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": {
+    "repositories": 32,
+    "tasks": 240
+  },
+  "terminalBytes": 2706,
+  "nativeResources": {
+    "samples": 64,
+    "periodSeconds": 5,
+    "cpuMedianPct": 3.8,
+    "cpuMaxPct": 10.2,
+    "rssMedianMiB": 69.45,
+    "rssMaxMiB": 108.11
+  }
+}

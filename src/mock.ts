@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -83,6 +83,8 @@ const meta: Record<string, { groupId: number | null; archived: boolean }> = {
 
 // Datos sintéticos de Brain, solo para la vista de desarrollo en navegador.
 const mockBrainEntries: Array<BrainEntry & { project: string | null }> = [];
+const mockBrainInferences: Array<BrainInference & { project: string }> = [];
+let mockInferenceId = 1;
 const mockLinks: any[] = [];
 const mockSeeded = new Set<number>();
 function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
@@ -112,7 +114,9 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
     });
     for (const cur of mockBrainEntries.filter((e) => e.project === project)) {
       const key = `m:${cur.id}`;
-      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source, matched: true });
+      nodes.push({ key, id: cur.id!, kind: cur.kind, title: cur.title, date: cur.updated, project, url: null, body: cur.body, source: cur.source,
+        validUntil: cur.validUntil, sourceTask: cur.sourceTask, sourceRun: cur.sourceRun,
+        validity: cur.validUntil != null && cur.validUntil <= now ? 'caducado' : 'vigente', matched: true });
       edges.push({ from: key, to: hub, kind: 'project_member' });
     }
   });
@@ -126,11 +130,16 @@ function mockBrainGraph(filter: BrainGraphFilter): BrainGraphData {
   }
   if (!filter.project) {
     for (const entry of mockBrainEntries.filter((entry) => entry.global)) {
-      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true });
+      nodes.push({ ...entry, key: `m:${entry.id}`, id: entry.id!, date: entry.updated, url: null, matched: true,
+        validity: entry.validUntil != null && entry.validUntil <= now ? 'caducado' : 'vigente' });
     }
   }
-  const matches = new Set(nodes.filter(n => (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
-    && (!filter.query || `${n.title} ${n.body ?? ''}`.toLocaleLowerCase().includes(filter.query.toLocaleLowerCase()))).map(n => n.key));
+  const fold = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase();
+  const terms = fold(filter.query ?? '').split(/\s+/).filter(Boolean);
+  const matches = new Set(nodes.filter(n => n.key === `m:${filter.focusId}` ||
+    ((!filter.memoryOnly || n.key.startsWith('m:')) && (!filter.validity || filter.validity === n.validity)
+    && (!filter.kind || n.kind === filter.kind) && (!filter.from || n.date >= filter.from) && (!filter.until || n.date < filter.until)
+    && terms.every((term) => fold(`${n.title} ${n.body ?? ''} ${n.source ?? ''}`).includes(term)))).map(n => n.key));
   const visible = new Set(matches);
   for (const edge of edges) { if (matches.has(edge.from)) visible.add(edge.to); if (matches.has(edge.to)) visible.add(edge.from); }
   return { nodes: nodes.filter(n => visible.has(n.key)).map(n => ({ ...n, matched: matches.has(n.key) })), edges: edges.filter(e => visible.has(e.from) && visible.has(e.to)), limited: false };
@@ -186,7 +195,7 @@ mockIPC(
         if (mockWorks.get(a.project)?.state && mockWorks.get(a.project)?.state !== 'finished') return fail('ya hay una sesión de trabajo abierta');
         const slug = String(a.description).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0,72).replace(/-$/, '');
         const work: WorkSession = { id: nextWork++, objective: a.objective, branch: `${a.kind}/${slug}`, baseCommit: '84ab176', state: 'active', tests: null, evidence: null, reviewedHead: null, prUrl: null,
-          agents: mockSessions.filter(s => s.project === a.project && !s.worktree).map(s => ({sessionId:s.id,name:s.name,paths:['.'],running:false,closed:false})) };
+          agents: mockSessions.filter(s => s.project === a.project && !s.worktree).map(s => ({sessionId:s.id,name:s.name,paths:['.'],running:false,closed:false,isolated:false})) };
         mockWorks.set(a.project, work);
         mockBranches.set(a.project, work.branch);
         void emit('project-changed');
@@ -213,6 +222,15 @@ mockIPC(
       }
       case 'get_workspace':
         return workspace();
+      case 'home_summary':
+        return (a.paths as string[]).map((path) => ({
+          path,
+          tasks: rel(path) === 'kaza' ? [] : mockTasks().filter((task) => task.status !== 'done' && task.status !== 'cancelled'),
+          sessions: path === a.focus ? mockSessions.filter((session) => session.project === path) : [],
+          work: mockWorks.get(path) ?? null,
+          branch: mockBranches.get(path) ?? 'main',
+          dates: ['2026-11-19T22:14:00+01:00', '2026-11-19T21:45:00+01:00', '2026-11-18T17:40:00+01:00'],
+        }));
       case 'default_root':
         return ROOT;
       case 'set_root':
@@ -387,7 +405,9 @@ mockIPC(
       case 'chat_pm':
         return mockManagers.get(a.project) ?? null;
       case 'chat_history':
-        return [];
+        return a.session == null && rel(a.project) === 'bitacola'
+          ? [{ id: 'plan-fixture', type: 'plan', text: 'Revisar la cola y verificar el flujo antes de entregar.' }]
+          : [];
       case 'chat_switch': {
         if (a.session != null) {
           const at = mockSessions.findIndex((session) => session.id === a.session);
@@ -417,8 +437,8 @@ mockIPC(
           name,
           providerSession: crypto.randomUUID(),
           effort: null,
-          worktree: null,
-          branch: mockWorks.get(a.project)?.branch ?? null,
+          worktree: a.task == null ? null : `${ROOT}/worktrees/fixture-${id}`,
+          branch: a.task == null ? mockWorks.get(a.project)?.branch ?? null : `ide/${a.engine}-${id}`,
           base: 'main',
           baseCommit: '84ab176',
           integrated: null,
@@ -428,9 +448,9 @@ mockIPC(
           skillRole: a.skillRole ?? 'senior',
         };
         mockSessions.push(created);
-        mockWorks.get(a.project)?.agents.push({sessionId:id,name,paths:['.'],running:false,closed:false});
+        mockWorks.get(a.project)?.agents.push({ sessionId: id, name, paths: ['.'], running: false, closed: false, isolated: !!created.worktree });
         void emit('tasks-changed');
-        return { ...created, notice: 'Comparte la rama y el checkout de la sesión de trabajo.' };
+        return { ...created, notice: created.worktree ? null : 'Comparte la rama y el checkout de la sesión de trabajo.' };
       }
       case 'session_history':
         return [];
@@ -586,6 +606,8 @@ mockIPC(
       case 'tasks_list':
         // kaza queda sin tareas para revisar los estados vacíos
         return rel(a.project) === 'kaza' ? [] : mockTasks();
+      case 'task_flow':
+        return rel(a.project) === 'kaza' ? { tasks: [], runs: {} } : { tasks: mockTasks(), runs: { 2: mockRuns(2) } };
       case 'task_runs':
         return mockRuns(Number(a.task));
       case 'health_list':
@@ -632,6 +654,33 @@ mockIPC(
         return null;
       case 'design_preview':
         return null;
+      case 'brain_inferences':
+        return mockBrainInferences.filter((entry) => entry.project === a.project);
+      case 'brain_propose': {
+        const draft = { ...a.draft, share: false };
+        const existing = mockBrainInferences.find((entry) => entry.project === a.project && entry.draft.title === draft.title);
+        if (existing) return existing.id;
+        const id = mockInferenceId++;
+        mockBrainInferences.push({ id, draft, project: a.project, created: Math.floor(Date.now() / 1000) });
+        return id;
+      }
+      case 'brain_correct_inference':
+      case 'brain_decide_inference': {
+        const index = mockBrainInferences.findIndex((entry) => entry.project === a.project && entry.id === a.id);
+        if (index < 0) return fail('La inferencia ya no está disponible');
+        const { draft } = mockBrainInferences[index];
+        if (cmd === 'brain_correct_inference') {
+          if (draft.body === draft.title) draft.body = a.title;
+          draft.title = a.title;
+          return null;
+        }
+        mockBrainInferences.splice(index, 1);
+        if (!a.approve) return null;
+        const id = 6000 + a.id;
+        const now = Math.floor(Date.now() / 1000);
+        mockBrainEntries.push({ ...draft, id, version: 1, project: a.project, created: now, updated: now });
+        return id;
+      }
       case 'brain_save': {
         if (!a.confirmed) fail('confirma el contenido y la procedencia del recuerdo');
         const d = a.draft;
@@ -664,11 +713,13 @@ mockIPC(
       case 'brain_link_remove':
         mockLinks.splice(mockLinks.findIndex((l) => l.id === a.id), 1);
         return null;
+      case 'skills_rule_status':
+        return { agentsFile: true, copiedTrafficRule: false, linksTrafficReference: true };
       case 'skills_list':
-        return mockSkillCatalog;
+        return mockSkillCatalog.map(({ name, description }) => ({ name, description }));
       case 'skills_assignments':
-        return mockSkillCatalog.flatMap(({ name: skill }) => mockSkillRoles.map((role) => {
-          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? true;
+        return mockSkillCatalog.flatMap(({ name: skill, roles }) => mockSkillRoles.map((role) => {
+          const global = mockSkillAssignments.get(JSON.stringify([null, skill, role])) ?? roles.includes(role);
           const local = mockSkillAssignments.get(JSON.stringify([a.project, skill, role]));
           return { skill, role, enabled: local ?? global, inherited: !!a.project && local == null };
         }));
@@ -868,12 +919,12 @@ function mockRuns(task: number) {
 }
 
 const mockSkillCatalog = [
-  { name: 'implement', description: 'Implementa un encargo con pruebas.' },
-  { name: 'design-loop', description: 'Bucle de diseño con capturas.' },
-  { name: 'debug', description: 'Diagnóstico de problemas.' },
-  { name: 'research', description: 'Investigación y fuentes.' },
-  { name: 'code-review', description: 'Revisión de código.' },
-  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.' },
+  { name: 'implement', description: 'Implementa un encargo con pruebas.', roles: ['senior', 'junior'] },
+  { name: 'design-loop', description: 'Bucle de diseño con capturas.', roles: ['designer', 'senior'] },
+  { name: 'debug', description: 'Diagnóstico de problemas.', roles: ['senior', 'junior'] },
+  { name: 'research', description: 'Investigación y fuentes.', roles: ['pm', 'researcher'] },
+  { name: 'code-review', description: 'Revisión de código.', roles: ['auditor', 'auditor2'] },
+  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.', roles: ['pm'] },
 ];
 const mockSkillRoles = ['pm', 'researcher', 'designer', 'senior', 'junior', 'auditor', 'auditor2'];
 const mockSkillAssignments = new Map<string, boolean>();

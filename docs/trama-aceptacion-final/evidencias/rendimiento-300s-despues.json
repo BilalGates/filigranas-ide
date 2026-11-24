@@ -1,0 +1,356 @@
+{
+  "phases": [
+    {
+      "name": "arranque",
+      "elapsedMs": 2835,
+      "ipc": {
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 3938,
+          "worstMs": 1979
+        },
+        "get_workspace": {
+          "count": 2,
+          "totalMs": 11,
+          "worstMs": 6
+        },
+        "tools_status": {
+          "count": 2,
+          "totalMs": 3085,
+          "worstMs": 1544
+        },
+        "watch_project": {
+          "count": 2,
+          "totalMs": 7,
+          "worstMs": 4
+        },
+        "jev_statusbar": {
+          "count": 2,
+          "totalMs": 39,
+          "worstMs": 20
+        },
+        "home_summary": {
+          "count": 1,
+          "totalMs": 414,
+          "worstMs": 414
+        },
+        "jev_usage": {
+          "count": 1,
+          "totalMs": 3,
+          "worstMs": 3
+        }
+      },
+      "react": {
+        "count": 10,
+        "medianMs": 3,
+        "p95Ms": 23,
+        "maxMs": 23
+      },
+      "frames": {
+        "count": 155,
+        "medianMs": 17,
+        "p95Ms": 21,
+        "maxMs": 100
+      },
+      "over50ms": 5,
+      "over100ms": 0,
+      "input": {
+        "count": 0,
+        "medianMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      }
+    },
+    {
+      "name": "navegación y grafo",
+      "elapsedMs": 8684,
+      "ipc": {
+        "session_orphans": {
+          "count": 2,
+          "totalMs": 8,
+          "worstMs": 6
+        },
+        "home_summary": {
+          "count": 5,
+          "totalMs": 1568,
+          "worstMs": 354
+        },
+        "task_flow": {
+          "count": 5,
+          "totalMs": 51,
+          "worstMs": 13
+        },
+        "design_list": {
+          "count": 10,
+          "totalMs": 34,
+          "worstMs": 8
+        },
+        "git_status": {
+          "count": 21,
+          "totalMs": 1489,
+          "worstMs": 84
+        },
+        "git_log": {
+          "count": 20,
+          "totalMs": 1074,
+          "worstMs": 64
+        },
+        "git_branches": {
+          "count": 10,
+          "totalMs": 501,
+          "worstMs": 58
+        },
+        "git_stash_list": {
+          "count": 10,
+          "totalMs": 472,
+          "worstMs": 53
+        },
+        "health_list": {
+          "count": 10,
+          "totalMs": 132,
+          "worstMs": 19
+        },
+        "health_ci": {
+          "count": 10,
+          "totalMs": 500,
+          "worstMs": 57
+        },
+        "work_current": {
+          "count": 20,
+          "totalMs": 130,
+          "worstMs": 18
+        },
+        "tasks_list": {
+          "count": 10,
+          "totalMs": 171,
+          "worstMs": 27
+        },
+        "git_diff_texts": {
+          "count": 10,
+          "totalMs": 415,
+          "worstMs": 215
+        },
+        "larry_groups": {
+          "count": 2,
+          "totalMs": 681,
+          "worstMs": 384
+        }
+      },
+      "react": {
+        "count": 75,
+        "medianMs": 1,
+        "p95Ms": 4,
+        "maxMs": 5
+      },
+      "frames": {
+        "count": 469,
+        "medianMs": 17,
+        "p95Ms": 33,
+        "maxMs": 170
+      },
+      "over50ms": 10,
+      "over100ms": 2,
+      "input": {
+        "count": 25,
+        "medianMs": 49,
+        "p95Ms": 136,
+        "maxMs": 182
+      }
+    },
+    {
+      "name": "navegación sostenida con PTY",
+      "elapsedMs": 300650,
+      "ipc": {
+        "pty_open": {
+          "count": 1,
+          "totalMs": 10,
+          "worstMs": 10
+        },
+        "pty_write": {
+          "count": 1,
+          "totalMs": 1,
+          "worstMs": 1
+        },
+        "task_flow": {
+          "count": 71,
+          "totalMs": 649,
+          "worstMs": 17
+        },
+        "git_status": {
+          "count": 1,
+          "totalMs": 24,
+          "worstMs": 24
+        },
+        "home_summary": {
+          "count": 71,
+          "totalMs": 16551,
+          "worstMs": 290
+        },
+        "jev_statusbar": {
+          "count": 20,
+          "totalMs": 38,
+          "worstMs": 4
+        },
+        "codex_rate_limits": {
+          "count": 5,
+          "totalMs": 2764,
+          "worstMs": 746
+        },
+        "pty_close": {
+          "count": 1,
+          "totalMs": 54,
+          "worstMs": 54
+        }
+      },
+      "react": {
+        "count": 422,
+        "medianMs": 2,
+        "p95Ms": 8,
+        "maxMs": 11
+      },
+      "frames": {
+        "count": 17632,
+        "medianMs": 17,
+        "p95Ms": 18,
+        "maxMs": 86
+      },
+      "over50ms": 94,
+      "over100ms": 0,
+      "input": {
+        "count": 142,
+        "medianMs": 88,
+        "p95Ms": 101,
+        "maxMs": 107
+      }
+    }
+  ],
+  "hardware": {
+    "scale": 1,
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": {
+    "repositories": 32,
+    "tasks": 240
+  },
+  "terminalBytes": 2706,
+  "motion": [
+    {
+      "value": "completo",
+      "effective": "completo",
+      "saved": "completo",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": true
+    },
+    {
+      "value": "sin-ambiente",
+      "effective": "sin-ambiente",
+      "saved": "sin-ambiente",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": false
+    },
+    {
+      "value": "reducido",
+      "effective": "reducido",
+      "saved": "reducido",
+      "working": "none",
+      "thinking": "none",
+      "permission": "none",
+      "flow": "none",
+      "ambient": false
+    }
+  ],
+  "scene": {
+    "view": "Flow",
+    "lens": "exec",
+    "selected": "t2",
+    "nodes": [
+      {
+        "id": "L-aud",
+        "x": 30,
+        "y": 396
+      },
+      {
+        "id": "L-aud2",
+        "x": 30,
+        "y": 462
+      },
+      {
+        "id": "L-cod",
+        "x": 30,
+        "y": 264
+      },
+      {
+        "id": "L-jev",
+        "x": 30,
+        "y": 0
+      },
+      {
+        "id": "L-jun",
+        "x": 30,
+        "y": 330
+      },
+      {
+        "id": "L-pm",
+        "x": 30,
+        "y": 66
+      },
+      {
+        "id": "L-res",
+        "x": 30,
+        "y": 132
+      },
+      {
+        "id": "L-sen",
+        "x": 30,
+        "y": 198
+      },
+      {
+        "id": "t1",
+        "x": 280,
+        "y": 132
+      },
+      {
+        "id": "t2",
+        "x": 494,
+        "y": 198
+      },
+      {
+        "id": "t3",
+        "x": 494,
+        "y": 264
+      },
+      {
+        "id": "t4",
+        "x": 708,
+        "y": 330
+      },
+      {
+        "id": "t5",
+        "x": 708,
+        "y": 198
+      },
+      {
+        "id": "t6",
+        "x": 922,
+        "y": 66
+      },
+      {
+        "id": "t7",
+        "x": 922,
+        "y": 396
+      },
+      {
+        "id": "t8",
+        "x": 1136,
+        "y": 66
+      }
+    ]
+  }
+}

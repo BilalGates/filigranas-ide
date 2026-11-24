@@ -1,0 +1,3048 @@
+{
+  "fecha": "2026-11-24",
+  "referenciaPrev": 152,
+  "reproduccion": {
+    "phases": [
+      {
+        "name": "arranque",
+        "elapsedMs": 2961,
+        "ipc": {
+          "codex_rate_limits": {
+            "count": 2,
+            "totalMs": 2846,
+            "worstMs": 1555
+          },
+          "get_workspace": {
+            "count": 2,
+            "totalMs": 146,
+            "worstMs": 133
+          },
+          "tools_status": {
+            "count": 2,
+            "totalMs": 2226,
+            "worstMs": 1139
+          },
+          "watch_project": {
+            "count": 2,
+            "totalMs": 17,
+            "worstMs": 10
+          },
+          "home_summary": {
+            "count": 2,
+            "totalMs": 974,
+            "worstMs": 499
+          },
+          "jev_statusbar": {
+            "count": 2,
+            "totalMs": 24,
+            "worstMs": 16
+          },
+          "jev_usage": {
+            "count": 1,
+            "totalMs": 8,
+            "worstMs": 8
+          }
+        },
+        "react": {
+          "count": 12,
+          "medianMs": 3,
+          "p95Ms": 35,
+          "maxMs": 35
+        },
+        "frames": {
+          "count": 158,
+          "medianMs": 17,
+          "p95Ms": 24,
+          "maxMs": 122
+        },
+        "over50ms": 5,
+        "over100ms": 1,
+        "input": {
+          "count": 0,
+          "medianMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "events": [
+          {
+            "name": "React 35 ms",
+            "ms": 478
+          }
+        ],
+        "gaps": [
+          {
+            "step": "",
+            "ms": 44,
+            "interval": 44
+          },
+          {
+            "step": "",
+            "ms": 359,
+            "interval": 62
+          },
+          {
+            "step": "",
+            "ms": 416,
+            "interval": 54
+          },
+          {
+            "step": "",
+            "ms": 561,
+            "interval": 122
+          },
+          {
+            "step": "",
+            "ms": 642,
+            "interval": 81
+          },
+          {
+            "step": "",
+            "ms": 685,
+            "interval": 43
+          },
+          {
+            "step": "",
+            "ms": 799,
+            "interval": 71
+          }
+        ]
+      },
+      {
+        "name": "navegación y grafo",
+        "elapsedMs": 8486,
+        "ipc": {
+          "session_orphans": {
+            "count": 2,
+            "totalMs": 6,
+            "worstMs": 4
+          },
+          "task_flow": {
+            "count": 5,
+            "totalMs": 27,
+            "worstMs": 9
+          },
+          "design_list": {
+            "count": 10,
+            "totalMs": 28,
+            "worstMs": 3
+          },
+          "git_status": {
+            "count": 21,
+            "totalMs": 1115,
+            "worstMs": 69
+          },
+          "git_log": {
+            "count": 20,
+            "totalMs": 820,
+            "worstMs": 52
+          },
+          "git_branches": {
+            "count": 10,
+            "totalMs": 361,
+            "worstMs": 50
+          },
+          "git_stash_list": {
+            "count": 10,
+            "totalMs": 366,
+            "worstMs": 43
+          },
+          "health_list": {
+            "count": 10,
+            "totalMs": 80,
+            "worstMs": 13
+          },
+          "health_ci": {
+            "count": 10,
+            "totalMs": 378,
+            "worstMs": 47
+          },
+          "work_current": {
+            "count": 20,
+            "totalMs": 75,
+            "worstMs": 12
+          },
+          "tasks_list": {
+            "count": 10,
+            "totalMs": 130,
+            "worstMs": 19
+          },
+          "git_diff_texts": {
+            "count": 10,
+            "totalMs": 128,
+            "worstMs": 15
+          },
+          "larry_groups": {
+            "count": 1,
+            "totalMs": 189,
+            "worstMs": 189
+          },
+          "home_summary": {
+            "count": 1,
+            "totalMs": 172,
+            "worstMs": 172
+          }
+        },
+        "react": {
+          "count": 70,
+          "medianMs": 1,
+          "p95Ms": 4,
+          "maxMs": 8
+        },
+        "frames": {
+          "count": 469,
+          "medianMs": 17,
+          "p95Ms": 26,
+          "maxMs": 149
+        },
+        "over50ms": 7,
+        "over100ms": 2,
+        "input": {
+          "count": 25,
+          "medianMs": 46,
+          "p95Ms": 101,
+          "maxMs": 116
+        },
+        "events": [
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 0
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 483
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 599
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 1139
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 1382
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 1459
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 1459
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 1726
+          },
+          {
+            "name": "Monaco evaluado",
+            "ms": 2166
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 2203
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 2275
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 2799
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 3032
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 3104
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 3104
+          },
+          {
+            "name": "Diff listo para montar",
+            "ms": 3116
+          },
+          {
+            "name": "Diff Monaco montado",
+            "ms": 3171
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 3382
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 3883
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 3978
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 4503
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 4749
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 4835
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 4835
+          },
+          {
+            "name": "Diff listo para montar",
+            "ms": 4846
+          },
+          {
+            "name": "Diff Monaco montado",
+            "ms": 4849
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 5099
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 5599
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 5694
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 6215
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 6449
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 6515
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 6515
+          },
+          {
+            "name": "Diff listo para montar",
+            "ms": 6527
+          },
+          {
+            "name": "Diff Monaco montado",
+            "ms": 6529
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 6791
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 7283
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 7375
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 7904
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 8149
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 8229
+          },
+          {
+            "name": "Diff solicitado",
+            "ms": 8229
+          },
+          {
+            "name": "Diff listo para montar",
+            "ms": 8243
+          },
+          {
+            "name": "Diff Monaco montado",
+            "ms": 8245
+          }
+        ],
+        "gaps": [
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 548,
+            "interval": 50
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 593,
+            "interval": 45
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 1763,
+            "interval": 47
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 2029,
+            "interval": 64
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 2181,
+            "interval": 149
+          },
+          {
+            "step": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 3226,
+            "interval": 111
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 3431,
+            "interval": 66
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 3479,
+            "interval": 48
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 3943,
+            "interval": 44
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 5142,
+            "interval": 60
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 5187,
+            "interval": 45
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 5648,
+            "interval": 49
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 6835,
+            "interval": 70
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 6879,
+            "interval": 44
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 7333,
+            "interval": 51
+          }
+        ]
+      }
+    ],
+    "hardware": {
+      "scale": 1,
+      "width": 1440,
+      "height": 900
+    },
+    "fixture": {
+      "repositories": 32,
+      "tasks": 240
+    }
+  },
+  "primerVisor": {
+    "phases": [
+      {
+        "name": "arranque",
+        "elapsedMs": 2821,
+        "ipc": {
+          "codex_rate_limits": {
+            "count": 2,
+            "totalMs": 2177,
+            "worstMs": 1090
+          },
+          "get_workspace": {
+            "count": 2,
+            "totalMs": 79,
+            "worstMs": 68
+          },
+          "tools_status": {
+            "count": 2,
+            "totalMs": 1647,
+            "worstMs": 829
+          },
+          "watch_project": {
+            "count": 2,
+            "totalMs": 9,
+            "worstMs": 7
+          },
+          "home_summary": {
+            "count": 2,
+            "totalMs": 800,
+            "worstMs": 413
+          },
+          "jev_statusbar": {
+            "count": 2,
+            "totalMs": 52,
+            "worstMs": 32
+          },
+          "jev_usage": {
+            "count": 1,
+            "totalMs": 3,
+            "worstMs": 3
+          }
+        },
+        "react": {
+          "count": 11,
+          "medianMs": 3,
+          "p95Ms": 15,
+          "maxMs": 15
+        },
+        "frames": {
+          "count": 164,
+          "medianMs": 17,
+          "p95Ms": 19,
+          "maxMs": 68
+        },
+        "over50ms": 3,
+        "over100ms": 0,
+        "input": {
+          "count": 0,
+          "medianMs": 0,
+          "p95Ms": 0,
+          "maxMs": 0
+        },
+        "events": [],
+        "gaps": [
+          {
+            "step": "",
+            "ms": 345,
+            "interval": 44
+          },
+          {
+            "step": "",
+            "ms": 421,
+            "interval": 67
+          },
+          {
+            "step": "",
+            "ms": 475,
+            "interval": 54
+          },
+          {
+            "step": "",
+            "ms": 586,
+            "interval": 68
+          }
+        ]
+      },
+      {
+        "name": "navegación y grafo",
+        "elapsedMs": 8573,
+        "ipc": {
+          "session_orphans": {
+            "count": 2,
+            "totalMs": 11,
+            "worstMs": 9
+          },
+          "task_flow": {
+            "count": 5,
+            "totalMs": 45,
+            "worstMs": 12
+          },
+          "design_list": {
+            "count": 10,
+            "totalMs": 29,
+            "worstMs": 4
+          },
+          "git_status": {
+            "count": 21,
+            "totalMs": 1248,
+            "worstMs": 72
+          },
+          "git_log": {
+            "count": 20,
+            "totalMs": 965,
+            "worstMs": 53
+          },
+          "git_branches": {
+            "count": 10,
+            "totalMs": 453,
+            "worstMs": 50
+          },
+          "git_stash_list": {
+            "count": 10,
+            "totalMs": 440,
+            "worstMs": 49
+          },
+          "health_list": {
+            "count": 10,
+            "totalMs": 179,
+            "worstMs": 25
+          },
+          "health_ci": {
+            "count": 10,
+            "totalMs": 439,
+            "worstMs": 49
+          },
+          "work_current": {
+            "count": 20,
+            "totalMs": 196,
+            "worstMs": 25
+          },
+          "tasks_list": {
+            "count": 10,
+            "totalMs": 206,
+            "worstMs": 25
+          },
+          "git_diff_texts": {
+            "count": 5,
+            "totalMs": 60,
+            "worstMs": 13
+          },
+          "larry_groups": {
+            "count": 1,
+            "totalMs": 163,
+            "worstMs": 163
+          },
+          "home_summary": {
+            "count": 1,
+            "totalMs": 174,
+            "worstMs": 174
+          }
+        },
+        "react": {
+          "count": 79,
+          "medianMs": 1,
+          "p95Ms": 10,
+          "maxMs": 13
+        },
+        "frames": {
+          "count": 487,
+          "medianMs": 17,
+          "p95Ms": 26,
+          "maxMs": 76
+        },
+        "over50ms": 5,
+        "over100ms": 0,
+        "input": {
+          "count": 25,
+          "medianMs": 52,
+          "p95Ms": 105,
+          "maxMs": 133
+        },
+        "events": [
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 0
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 490
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 623
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 1161
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 1407
+          },
+          {
+            "name": "Diff enviado al worker",
+            "ms": 1513
+          },
+          {
+            "name": "Diff calculado",
+            "ms": 1541
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 1773
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 2269
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 2349
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 2879
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 3123
+          },
+          {
+            "name": "Diff enviado al worker",
+            "ms": 3225
+          },
+          {
+            "name": "Diff calculado",
+            "ms": 3241
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 3478
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 3964
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 4052
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 4579
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 4824
+          },
+          {
+            "name": "Diff enviado al worker",
+            "ms": 4929
+          },
+          {
+            "name": "Diff calculado",
+            "ms": 4945
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 5174
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 5659
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 5759
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 6289
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 6522
+          },
+          {
+            "name": "Diff enviado al worker",
+            "ms": 6624
+          },
+          {
+            "name": "Diff calculado",
+            "ms": 6640
+          },
+          {
+            "name": "main[aria-label=\"Inicio\"]",
+            "ms": 6874
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 7379
+          },
+          {
+            "name": ".flowg [data-gid]",
+            "ms": 7464
+          },
+          {
+            "name": "main[aria-label=\"Studio\"]",
+            "ms": 7989
+          },
+          {
+            "name": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 8222
+          },
+          {
+            "name": "Diff enviado al worker",
+            "ms": 8314
+          },
+          {
+            "name": "Diff calculado",
+            "ms": 8330
+          }
+        ],
+        "gaps": [
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 45,
+            "interval": 45
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 567,
+            "interval": 55
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 609,
+            "interval": 42
+          },
+          {
+            "step": "main[aria-label=\"Entrega\"] .rev",
+            "ms": 1442,
+            "interval": 52
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 1832,
+            "interval": 76
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 3528,
+            "interval": 55
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 5214,
+            "interval": 41
+          },
+          {
+            "step": ".flowg [data-gid]",
+            "ms": 5718,
+            "interval": 45
+          },
+          {
+            "step": "main[aria-label=\"Inicio\"]",
+            "ms": 6936,
+            "interval": 63
+          }
+        ]
+      }
+    ],
+    "hardware": {
+      "scale": 1,
+      "width": 1440,
+      "height": 900
+    },
+    "fixture": {
+      "repositories": 32,
+      "tasks": 240
+    }
+  },
+  "verificacion": [
+    {
+      "phases": [
+        {
+          "name": "arranque",
+          "elapsedMs": 2892,
+          "ipc": {
+            "codex_rate_limits": {
+              "count": 2,
+              "totalMs": 2357,
+              "worstMs": 1203
+            },
+            "get_workspace": {
+              "count": 2,
+              "totalMs": 26,
+              "worstMs": 13
+            },
+            "tools_status": {
+              "count": 2,
+              "totalMs": 1943,
+              "worstMs": 988
+            },
+            "watch_project": {
+              "count": 2,
+              "totalMs": 13,
+              "worstMs": 11
+            },
+            "home_summary": {
+              "count": 2,
+              "totalMs": 938,
+              "worstMs": 470
+            },
+            "jev_statusbar": {
+              "count": 2,
+              "totalMs": 30,
+              "worstMs": 20
+            },
+            "jev_usage": {
+              "count": 1,
+              "totalMs": 2,
+              "worstMs": 2
+            }
+          },
+          "react": {
+            "count": 12,
+            "medianMs": 2,
+            "p95Ms": 14,
+            "maxMs": 14
+          },
+          "frames": {
+            "count": 163,
+            "medianMs": 17,
+            "p95Ms": 19,
+            "maxMs": 112
+          },
+          "over50ms": 2,
+          "over100ms": 1,
+          "input": {
+            "count": 0,
+            "medianMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0
+          },
+          "events": [],
+          "gaps": [
+            {
+              "step": "",
+              "ms": 414,
+              "interval": 49
+            },
+            {
+              "step": "",
+              "ms": 492,
+              "interval": 59
+            },
+            {
+              "step": "",
+              "ms": 541,
+              "interval": 49
+            },
+            {
+              "step": "",
+              "ms": 653,
+              "interval": 112
+            }
+          ]
+        },
+        {
+          "name": "navegación y grafo",
+          "elapsedMs": 8656,
+          "ipc": {
+            "session_orphans": {
+              "count": 2,
+              "totalMs": 6,
+              "worstMs": 4
+            },
+            "task_flow": {
+              "count": 5,
+              "totalMs": 42,
+              "worstMs": 10
+            },
+            "design_list": {
+              "count": 10,
+              "totalMs": 29,
+              "worstMs": 6
+            },
+            "git_status": {
+              "count": 21,
+              "totalMs": 1234,
+              "worstMs": 65
+            },
+            "git_log": {
+              "count": 20,
+              "totalMs": 991,
+              "worstMs": 55
+            },
+            "git_branches": {
+              "count": 10,
+              "totalMs": 462,
+              "worstMs": 50
+            },
+            "git_stash_list": {
+              "count": 10,
+              "totalMs": 444,
+              "worstMs": 49
+            },
+            "health_list": {
+              "count": 10,
+              "totalMs": 159,
+              "worstMs": 21
+            },
+            "health_ci": {
+              "count": 10,
+              "totalMs": 446,
+              "worstMs": 51
+            },
+            "work_current": {
+              "count": 20,
+              "totalMs": 154,
+              "worstMs": 21
+            },
+            "tasks_list": {
+              "count": 10,
+              "totalMs": 200,
+              "worstMs": 31
+            },
+            "larry_groups": {
+              "count": 2,
+              "totalMs": 334,
+              "worstMs": 173
+            },
+            "git_diff_texts": {
+              "count": 5,
+              "totalMs": 59,
+              "worstMs": 13
+            },
+            "home_summary": {
+              "count": 1,
+              "totalMs": 183,
+              "worstMs": 183
+            }
+          },
+          "react": {
+            "count": 84,
+            "medianMs": 1,
+            "p95Ms": 7,
+            "maxMs": 13
+          },
+          "frames": {
+            "count": 488,
+            "medianMs": 17,
+            "p95Ms": 26,
+            "maxMs": 73
+          },
+          "over50ms": 3,
+          "over100ms": 0,
+          "input": {
+            "count": 25,
+            "medianMs": 50,
+            "p95Ms": 113,
+            "maxMs": 115
+          },
+          "events": [
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 0
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 494
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 593
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 1144
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 1391
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 1486
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 1515
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 1741
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2227
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2314
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 2846
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 3090
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 3192
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 3207
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 3457
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 3958
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 4071
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 4613
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 4857
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 4962
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 4978
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 5210
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5707
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5787
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 6312
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 6556
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 6658
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 6674
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 6907
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7408
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7523
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 8061
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 8308
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 8415
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 8432
+            }
+          ],
+          "gaps": [
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 47,
+              "interval": 47
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 581,
+              "interval": 47
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 1785,
+              "interval": 45
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 2281,
+              "interval": 41
+            },
+            {
+              "step": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 3115,
+              "interval": 44
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 3511,
+              "interval": 72
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 4030,
+              "interval": 47
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 5264,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 6963,
+              "interval": 73
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 7480,
+              "interval": 49
+            }
+          ]
+        }
+      ],
+      "hardware": {
+        "scale": 1,
+        "width": 1440,
+        "height": 900
+      },
+      "fixture": {
+        "repositories": 32,
+        "tasks": 240
+      }
+    },
+    {
+      "phases": [
+        {
+          "name": "arranque",
+          "elapsedMs": 2760,
+          "ipc": {
+            "codex_rate_limits": {
+              "count": 2,
+              "totalMs": 2419,
+              "worstMs": 1393
+            },
+            "get_workspace": {
+              "count": 2,
+              "totalMs": 77,
+              "worstMs": 64
+            },
+            "tools_status": {
+              "count": 2,
+              "totalMs": 1779,
+              "worstMs": 913
+            },
+            "watch_project": {
+              "count": 2,
+              "totalMs": 22,
+              "worstMs": 11
+            },
+            "home_summary": {
+              "count": 2,
+              "totalMs": 873,
+              "worstMs": 450
+            },
+            "jev_statusbar": {
+              "count": 2,
+              "totalMs": 21,
+              "worstMs": 13
+            },
+            "jev_usage": {
+              "count": 1,
+              "totalMs": 5,
+              "worstMs": 5
+            }
+          },
+          "react": {
+            "count": 12,
+            "medianMs": 3,
+            "p95Ms": 16,
+            "maxMs": 16
+          },
+          "frames": {
+            "count": 159,
+            "medianMs": 17,
+            "p95Ms": 24,
+            "maxMs": 74
+          },
+          "over50ms": 3,
+          "over100ms": 0,
+          "input": {
+            "count": 0,
+            "medianMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0
+          },
+          "events": [],
+          "gaps": [
+            {
+              "step": "",
+              "ms": 287,
+              "interval": 45
+            },
+            {
+              "step": "",
+              "ms": 359,
+              "interval": 65
+            },
+            {
+              "step": "",
+              "ms": 410,
+              "interval": 51
+            },
+            {
+              "step": "",
+              "ms": 514,
+              "interval": 74
+            }
+          ]
+        },
+        {
+          "name": "navegación y grafo",
+          "elapsedMs": 8642,
+          "ipc": {
+            "session_orphans": {
+              "count": 2,
+              "totalMs": 5,
+              "worstMs": 3
+            },
+            "task_flow": {
+              "count": 5,
+              "totalMs": 34,
+              "worstMs": 10
+            },
+            "design_list": {
+              "count": 10,
+              "totalMs": 25,
+              "worstMs": 3
+            },
+            "git_status": {
+              "count": 21,
+              "totalMs": 1233,
+              "worstMs": 67
+            },
+            "git_log": {
+              "count": 20,
+              "totalMs": 958,
+              "worstMs": 54
+            },
+            "git_branches": {
+              "count": 10,
+              "totalMs": 441,
+              "worstMs": 49
+            },
+            "git_stash_list": {
+              "count": 10,
+              "totalMs": 447,
+              "worstMs": 51
+            },
+            "health_list": {
+              "count": 10,
+              "totalMs": 145,
+              "worstMs": 20
+            },
+            "health_ci": {
+              "count": 10,
+              "totalMs": 452,
+              "worstMs": 52
+            },
+            "work_current": {
+              "count": 20,
+              "totalMs": 136,
+              "worstMs": 19
+            },
+            "tasks_list": {
+              "count": 10,
+              "totalMs": 187,
+              "worstMs": 22
+            },
+            "git_diff_texts": {
+              "count": 5,
+              "totalMs": 60,
+              "worstMs": 13
+            },
+            "larry_groups": {
+              "count": 1,
+              "totalMs": 164,
+              "worstMs": 164
+            },
+            "home_summary": {
+              "count": 1,
+              "totalMs": 175,
+              "worstMs": 175
+            }
+          },
+          "react": {
+            "count": 81,
+            "medianMs": 1,
+            "p95Ms": 8,
+            "maxMs": 12
+          },
+          "frames": {
+            "count": 493,
+            "medianMs": 17,
+            "p95Ms": 25,
+            "maxMs": 58
+          },
+          "over50ms": 3,
+          "over100ms": 0,
+          "input": {
+            "count": 25,
+            "medianMs": 50,
+            "p95Ms": 109,
+            "maxMs": 117
+          },
+          "events": [
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 0
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 491
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 594
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 1131
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 1378
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 1481
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 1506
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 1730
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2226
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2343
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 2882
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 3126
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 3233
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 3249
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 3477
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 3967
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 4076
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 4615
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 4861
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 4962
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 4979
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 5211
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5704
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5809
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 6348
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 6594
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 6699
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 6715
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 6944
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7424
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7510
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 8049
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 8294
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 8398
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 8414
+            }
+          ],
+          "gaps": [
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 46,
+              "interval": 46
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 582,
+              "interval": 43
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 1785,
+              "interval": 58
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 2291,
+              "interval": 47
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 3528,
+              "interval": 54
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 4027,
+              "interval": 45
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 5263,
+              "interval": 53
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 5763,
+              "interval": 45
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 6985,
+              "interval": 42
+            }
+          ]
+        }
+      ],
+      "hardware": {
+        "scale": 1,
+        "width": 1440,
+        "height": 900
+      },
+      "fixture": {
+        "repositories": 32,
+        "tasks": 240
+      }
+    },
+    {
+      "phases": [
+        {
+          "name": "arranque",
+          "elapsedMs": 2866,
+          "ipc": {
+            "codex_rate_limits": {
+              "count": 2,
+              "totalMs": 2363,
+              "worstMs": 1215
+            },
+            "get_workspace": {
+              "count": 2,
+              "totalMs": 96,
+              "worstMs": 84
+            },
+            "tools_status": {
+              "count": 2,
+              "totalMs": 2003,
+              "worstMs": 1025
+            },
+            "watch_project": {
+              "count": 2,
+              "totalMs": 11,
+              "worstMs": 9
+            },
+            "home_summary": {
+              "count": 2,
+              "totalMs": 880,
+              "worstMs": 488
+            },
+            "jev_statusbar": {
+              "count": 2,
+              "totalMs": 33,
+              "worstMs": 17
+            },
+            "jev_usage": {
+              "count": 1,
+              "totalMs": 4,
+              "worstMs": 4
+            }
+          },
+          "react": {
+            "count": 12,
+            "medianMs": 2,
+            "p95Ms": 26,
+            "maxMs": 26
+          },
+          "frames": {
+            "count": 160,
+            "medianMs": 17,
+            "p95Ms": 19,
+            "maxMs": 98
+          },
+          "over50ms": 4,
+          "over100ms": 0,
+          "input": {
+            "count": 0,
+            "medianMs": 0,
+            "p95Ms": 0,
+            "maxMs": 0
+          },
+          "events": [
+            {
+              "name": "React 26 ms",
+              "ms": 420
+            }
+          ],
+          "gaps": [
+            {
+              "step": "",
+              "ms": 372,
+              "interval": 55
+            },
+            {
+              "step": "",
+              "ms": 465,
+              "interval": 84
+            },
+            {
+              "step": "",
+              "ms": 520,
+              "interval": 55
+            },
+            {
+              "step": "",
+              "ms": 618,
+              "interval": 98
+            }
+          ]
+        },
+        {
+          "name": "navegación y grafo",
+          "elapsedMs": 8620,
+          "ipc": {
+            "session_orphans": {
+              "count": 2,
+              "totalMs": 6,
+              "worstMs": 4
+            },
+            "task_flow": {
+              "count": 5,
+              "totalMs": 36,
+              "worstMs": 12
+            },
+            "design_list": {
+              "count": 10,
+              "totalMs": 27,
+              "worstMs": 4
+            },
+            "git_status": {
+              "count": 21,
+              "totalMs": 1210,
+              "worstMs": 64
+            },
+            "git_log": {
+              "count": 20,
+              "totalMs": 960,
+              "worstMs": 53
+            },
+            "git_branches": {
+              "count": 10,
+              "totalMs": 442,
+              "worstMs": 50
+            },
+            "git_stash_list": {
+              "count": 10,
+              "totalMs": 434,
+              "worstMs": 51
+            },
+            "health_list": {
+              "count": 10,
+              "totalMs": 164,
+              "worstMs": 20
+            },
+            "health_ci": {
+              "count": 10,
+              "totalMs": 447,
+              "worstMs": 53
+            },
+            "work_current": {
+              "count": 20,
+              "totalMs": 155,
+              "worstMs": 19
+            },
+            "tasks_list": {
+              "count": 10,
+              "totalMs": 182,
+              "worstMs": 20
+            },
+            "git_diff_texts": {
+              "count": 5,
+              "totalMs": 57,
+              "worstMs": 12
+            },
+            "larry_groups": {
+              "count": 2,
+              "totalMs": 339,
+              "worstMs": 180
+            },
+            "home_summary": {
+              "count": 1,
+              "totalMs": 184,
+              "worstMs": 184
+            }
+          },
+          "react": {
+            "count": 85,
+            "medianMs": 1,
+            "p95Ms": 7,
+            "maxMs": 12
+          },
+          "frames": {
+            "count": 488,
+            "medianMs": 17,
+            "p95Ms": 25,
+            "maxMs": 74
+          },
+          "over50ms": 4,
+          "over100ms": 0,
+          "input": {
+            "count": 25,
+            "medianMs": 48,
+            "p95Ms": 115,
+            "maxMs": 130
+          },
+          "events": [
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 0
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 492
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 622
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 1159
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 1406
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 1506
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 1532
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 1773
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2273
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 2389
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 2921
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 3157
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 3259
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 3275
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 3505
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 3989
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 4078
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 4611
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 4856
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 4957
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 4972
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 5205
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5697
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 5780
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 6311
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 6557
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 6660
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 6676
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 6909
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7380
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 7488
+            },
+            {
+              "name": "main[aria-label=\"Studio\"]",
+              "ms": 8027
+            },
+            {
+              "name": "main[aria-label=\"Entrega\"] .rev",
+              "ms": 8272
+            },
+            {
+              "name": "Diff enviado al worker",
+              "ms": 8377
+            },
+            {
+              "name": "Diff calculado",
+              "ms": 8399
+            }
+          ],
+          "gaps": [
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 47,
+              "interval": 47
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 569,
+              "interval": 56
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 610,
+              "interval": 41
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 1830,
+              "interval": 74
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 2340,
+              "interval": 47
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 3546,
+              "interval": 58
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 4031,
+              "interval": 43
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 5258,
+              "interval": 69
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 7448,
+              "interval": 50
+            }
+          ]
+        },
+        {
+          "name": "navegación sostenida con PTY",
+          "elapsedMs": 230398,
+          "ipc": {
+            "pty_open": {
+              "count": 1,
+              "totalMs": 14,
+              "worstMs": 14
+            },
+            "pty_write": {
+              "count": 1,
+              "totalMs": 1,
+              "worstMs": 1
+            },
+            "task_flow": {
+              "count": 52,
+              "totalMs": 472,
+              "worstMs": 13
+            },
+            "git_status": {
+              "count": 1,
+              "totalMs": 25,
+              "worstMs": 25
+            },
+            "home_summary": {
+              "count": 7,
+              "totalMs": 1387,
+              "worstMs": 204
+            },
+            "jev_statusbar": {
+              "count": 16,
+              "totalMs": 37,
+              "worstMs": 6
+            },
+            "codex_rate_limits": {
+              "count": 4,
+              "totalMs": 1801,
+              "worstMs": 488
+            },
+            "pty_close": {
+              "count": 1,
+              "totalMs": 55,
+              "worstMs": 55
+            }
+          },
+          "react": {
+            "count": 308,
+            "medianMs": 2,
+            "p95Ms": 12,
+            "maxMs": 14
+          },
+          "frames": {
+            "count": 12925,
+            "medianMs": 17,
+            "p95Ms": 18,
+            "maxMs": 91
+          },
+          "over50ms": 86,
+          "over100ms": 0,
+          "input": {
+            "count": 104,
+            "medianMs": 108,
+            "p95Ms": 118,
+            "maxMs": 128
+          },
+          "events": [
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 16
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 2936
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 4251
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 7202
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 8521
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 11486
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 12796
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 15752
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 17061
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 20019
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 21335
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 24286
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 25604
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 28569
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 29887
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 32852
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 34163
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 37119
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 38432
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 41385
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 42692
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 45667
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 46975
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 49918
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 51222
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 54185
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 55495
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 58452
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 59761
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 62702
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 64012
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 66953
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 68259
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 71200
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 72515
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 75469
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 76786
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 79735
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 81045
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 84002
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 85311
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 88269
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 89578
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 92518
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 93824
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 96785
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 98105
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 101051
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 102359
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 105335
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 106655
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 109619
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 110937
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 113903
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 115220
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 118185
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 119494
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 122436
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 123745
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 126685
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 127986
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 130952
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 132257
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 135220
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 136528
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 139485
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 140789
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 143752
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 145071
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 148036
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 149345
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 152303
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 153610
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 156551
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 157858
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 160817
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 162137
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 165102
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 166421
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 169385
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 170673
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 173635
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 174952
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 177886
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 179195
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 182136
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 183445
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 186402
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 187718
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 190669
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 191975
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 194953
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 196238
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 199202
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 200520
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 203469
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 204788
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 207752
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 209071
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 212035
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 213345
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 216285
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 217605
+            },
+            {
+              "name": "main[aria-label=\"Inicio\"]",
+              "ms": 220569
+            },
+            {
+              "name": ".flowg [data-gid]",
+              "ms": 221887
+            }
+          ],
+          "gaps": [
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 2999,
+              "interval": 80
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 3042,
+              "interval": 43
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 4330,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 7274,
+              "interval": 89
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 8594,
+              "interval": 49
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 11552,
+              "interval": 69
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 12874,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 15820,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 17141,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 20085,
+              "interval": 83
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 21413,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 24350,
+              "interval": 81
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 25677,
+              "interval": 48
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 28631,
+              "interval": 79
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 29960,
+              "interval": 49
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 32924,
+              "interval": 88
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 34242,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 37187,
+              "interval": 85
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 37229,
+              "interval": 42
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 38513,
+              "interval": 59
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 41452,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 42768,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 45736,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 47046,
+              "interval": 53
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 49986,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 51291,
+              "interval": 47
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 54254,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 55578,
+              "interval": 54
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 58521,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 59833,
+              "interval": 54
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 62772,
+              "interval": 86
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 64089,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 67020,
+              "interval": 69
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 71271,
+              "interval": 86
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 72594,
+              "interval": 59
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 75533,
+              "interval": 81
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 76864,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 79803,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 81123,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 84069,
+              "interval": 67
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 85390,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 88337,
+              "interval": 68
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 89654,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 92586,
+              "interval": 68
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 93898,
+              "interval": 55
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 96852,
+              "interval": 84
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 101120,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 102435,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 105407,
+              "interval": 89
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 105448,
+              "interval": 41
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 106729,
+              "interval": 52
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 109686,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 111002,
+              "interval": 46
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 113973,
+              "interval": 87
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 115292,
+              "interval": 49
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 118253,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 119572,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 122503,
+              "interval": 68
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 123821,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 126729,
+              "interval": 44
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 126771,
+              "interval": 42
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 128061,
+              "interval": 52
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 131015,
+              "interval": 63
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 132333,
+              "interval": 54
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 135286,
+              "interval": 68
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 136608,
+              "interval": 57
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 139541,
+              "interval": 72
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 139584,
+              "interval": 43
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 140865,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 143822,
+              "interval": 87
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 145149,
+              "interval": 50
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 148104,
+              "interval": 68
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 149423,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 152371,
+              "interval": 70
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 156619,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 157931,
+              "interval": 54
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 160886,
+              "interval": 84
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 162209,
+              "interval": 48
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 165170,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 166492,
+              "interval": 48
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 169437,
+              "interval": 52
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 170749,
+              "interval": 55
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 173709,
+              "interval": 91
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 173750,
+              "interval": 41
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 175023,
+              "interval": 54
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 177955,
+              "interval": 70
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 179272,
+              "interval": 56
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 182203,
+              "interval": 67
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 183525,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 186471,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 187799,
+              "interval": 58
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 190737,
+              "interval": 70
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 192051,
+              "interval": 55
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 194997,
+              "interval": 45
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 196308,
+              "interval": 49
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 199273,
+              "interval": 88
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 200579,
+              "interval": 44
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 203537,
+              "interval": 86
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 204860,
+              "interval": 48
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 207821,
+              "interval": 87
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 207862,
+              "interval": 41
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 209146,
+              "interval": 53
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 212104,
+              "interval": 85
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 213420,
+              "interval": 55
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 216349,
+              "interval": 81
+            },
+            {
+              "step": ".flowg [data-gid]",
+              "ms": 217677,
+              "interval": 51
+            },
+            {
+              "step": "main[aria-label=\"Inicio\"]",
+              "ms": 220636,
+              "interval": 84
+            }
+          ]
+        }
+      ],
+      "hardware": {
+        "scale": 1,
+        "width": 1440,
+        "height": 900
+      },
+      "fixture": {
+        "repositories": 32,
+        "tasks": 240
+      },
+      "error": "Error: La vista no alcanzó el estado esperado"
+    }
+  ],
+  "reintentosSostenidos": [
+    {
+      "estado": "sin informe",
+      "detalle": "El proceso terminó al límite de la prueba"
+    },
+    {
+      "estado": "sin ventana",
+      "detalle": "macOS no expuso una ventana para activar el perfil de prueba"
+    }
+  ]
+}

@@ -9,7 +9,7 @@ const ANCHORS: i64 = 240;
 const NEIGHBORS: i64 = 160;
 const EDGES: i64 = 1200;
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Filter {
     project: Option<String>,
@@ -19,9 +19,14 @@ pub struct Filter {
     workspace: Option<String>,
     from: Option<i64>,
     until: Option<i64>,
+    #[serde(default)]
+    memory_only: bool,
+    validity: Option<String>,
+    focus_id: Option<i64>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Node {
     key: String,
     kind: String,
@@ -33,6 +38,10 @@ struct Node {
     project: Option<String>,
     body: Option<String>,
     source: Option<String>,
+    source_task: Option<i64>,
+    source_run: Option<i64>,
+    valid_until: Option<i64>,
+    validity: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -55,19 +64,26 @@ const GRAPH_SQL: &str = "
 WITH workspace_projects AS (SELECT key AS path,value AS name FROM json_each(?8)), scoped_tasks AS (
     SELECT id,parent_id,title,updated_at,project FROM tasks WHERE (?1 IS NULL OR project=?1) AND (?8 IS NULL OR project IN (SELECT path FROM workspace_projects))
 ), scoped_memories AS (
-    SELECT id,task,source_task,source_run,kind,title,updated,project,body,source FROM brain_entries WHERE (?1 IS NULL OR project=?1) AND (project IS NULL OR ?8 IS NULL OR project IN (SELECT path FROM workspace_projects))
+    SELECT m.id,m.task,m.source_task,m.source_run,m.kind,m.title,m.updated,m.project,m.body,m.source,m.valid_until,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM brain_links l WHERE l.to_entry=m.id AND l.kind='sustituye'
+             AND (?1 IS NULL OR l.project=?1)
+             AND (?8 IS NULL OR l.project IN (SELECT path FROM workspace_projects))
+           ) THEN 'sustituido' WHEN m.valid_until<=unixepoch() THEN 'caducado' ELSE 'vigente' END AS validity
+    FROM brain_entries m WHERE (?1 IS NULL OR project=?1)
+        AND (project IS NULL OR ?8 IS NULL OR project IN (SELECT path FROM workspace_projects))
 ), scoped_pulls AS (
     SELECT 'p:'||project||':'||repository||'#'||number AS key,number,branch,observed_at,project,
            json_extract(snapshot,'$.url') AS url,repository
     FROM github_pulls WHERE (?1 IS NULL OR project=?1) AND (?8 IS NULL OR project IN (SELECT path FROM workspace_projects))
 ), nodes AS (
-    SELECT 'm:'||id AS key,kind,title,updated AS date,id,NULL AS url,project,body,source FROM scoped_memories
+    SELECT 'm:'||id AS key,kind,title,updated AS date,id,NULL AS url,project,body,source,source_task,source_run,valid_until,validity FROM scoped_memories
     UNION ALL
-    SELECT 't:'||id,'task',title,updated_at,id,NULL,project,NULL,NULL FROM scoped_tasks
+    SELECT 't:'||id,'task',title,updated_at,id,NULL,project,NULL,NULL,NULL,NULL,NULL,NULL FROM scoped_tasks
     UNION ALL
-    SELECT key,'pr','PR #'||number||' · '||repository,observed_at,number,url,project,NULL,url FROM scoped_pulls
+    SELECT key,'pr','PR #'||number||' · '||repository,observed_at,number,url,project,NULL,url,NULL,NULL,NULL,NULL FROM scoped_pulls
     UNION ALL
-    SELECT 'project:'||project,'project',coalesce(max(w.name),project),max(date),0,NULL,project,NULL,NULL
+    SELECT 'project:'||project,'project',coalesce(max(w.name),project),max(date),0,NULL,project,NULL,NULL,NULL,NULL,NULL,NULL
     FROM (SELECT project,updated_at AS date FROM scoped_tasks UNION ALL SELECT project,updated FROM scoped_memories UNION ALL SELECT project,observed_at FROM scoped_pulls UNION ALL SELECT path,0 FROM workspace_projects WHERE (?1 IS NULL OR path=?1) UNION ALL SELECT path,0 FROM projects WHERE ?8 IS NULL AND (?1 IS NULL OR path=?1)) p
     LEFT JOIN workspace_projects w ON w.path=p.project
     WHERE project IS NOT NULL GROUP BY project
@@ -100,10 +116,16 @@ WITH workspace_projects AS (SELECT key AS path,value AS name FROM json_each(?8))
     SELECT key,'project:'||project,'project_member' FROM nodes WHERE project IS NOT NULL AND kind!='project'
 ), candidates AS (
     SELECT key,date FROM nodes
-    WHERE (?7 IS NULL OR instr(lower(title),lower(?7))>0 OR instr(lower(coalesce(body,'')),lower(?7))>0 OR id IN (SELECT rowid FROM brain_search WHERE brain_search MATCH NULLIF(?9,'')) AND kind NOT IN ('task','pr','project')) AND (?2 IS NULL OR kind=?2) AND (?3 IS NULL OR date>=?3) AND (?4 IS NULL OR date<?4)
-    ORDER BY kind='project' DESC,date DESC,key LIMIT (?5+1)
+    WHERE key=('m:'||?12) OR (
+        (NOT ?10 OR validity IS NOT NULL) AND (?11 IS NULL OR validity=?11)
+        AND (?7 IS NULL OR instr(lower(title),lower(?7))>0 OR instr(lower(coalesce(body,'')),lower(?7))>0
+             OR instr(lower(coalesce(source,'')),lower(?7))>0
+             OR (validity IS NOT NULL AND id IN (SELECT rowid FROM brain_search WHERE brain_search MATCH ?9)))
+        AND (?2 IS NULL OR kind=?2) AND (?3 IS NULL OR date>=?3) AND (?4 IS NULL OR date<?4)
+    )
+    ORDER BY key=('m:'||?12) DESC,kind='project' DESC,date DESC,key LIMIT (?5+1)
 ), anchors AS (
-    SELECT key FROM candidates ORDER BY key LIKE 'project:%' DESC,date DESC,key LIMIT ?5
+    SELECT key FROM candidates ORDER BY key=('m:'||?12) DESC,key LIKE 'project:%' DESC,date DESC,key LIMIT ?5
 ), adjacent AS (
     SELECT target AS key FROM links JOIN anchors ON anchors.key=links.origin
     UNION
@@ -127,24 +149,29 @@ fn read(conn: &Connection, filter: &Filter) -> CmdResult<Graph> {
         "project" | "task" | "pr" | "fact" | "decision" | "preference" | "constraint" | "evidence" | "outcome")) {
         return Err("tipo de nodo desconocido".into());
     }
+    if filter.validity.as_deref().is_some_and(|v| !matches!(v, "vigente" | "caducado" | "sustituido")) {
+        return Err("vigencia desconocida".into());
+    }
     let query = filter.query.as_deref().map(str::trim).filter(|q| !q.is_empty());
     if query.is_some_and(|q| q.chars().count() > 300) {
         return Err("la búsqueda admite hasta 300 caracteres".into());
     }
     let terms = query.map(|q| crate::brain::keywords(q, true)).unwrap_or_default();
     let terms = if terms.is_empty() { "\"\"" } else { &terms };
-    let bindings = params![filter.project,filter.kind,filter.from,filter.until,ANCHORS,NEIGHBORS,query,filter.workspace,terms];
+    let bindings = params![filter.project,filter.kind,filter.from,filter.until,ANCHORS,NEIGHBORS,query,filter.workspace,
+        terms,filter.memory_only,filter.validity,filter.focus_id];
     let mut q = conn.prepare(&format!("{GRAPH_SQL}
         SELECT n.key,n.kind,n.title,n.date,n.id,n.url,v.matched,
                (SELECT count(*) FROM candidates)>?5 OR (SELECT count(*) FROM neighbors)>?6,
-               n.project,n.body,n.source
+               n.project,n.body,n.source,n.source_task,n.source_run,n.valid_until,n.validity
         FROM visible v JOIN nodes n ON n.key=v.key ORDER BY v.matched DESC,n.date DESC,n.key")).map_err(err)?;
     let mut rows = q.query(bindings).map_err(err)?;
     let mut graph = Graph { nodes: Vec::new(), edges: Vec::new(), limited: false };
     while let Some(row) = rows.next().map_err(err)? {
         let node = (|| -> rusqlite::Result<Node> {
             Ok(Node { key:row.get(0)?,kind:row.get(1)?,title:row.get(2)?,date:row.get(3)?,id:row.get(4)?,
-                url:row.get(5)?,matched:row.get(6)?,project:row.get(8)?,body:row.get(9)?,source:row.get(10)? })
+                url:row.get(5)?,matched:row.get(6)?,project:row.get(8)?,body:row.get(9)?,source:row.get(10)?,
+                source_task:row.get(11)?,source_run:row.get(12)?,valid_until:row.get(13)?,validity:row.get(14)? })
         })().map_err(err)?;
         graph.limited |= row.get::<_,bool>(7).map_err(err)?;
         graph.nodes.push(node);
@@ -206,7 +233,7 @@ mod tests {
     }
 
     fn filter(kind: Option<&str>) -> Filter {
-        Filter { project: Some("web".into()), kind: kind.map(str::to_owned), query: None, workspace: None, from: None, until: None }
+        Filter { project: Some("web".into()), kind: kind.map(str::to_owned), ..Filter::default() }
     }
 
     #[test]
@@ -252,6 +279,30 @@ mod tests {
         assert!(graph.limited);
         assert_eq!(graph.nodes.iter().filter(|n|n.matched).count(),ANCHORS as usize);
     }
+
+    #[test]
+    fn searches_older_memories_and_applies_validity_before_the_display_limit() {
+        let conn = fixture();
+        conn.execute_batch(
+            "INSERT INTO brain_entries(id,project,kind,title,body,source,share,valid_until,updated)
+             VALUES(40,'web','decision','Nota antigua','Árbol accesible','acta inicial',0,1,1);
+             UPDATE brain_entries SET title='En otro proyecto',body='Árbol accesible',valid_until=1 WHERE id=5;
+             WITH RECURSIVE ids(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM ids WHERE i<300)
+             INSERT INTO brain_entries(project,kind,title,body,source,share,updated)
+             SELECT 'web','decision','Nota reciente '||i,'contexto','acta reciente',0,1000+i FROM ids;",
+        ).unwrap();
+        let unfiltered = read(&conn, &Filter { memory_only: true, ..filter(None) }).unwrap();
+        assert!(!unfiltered.nodes.iter().any(|node| node.id == 40 && node.kind == "decision"));
+        let graph = read(&conn, &Filter {
+            query: Some("arbol acces".into()), validity: Some("caducado".into()), memory_only: true, ..filter(None)
+        }).unwrap();
+        let matched: Vec<_> = graph.nodes.iter().filter(|node| node.matched).collect();
+        assert_eq!(matched.len(), 1);
+        assert_eq!(matched[0].key, "m:40");
+        assert_eq!(matched[0].validity.as_deref(), Some("caducado"));
+        assert_eq!(matched[0].valid_until, Some(1));
+        assert!(read(&conn, &Filter { focus_id: Some(5), ..filter(None) }).unwrap().nodes.iter().all(|node| node.key != "m:5"));
+    }
 }
 
 #[cfg(test)]
@@ -265,7 +316,7 @@ mod general_tests {
             ('beta','decision','ADR beta','otro criterio','acta beta',0);
             INSERT INTO github_pulls(project,repository,branch,number,snapshot,observed_at) VALUES
             ('alpha','demo/shared','main',1,'{}',100),('beta','demo/shared','main',1,'{}',100);").unwrap();
-        let filter = Filter { project: None, kind: None, query: None, workspace: None, from: None, until: None };
+        let filter = Filter::default();
         let all = read(&conn,&filter).unwrap();
         assert_eq!(all.nodes.iter().filter(|n|n.kind=="pr").count(),2);
         let found = read(&conn,&Filter { query:Some("valido".into()),..filter }).unwrap();
@@ -276,11 +327,11 @@ mod general_tests {
         assert!(found.nodes.iter().any(|n|n.key=="project:alpha"));
         assert!(!found.nodes.iter().any(|n|n.project.as_deref()==Some("beta")));
         for query in ["x", "#", "\""] {
-            read(&conn, &Filter { query:Some(query.into()),project:None,kind:None,workspace:None,from:None,until:None }).unwrap();
+            read(&conn, &Filter { query:Some(query.into()), ..Filter::default() }).unwrap();
         }
         let workspace = read(&conn, &Filter {
             workspace: Some(r#"{"alpha":"Alpha","empty":"Vacío"}"#.into()),
-            query: None, project: None, kind: None, from: None, until: None,
+            ..Filter::default()
         }).unwrap();
         assert!(workspace.nodes.iter().any(|n| n.key == "project:empty" && n.title == "Vacío"));
         assert!(!workspace.nodes.iter().any(|n| n.project.as_deref() == Some("beta")));

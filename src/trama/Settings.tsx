@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
 import UsagePanel from '../Usage';
-import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
+import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type RuleStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
 import { setLightTheme, shortcut, useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
@@ -19,13 +19,22 @@ export default function Settings({ agentSessions, project, projectName, tools, c
   agentSessions: Session[]; project: string | null; projectName: string | null; tools: Tool[] | null; checking: boolean; autoUpdates: CliUpdate[] | null;
   onRefreshTools: () => void; onLogin: ((command: string) => void) | null; usage: Parameters<typeof UsagePanel>[0]; commands: { id: string; label: string; keys?: string }[];
 }) {
-  const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'modelos'; } catch { return 'modelos'; } });
+  const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'skills'; } catch { return 'skills'; } });
+  const [projectSkills, setProjectSkills] = useState(false);
   const pick = (s: Section) => { setSec(s); try { localStorage.setItem('filigranas.ajustes', s); } catch { /* */ } };
   return (
     <Root label="Ajustes">
       <div className="set">
         <nav className="snav" aria-label="Secciones de ajustes">
           {SECS.map(([id, ic, l]) => <button key={id} className={sec === id ? 'on' : ''} aria-current={sec === id ? 'page' : undefined} onClick={() => pick(id)}><Icon name={ic} size={15} /><span>{l}</span></button>)}
+          {sec === 'skills' && <div className="settings-scope">
+            <span className="lab">Ámbito</span>
+            <div className="seg" role="group" aria-label="Ámbito de las skills">
+              <button aria-pressed={!projectSkills || !project} className={!projectSkills || !project ? 'on' : ''} onClick={() => setProjectSkills(false)}>Global</button>
+              {project && <button aria-pressed={projectSkills} className={projectSkills ? 'on' : ''} title={projectName ?? undefined} onClick={() => setProjectSkills(true)}>Proyecto</button>}
+              {project && <button onClick={() => pick('agentes')}>Sesión</button>}
+            </div>
+          </div>}
           <p className="sample" style={{ padding: '14px 10px' }}>Cada opción indica dónde está definida. {projectName ? `Proyecto abierto: ${projectName}.` : 'Sin proyecto abierto.'}</p>
         </nav>
         <div className="sbody scr">
@@ -34,7 +43,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
             <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. El catálogo muestra el estado de las herramientas disponibles. El modelo de cada conversación se elige en su propio selector.</p>
             <div className="tr-settings-card"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
           </>}
-          {sec === 'skills' && <SkillsSec key={project} project={project} projectName={projectName} />}
+          {sec === 'skills' && <SkillsSec project={project} scope={projectSkills ? project : null} />}
           {sec === 'permisos' && <>
             <h2 className="vt">Permisos</h2>
             <p className="lead">Las operaciones críticas no se pueden relajar desde aquí: siempre piden autorización explícita en el momento.</p>
@@ -65,24 +74,20 @@ const SKILL_NAMES: Record<string, string> = {
   'design-loop': 'Diseño', 'code-review': 'Revisión', 'github-flow': 'GitHub',
 };
 
-function SkillsSec({ project, projectName }: { project: string | null; projectName: string | null }) {
-  const [scope, setScope] = useState<string | null>(null);
+function SkillsSec({ project, scope }: { project: string | null; scope: string | null }) {
   return <>
     <h2 className="vt">Skills y reglas</h2>
-    <p className="lead">Elige qué skills de Filigranas recibe cada rol en su siguiente turno. Configura el rol de cada conversación en Agentes.</p>
-    <div className="seg skill-scope" role="group" aria-label="Ámbito de las skills">
-      <button aria-pressed={scope == null} className={scope == null ? 'on' : ''} onClick={() => setScope(null)}>Global</button>
-      {project && <button aria-pressed={scope != null} className={scope != null ? 'on' : ''} onClick={() => setScope(project)}>{projectName ?? 'Proyecto'}</button>}
-    </div>
-    <SkillMatrix key={scope} project={scope} />
+    <p className="lead">Activa o desactiva las skills que recibe cada rol en su siguiente turno.</p>
+    <SkillMatrix key={`scope:${scope ?? 'global'}:${project ?? ''}`} project={scope} rulesProject={project} />
     <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
     <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
   </>;
 }
 
-function SkillMatrix({ project }: { project: string | null }) {
+function SkillMatrix({ project, rulesProject }: { project: string | null; rulesProject: string | null }) {
   const [list, setList] = useState<SkillInfo[]>([]);
   const [cells, setCells] = useState<SkillAssignment[] | null>(null);
+  const [catalogRole, setCatalogRole] = useState<SkillRole>('senior');
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
   useEffect(() => {
@@ -110,16 +115,14 @@ function SkillMatrix({ project }: { project: string | null }) {
     {cells && <div className="skill-scroll"><table className="mx skill-matrix" aria-label="Asignación de skills por rol">
       <thead><tr><th scope="col">Skill</th>{ROLES.map(([id, name]) => <th key={id} scope="col">{name}</th>)}</tr></thead>
       <tbody>{list.map((skill) => <tr key={skill.name}>
-        <th scope="row" title={skill.description}>{SKILL_NAMES[skill.name] ?? skill.name}<span className="mono mut2">{skill.name}</span></th>
+        <th scope="row" title={skill.description}>{SKILL_NAMES[skill.name] ?? skill.name} <span className="mono skill-key">{skill.name}</span></th>
         {ROLES.map(([role, name]) => {
           const cell = cells.find((item) => item.skill === skill.name && item.role === role);
           return <td key={role}><span className="skill-controls">
             <button className={`skill-cell${cell?.enabled ? ' on' : ''}`} disabled={saving || !cell}
               aria-pressed={cell?.enabled ?? false} aria-label={`${skill.name} para ${name}`}
               title={cell?.inherited ? 'Hereda del ámbito global' : undefined}
-              onClick={() => void change(skill.name, role, !cell?.enabled)}>
-              {cell?.enabled ? <Icon name="check" size={13} /> : <span aria-hidden="true">−</span>}
-            </button>
+              onClick={() => void change(skill.name, role, !cell?.enabled)} />
             {project && cell && !cell.inherited && <button className="skill-reset" disabled={saving}
               title="Heredar del ámbito global" aria-label={`Heredar ${skill.name} para ${name}`}
               onClick={() => void change(skill.name, role, null)}><Icon name="close" size={10} /></button>}
@@ -128,7 +131,41 @@ function SkillMatrix({ project }: { project: string | null }) {
       </tr>)}</tbody>
     </table></div>}
     {status && <p className="skill-status mut2" role="status">{status}</p>}
+    {cells && <div className="skill-insights">
+      <RuleDuplicates project={rulesProject} />
+      <section className="pane" aria-label="Catálogo efectivo">
+        <div className="row">
+          <Icon name="layers" size={14} /><b>Catálogo efectivo</b><span className="grow" />
+          <label className="row">Rol <select className="in" aria-label="Rol del catálogo" value={catalogRole} onChange={(event) => setCatalogRole(event.currentTarget.value as SkillRole)}>
+            {ROLES.map(([role, name]) => <option key={role} value={role}>{name}</option>)}
+          </select></label>
+        </div>
+        <p className="mut2">Skills disponibles para este rol en el siguiente turno de Codex o Claude.</p>
+        {cells.some((cell) => cell.enabled && cell.role === catalogRole) ? <ul>
+          {cells.filter((cell) => cell.enabled && cell.role === catalogRole).map((cell) => <li key={cell.skill}><span className="mono">{cell.skill}</span></li>)}
+        </ul> : <p className="mut2">Este rol carece de skills habilitadas en este ámbito.</p>}
+      </section>
+    </div>}
   </>;
+}
+
+function RuleDuplicates({ project }: { project: string | null }) {
+  const [status, setStatus] = useState<RuleStatus | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    if (!project) return;
+    let active = true;
+    skillsApi.ruleStatus(project).then((next) => { if (active) setStatus(next); }, () => { if (active) setError(true); });
+    return () => { active = false; };
+  }, [project]);
+  const text = !project ? 'Abre un proyecto para revisar su AGENTS.md.'
+    : error ? 'La comprobación de AGENTS.md no está disponible.'
+    : !status ? 'Comprobando AGENTS.md…'
+    : !status.agentsFile ? 'Este proyecto aún no tiene AGENTS.md.'
+    : status.copiedTrafficRule ? 'AGENTS.md repite las medidas de la norma del semáforo macOS de design-loop.'
+    : status.linksTrafficReference ? 'AGENTS.md enlaza la norma del semáforo macOS de design-loop.'
+    : 'La frase canónica de medidas vive en la referencia de design-loop.';
+  return <section className="pane" aria-label="Duplicidades"><div className="row"><Icon name="warn" size={14} /><b>Duplicidades</b></div><p className="mut2">{text}</p></section>;
 }
 
 function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {

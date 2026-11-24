@@ -1,7 +1,9 @@
+import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
-import { Composer, ConversationLog, KIND_LETTER, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { useReportActivity } from './ui';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
 import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
@@ -16,6 +18,8 @@ type Props = {
   switching?: boolean;
   providerPicker?: ReactNode;
   onDiff: (c: Change) => void;
+  workflow?: ConversationWorkflow;
+  observation?: HTMLElement | null;
   session?: { id: number; name: string; worktree: string | null; branch?: string | null; base?: string | null };
   task?: { id: number; title: string } | null;
   onClearTask?: () => void;
@@ -30,7 +34,7 @@ type Props = {
  * del hilo guardado; los turnos nuevos llegan como eventos y se pintan a
  * medida que avanzan. Las aprobaciones esperan aquí la decisión del usuario.
  */
-export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
+export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, workflow, observation, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
   const sessionId = session?.id ?? null;
   const directName = session?.name;
   const history = useChatHistory(project, sessionId);
@@ -183,18 +187,19 @@ export default function Coordinator({ project, hidden, switching, providerPicker
     coordinator.respond(a.requestId, decision).catch((e) => setError(String(e)));
   };
 
-  const asks: Ask[] = approvals.map((a, i) => {
+  const ownedAsks: Ask[] = approvals.map((a) => {
     const files = a.method.includes('fileChange') ? (items.find((it) => it.id === a.params.itemId)?.changes ?? []) : [];
     return {
-      key: `${i}-${JSON.stringify(a.requestId)}`,
+      key: JSON.stringify(a.requestId),
       title: a.method.includes('fileChange') ? 'quiere cambiar archivos' : 'quiere ejecutar',
       command: a.params.command ?? undefined,
-      files: files.map((c) => `${KIND_LETTER[c.kind.type] ?? 'M'} ${c.path}`),
+      files: files.map((c) => c.path),
       reason: a.params.reason ?? undefined,
       decide: (d) => respond(a, d),
     };
   });
 
+  const asks = useSharedPermissions(project, sessionId, directName ?? 'Codex', session?.worktree ?? project, ownedAsks);
   const state = approvals.length ? 'esperando permiso' : running ? 'en marcha' : error && !info ? 'fallida' : 'inactiva';
   useReportActivity(session ? null : 'coach', state);
   useEffect(() => onActivity?.(state), [onActivity, state]);
@@ -217,9 +222,10 @@ export default function Coordinator({ project, hidden, switching, providerPicker
 
   return (
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
-
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff}>
-        {opening && <div className="muted">abriendo el coordinador…</div>}
+      {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
+        agent={directName ?? 'Project manager'} project={session?.worktree ?? project} onDiff={onDiff} />}
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} workflow={hidden ? undefined : workflow}>
+        {opening && !hasWork && <div className="muted" role="status">Abriendo el coordinador…</div>}
         {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {history.error && <div className="co-error">{history.error}</div>}
         {autoNotes.map((note, i) => <div key={i} className="co-auto"><Icon name="check" size={12} />{note}</div>)}
@@ -254,6 +260,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
               {info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel) && <option value={info.pinnedModel}>{info.pinnedModel} · no disponible</option>}
               {info.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
             </select> : <span className="chip is-static">codex{info?.model ? ` · ${info.model}` : ''}</span>}
+            {opening && hasWork && <span className="co-connecting" role="status">Conectando…</span>}
             {task && <button className="co-btn" onClick={onClearTask} title="desvincular los próximos mensajes" disabled={!!running}>#{task.id} {task.title} ×</button>}
           </>
         }

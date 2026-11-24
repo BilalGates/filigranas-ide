@@ -1,0 +1,52 @@
+{
+  "scope": "aislamiento de tareas con proveedores autenticados",
+  "turns": [
+    {
+      "provider": "claude",
+      "startedMs": 1795451771842,
+      "durationMs": 9591,
+      "outcome": "completed"
+    },
+    {
+      "provider": "codex",
+      "startedMs": 1795451773042,
+      "durationMs": 16925,
+      "outcome": "completed"
+    }
+  ],
+  "permissions": [
+    {
+      "provider": "claude",
+      "tool": "Edit",
+      "decision": "accept"
+    }
+  ],
+  "animation": {
+    "samples": 1102,
+    "p95Ms": 18,
+    "maxMs": 45
+  },
+  "navigation": {
+    "samples": 42,
+    "p95Ms": 48,
+    "maxMs": 50
+  },
+  "projectOriginalPreserved": true,
+  "overlapMs": 8391,
+  "fixture": {
+    "committed": "TRAMA-BASE",
+    "projectPreserved": "TRAMA-LOCAL",
+    "worktreeResults": {
+      "claude": "TRAMA-CLAUDE",
+      "codex": "TRAMA-CODEX"
+    },
+    "separateWorktrees": true
+  },
+  "independentContent": true,
+  "verification": "Los turnos devolvieron completed. El comprobador inicial esperaba ok. Se verificaron por separado las dos ramas, HEAD y el contenido con Git y lectura local, sin reenviar mensajes.",
+  "processResources": {
+    "samples": 21,
+    "cpuMedianPct": 4.0,
+    "rssMedianMiB": 111.36
+  }
+}

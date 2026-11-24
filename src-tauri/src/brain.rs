@@ -23,6 +23,10 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
            CHECK(source_task IS NULL OR source_run IS NULL)
          );
          CREATE INDEX IF NOT EXISTS brain_scope ON brain_entries(project,task,updated);
+         CREATE TABLE IF NOT EXISTS brain_inferences (
+           id INTEGER PRIMARY KEY AUTOINCREMENT, project TEXT NOT NULL, title TEXT NOT NULL,
+           draft TEXT NOT NULL, created INTEGER NOT NULL DEFAULT(unixepoch()), UNIQUE(project,title)
+         );
          CREATE TABLE IF NOT EXISTS brain_recall (
            run INTEGER NOT NULL REFERENCES task_runs(id), entry INTEGER NOT NULL REFERENCES brain_entries(id) ON DELETE CASCADE,
            position INTEGER NOT NULL, version INTEGER NOT NULL, source TEXT NOT NULL,
@@ -326,6 +330,92 @@ pub fn brain_forget(state: State<AppState>, project: Option<String>, id: i64, ve
     forget(&conn, project, id, version)
 }
 
+#[derive(Serialize)]
+pub struct Inference {
+    id: i64,
+    draft: Draft,
+    created: i64,
+}
+
+fn propose(conn: &Connection, project: &str, mut draft: Draft) -> CmdResult<i64> {
+    if draft.global || draft.id.is_some() || draft.version.is_some() {
+        return Err("una inferencia pendiente pertenece a un proyecto y se guarda como nueva".into());
+    }
+    draft.share = false;
+    validate(conn, project, &draft)?;
+    let encoded = serde_json::to_string(&draft).map_err(err)?;
+    conn.execute(
+        "INSERT INTO brain_inferences(project,title,draft) VALUES(?1,?2,?3) ON CONFLICT(project,title) DO NOTHING",
+        params![project,draft.title.trim(),encoded],
+    ).map_err(err)?;
+    conn.query_row("SELECT id FROM brain_inferences WHERE project=?1 AND title=?2",
+        params![project,draft.title.trim()], |row| row.get(0)).map_err(err)
+}
+
+fn inference_draft(conn: &Connection, project: &str, id: i64) -> CmdResult<Draft> {
+    let raw: String = conn.query_row("SELECT draft FROM brain_inferences WHERE id=?1 AND project=?2",
+        params![id,project], |row| row.get(0)).optional().map_err(err)?
+        .ok_or("la inferencia ya no está disponible en este proyecto")?;
+    serde_json::from_str(&raw).map_err(err)
+}
+
+fn correct_inference(conn: &Connection, project: &str, id: i64, title: String) -> CmdResult<()> {
+    let mut draft = inference_draft(conn, project, id)?;
+    if draft.body == draft.title {
+        draft.body = title.clone();
+    }
+    draft.title = title;
+    validate(conn, project, &draft)?;
+    let raw = serde_json::to_string(&draft).map_err(err)?;
+    conn.execute("UPDATE brain_inferences SET title=?3,draft=?4 WHERE id=?1 AND project=?2",
+        params![id,project,draft.title.trim(),raw]).map_err(err)?;
+    Ok(())
+}
+
+fn decide_inference(conn: &Connection, project: &str, id: i64, approve: bool) -> CmdResult<Option<i64>> {
+    let tx = conn.unchecked_transaction().map_err(err)?;
+    let draft = inference_draft(&tx, project, id)?;
+    let entry = if approve {
+        Some(save(&tx, project, draft)?)
+    } else { None };
+    tx.execute("DELETE FROM brain_inferences WHERE id=?1 AND project=?2", params![id,project]).map_err(err)?;
+    tx.commit().map_err(err)?;
+    Ok(entry)
+}
+
+#[tauri::command]
+pub fn brain_propose(state: State<AppState>, project: String, draft: Draft) -> CmdResult<i64> {
+    let conn = state.db.lock().map_err(err)?;
+    propose(&conn, &project_path(&conn, &project)?, draft)
+}
+
+#[tauri::command]
+pub fn brain_inferences(state: State<AppState>, project: String) -> CmdResult<Vec<Inference>> {
+    let conn = state.db.lock().map_err(err)?;
+    let project = project_path(&conn, &project)?;
+    let mut query = conn.prepare(
+        "SELECT id,draft,created FROM brain_inferences WHERE project=?1 ORDER BY created DESC,id DESC LIMIT 61",
+    ).map_err(err)?;
+    let rows = query.query_map([project], |row|
+        Ok((row.get(0)?, row.get::<_, String>(1)?, row.get(2)?))).map_err(err)?;
+    rows.map(|row| {
+        let (id, raw, created) = row.map_err(err)?;
+        Ok(Inference { id, draft: serde_json::from_str(&raw).map_err(err)?, created })
+    }).collect()
+}
+
+#[tauri::command]
+pub fn brain_correct_inference(state: State<AppState>, project: String, id: i64, title: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    correct_inference(&conn, &project_path(&conn, &project)?, id, title)
+}
+
+#[tauri::command]
+pub fn brain_decide_inference(state: State<AppState>, project: String, id: i64, approve: bool) -> CmdResult<Option<i64>> {
+    let conn = state.db.lock().map_err(err)?;
+    decide_inference(&conn, &project_path(&conn, &project)?, id, approve)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,6 +433,26 @@ mod tests {
              (2,'web','Otro encargo','ajustar documentación','comprobar texto','normal','normal','ready'),
              (3,'other','Migración de catálogo','actualizar catálogo','verifica paginación','normal','normal','ready');",
         ).unwrap();
+    }
+
+    #[test]
+    fn pending_inferences_are_private_and_can_be_decided_once_in_their_project() {
+        let conn = crate::db::open(std::path::Path::new(":memory:")).unwrap();
+        let id = propose(&conn, "web", draft("Pendiente para Brain")).unwrap();
+        assert!(search(&conn, "web", "Pendiente", None).unwrap().is_empty());
+        assert!(decide_inference(&conn, "other", id, true).is_err());
+        assert!(correct_inference(&conn, "other", id, "Otro proyecto".into()).is_err());
+        correct_inference(&conn, "web", id, "Pendiente corregida para Brain".into()).unwrap();
+        assert!(search(&conn, "web", "corregida", None).unwrap().is_empty());
+        let entry_id = decide_inference(&conn, "web", id, true).unwrap().unwrap();
+        assert!(decide_inference(&conn, "web", id, true).is_err());
+        let results = search(&conn, "web", "Pendiente", None).unwrap();
+        assert_eq!(results[0].draft.id, Some(entry_id));
+        assert_eq!(results[0].draft.title, "Pendiente corregida para Brain");
+        assert!(!results[0].draft.share);
+        let discard = propose(&conn, "web", draft("Descartar")).unwrap();
+        assert_eq!(decide_inference(&conn, "web", discard, false).unwrap(), None);
+        assert!(search(&conn, "web", "Descartar", None).unwrap().is_empty());
     }
 
     #[test]

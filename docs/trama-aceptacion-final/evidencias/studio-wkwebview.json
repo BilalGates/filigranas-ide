@@ -1,0 +1,63 @@
+{
+  "versions": [
+    {
+      "note": "Botón nacarado; estados con punto",
+      "status": "candidate",
+      "width": 620,
+      "height": 421
+    },
+    {
+      "note": "Cabecera aprobada y bloqueada",
+      "status": "approved",
+      "width": 620,
+      "height": 421
+    },
+    {
+      "note": "Botón en contorno; filas más bajas",
+      "status": "candidate",
+      "width": 620,
+      "height": 421
+    },
+    {
+      "note": "Propuesta inicial",
+      "status": "candidate",
+      "width": 620,
+      "height": 421
+    }
+  ],
+  "references": [
+    "nube.png",
+    "esfera.png",
+    "onda.png",
+    "matriz.png",
+    "metal.png",
+    "grafo.png"
+  ],
+  "selected": "v3 aprobadaPNG importado · Cabecera aprobada y bloqueada",
+  "dimensions": {
+    ".slist": {
+      "x": 56,
+      "y": 89,
+      "width": 212,
+      "height": 785
+    },
+    ".canvasw": {
+      "x": 268,
+      "y": 89,
+      "width": 856,
+      "height": 785
+    },
+    ".toolbar": {
+      "x": 595,
+      "y": 814,
+      "width": 202,
+      "height": 44
+    },
+    ".studio-composer": {
+      "x": 1125,
+      "y": 753.484375,
+      "width": 305,
+      "height": 100.6875
+    }
+  }
+}

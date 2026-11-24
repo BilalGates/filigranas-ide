@@ -216,7 +216,6 @@ pub fn create_handoff(conn: &mut Connection, id: i64, engine: &str, provider_ses
 }
 
 /// Rama y worktree de una sesión aislada.
-#[cfg(test)]
 pub fn set_session_worktree(conn: &Connection, id: i64, worktree: &str, branch: &str, base: &str, base_commit: &str) -> rusqlite::Result<()> {
     conn.execute(
         "UPDATE sessions SET worktree = ?2, branch = ?3, base = ?4, base_commit = ?5 WHERE id = ?1",

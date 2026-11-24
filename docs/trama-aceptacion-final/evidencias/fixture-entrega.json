@@ -1,0 +1,49 @@
+{
+  "files": [
+    {
+      "path": "src-tauri/src/git_ops.rs",
+      "before": "// Operaciones remotas. Larry nunca las ejecuta: requieren confirmación.\nuse crate::{git::run_git, CmdResult};\n\n#[tauri::command]\npub fn git_fetch(project: String) -> CmdResult<String> {\n    run_git(&project, &[\"fetch\", \"--prune\"])\n}\n\n#[tauri::command]\npub fn git_pull(project: String) -> CmdResult<String> {\n    run_git(&project, &[\"pull\"])\n}\n\n#[tauri::command]\n\n// push: exige rama remota existente y autorización explícita\npub fn git_push(project: String, branch: String) -> CmdResult<String> {\n    run_git(&project, &[\"push\", \"origin\", &branch])\n}\n",
+      "after": "// Operaciones remotas. Larry nunca las ejecuta: requieren confirmación.\nuse crate::{git::run_git, CmdResult};\n\n#[tauri::command]\npub fn git_fetch(project: String) -> CmdResult<String> {\n    run_git(&project, &[\"fetch\", \"--prune\"])\n}\n\n#[tauri::command]\npub fn git_pull(project: String) -> CmdResult<String> {\n    run_git(&project, &[\"pull\", \"--ff-only\"])\n        .map_err(|e| network_hint(&e))\n}\n\n#[tauri::command]\npub fn git_stash(project: String, pop: bool) -> CmdResult<StashState> {\n    let args = if pop { [\"stash\", \"pop\"] } else { [\"stash\", \"push\"] };\n    match run_git(&project, &args) {\n        Ok(_) => Ok(StashState::Clean),\n        Err(e) if e.contains(\"CONFLICT\") => Ok(StashState::Conflict),\n        Err(e) => Err(e),\n    }\n}\n\n// push: exige rama remota existente y autorización explícita\npub fn git_push(project: String, branch: String) -> CmdResult<String> {\n    run_git(&project, &[\"push\", \"origin\", &branch])\n}\n"
+    },
+    {
+      "path": "src/GitPanel.tsx",
+      "before": "export function GitPanel() {\n  const { run, gitOps } = useGit();\n\n  const actions = [\n    { id: 'commit', act: onCommits },\n  ];\n  return <Actions items={actions} />;\n}\n",
+      "after": "export function GitPanel() {\n  const { run, gitOps } = useGit();\n\n  const actions = [\n    { id: 'commit', act: propose },\n    { id: 'pull',   act: () => run('pull', gitOps.pull) },\n    { id: 'push',   act: () => run('push', gitOps.push) },\n  ];\n  return <Actions items={actions} />;\n}\n"
+    },
+    {
+      "path": "src/ipc.ts",
+      "before": "// Contrato tipado: la interfaz nunca ejecuta comandos\nexport const gitOps = {\n  fetch: (p: string) => invoke<string>('git_fetch', { project: p }),\n  pull:  (p: string) => invoke<string>('git_pull',  { project: p }),\n};\n",
+      "after": "// Contrato tipado: la interfaz nunca ejecuta comandos\nexport const gitOps = {\n  fetch: (p: string) => invoke<string>('git_fetch', { project: p }),\n  pull:  (p: string) => invoke<string>('git_pull',  { project: p }),\n};\n"
+    }
+  ],
+  "findings": [
+    {
+      "id": "f1",
+      "path": "src-tauri/src/git_ops.rs",
+      "label": "push no comprueba si la rama remota está protegida",
+      "line": 27,
+      "severity": "error"
+    },
+    {
+      "id": "f2",
+      "path": "src-tauri/src/git_ops.rs",
+      "label": "stash pop: el conflicto deja el árbol a medias sin aviso en la interfaz",
+      "line": 20,
+      "severity": "warning"
+    },
+    {
+      "id": "f3",
+      "path": "src/GitPanel.tsx",
+      "label": "Un error de red se muestra como stderr crudo",
+      "line": 7,
+      "severity": "warning"
+    },
+    {
+      "id": "f4",
+      "path": "src/GitPanel.tsx",
+      "label": "Nombre ambiguo: run() se usa para dos cosas",
+      "line": 6,
+      "severity": "note"
+    }
+  ]
+}

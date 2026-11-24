@@ -1,0 +1,361 @@
+{
+  "phases": [
+    {
+      "name": "arranque",
+      "elapsedMs": 2806,
+      "ipc": {
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 2285,
+          "worstMs": 1150
+        },
+        "get_workspace": {
+          "count": 2,
+          "totalMs": 79,
+          "worstMs": 68
+        },
+        "tools_status": {
+          "count": 3,
+          "totalMs": 2224,
+          "worstMs": 849
+        },
+        "watch_project": {
+          "count": 2,
+          "totalMs": 11,
+          "worstMs": 9
+        },
+        "jev_statusbar": {
+          "count": 2,
+          "totalMs": 22,
+          "worstMs": 15
+        },
+        "home_summary": {
+          "count": 1,
+          "totalMs": 418,
+          "worstMs": 418
+        },
+        "jev_usage": {
+          "count": 1,
+          "totalMs": 3,
+          "worstMs": 3
+        }
+      },
+      "react": {
+        "count": 14,
+        "medianMs": 3,
+        "p95Ms": 20,
+        "maxMs": 20
+      },
+      "frames": {
+        "count": 157,
+        "medianMs": 17,
+        "p95Ms": 21,
+        "maxMs": 94
+      },
+      "over50ms": 3,
+      "over100ms": 0,
+      "input": {
+        "count": 0,
+        "medianMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      }
+    },
+    {
+      "name": "navegación y grafo",
+      "elapsedMs": 8599,
+      "ipc": {
+        "session_orphans": {
+          "count": 2,
+          "totalMs": 12,
+          "worstMs": 7
+        },
+        "home_summary": {
+          "count": 5,
+          "totalMs": 1057,
+          "worstMs": 235
+        },
+        "task_flow": {
+          "count": 5,
+          "totalMs": 44,
+          "worstMs": 10
+        },
+        "design_list": {
+          "count": 10,
+          "totalMs": 39,
+          "worstMs": 5
+        },
+        "git_status": {
+          "count": 21,
+          "totalMs": 1385,
+          "worstMs": 85
+        },
+        "git_log": {
+          "count": 20,
+          "totalMs": 1027,
+          "worstMs": 59
+        },
+        "git_branches": {
+          "count": 10,
+          "totalMs": 470,
+          "worstMs": 55
+        },
+        "git_stash_list": {
+          "count": 10,
+          "totalMs": 471,
+          "worstMs": 54
+        },
+        "health_list": {
+          "count": 10,
+          "totalMs": 159,
+          "worstMs": 23
+        },
+        "health_ci": {
+          "count": 10,
+          "totalMs": 461,
+          "worstMs": 54
+        },
+        "work_current": {
+          "count": 20,
+          "totalMs": 185,
+          "worstMs": 22
+        },
+        "tasks_list": {
+          "count": 10,
+          "totalMs": 186,
+          "worstMs": 22
+        },
+        "git_diff_texts": {
+          "count": 10,
+          "totalMs": 236,
+          "worstMs": 98
+        },
+        "larry_groups": {
+          "count": 1,
+          "totalMs": 186,
+          "worstMs": 186
+        }
+      },
+      "react": {
+        "count": 76,
+        "medianMs": 1,
+        "p95Ms": 5,
+        "maxMs": 9
+      },
+      "frames": {
+        "count": 469,
+        "medianMs": 17,
+        "p95Ms": 31,
+        "maxMs": 134
+      },
+      "over50ms": 8,
+      "over100ms": 2,
+      "input": {
+        "count": 25,
+        "medianMs": 49,
+        "p95Ms": 117,
+        "maxMs": 133
+      }
+    },
+    {
+      "name": "navegación sostenida con PTY",
+      "elapsedMs": 63929,
+      "ipc": {
+        "pty_open": {
+          "count": 1,
+          "totalMs": 13,
+          "worstMs": 13
+        },
+        "pty_write": {
+          "count": 1,
+          "totalMs": 1,
+          "worstMs": 1
+        },
+        "task_flow": {
+          "count": 16,
+          "totalMs": 140,
+          "worstMs": 11
+        },
+        "home_summary": {
+          "count": 15,
+          "totalMs": 3391,
+          "worstMs": 249
+        },
+        "jev_statusbar": {
+          "count": 4,
+          "totalMs": 7,
+          "worstMs": 3
+        },
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 1455,
+          "worstMs": 982
+        },
+        "get_workspace": {
+          "count": 1,
+          "totalMs": 2,
+          "worstMs": 2
+        },
+        "git_status": {
+          "count": 1,
+          "totalMs": 37,
+          "worstMs": 37
+        },
+        "pty_close": {
+          "count": 1,
+          "totalMs": 51,
+          "worstMs": 51
+        }
+      },
+      "react": {
+        "count": 99,
+        "medianMs": 2,
+        "p95Ms": 11,
+        "maxMs": 14
+      },
+      "frames": {
+        "count": 3723,
+        "medianMs": 17,
+        "p95Ms": 18,
+        "maxMs": 114
+      },
+      "over50ms": 27,
+      "over100ms": 2,
+      "input": {
+        "count": 30,
+        "medianMs": 102,
+        "p95Ms": 126,
+        "maxMs": 128
+      }
+    }
+  ],
+  "hardware": {
+    "scale": 1,
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": {
+    "repositories": 32,
+    "tasks": 240
+  },
+  "terminalBytes": 2706,
+  "motion": [
+    {
+      "value": "completo",
+      "effective": "completo",
+      "saved": "completo",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": true
+    },
+    {
+      "value": "sin-ambiente",
+      "effective": "sin-ambiente",
+      "saved": "sin-ambiente",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": false
+    },
+    {
+      "value": "reducido",
+      "effective": "reducido",
+      "saved": "reducido",
+      "working": "none",
+      "thinking": "none",
+      "permission": "none",
+      "flow": "none",
+      "ambient": false
+    }
+  ],
+  "scene": {
+    "view": "Flow",
+    "lens": "exec",
+    "selected": "t2",
+    "nodes": [
+      {
+        "id": "L-aud",
+        "x": 30,
+        "y": 396
+      },
+      {
+        "id": "L-aud2",
+        "x": 30,
+        "y": 462
+      },
+      {
+        "id": "L-cod",
+        "x": 30,
+        "y": 264
+      },
+      {
+        "id": "L-jev",
+        "x": 30,
+        "y": 0
+      },
+      {
+        "id": "L-jun",
+        "x": 30,
+        "y": 330
+      },
+      {
+        "id": "L-pm",
+        "x": 30,
+        "y": 66
+      },
+      {
+        "id": "L-res",
+        "x": 30,
+        "y": 132
+      },
+      {
+        "id": "L-sen",
+        "x": 30,
+        "y": 198
+      },
+      {
+        "id": "t1",
+        "x": 280,
+        "y": 132
+      },
+      {
+        "id": "t2",
+        "x": 494,
+        "y": 198
+      },
+      {
+        "id": "t3",
+        "x": 494,
+        "y": 264
+      },
+      {
+        "id": "t4",
+        "x": 708,
+        "y": 330
+      },
+      {
+        "id": "t5",
+        "x": 708,
+        "y": 198
+      },
+      {
+        "id": "t6",
+        "x": 922,
+        "y": 66
+      },
+      {
+        "id": "t7",
+        "x": 922,
+        "y": 396
+      },
+      {
+        "id": "t8",
+        "x": 1136,
+        "y": 66
+      }
+    ]
+  }
+}

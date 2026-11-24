@@ -88,6 +88,18 @@ fn catalog(root: &Path, enabled: impl Fn(&str) -> bool) -> String {
     text
 }
 
+// Matriz base de Trama v2. Los valores guardados prevalecen sobre estos.
+fn default_assignment(role: Role, skill: &str) -> bool {
+    match skill {
+        "implement" | "debug" => matches!(role, Role::Senior | Role::Junior),
+        "research" => matches!(role, Role::Pm | Role::Researcher),
+        "design-loop" => matches!(role, Role::Designer | Role::Senior),
+        "code-review" => matches!(role, Role::Auditor | Role::Auditor2),
+        "github-flow" => role == Role::Pm,
+        _ => false,
+    }
+}
+
 fn assignment(conn: &Connection, scope: &str, role: Role, skill: &str) -> rusqlite::Result<Option<bool>> {
     conn.query_row(
         "SELECT enabled FROM skill_assignments WHERE scope=?1 AND role=?2 AND skill=?3",
@@ -123,7 +135,7 @@ fn turn_catalog(conn: &Connection, project: &str, role: Role, root: &Path, text:
     let mut disabled = Vec::new();
     for (name, _) in SKILLS.iter().filter_map(|skill| metadata(skill)) {
         if assignment(conn, project, role, name).map_err(err)?
-            .or(assignment(conn, "", role, name).map_err(err)?).unwrap_or(true) {
+            .or(assignment(conn, "", role, name).map_err(err)?).unwrap_or_else(|| default_assignment(role, name)) {
             enabled.push(name);
         } else {
             disabled.push(format!("${name}"));
@@ -135,6 +147,50 @@ fn turn_catalog(conn: &Connection, project: &str, role: Role, root: &Path, text:
         result.push_str(&format!("Skills de Filigranas desactivadas para este turno: {}. No las abras como skills de Filigranas.\n", disabled.join(", ")));
     }
     Ok(result)
+}
+
+const MAC_TRAFFIC_REFERENCE: &str = include_str!("../resources/skills/design-loop/references/semaforo-macos.md");
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleStatus {
+    agents_file: bool,
+    copied_traffic_rule: bool,
+    links_traffic_reference: bool,
+}
+
+fn rule_status(text: Option<&str>) -> RuleStatus {
+    let agents_file = text.is_some();
+    let text = text.unwrap_or("");
+    let canonical = MAC_TRAFFIC_REFERENCE.lines().find(|line| line.starts_with("- Usa 16 puntos"))
+        .unwrap_or("").trim_start_matches("- ");
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    RuleStatus {
+        agents_file,
+        copied_traffic_rule: !canonical.is_empty() && normalized.contains(canonical),
+        links_traffic_reference: text.contains("semaforo-macos.md"),
+    }
+}
+
+#[tauri::command]
+pub async fn skills_rule_status(app: AppHandle, project: String) -> CmdResult<RuleStatus> {
+    crate::background_read(app, move |state| {
+        let project = {
+            let conn = state.db.lock().map_err(err)?;
+            project_path(&conn, &project)?
+        };
+        let root = Path::new(&project);
+        let file = root.join("AGENTS.md");
+        match std::fs::symlink_metadata(&file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(rule_status(None)),
+            Err(error) => Err(err(error)),
+            Ok(_) => {
+                let file = crate::paths::inside(root, &file)?;
+                let text = crate::files::read_file(&file)?;
+                Ok(rule_status(Some(&text)))
+            }
+        }
+    }).await
 }
 
 #[derive(Serialize)]
@@ -164,7 +220,7 @@ pub fn skills_assignments(state: State<AppState>, project: Option<String>) -> Cm
     let mut result = Vec::new();
     for (skill, _) in SKILLS.iter().filter_map(|skill| metadata(skill)) {
         for role in ROLES {
-            let global = assignment(&conn, "", role, skill).map_err(err)?.unwrap_or(true);
+            let global = assignment(&conn, "", role, skill).map_err(err)?.unwrap_or_else(|| default_assignment(role, skill));
             let local = scope.as_ref().map(|path| assignment(&conn, path, role, skill)).transpose().map_err(err)?.flatten();
             result.push(Assignment { skill: skill.into(), role, enabled: local.unwrap_or(global), inherited: scope.is_some() && local.is_none() });
         }
@@ -215,6 +271,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn traffic_rules_report_distinguishes_a_reference_from_a_repeated_rule() {
+        assert!(!rule_status(None).agents_file);
+        let linked = rule_status(Some("Aplica [la norma](references/semaforo-macos.md)."));
+        assert!(linked.agents_file && linked.links_traffic_reference && !linked.copied_traffic_rule);
+        let repeated = rule_status(Some(MAC_TRAFFIC_REFERENCE));
+        assert!(repeated.agents_file && repeated.copied_traffic_rule);
+    }
+
+    #[test]
     fn catalog_uses_real_paths_and_only_exposes_skill_metadata() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/skills");
         let listing = catalog(&root, |_| true);
@@ -233,6 +298,28 @@ mod tests {
     }
 
     #[test]
+    fn turn_catalog_respects_the_approved_default_matrix() {
+        let db = crate::db::open(Path::new(":memory:")).unwrap();
+        let root = Path::new("/bundle/skills");
+        let expected: [&[&str]; 7] = [
+            &["github-flow", "research"],
+            &["research"],
+            &["design-loop"],
+            &["implement", "debug", "design-loop"],
+            &["implement", "debug"],
+            &["code-review"],
+            &["code-review"],
+        ];
+        for (role, skills) in ROLES.into_iter().zip(expected) {
+            let listing = turn_catalog(&db, "project", role, root, "Encargo".into()).unwrap();
+            for skill in skills {
+                assert!(listing.contains(&root.join(skill).join("SKILL.md").display().to_string()));
+            }
+            assert_eq!(listing.matches("SKILL.md").count(), skills.len());
+        }
+    }
+
+    #[test]
     fn turn_catalog_applies_role_and_project_overrides_without_changing_global_rules() {
         let db = crate::db::open(Path::new(":memory:")).unwrap();
         let root = Path::new("/bundle/skills");
@@ -243,6 +330,9 @@ mod tests {
         set_assignment(&db, "", Role::Designer, "design-loop", Some(false)).unwrap();
         assert!(!listing("a", Role::Designer).contains(skill_path));
         assert!(listing("a", Role::Senior).contains(skill_path));
+        assert!(!listing("a", Role::Researcher).contains(skill_path));
+        set_assignment(&db, "", Role::Researcher, "design-loop", Some(true)).unwrap();
+        assert!(listing("a", Role::Researcher).contains(skill_path));
         set_assignment(&db, "a", Role::Designer, "design-loop", Some(true)).unwrap();
         assert!(listing("a", Role::Designer).contains(skill_path));
         assert!(!listing("b", Role::Designer).contains(skill_path));

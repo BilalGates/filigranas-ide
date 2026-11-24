@@ -1,7 +1,9 @@
+import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { sessions, type AcpOption, type Change, type CItem, type ChatAttachment, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
-import { Composer, ConversationLog, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import type { ConversationWorkflow } from './trama/ConversationPlan';
+import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
 import { useReportActivity } from './ui';
 import Coordinator from './Coordinator';
 import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
@@ -151,6 +153,8 @@ type Props = {
   onOpenFile?: (path: string) => void;
   onConflicts?: (files: string[]) => void;
   onModel: (key: number | string, model: string | null) => void;
+  workflow?: ConversationWorkflow;
+  observation?: HTMLElement | null;
   manager?: { task: { id: number; title: string } | null; clearTask: () => void };
   /** Abre Trabajo para empezar la sesión de trabajo que exigen las sesiones directas. */
   onStartWork?: () => void;
@@ -160,7 +164,7 @@ type Props = {
 const NEEDS_WORK = /inicia una sesión de trabajo/i;
 
 /** Conversación con una sesión de agente ejecutor del proyecto. */
-export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, manager, onStartWork }: Props) {
+export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, workflow, observation, manager, onStartWork }: Props) {
   const isManager = manager !== undefined;
   const isClaude = session.engine === 'claude';
   const isCodex = session.engine === 'codex';
@@ -545,7 +549,8 @@ export default function Session({ session, project, hidden, switching, providerP
     });
   };
 
-  const asks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
+  const ownedAsks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
+  const asks = useSharedPermissions(project, manager || isCodex ? null : session.id, session.name, session.worktree ?? project, ownedAsks);
   const state = isCodex ? directState : pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
   useReportActivity(manager ? 'coach' : String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;
@@ -633,10 +638,12 @@ export default function Session({ session, project, hidden, switching, providerP
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}
-        <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} onActivity={setDirectState} onModel={onModel}
+        <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} observation={observation} onActivity={setDirectState} onModel={onModel}
           onContext={setContext} onConversation={setCodexHasWork} />
       </> : <>
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff}>
+      {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
+        agent={session.name} project={session.worktree ?? project} onDiff={openDiff} />}
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff} workflow={hidden ? undefined : workflow}>
         {history.error && <div className="co-error">{history.error}</div>}
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc';
 import { PRIORITY as PRIO, STATUS } from './taskMeta';
 import TaskForm from './TaskForm';
 import { useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
-import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
+import { createGraph, dependencyLevels, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
 import { AgDot, EmptyArt, Root, StDot, sessionAgents, STATE_LABEL, type AgState, type Agent } from './kit';
 import { Modal } from './ui';
@@ -15,30 +16,16 @@ import { Modal } from './ui';
 const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
-type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string };
-type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null };
+type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number; files?: string };
+type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; context?: string | null; event?: string };
 const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
-type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean };
-const LANE_H = 58, COL_W = 186, NODE_W = 170, NODE_H = 50;
+type DemoDecision = { scores: [string, number][]; cost: string; escalation?: string };
+type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean; decisions?: Record<string, DemoDecision> };
+const LANE_H = 66, COL_W = 214, NODE_W = 194, NODE_H = 50;
 const FS: Record<string, FStatus> = { running: 'running', verifying: 'running', waiting_approval: 'waiting', blocked: 'blocked', failed: 'blocked', paused_quota: 'blocked', done: 'done', cancelled: 'done' };
 const LAB: Record<FStatus, [string, string]> = { running: ['en marcha', 'en marcha'], waiting: ['espera permiso', 'esperan permiso'], blocked: ['bloqueada', 'bloqueadas'], done: ['completada', 'completadas'], backlog: ['pendiente', 'pendientes'] };
 const ST2AG: Record<FStatus, AgState> = { done: 'done', running: 'working', waiting: 'waiting', blocked: 'blocked', backlog: 'idle' };
 const NONE: Agent = { id: 'none', session: null, name: 'Sin asignar', engine: '—', h: '#8d939c', state: 'idle', did: 'Tareas sin sesión abierta', branch: null };
-
-function levels(list: { id: string; deps: string[] }[]) {
-  const by = new Map(list.map((t) => [t.id, t])), memo = new Map<string, number>();
-  const d = (id: string, seen: Set<string>): number => {
-    if (memo.has(id)) return memo.get(id)!;
-    if (seen.has(id)) return 0;
-    seen.add(id);
-    const deps = (by.get(id)?.deps ?? []).filter((x) => by.has(x));
-    const v = deps.length ? Math.max(...deps.map((x) => d(x, seen) + 1)) : 0;
-    memo.set(id, v);
-    return v;
-  };
-  list.forEach((t) => d(t.id, new Set()));
-  return memo;
-}
 
 function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent[]): FModel {
   const lanes = new Map(agents.filter((a) => a.session != null).map((a) => [a.session!, a.id]));
@@ -47,11 +34,11 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
     const r = runs[t.id]?.[0];
     return { id: String(t.id), num: t.id, title: t.title, status: FS[t.status] ?? 'backlog', label: STATUS[t.status] ?? t.status, agent: s ? lanes.get(s.id)! : 'none', deps: t.dependencies.map(String), lvl: 0, prio: PRIORITY[t.priority] ?? t.priority, model: r?.routing?.model ?? r?.model ?? null, real: t, goal: t.goal };
   });
-  const lv = levels(base);
+  const lv = dependencyLevels(base);
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
     task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
-    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs,
+    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs, cost: r.routing?.costEstimateUsd ?? r.costEstimateUsd, context: r.routing?.eventAdvice ?? r.routing?.context,
   })));
   const used = new Set(base.map((t) => t.agent));
   const lanesShown = agents.filter((a) => a.id === 'pm' || used.has(a.id) || a.state !== 'idle');
@@ -61,20 +48,49 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
 // Demostración: el equipo del Artifact, solo en memoria.
 function demoModel(): FModel {
   const A = (id: string, name: string, h: string, state: AgState, did: string): Agent => ({ id, session: null, name, engine: name.split(' · ')[1] ?? '', h, state, did, branch: null });
-  const agents = [A('pm', 'Project manager', '#7aa2ff', 'thinking', 'Coordinando · 4 sesiones'), A('res', 'Investigador · Haiku', '#7fd6ff', 'done', 'Terminó: API de git en Rust'), A('sen', 'Senior · Sonnet', '#b09cff', 'working', 'Editando git_ops.rs'), A('cod', 'Programador · Codex', '#8fc4ff', 'waiting', 'Pide editar src/ipc.ts'), A('jun', 'Junior · Haiku', '#7fe3c4', 'working', 'Escribiendo tests de fetch()'), A('aud', 'Auditor · Opus', '#ffc27a', 'idle', 'En espera de t2 y t4')];
-  const T = (id: string, title: string, agent: string, status: FStatus, deps: string[], model: string): FTask => ({ id, num: null, title, status, label: LAB[status][0], agent, deps, lvl: 0, prio: 'normal', model, real: null, goal: '' });
-  const tasks = [T('t1', 'Investigar comandos git y errores de red', 'res', 'done', [], 'Haiku'), T('t2', 'fetch, pull, push y stash en git_ops.rs', 'sen', 'running', ['t1'], 'Sonnet'), T('t3', 'Contrato IPC en ipc.ts', 'cod', 'waiting', ['t1'], 'Codex'), T('t4', 'Tests de git_ops', 'jun', 'running', ['t2'], 'Haiku'), T('t5', 'Acciones en el panel de Git', 'sen', 'blocked', ['t2', 't3'], 'Sonnet'), T('t6', 'Commits visibles antes de confirmar', 'pm', 'backlog', ['t5'], 'Codex'), T('t7', 'Auditoría de seguridad de los comandos', 'aud', 'backlog', ['t2', 't4'], 'Opus'), T('t8', 'Publicar PR hacia main', 'pm', 'backlog', ['t6', 't7'], 'Codex')];
-  const lv = levels(tasks);
+  const agents = [
+    A('jev', 'Enrutador · Jev', '#e8eaf0', 'working', 'Modo sombra · 37/100 consultas hoy'),
+    A('pm', 'Project manager · Codex', '#6f9bff', 'thinking', 'Coordinando · 4 sesiones'),
+    A('res', 'Investigador · Haiku', '#79d5ff', 'done', 'Terminó: API de git en Rust'),
+    A('sen', 'Senior · Sonnet', '#a995ff', 'working', 'Editando git_ops.rs · stash()'),
+    A('cod', 'Programador · Codex', '#8fc4ff', 'waiting', 'Pide editar src/ipc.ts'),
+    A('jun', 'Junior · Haiku', '#7fe3c4', 'working', 'Escribiendo tests de fetch()'),
+    A('aud', 'Auditor · Opus', '#ffc27a', 'idle', 'En espera de t2 y t4'),
+    A('aud2', 'Auditor 2 · Codex', '#ffd9a0', 'idle', 'Segunda revisión independiente'),
+  ];
+  const T = (id: string, title: string, agent: string, status: FStatus, deps: string[], model: string, progress: number, prio = 'normal'): FTask =>
+    ({ id, num: null, title, status, label: LAB[status][0], agent, deps, lvl: 0, prio, model, real: null, goal: '', progress });
+  const tasks = [
+    T('t1', 'Investigar comandos git y errores de red', 'res', 'done', [], 'Haiku', 100),
+    T('t2', 'fetch, pull, push y stash en git_ops.rs', 'sen', 'running', ['t1'], 'Sonnet', 62, 'alta'),
+    T('t3', 'Contrato IPC en ipc.ts', 'cod', 'waiting', ['t1'], 'Codex', 40),
+    T('t4', 'Tests de git_ops', 'jun', 'running', ['t2'], 'Haiku', 35),
+    T('t5', 'Acciones en el panel de Git', 'sen', 'blocked', ['t2', 't3'], 'Sonnet', 0, 'alta'),
+    T('t6', 'Commits visibles antes de confirmar', 'pm', 'backlog', ['t5'], 'Codex', 0),
+    T('t7', 'Auditoría de seguridad de los comandos', 'aud', 'backlog', ['t2', 't4'], 'Opus + Codex', 0, 'alta'),
+    T('t8', 'Publicar PR hacia main', 'pm', 'backlog', ['t6', 't7'], 'Codex', 0),
+  ];
+  const lv = dependencyLevels(tasks);
   tasks.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const today = new Date(); today.setHours(20, 0, 0, 0);
   const R = (task: string, min: number, model: string, reason: string, complexity: string, confidence: number): FRun => ({ task, at: today.getTime() + min * 60000, provider: model === 'Codex' ? 'codex' : 'claude', model, outcome: 'ok', reason, complexity, confidence, effort: null, source: 'shadow', tokens: null, duration: null });
-  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 18, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
-  return { agents, tasks, runs, demo: true };
+  const runs = [R('t1', 2, 'Haiku', 'Lectura de documentación sin escritura.', 'sencilla', 0.86), R('t2', 9, 'Sonnet', 'Cambia comandos con efectos en el repositorio y manejo de errores de red. Opus no mejora lo bastante la confianza para justificar su coste; se escala si fallan los tests dos veces.', 'compleja', 0.74), R('t3', 9, 'Codex', 'Reutilizar el contexto del hilo del PM.', 'habitual', 0.81), R('t4', 21, 'Haiku', 'Tests con un patrón que ya existe en el módulo.', 'sencilla', 0.69)];
+  tasks[1].files = 'src-tauri/src/git_ops.rs';
+  runs[2].event = 'contexto';
+  runs.push({ ...runs[1], at: today.getTime() + 26 * 60000, event: 'compactar' },
+    { ...runs[2], at: today.getTime() + 31 * 60000, event: 'intervención' });
+  return { agents, tasks, runs, demo: true, decisions: {
+    t1: { scores: [['Haiku', 78], ['Sonnet', 61], ['Opus', 30]], cost: 'bajo' },
+    t2: { scores: [['Haiku', 24], ['Sonnet', 82], ['Opus', 66]], cost: 'medio', escalation: 'a Opus tras 2 fallos de tests' },
+    t3: { scores: [['Codex', 80], ['Sonnet', 58], ['Haiku', 41]], cost: 'bajo' },
+    t4: { scores: [['Haiku', 72], ['Sonnet', 70], ['Opus', 22]], cost: 'bajo' },
+  } };
 }
 
-export default function Flow({ project, projectName, agentSessions, pm, focusTask, onOpenSession, onAuto, onDirect, onStartPm }: {
+export default function Flow({ project, projectName, initialTask, agentSessions, pm, focusTask, onOpenSession, onAuto, onDirect, onStartPm }: {
   project: string | null;
   projectName: string | null;
+  initialTask?: number | null;
   agentSessions: Session[];
   pm: { engine: string } | null;
   onOpenSession: (id: number | 'coach') => void;
@@ -87,70 +103,85 @@ export default function Flow({ project, projectName, agentSessions, pm, focusTas
   const { activity } = useUi();
   const [lens, setLensState] = useState<Lens>(() => { try { const v = localStorage.getItem('filigranas.flow.lente'); return v === 'deps' || v === 'list' ? v : 'exec'; } catch { return 'exec'; } });
   const setLens = (l: Lens) => { setLensState(l); try { localStorage.setItem('filigranas.flow.lente', l); } catch { /* */ } };
-  const [list, setList] = useState<Task[] | null>(null);
-  const [runs, setRuns] = useState<Record<number, TaskRun[]>>({});
+  const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof taskApi.flow>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(initialTask == null ? null : String(initialTask));
   const [filter, setFilter] = useState<FStatus | null>(null);
   const [demo, setDemo] = useState(false);
   const [help, setHelp] = useState(false);
-  const [inspOpen, setInspOpen] = useState(false);
-  const request = useRef(0);
+  const [inspOpen, setInspOpen] = useState(initialTask != null);
+  const [refresh, setRefresh] = useState(0);
   // Editor de tareas: null cerrado, 0 nueva, n la tarea n.
   const [editing, setEditing] = useState<number | null>(null);
   const [limit, setLimit] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    if (!project) return;
-    const id = ++request.current;
-    try {
-      const t = await taskApi.list(project);
-      if (id !== request.current) return;
-      setList(t); setError(null);
-      const want = t.filter((x) => x.sessions.length || FS[x.status]).slice(0, 30);
-      const got = await Promise.allSettled(want.map((x) => taskApi.runs(project, x.id)));
-      if (id !== request.current) return;
-      const next: Record<number, TaskRun[]> = {};
-      got.forEach((r, i) => { if (r.status === 'fulfilled' && r.value.length) next[want[i].id] = r.value; });
-      setRuns(next);
-    } catch (e) { if (id === request.current) setError(String(e)); }
-  }, [project]);
   useEffect(() => {
     if (!project) return;
-    void load();
-    const timer = window.setInterval(load, 8000);
-    return () => { request.current++; window.clearInterval(timer); };
-  }, [project, load]);
+    let alive = true;
+    let busy = false;
+    let queued = false;
+    let timer: number | undefined;
+    const load = async () => {
+      timer = undefined;
+      if (!alive || document.hidden) return;
+      if (busy) { queued = true; return; }
+      busy = true;
+      try {
+        const result = await taskApi.flow(project);
+        if (alive) { setSnapshot(result); setError(null); }
+      } catch (reason) {
+        if (alive) setError(String(reason));
+      } finally {
+        busy = false;
+        if (queued) { queued = false; schedule(); }
+      }
+    };
+    const schedule = () => {
+      if (alive && timer === undefined) timer = window.setTimeout(load, 160);
+    };
+    timer = window.setTimeout(load);
+    const unlisten = listen('tasks-changed', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      alive = false; window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', schedule);
+      void unlisten.then((stop) => stop());
+    };
+  }, [project, refresh]);
 
   useEffect(() => {
     setLimit(null);
     if (project) taskApi.parallelLimit(project).then(setLimit, (e) => setError(String(e)));
   }, [project]);
   useEffect(() => {
-    if (focusTask == null || !list) return;
-    if (list.some((t) => t.id === focusTask)) { setSel(String(focusTask)); setInspOpen(true); }
-  }, [focusTask, list]);
+    if (focusTask == null || !snapshot) return;
+    if (snapshot.tasks.some((t) => t.id === focusTask)) { setSel(String(focusTask)); setInspOpen(true); }
+  }, [focusTask, snapshot]);
   const onEditTask = (id: number) => setEditing(id);
   const link = (task: number, session: number) => {
     if (!project) return;
-    taskApi.link(project, task, session).then(() => load(), (e) => setError(String(e)));
+    taskApi.link(project, task, session).then(() => setRefresh((count) => count + 1), (e) => setError(String(e)));
   };
 
   const agents = useMemo(() => sessionAgents(agentSessions.filter((session) => session.project === project), activity, pm), [agentSessions, activity, pm, project]);
-  const model = useMemo<FModel | null>(() => demo ? demoModel() : list ? realModel(list, runs, agents) : null, [demo, list, runs, agents]);
+  const model = useMemo<FModel | null>(() => demo ? demoModel() : snapshot ? realModel(snapshot.tasks, snapshot.runs, agents) : null, [demo, snapshot, agents]);
   const c = useMemo(() => { const k: Record<FStatus, number> = { done: 0, running: 0, waiting: 0, blocked: 0, backlog: 0 }; model?.tasks.forEach((t) => k[t.status]++); return k; }, [model]);
   const pick = (id: string | null) => { setSel(id); if (id) setInspOpen(true); };
 
   if (!project) return <Root label="Flow"><div className="flow-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Flow supervisa las tareas y agentes del proyecto abierto.</p></div></div></Root>;
   const empty = model && !model.demo && model.tasks.length === 0;
-  const title = model?.demo ? 'Demostración · git local' : projectName ?? '';
+  const title = model?.demo ? 'Sesión · git local' : projectName ?? '';
   return (
     <Root label="Flow">
       <div className={`flow${inspOpen ? ' insp-open' : ''}`}>
-        <div className="flowh">
+        <div className={`flowh${model?.demo ? ' is-demo' : ''}`}>
           <h2 className="vt">{title}</h2>
-          {model?.demo && <span className="simtag">demostración · no son datos tuyos</span>}
-          {model && model.tasks.length > 0 && (
+          {model?.demo && <>
+            <span className="chip mono">feat/git-local</span>
+            <span className="chip flow-scope">reparto: src-tauri/ · src/GitPanel.tsx</span>
+            <span className="chip flow-scope">límite paralelo 3</span>
+            <span className="simtag" title="Tareas y agentes de demostración">Demo</span>
+          </>}
+          {model && !model.demo && model.tasks.length > 0 && (
             <div className="ovw" role="group" aria-label="Estado de la ejecución">
               <div className="ovbar" aria-hidden="true">{model.tasks.slice(0, 40).map((t) => <i key={t.id} className={`s-${t.status}`} style={t.status === 'running' ? { background: model.agents.find((a) => a.id === t.agent)?.h } : undefined} />)}</div>
               {(['running', 'waiting', 'blocked', 'done', 'backlog'] as FStatus[]).map((s) => c[s] ? (
@@ -180,7 +211,7 @@ export default function Flow({ project, projectName, agentSessions, pm, focusTas
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Inspector"><Icon name="panel" size={16} /></button>
         </div>
         <div className="stage" id="stage">
-          {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => void load()}>Reintentar</button></div>}
+          {error && <div className="flow-err" role="alert"><Icon name="warn" size={14} /> {error} <button className="btn sm" onClick={() => setRefresh((count) => count + 1)}>Reintentar</button></div>}
           {!model ? (!error && <div className="flow-loading" role="status" aria-label="Cargando tareas"><span className="spin" /></div>)
             : empty ? <FlowStart agents={model.agents} onCreate={() => onEditTask(0)} onPm={onStartPm} onHelp={() => setHelp(true)} onDemo={() => { setDemo(true); setSel('t2'); setFilter(null); }} />
             : lens === 'list' ? <FlowList m={model} sel={sel} filter={filter} onSel={pick} />
@@ -192,8 +223,8 @@ export default function Flow({ project, projectName, agentSessions, pm, focusTas
         <Route m={model} sel={sel} onSel={pick} />
       </div>
       {help && <FlowHelp onClose={() => setHelp(false)} />}
-      {editing != null && <TaskForm key={editing} project={project} all={list ?? []} task={editing ? list?.find((t) => t.id === editing) ?? null : null}
-        onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); void load().then(() => { setSel(String(id)); setInspOpen(true); }); }} />}
+      {editing != null && <TaskForm key={editing} project={project} all={snapshot?.tasks ?? []} task={editing ? snapshot?.tasks.find((t) => t.id === editing) ?? null : null}
+        onClose={() => setEditing(null)} onSaved={(id) => { setEditing(null); setRefresh((count) => count + 1); setSel(String(id)); setInspOpen(true); }} />}
     </Root>
   );
 }
@@ -240,18 +271,20 @@ function nodeSvg(n: GNode, m: FModel) {
     const a = n.a as Agent;
     const c = a.state === 'waiting' ? '#ffb25e' : a.state === 'idle' ? 'rgba(220,226,236,.4)' : a.state === 'done' ? '#6fe0b3' : a.state === 'blocked' ? '#ff6b5d' : a.h;
     const [role, mdl] = a.name.split(' · ');
-    return `<rect class="body lane" x="-70" y="-20" width="140" height="40" rx="9"/><circle cx="-56" cy="0" r="9" fill="none" stroke="${c}" stroke-opacity=".4" class="${a.state === 'working' ? 'svgbreath' : a.state === 'waiting' ? 'svgbeat' : a.state === 'thinking' ? 'svgthink' : ''}"/><circle cx="-56" cy="0" r="3.8" fill="${a.state === 'idle' ? 'none' : c}" stroke="${c}" stroke-width="1.3"/><text x="-40" y="-2">${escapeXml((role ?? '').slice(0, 15))}</text><text class="s" x="-40" y="13">${escapeXml(mdl ?? a.engine)}</text>`;
+    return `<rect class="body lane" x="-10" y="-18" width="160" height="36" rx="9"/><circle cx="6" cy="0" r="9" fill="none" stroke="${c}" stroke-opacity=".35" class="${a.state === 'working' ? 'svgbreath' : a.state === 'waiting' ? 'svgbeat' : a.state === 'thinking' ? 'svgthink' : ''}"/><circle cx="6" cy="0" r="3.6" fill="${a.state === 'idle' ? 'none' : c}" stroke="${c}"/><text x="22" y="-2">${escapeXml(role ?? a.name)}</text><text class="s" x="22" y="12">${escapeXml((mdl ?? a.engine) + (a.id === 'jev' ? ' · sombra' : ''))}</text>`;
   }
   const t = n.t as FTask, a = m.agents.find((x) => x.id === t.agent) ?? NONE;
   const c = t.status === 'done' ? '#6fe0b3' : t.status === 'waiting' ? '#ffb25e' : t.status === 'running' ? a.h : t.status === 'blocked' ? '#ff6b5d' : 'rgba(220,226,236,.45)';
-  const w = n.w, h = n.h, x = -w / 2, y = -h / 2, title = t.title.length > 20 ? `${t.title.slice(0, 19)}…` : t.title;
+  const w = n.w, h = n.h, x = -w / 2, y = -h / 2, title = t.title.length > 24 ? `${t.title.slice(0, 23)}…` : t.title;
   const badge = t.status === 'waiting' ? `<g class="badge" transform="translate(${w / 2 - 14},${y + 1})"><rect x="-26" y="-9" width="40" height="18" rx="9" fill="#2a1f10" stroke="#ffb25e" stroke-opacity=".6"/><text x="-6" y="4" text-anchor="middle" class="bt" style="fill:#ffc98a">permiso</text></g>`
     : t.status === 'done' ? `<g transform="translate(${w / 2 - 16},0)" class="okmark"><circle r="8" fill="rgba(111,224,179,.14)"/><path d="M-3.5,0.5L-1,3L3.8,-2.5" fill="none" stroke="#6fe0b3" stroke-width="1.6" stroke-linecap="round"/></g>` : '';
-  const sub = `${t.num != null ? `#${t.num}` : t.id}${t.model ? ` · ${t.model}` : a.id !== 'none' ? ` · ${a.engine}` : ''}${t.status === 'blocked' ? ' · espera' : ''}`;
+  const sub = `${t.num != null ? `#${t.num}` : t.id}${t.model ? ` · ${t.model}` : a.id !== 'none' ? ` · ${a.engine}` : ''} · ${t.label}`;
+  const progress = t.progress ?? (t.status === 'done' ? 100 : 0);
+  const progressLine = progress > 0 ? `<line x1="${x + 12}" y1="${y + h - 6}" x2="${x + 12 + (w - 24) * progress / 100}" y2="${y + h - 6}" stroke="${c}" stroke-width="2" stroke-dasharray="2 3"/>` : '';
   return `${t.status === 'running' ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="${a.h}" fill-opacity=".07"/>` : ''}<rect class="body" x="${x}" y="${y}" width="${w}" height="${h}" rx="10"/>
 <circle cx="${x + 16}" cy="${y + 18}" r="7.5" fill="none" stroke="${c}" stroke-opacity=".35" class="${t.status === 'running' ? 'svgbreath' : t.status === 'waiting' ? 'svgbeat' : ''}"/><circle cx="${x + 16}" cy="${y + 18}" r="3.6" fill="${t.status === 'backlog' || t.status === 'blocked' ? 'none' : c}" stroke="${c}" stroke-width="1.4"/>
 <text x="${x + 30}" y="${y + 22}">${escapeXml(title)}</text><text class="s" x="${x + 30}" y="${y + 38}">${escapeXml(sub)}</text>
-<line x1="${x + 12}" y1="${y + h - 5}" x2="${x + w - 12}" y2="${y + h - 5}" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="2 3"/>${badge}`;
+<line x1="${x + 12}" y1="${y + h - 6}" x2="${x + w - 12}" y2="${y + h - 6}" stroke="rgba(255,255,255,.08)" stroke-width="2" stroke-dasharray="2 3"/>${progressLine}${m.demo ? '' : badge}`;
 }
 
 function graphModel(m: FModel, lens: Lens) {
@@ -260,34 +293,51 @@ function graphModel(m: FModel, lens: Lens) {
   m.tasks.forEach((t) => { (byL[t.lvl] = byL[t.lvl] || []).push(t); });
   // altura de cada carril según cuántas tareas comparten nivel en él
   const stack = new Map<string, number>();
-  m.tasks.forEach((t) => { const k = `${t.agent}:${t.lvl}`; stack.set(k, (stack.get(k) ?? 0) + 1); });
+  const laneHeight = new Map<string, number>();
+  const assigned = new Set(m.agents.map((agent) => agent.id));
+  m.tasks.forEach((t) => {
+    const key = `${t.agent}:${t.lvl}`;
+    const count = (stack.get(key) ?? 0) + 1;
+    stack.set(key, count);
+    laneHeight.set(t.agent, Math.max(count, laneHeight.get(t.agent) ?? 1));
+  });
   const laneY = new Map<string, number>();
   let yAcc = 0;
-  const lanes = [...m.agents, ...(m.tasks.some((t) => !m.agents.some((a) => a.id === t.agent)) ? [NONE] : [])];
+  const lanes = [...m.agents, ...(m.tasks.some((t) => !assigned.has(t.agent)) ? [NONE] : [])];
   lanes.forEach((a) => {
     laneY.set(a.id, yAcc);
-    const rows = Math.max(1, ...[...stack.entries()].filter(([k]) => k.startsWith(`${a.id}:`)).map(([, v]) => v));
+    const rows = laneHeight.get(a.id) ?? 1;
     yAcc += LANE_H + (rows - 1) * (NODE_H + 12);
   });
-  if (lens === 'exec') m.agents.forEach((a) => nodes.push({ id: `L-${a.id}`, kind: 'agent', a, x: 70, y: laneY.get(a.id)!, w: 140, h: 40, aria: a.name }));
-  const x0 = lens === 'exec' ? 190 : 0;
+  if (lens === 'exec') m.agents.forEach((a) => nodes.push({ id: `L-${a.id}`, kind: 'agent', a, x: 30, y: laneY.get(a.id)!, w: 150, h: 40, keep: true, aria: a.name }));
+  const x0 = lens === 'exec' ? 180 : 40;
   const slot = new Map<string, number>();
   m.tasks.forEach((t) => {
     let y: number;
     if (lens === 'exec') {
       const key = `${t.agent}:${t.lvl}`, k = slot.get(key) ?? 0; slot.set(key, k + 1);
       y = (laneY.get(t.agent) ?? yAcc) + k * (NODE_H + 12);
-    } else { const col = byL[t.lvl]; y = (col.indexOf(t) - (col.length - 1) / 2) * 72; }
-    nodes.push({ id: t.id, kind: 'task', t, x: x0 + t.lvl * COL_W + NODE_W / 2, y, w: NODE_W, h: NODE_H, aria: `${t.title}, ${t.label}`, cls: `t-${t.status}` });
+    } else {
+      const key = String(t.lvl), k = slot.get(key) ?? 0; slot.set(key, k + 1);
+      y = (k - (byL[t.lvl].length - 1) / 2) * 80;
+    }
+    nodes.push({ id: t.id, kind: 'task', t, x: x0 + t.lvl * COL_W + 100, y, w: NODE_W, h: NODE_H, aria: `${t.title}, ${t.label}`, cls: `t-${t.status}` });
   });
-  const ids = new Set(m.tasks.map((t) => t.id));
+  const byId = new Map(m.tasks.map((t) => [t.id, t]));
+  const demoCritical = new Set(['t1', 't2', 't4', 't7', 't8']);
   m.tasks.forEach((t) => t.deps.forEach((d) => {
-    if (!ids.has(d)) return;
-    const s = m.tasks.find((x) => x.id === d)!;
+    const s = byId.get(d);
+    if (!s) return;
     const blk = t.status === 'blocked' && s.status !== 'done';
-    edges.push({ from: d, to: t.id, kind: s.status === 'done' ? 'done' : blk ? 'block' : 'dep', cls: s.status === 'done' ? 'e-done' : blk ? 'e-block' : 'e-dep', marker: s.status === 'done' ? 'done' : blk ? undefined : 'dep' });
+    const live = s.status === 'done' && (t.status === 'running' || t.status === 'waiting');
+    if (m.demo) {
+      const critical = lens === 'deps' && demoCritical.has(d) && demoCritical.has(t.id);
+      edges.push({ from: d, to: t.id, cls: live ? 'live' : blk ? 'blk' : critical ? 'crit' : '' });
+      return;
+    }
+    edges.push({ from: d, to: t.id, kind: s.status === 'done' ? 'done' : blk ? 'block' : 'dep', cls: live ? 'live' : s.status === 'done' ? 'e-done' : blk ? 'e-block' : 'e-dep', marker: s.status === 'done' ? 'done' : blk ? undefined : 'dep' });
   }));
-  if (lens === 'exec') {
+  if (lens === 'exec' && !m.demo) {
     if (m.agents.some((a) => a.id === 'pm')) {
       const delegated = new Set(m.tasks.filter((t) => t.agent !== 'pm' && t.agent !== 'none').map((t) => t.agent));
       delegated.forEach((id) => edges.push({ from: 'L-pm', to: `L-${id}`, kind: 'deleg', cls: 'e-deleg', marker: 'del' }));
@@ -300,8 +350,8 @@ function graphModel(m: FModel, lens: Lens) {
   }
   const span = Math.max(4, ...m.tasks.map((t) => t.lvl)) + 1;
   const under = lens === 'exec'
-    ? () => `<g class="lane">${lanes.map((a) => { const y = laneY.get(a.id)! - LANE_H / 2; return `<line x1="-20" x2="${190 + span * COL_W}" y1="${y}" y2="${y}"/>`; }).join('')}</g>`
-    : () => { const mx = Math.max(1, ...Object.values(byL).map((c) => c.length)); return `<g class="lane">${Object.keys(byL).map((l) => `<text x="${+l * COL_W + NODE_W / 2}" y="${-mx * 36 - 14}" text-anchor="middle">Nivel ${+l + 1}${byL[+l].length > 1 ? ` · ${byL[+l].length} en paralelo` : ''}</text>`).join('')}</g>`; };
+    ? () => `<g class="lane">${lanes.map((a) => { const y = laneY.get(a.id)! + LANE_H / 2; return `<line x1="-20" x2="${220 + span * COL_W}" y1="${y}" y2="${y}"/>`; }).join('')}</g>`
+    : () => { const mx = Math.max(1, ...Object.values(byL).map((c) => c.length)); return `<g class="lane">${Object.keys(byL).map((l) => `<text x="${x0 + +l * COL_W + 100}" y="${-mx * 40 - 6}" text-anchor="middle">Nivel ${+l + 1}${byL[+l].length > 1 ? ` · ${byL[+l].length} en paralelo` : ''}</text>`).join('')}</g>`; };
   return { nodes, edges, under };
 }
 const edgePath = (e: GEdge, a: GNode, b: GNode) => {
@@ -329,7 +379,7 @@ function FlowGraph({ m, lens, sel, filter, onSel, onOpen }: { m: FModel; lens: L
     const { nodes, edges, under } = graphModel(mref.current, lens);
     if (!g.current) {
       g.current = createGraph(svg.current!, {
-        nodes, edges, under, node: (n) => nodeSvg(n, mref.current), edgePath, edgeDecor, selected: sel, pad: [46, 24, 24, 40], maxFit: 1.1,
+        nodes, edges, under, node: (n) => nodeSvg(n, mref.current), edgePath, edgeDecor, selected: sel, pad: m.demo ? [40, 10, 10, 10] : [46, 24, 24, 40], maxFit: m.demo ? 1.25 : 1.1,
         label: 'Grafo de ejecución: flechas para recorrer, Intro para enfocar',
         onSelect: (id) => cb.current.onSel(id), onOpen: (id) => cb.current.onOpen(id),
         onKey: (k, s) => {
@@ -428,7 +478,9 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
   const a = m.agents.find((x) => x.id === t.agent) ?? NONE;
   const miss = t.deps.map((d) => m.tasks.find((x) => x.id === d)).filter((d): d is FTask => !!d && d.status !== 'done');
   const runs = m.runs.filter((r) => r.task === t.id).sort((x, y) => y.at - x.at);
-  const last = runs[0];
+  const last = runs.find((run) => run.event !== 'compactar' && run.event !== 'intervención');
+  const decision = m.decisions?.[t.id];
+  const maxScore = decision ? Math.max(1, ...decision.scores.map(([, score]) => score)) : 1;
   const blocked = !!t.real && t.real.waitingFor.length > 0;
   return (
     <>
@@ -462,14 +514,33 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
         <dt>Agente</dt><dd className="row"><AgDot a={a} s={12} />{a.name}</dd>
         <dt>Depende de</dt><dd className="row wrap">{t.deps.length ? t.deps.map((d) => <button key={d} className={`chip btnchip ${m.tasks.find((x) => x.id === d)?.status === 'done' ? 'mint' : ''}`} onClick={() => onSel(d)}>{m.demo ? d : `#${d}`}</button>) : '—'}</dd>
         <dt>Desbloquea</dt><dd className="row wrap">{m.tasks.filter((x) => x.deps.includes(t.id)).map((x) => <button key={x.id} className="chip btnchip" onClick={() => onSel(x.id)}>{x.num != null ? `#${x.num}` : x.id}</button>)}{!m.tasks.some((x) => x.deps.includes(t.id)) && '—'}</dd>
+        {t.files && <><dt>Reparto</dt><dd className="mono">{t.files}</dd></>}
         <dt>Prioridad</dt><dd>{t.prio}</dd>
+        {t.progress != null && <><dt>Avance</dt><dd className="row">
+          <span className="dotnum">{t.progress}%</span>
+          <span className="prog" aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} className={i < Math.round(t.progress! / 10) ? 'f' : undefined} />)}</span>
+        </dd></>}
         {t.real?.criteria && <><dt>Criterios</dt><dd>{t.real.criteria}</dd></>}
         {t.real && <><dt>Verificación</dt><dd>{t.real.verification}{t.real.tests ? ` · ${t.real.tests}` : ''}</dd></>}
       </dl></div>
       <div className="sec">
         <div className="row" style={{ marginBottom: 8 }}><Icon name="route" size={14} /><b>{last ? `Por qué ${last.model ?? last.provider}` : 'Decisión de Jev'}</b><span className="grow" />{last?.complexity && <span className="chip">{last.complexity}</span>}</div>
-        <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}</div>
-        {last && <dl className="kv" style={{ marginTop: 10 }}><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd><dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd><dt>Esfuerzo</dt><dd>{last.effort ?? '—'}</dd></dl>}
+        <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}
+          {last?.context && <div className="mut" style={{ marginTop: 6 }}>{last.context}</div>}
+        </div>
+        {decision && <div className="cands" aria-label="Candidatos del ejemplo">{decision.scores.map(([model, score]) => (
+          <div key={model} className={`cand${last?.model === model ? ' pick' : ''}`}><span>{model}</span>
+            <span className="barw" aria-hidden="true">{Array.from({ length: 12 }, (_, i) => <i key={i} className={i < Math.round(score / maxScore * 12) ? 'f' : undefined} />)}</span>
+            <span className="mono">{score}</span>
+          </div>
+        ))}</div>}
+        {last && <dl className="kv" style={{ marginTop: 10 }}>
+          {!decision && <><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd></>}
+          <dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd>
+          {last.effort && <><dt>Esfuerzo</dt><dd>{last.effort}</dd></>}
+          {(decision || last.cost != null) && <><dt>Coste</dt><dd>{decision?.cost ?? `${last.cost?.toLocaleString('es-ES', { maximumSignificantDigits: 3 })} USD`}</dd></>}
+          {decision?.escalation && <><dt>Escalado</dt><dd>{decision.escalation}</dd></>}
+        </dl>}
       </div>
       <div className="sec"><span className="lab">Historial</span>
         {runs.length ? <ol className="tev">{runs.slice(0, 8).map((r, i) => <li key={i}><span className="mono mut2">{new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span><span>{r.provider}{r.model ? ` · ${r.model}` : ''} · {r.outcome}{r.tokens ? ` · ${r.tokens.toLocaleString('es-ES')} tokens` : ''}</span></li>)}</ol>
@@ -486,11 +557,13 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (svg.current) ro.observe(svg.current); return () => ro.disconnect(); }, []);
   const day = new Date(); day.setHours(0, 0, 0, 0);
   const runs = (m?.runs ?? []).filter((r) => r.at >= day.getTime() || m?.demo).sort((a, b) => a.at - b.at);
-  const t0 = runs.length ? runs[0].at - 5 * 60000 : Date.now() - 3600000, t1 = Math.max(t0 + 30 * 60000, (runs.at(-1)?.at ?? Date.now()) + 5 * 60000);
+  const demoStart = runs[0]?.at - 2 * 60000;
+  const t0 = m?.demo ? demoStart : runs.length ? runs[0].at - 5 * 60000 : Date.now() - 3600000;
+  const t1 = m?.demo ? t0 + 45 * 60000 : Math.max(t0 + 30 * 60000, (runs.at(-1)?.at ?? Date.now()) + 5 * 60000);
   const X = (t: number) => 24 + ((t - t0) / (t1 - t0)) * (w - 48);
   const M: Record<string, string> = { haiku: '#7fd6ff', sonnet: '#b09cff', opus: '#ffc27a', codex: '#8fc4ff' };
   const color = (r: FRun) => Object.entries(M).find(([k]) => `${r.model ?? r.provider}`.toLowerCase().includes(k))?.[1] ?? '#ccc';
-  const ticks = Array.from({ length: 5 }, (_, i) => t0 + ((t1 - t0) * i) / 4);
+  const ticks = Array.from({ length: 5 }, (_, i) => t0 + (m?.demo ? 10 * 60000 * i : ((t1 - t0) * i) / 4));
   const q = (label: string, quota: ReturnType<typeof useProviderQuota>) => quota.windows.length
     ? quota.windows.map((win) => { const left = Math.max(0, 100 - win.percent); return <div key={label + win.label} className="qrow"><span>{label} {win.label}</span><span className="qdots">{Array.from({ length: 20 }, (_, i) => <i key={i} className={i < left / 5 ? (left >= 70 ? 'h' : 'f') : ''} />)}</span><span className="mono">{Math.round(left)}%</span></div>; })
     : [<div key={label} className="qrow"><span>{label}</span><span className="qdots unk">{Array.from({ length: 20 }, (_, i) => <i key={i} />)}</span><span className="mut2">desconocida</span></div>];
@@ -501,12 +574,13 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
         <svg ref={svg} role="img" aria-label="Línea temporal de ejecuciones y decisiones de Jev">
           <line x1="24" x2={w - 24} y1="44" y2="44" stroke="rgba(255,255,255,.1)" strokeDasharray="1 4" />
           {ticks.map((t, i) => <text key={i} x={X(t)} y={100} textAnchor="middle" className="tlt">{new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</text>)}
-          {runs.map((r, i) => { const x = X(r.at), y = [28, 58, 82][i % 3], c = color(r), on = sel === r.task; return (
+          {runs.map((r, i) => { const x = X(r.at), y = m?.demo ? r.event ? (i % 2 ? 58 : 72) : (i % 2 ? 24 : 34) : [28, 58, 82][i % 3];
+            const c = color(r), on = sel === r.task; return (
             <g key={i} className={`rt${on ? ' on' : ''}`} tabIndex={0} role="button" aria-label={`${r.task}: ${r.model ?? r.provider}`} onClick={() => onSel(r.task)} onKeyDown={(e) => e.key === 'Enter' && onSel(r.task)}>
               <line x1={x} x2={x} y1="44" y2={y} stroke={c} strokeOpacity=".45" />
               <title>{r.source ? ROUTING_SOURCE[r.source] : 'Origen sin registrar'}</title>
-              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={r.source === 'jev' || r.source === 'shadow' ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
-              <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.model ?? r.provider}</text>
+              <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={!r.event && (r.source === 'jev' || r.source === 'shadow') ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
+              <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.event ?? r.model ?? r.provider}</text>
             </g>); })}
         </svg>
       </div>

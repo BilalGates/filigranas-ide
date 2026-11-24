@@ -1,0 +1,1090 @@
+{
+  "fecha": "2026-11-24",
+  "referenceSha256": "7e20b6e508b43c0f76c54f42da6e423ee9e9b280265f9d0767d2bf1e2d18fd38",
+  "native": {
+    "inicio": {
+      "projects": 9,
+      "groups": 3,
+      "sigils": {
+        "filigranas-ide": "c91bb3b7d3f1be9c043a7cde204bb956c09887c51b2d4007220d2b326f841557",
+        "vantia": "394dbc856654efa26bc7d6244bbc30b5da5d1ad2618f85f32e1767ec98bcc3ca",
+        "kaza": "fc77203ee4ce21567f4b04483311889adb65d984a44b57b48fa001674d274c94",
+        "calaix": "39762527714e0bcd4e4bab22bbf19d2ea1f01b279cacc658c7c8e3547a9a814d",
+        "filigranas": "846b482cd13ded016530b7a9616ba959a66a22340e2e056fb0e02ac4ee36645b",
+        "inventario-de-software": "e75b7a34501bec3ef5fedda40ffd70f39a73d0e73a2eb722f3fcd27603602c5f",
+        "dashboard-suministros": "f2453e0241de389ec8ca6d40c24116ebf8828317e444f7c5c9fc79a6d528884b",
+        "marbi": "f308e5e4ac1dcab194a5fdffcd4f1bf04aa5f7e6051f49552efd913beca06899",
+        "bitacora": "020edbb329cad21ea860683df32f554306f881f5d35a73e420cff7fdb1bf1876"
+      },
+      "failure": {
+        "project": "kaza",
+        "number": 16,
+        "actionOpensCi": true
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 312,
+          "frames": 210,
+          "elapsedMs": 3506,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 314,
+          "frames": 210,
+          "elapsedMs": 3500,
+          "p95Ms": 18,
+          "maxMs": 21,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 286,
+          "frames": 210,
+          "elapsedMs": 3505,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        }
+      ]
+    },
+    "workspace": {
+      "nodes": [
+        "Investigar comandos git y errores de red",
+        "fetch, pull, push y stash en git_ops.rs",
+        "Contrato IPC en ipc.ts",
+        "Tests de git_ops",
+        "Acciones en el panel de Git",
+        "Commits visibles antes de confirmar",
+        "Auditoría de seguridad de los comandos",
+        "Publicar PR hacia main"
+      ],
+      "edges": 10,
+      "architecture": 4,
+      "changes": [
+        "    run_git(&project, &[\"pull\"])",
+        "    run_git(&project, &[\"pull\", \"--ff-only\"])",
+        "        .map_err(|e| network_hint(&e))"
+      ],
+      "team": [
+        "Trabajando",
+        "Espera tu permiso",
+        "Trabajando"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1340,
+        "height": 826
+      },
+      "diagram": {
+        "x": 534.5,
+        "y": 143.484375,
+        "width": 678,
+        "height": 86
+      },
+      "active": [
+        {
+          "routeMs": 224,
+          "frames": 210,
+          "elapsedMs": 3504,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 233,
+          "frames": 210,
+          "elapsedMs": 3512,
+          "p95Ms": 17,
+          "maxMs": 20,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 230,
+          "frames": 210,
+          "elapsedMs": 3502,
+          "p95Ms": 18,
+          "maxMs": 20,
+          "over50ms": 0
+        }
+      ]
+    },
+    "workspace-arquitectura": {
+      "nodes": 4,
+      "edges": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1340,
+        "height": 826
+      },
+      "diagram": {
+        "x": 534.5,
+        "y": 408.484375,
+        "width": 678,
+        "height": 86
+      }
+    },
+    "workspace-observar": {
+      "agent": "Senior",
+      "pmVisible": true,
+      "readOnly": true,
+      "codeVisible": true,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1376,
+        "height": 826
+      }
+    },
+    "workspace-permiso": {
+      "source": "Programador · Codex",
+      "command": "editar src/ipc.ts   # fuera del reparto: src-tauri/",
+      "actions": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1340,
+        "height": 826
+      },
+      "decision": "decline"
+    },
+    "flow": {
+      "lens": "exec",
+      "selected": "t2",
+      "nodes": 16,
+      "candidates": [
+        "Haiku24",
+        "Sonnet82",
+        "Opus66"
+      ],
+      "timeline": 6,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 281,
+          "frames": 210,
+          "elapsedMs": 3508,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 282,
+          "frames": 210,
+          "elapsedMs": 3514,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 279,
+          "frames": 211,
+          "elapsedMs": 3514,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        }
+      ]
+    },
+    "flow-dependencias": {
+      "selected": "t2",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      }
+    },
+    "studio": {
+      "versions": [
+        {
+          "note": "Botón nacarado; estados con punto",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Cabecera aprobada y bloqueada",
+          "status": "approved",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Botón en contorno; filas más bajas",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Propuesta inicial",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        }
+      ],
+      "references": [
+        "nube.png",
+        "esfera.png",
+        "onda.png",
+        "matriz.png",
+        "metal.png",
+        "grafo.png"
+      ],
+      "selected": "v3 aprobadaPNG importado · Cabecera aprobada y bloqueada",
+      "dimensions": {
+        ".slist": {
+          "x": 56,
+          "y": 89,
+          "width": 212,
+          "height": 785
+        },
+        ".canvasw": {
+          "x": 268,
+          "y": 89,
+          "width": 856,
+          "height": 785
+        },
+        ".toolbar": {
+          "x": 595,
+          "y": 814,
+          "width": 202,
+          "height": 44
+        },
+        ".studio-composer": {
+          "x": 1125,
+          "y": 487.375,
+          "width": 305,
+          "height": 244.1875
+        }
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 304,
+          "frames": 210,
+          "elapsedMs": 3507,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 304,
+          "frames": 210,
+          "elapsedMs": 3506,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 314,
+          "frames": 210,
+          "elapsedMs": 3514,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        }
+      ]
+    },
+    "studio-comparacion": {
+      "baseline": 3,
+      "candidate": 4,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      }
+    },
+    "studio-en-vivo": {
+      "selected": "Lista de cambios",
+      "rect": [
+        164,
+        58,
+        262,
+        206
+      ],
+      "isolated": true,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "click": "Archivos"
+    },
+    "entrega": {
+      "path": "src-tauri/src/git_ops.rs",
+      "inline": [
+        "L20 · f2",
+        "L27 · f1"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 274,
+          "frames": 210,
+          "elapsedMs": 3502,
+          "p95Ms": 18,
+          "maxMs": 29,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 305,
+          "frames": 210,
+          "elapsedMs": 3506,
+          "p95Ms": 18,
+          "maxMs": 28,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 281,
+          "frames": 210,
+          "elapsedMs": 3500,
+          "p95Ms": 18,
+          "maxMs": 22,
+          "over50ms": 0
+        }
+      ]
+    },
+    "entrega-hallazgo": {
+      "id": "f1",
+      "line": 27,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      }
+    },
+    "entrega-ci": {
+      "number": 17,
+      "checks": [
+        14,
+        0,
+        0
+      ],
+      "codeVisible": true,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      }
+    },
+    "brain": {
+      "selected": "m1",
+      "confirmed": 10,
+      "inferred": 0,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 67,
+          "frames": 211,
+          "elapsedMs": 3515,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 67,
+          "frames": 210,
+          "elapsedMs": 3501,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 69,
+          "frames": 211,
+          "elapsedMs": 3514,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        }
+      ]
+    },
+    "brain-agrupado": {
+      "groups": 5,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      }
+    },
+    "brain-inferencias": {
+      "selected": "m10",
+      "count": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "correctedWhilePending": true,
+      "approvedOnlyAfterConfirmation": true
+    },
+    "ajustes": {
+      "cells": 42,
+      "activeAssignments": 11,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 309,
+          "frames": 210,
+          "elapsedMs": 3501,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 306,
+          "frames": 210,
+          "elapsedMs": 3504,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 309,
+          "frames": 210,
+          "elapsedMs": 3507,
+          "p95Ms": 18,
+          "maxMs": 19,
+          "over50ms": 0
+        }
+      ]
+    }
+  },
+  "artifact": {
+    "inicio": {
+      "route": "home",
+      "sigils": {
+        "filigranas-ide": "c91bb3b7d3f1be9c043a7cde204bb956c09887c51b2d4007220d2b326f841557",
+        "vantia": "394dbc856654efa26bc7d6244bbc30b5da5d1ad2618f85f32e1767ec98bcc3ca",
+        "kaza": "fc77203ee4ce21567f4b04483311889adb65d984a44b57b48fa001674d274c94",
+        "calaix": "39762527714e0bcd4e4bab22bbf19d2ea1f01b279cacc658c7c8e3547a9a814d",
+        "filigranas": "846b482cd13ded016530b7a9616ba959a66a22340e2e056fb0e02ac4ee36645b",
+        "inventario-de-software": "e75b7a34501bec3ef5fedda40ffd70f39a73d0e73a2eb722f3fcd27603602c5f",
+        "dashboard-suministros": "f2453e0241de389ec8ca6d40c24116ebf8828317e444f7c5c9fc79a6d528884b",
+        "marbi": "f308e5e4ac1dcab194a5fdffcd4f1bf04aa5f7e6051f49552efd913beca06899",
+        "bitacora": "020edbb329cad21ea860683df32f554306f881f5d35a73e420cff7fdb1bf1876"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "workspace": {
+      "route": "workspace",
+      "architecture": 4,
+      "changes": [
+        "    run_git(&project, &[\"pull\"])",
+        "    run_git(&project, &[\"pull\", \"--ff-only\"])",
+        "        .map_err(|e| network_hint(&e))"
+      ],
+      "team": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "workspace-arquitectura": {
+      "route": "workspace",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "workspace-observar": {
+      "route": "workspace",
+      "codeVisible": true,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "workspace-permiso": {
+      "route": "workspace",
+      "source": "Programador · Codex",
+      "command": "editar src/ipc.ts   # fuera del reparto: src-tauri/",
+      "actions": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "flow": {
+      "route": "flow",
+      "candidates": [
+        "Haiku24",
+        "Sonnet82",
+        "Opus66"
+      ],
+      "timeline": 6,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "flow-dependencias": {
+      "route": "flow",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "studio": {
+      "route": "studio",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "studio-comparacion": {
+      "route": "studio",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "studio-en-vivo": {
+      "route": "studio",
+      "selected": "Lista de cambios",
+      "rect": [
+        164,
+        58,
+        262,
+        206
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "entrega": {
+      "route": "review",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "entrega-hallazgo": {
+      "route": "review",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "entrega-ci": {
+      "route": "review",
+      "checks": [
+        14,
+        0,
+        0
+      ],
+      "codeVisible": true,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "brain": {
+      "route": "brain",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "brain-agrupado": {
+      "route": "brain",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "brain-inferencias": {
+      "route": "brain",
+      "count": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    },
+    "ajustes": {
+      "route": "ajustes",
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 42,
+        "width": 1384,
+        "height": 832
+      }
+    }
+  },
+  "motion": [
+    {
+      "value": "completo",
+      "effective": "completo",
+      "saved": "completo",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": true
+    },
+    {
+      "value": "sin-ambiente",
+      "effective": "sin-ambiente",
+      "saved": "sin-ambiente",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": false
+    },
+    {
+      "value": "reducido",
+      "effective": "reducido",
+      "saved": "reducido",
+      "working": "none",
+      "thinking": "none",
+      "permission": "none",
+      "flow": "none",
+      "ambient": false
+    }
+  ],
+  "metrics": {
+    "transitions": 21,
+    "frameP95Ms": [
+      17,
+      18
+    ],
+    "largestFrameMs": 29,
+    "above50Ms": 0,
+    "cadenceHz": 59.9
+  },
+  "pixels": {
+    "inicio": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1138373,
+      "deltaGreaterThan12": 170761
+    },
+    "workspace": {
+      "region": [
+        56,
+        48,
+        1396,
+        874
+      ],
+      "pixels": 1106840,
+      "different": 1073359,
+      "deltaGreaterThan12": 205661
+    },
+    "workspace-arquitectura": {
+      "region": [
+        56,
+        48,
+        1396,
+        874
+      ],
+      "pixels": 1106840,
+      "different": 946703,
+      "deltaGreaterThan12": 114414
+    },
+    "workspace-observar": {
+      "region": [
+        56,
+        48,
+        1432,
+        874
+      ],
+      "pixels": 1136576,
+      "different": 1094977,
+      "deltaGreaterThan12": 240370
+    },
+    "workspace-permiso": {
+      "region": [
+        56,
+        48,
+        1396,
+        874
+      ],
+      "pixels": 1106840,
+      "different": 1009501,
+      "deltaGreaterThan12": 116665
+    },
+    "flow": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1132875,
+      "deltaGreaterThan12": 108031
+    },
+    "flow-dependencias": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1133685,
+      "deltaGreaterThan12": 112470
+    },
+    "studio": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 751964,
+      "deltaGreaterThan12": 189542
+    },
+    "studio-comparacion": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 742522,
+      "deltaGreaterThan12": 223954
+    },
+    "studio-en-vivo": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 743305,
+      "deltaGreaterThan12": 191467
+    },
+    "entrega": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 998681,
+      "deltaGreaterThan12": 175810
+    },
+    "entrega-hallazgo": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1011717,
+      "deltaGreaterThan12": 256575
+    },
+    "entrega-ci": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1001963,
+      "deltaGreaterThan12": 184533
+    },
+    "brain": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1137661,
+      "deltaGreaterThan12": 70040
+    },
+    "brain-agrupado": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1137831,
+      "deltaGreaterThan12": 67097
+    },
+    "brain-inferencias": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1137680,
+      "deltaGreaterThan12": 68061
+    },
+    "ajustes": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1139884,
+      "deltaGreaterThan12": 89973
+    }
+  }
+}

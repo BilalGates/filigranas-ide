@@ -1,0 +1,62 @@
+{
+  "versions": [
+    {
+      "n": 1,
+      "note": "Propuesta inicial",
+      "approved": false,
+      "image": "v1.png"
+    },
+    {
+      "n": 2,
+      "note": "Botón en contorno; filas más bajas",
+      "approved": false,
+      "image": "v2.png"
+    },
+    {
+      "n": 3,
+      "note": "Cabecera aprobada y bloqueada",
+      "approved": true,
+      "image": "v3.png"
+    },
+    {
+      "n": 4,
+      "note": "Botón nacarado; estados con punto",
+      "approved": false,
+      "image": "v4.png"
+    }
+  ],
+  "references": [
+    {
+      "name": "nube",
+      "image": "nube.png"
+    },
+    {
+      "name": "esfera",
+      "image": "esfera.png"
+    },
+    {
+      "name": "onda",
+      "image": "onda.png"
+    },
+    {
+      "name": "matriz",
+      "image": "matriz.png"
+    },
+    {
+      "name": "metal",
+      "image": "metal.png"
+    },
+    {
+      "name": "grafo",
+      "image": "grafo.png"
+    }
+  ],
+  "header": {
+    "id": "hdr",
+    "n": "Cabecera",
+    "x": 0,
+    "y": 0,
+    "w": 620,
+    "h": 44
+  }
+}

@@ -1,0 +1,526 @@
+{
+  "sha256Artifact": "7e20b6e508b43c0f76c54f42da6e423ee9e9b280265f9d0767d2bf1e2d18fd38",
+  "run": "2026-11-23",
+  "viewports": {
+    "artifact": {
+      "width": 1440,
+      "height": 900,
+      "scale": 1
+    },
+    "native": {
+      "width": 1440,
+      "height": 900,
+      "scale": 1
+    }
+  },
+  "sigilsIdentical": [
+    "bitacora",
+    "calaix",
+    "dashboard-suministros",
+    "filigranas",
+    "filigranas-ide",
+    "inventario-de-software",
+    "kaza",
+    "marbi",
+    "vantia"
+  ],
+  "before": {
+    "inicio": {
+      "routeMs": 307,
+      "frames": 208,
+      "elapsedMs": 3500,
+      "p95Ms": 18,
+      "maxMs": 34,
+      "over50ms": 0
+    },
+    "workspace": {
+      "routeMs": 221,
+      "frames": 210,
+      "elapsedMs": 3511,
+      "p95Ms": 18,
+      "maxMs": 18,
+      "over50ms": 0
+    },
+    "flow": {
+      "routeMs": 305,
+      "frames": 210,
+      "elapsedMs": 3515,
+      "p95Ms": 18,
+      "maxMs": 18,
+      "over50ms": 0
+    },
+    "studio": {
+      "routeMs": 301,
+      "frames": 208,
+      "elapsedMs": 3513,
+      "p95Ms": 18,
+      "maxMs": 50,
+      "over50ms": 0
+    },
+    "entrega": {
+      "routeMs": 282,
+      "frames": 210,
+      "elapsedMs": 3510,
+      "p95Ms": 18,
+      "maxMs": 33,
+      "over50ms": 0
+    },
+    "brain": {
+      "routeMs": 278,
+      "frames": 207,
+      "elapsedMs": 3512,
+      "p95Ms": 18,
+      "maxMs": 36,
+      "over50ms": 0
+    },
+    "ajustes": {
+      "routeMs": null,
+      "frames": 208,
+      "elapsedMs": 3501,
+      "p95Ms": 18,
+      "maxMs": 36,
+      "over50ms": 0
+    }
+  },
+  "after": {
+    "inicio": {
+      "projects": 9,
+      "groups": 3,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 307,
+          "frames": 209,
+          "elapsedMs": 3506,
+          "p95Ms": 17,
+          "maxMs": 33,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 287,
+          "frames": 210,
+          "elapsedMs": 3503,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 282,
+          "frames": 210,
+          "elapsedMs": 3507,
+          "p95Ms": 18,
+          "maxMs": 28,
+          "over50ms": 0
+        }
+      ]
+    },
+    "workspace": {
+      "nodes": [
+        "Investigar comandos git y errores de red",
+        "fetch, pull, push y stash en git_ops.rs",
+        "Contrato IPC en ipc.ts",
+        "Tests de git_ops",
+        "Acciones en el panel de Git",
+        "Commits visibles antes de confirmar",
+        "Auditoría de seguridad de los comandos",
+        "Publicar PR hacia main"
+      ],
+      "edges": 10,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1340,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 220,
+          "frames": 210,
+          "elapsedMs": 3511,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 215,
+          "frames": 210,
+          "elapsedMs": 3516,
+          "p95Ms": 17,
+          "maxMs": 19,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 220,
+          "frames": 210,
+          "elapsedMs": 3511,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        }
+      ]
+    },
+    "flow": {
+      "lens": "exec",
+      "selected": "t2",
+      "nodes": 16,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 273,
+          "frames": 210,
+          "elapsedMs": 3515,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 312,
+          "frames": 209,
+          "elapsedMs": 3500,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 313,
+          "frames": 209,
+          "elapsedMs": 3500,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        }
+      ]
+    },
+    "studio": {
+      "versions": [
+        {
+          "note": "Botón nacarado; estados con punto",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Cabecera aprobada y bloqueada",
+          "status": "approved",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Botón en contorno; filas más bajas",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        },
+        {
+          "note": "Propuesta inicial",
+          "status": "candidate",
+          "width": 620,
+          "height": 421
+        }
+      ],
+      "references": [
+        "nube.png",
+        "esfera.png",
+        "onda.png",
+        "matriz.png",
+        "metal.png",
+        "grafo.png"
+      ],
+      "selected": "v3 aprobadaPNG importado · Cabecera aprobada y bloqueada",
+      "dimensions": {
+        ".slist": {
+          "x": 56,
+          "y": 89,
+          "width": 212,
+          "height": 785
+        },
+        ".canvasw": {
+          "x": 268,
+          "y": 89,
+          "width": 856,
+          "height": 785
+        },
+        ".toolbar": {
+          "x": 595,
+          "y": 814,
+          "width": 202,
+          "height": 44
+        },
+        ".studio-composer": {
+          "x": 1125,
+          "y": 468.53125,
+          "width": 305,
+          "height": 100.6875
+        }
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 299,
+          "frames": 211,
+          "elapsedMs": 3512,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 301,
+          "frames": 210,
+          "elapsedMs": 3512,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 301,
+          "frames": 210,
+          "elapsedMs": 3510,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        }
+      ]
+    },
+    "entrega": {
+      "path": "src-tauri/src/git_ops.rs",
+      "inline": [
+        "L27 · f1",
+        "L20 · f2"
+      ],
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 306,
+          "frames": 209,
+          "elapsedMs": 3513,
+          "p95Ms": 18,
+          "maxMs": 38,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 273,
+          "frames": 208,
+          "elapsedMs": 3500,
+          "p95Ms": 18,
+          "maxMs": 38,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 70,
+          "frames": 210,
+          "elapsedMs": 3500,
+          "p95Ms": 18,
+          "maxMs": 32,
+          "over50ms": 0
+        }
+      ]
+    },
+    "brain": {
+      "selected": "m1",
+      "confirmed": 10,
+      "inferred": 0,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 297,
+          "frames": 210,
+          "elapsedMs": 3500,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 304,
+          "frames": 211,
+          "elapsedMs": 3510,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 312,
+          "frames": 210,
+          "elapsedMs": 3502,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        }
+      ]
+    },
+    "ajustes": {
+      "cells": 42,
+      "activeAssignments": 11,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "scale": 1
+      },
+      "body": {
+        "x": 56,
+        "y": 48,
+        "width": 1384,
+        "height": 826
+      },
+      "active": [
+        {
+          "routeMs": 293,
+          "frames": 210,
+          "elapsedMs": 3504,
+          "p95Ms": 17,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 307,
+          "frames": 210,
+          "elapsedMs": 3507,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        },
+        {
+          "routeMs": 303,
+          "frames": 210,
+          "elapsedMs": 3509,
+          "p95Ms": 18,
+          "maxMs": 18,
+          "over50ms": 0
+        }
+      ]
+    }
+  },
+  "pixels": {
+    "inicio": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1117144,
+      "deltaGreaterThan12": 164640
+    },
+    "workspace": {
+      "region": [
+        56,
+        48,
+        1396,
+        874
+      ],
+      "pixels": 1106840,
+      "different": 1105050,
+      "deltaGreaterThan12": 191479
+    },
+    "flow": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1114940,
+      "deltaGreaterThan12": 99185
+    },
+    "studio": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1003716,
+      "deltaGreaterThan12": 210155
+    },
+    "entrega": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 869017,
+      "deltaGreaterThan12": 316344
+    },
+    "brain": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1126187,
+      "deltaGreaterThan12": 88870
+    },
+    "ajustes": {
+      "region": [
+        56,
+        48,
+        1440,
+        874
+      ],
+      "pixels": 1143184,
+      "different": 1141059,
+      "deltaGreaterThan12": 90041
+    }
+  }
+}

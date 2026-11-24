@@ -489,6 +489,8 @@ mod tests {
         let repo = root.join("repo");
         std::fs::create_dir_all(&repo).unwrap();
         git(&repo, &["init", "-b", "main"]).unwrap();
+        // En Windows Git convierte a CRLF al crear los checkouts; la prueba compara bytes exactos.
+        git(&repo, &["config", "core.autocrlf", "false"]).unwrap();
         std::fs::write(repo.join("fixture.txt"), "BASE\n").unwrap();
         git(&repo, &["add", "fixture.txt"]).unwrap();
         git(&repo, &["-c", "user.name=Prueba", "-c", "user.email=test@example.invalid", "commit", "-m", "base"]).unwrap();

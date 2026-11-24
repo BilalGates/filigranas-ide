@@ -313,9 +313,9 @@ mod tests {
         for (role, skills) in ROLES.into_iter().zip(expected) {
             let listing = turn_catalog(&db, "project", role, root, "Encargo".into()).unwrap();
             for skill in skills {
-                assert!(listing.contains(&format!("/bundle/skills/{skill}/SKILL.md")));
+                assert!(listing.contains(&root.join(skill).join("SKILL.md").display().to_string()));
             }
-            assert_eq!(listing.matches("/SKILL.md").count(), skills.len());
+            assert_eq!(listing.matches("SKILL.md").count(), skills.len());
         }
     }
 

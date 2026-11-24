@@ -132,10 +132,10 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
-      {items.map((it) => (
+      {items.map((it, index) => (
         <Fragment key={it.id}>
-          <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow} />
-          {it.id === lastPlan && plan}
+          <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
+            plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
           {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
         </Fragment>
       ))}
@@ -171,7 +171,10 @@ export function ConversationObservation({ target, items, agent, project, onDiff 
   );
 }
 
-function ItemView({ it, agent, rel, onDiff, onOpenFlow }: { it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void; onOpenFlow?: () => void }) {
+function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
+  it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void;
+  onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean;
+}) {
   switch (it.type) {
     case 'userMessage':
       return (
@@ -182,7 +185,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow }: { it: CItem; agent: st
       );
     case 'agentMessage':
       return (
-        <div className="co-msg">
+        <div className="co-msg is-agent">
           <div className="co-by">{it.by ?? agent}</div>
           <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} />
         </div>
@@ -195,6 +198,11 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow }: { it: CItem; agent: st
         </details>
       ) : null;
     case 'plan':
+      if (it.text && plan) return <div className="co-msg is-agent">
+        <div className="co-by">{it.by ?? agent}</div>
+        <Prose text={it.text} />
+        {plan}
+      </div>;
       return it.text ? (
         <div className="co-aside">
           <div className="co-by">plan</div>
@@ -215,7 +223,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow }: { it: CItem; agent: st
       );
     case 'fileChange':
       return (
-        <div className="co-files">
+        <div className={`co-files${attached ? ' is-attached' : ''}`}>
           {(it.changes ?? []).map((change) => <ConversationChange key={change.path} change={change} path={rel(change.path)} status={it.status} onDiff={onDiff} />)}
         </div>
       );

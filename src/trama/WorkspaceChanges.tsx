@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import Diff from '../Diff';
+import ReviewDiff from './ReviewDiff';
 import { git, sessions, type Change, type DiffTarget } from '../ipc';
 import { Icon } from './icons';
 
@@ -45,7 +45,7 @@ export default function WorkspaceChanges({ project, session, onDiff, onEntrega, 
   {conversation}
   {selection && <div className="workspace-observation-diff" aria-label="Código observado" role="region">
     <div className="workspace-observation-caption">Código observado · {selection.path.split('/').at(-1)}</div>
-    <Diff inline showHeader={false} project={project} change={session == null ? selection : { ...selection, session }} />
+    <ReviewDiff project={project} change={session == null ? selection : { ...selection, session }} />
   </div>}
   </>;
 }

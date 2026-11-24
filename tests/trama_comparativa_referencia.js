@@ -19,6 +19,7 @@ try {
     ['flow-dependencias', 'flow', () => { S.flow.lens = 'deps'; }],
     ['studio', 'studio'],
     ['studio-comparacion', 'studio', () => { S.studio.cmp = true; S.studio.cmpA = 3; S.studio.cmpB = 4; }],
+    ['studio-en-vivo', 'studio', () => { S.studio.cmp = false; S.studio.sel = 'list'; }],
     ['entrega', 'review'],
     ['entrega-hallazgo', 'review'],
     ['entrega-ci', 'review', () => {
@@ -44,6 +45,11 @@ try {
     fieldDraw(0);
     AG.forEach((agent, index) => { agent.state = states[index]; });
     report.views[name] = { route };
+    if (name === 'studio-en-vivo') {
+      const box = COMPS.find((part) => part.id === S.studio.sel);
+      report.views[name].selected = box.n;
+      report.views[name].rect = [box.x, box.y, box.w, box.h];
+    }
     if (name === 'entrega-ci') {
       const [passed, total] = STN[7][2].split('/').map(Number);
       report.views[name].checks = [passed, total - passed, 0];

@@ -62,7 +62,7 @@ export const browser = {
 export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
 export type GitStatus = { branch: string | null; head: string | null; headSha?: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
 export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
-type DiffTexts = { old: string; new: string };
+export type DiffTexts = { old: string; new: string };
 
 export const git = {
   head: (project: string) => invoke<string>('git_head', { project }),

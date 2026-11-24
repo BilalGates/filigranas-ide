@@ -8,6 +8,9 @@ const result = { phases: [], hardware: { scale: devicePixelRatio, width: innerWi
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let phase;
 Reflect.set(window, '__perfilTrama', {
+  mark(name) {
+    phase?.events.push({ name, ms: Math.round(performance.now() - phase.start) });
+  },
   ipc(command) {
     if (!phase) return;
     const current = phase;
@@ -20,7 +23,10 @@ Reflect.set(window, '__perfilTrama', {
       current.ipc[command].worstMs = Math.max(current.ipc[command].worstMs, elapsed);
     };
   },
-  render(duration) { phase?.renders.push(duration); },
+  render(duration) {
+    phase?.renders.push(duration);
+    if (duration > 20) this.mark(`React ${Math.round(duration)} ms`);
+  },
 });
 
 async function until(read, timeout = 8000) {
@@ -46,35 +52,48 @@ function sample(values) {
 }
 
 async function measure(name, act) {
-  phase = { name, ipc: {}, renders: [], frames: [], input: [] };
+  const start = performance.now();
+  phase = { name, start, ipc: {}, renders: [], frames: [], input: [], step: '', events: [], gaps: [] };
   let request = 0;
   let previous = performance.now();
   const tick = (time) => {
-    phase.frames.push(time - previous);
+    const interval = time - previous;
+    phase.frames.push(interval);
+    if (interval > 40) phase.gaps.push({ step: phase.step, ms: Math.round(time - start), interval: Math.round(interval) });
     previous = time;
     request = requestAnimationFrame(tick);
   };
   request = requestAnimationFrame(tick);
-  const start = performance.now();
   try {
     await act(phase.input);
   } finally {
     cancelAnimationFrame(request);
-    const { ipc, renders, frames, input } = phase;
+    const { ipc, renders, frames, input, events, gaps } = phase;
     result.phases.push({
       name, elapsedMs: Math.round(performance.now() - start), ipc, react: sample(renders),
       frames: sample(frames), over50ms: frames.filter((ms) => ms > 50).length,
-      over100ms: frames.filter((ms) => ms > 100).length, input: sample(input),
+      over100ms: frames.filter((ms) => ms > 100).length, input: sample(input), events, gaps,
     });
     phase = undefined;
   }
 }
 
 async function readyAfter(action, selector, input) {
+  phase.step = selector;
+  window.__perfilTrama.mark(selector);
   const start = performance.now();
   action();
   await until(() => visible(selector));
-  await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  let request, timeout;
+  try {
+    await new Promise((done, reject) => {
+      request = requestAnimationFrame(() => { request = requestAnimationFrame(done); });
+      timeout = setTimeout(() => reject(new Error(`WebKit no pintó ${selector} con la ventana ${document.visibilityState}`)), 6000);
+    });
+  } finally {
+    cancelAnimationFrame(request);
+    clearTimeout(timeout);
+  }
   input.push(performance.now() - start);
 }
 
@@ -141,6 +160,7 @@ async function run() {
       await sleep(300);
     }
   });
+  if (url.searchParams.get('soloNavegacion') === '1') return;
   await measure('navegación sostenida con PTY', async (input) => {
     const channel = new Channel();
     let bytes = 0;
@@ -172,5 +192,8 @@ try {
   await run();
 } catch (error) {
   result.error = String(error);
+  result.stopped = { visibility: document.visibilityState, focused: document.hasFocus(),
+    view: document.querySelector('main[aria-label]')?.getAttribute('aria-label'),
+    loading: Boolean(visible('.flow-loading')), failure: visible('.flow-err')?.textContent };
 }
 await fetch('/__perfil_trama', { method: 'POST', body: JSON.stringify(result) });

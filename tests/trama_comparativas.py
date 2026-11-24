@@ -15,7 +15,7 @@ from trama_semaforo import WINDOW
 
 BASE_VIEWS = ("inicio", "workspace", "flow", "studio", "entrega", "brain", "ajustes")
 VIEWS = ("inicio", "workspace", "workspace-arquitectura", "workspace-observar", "workspace-permiso", "flow", "flow-dependencias",
-         "studio", "studio-comparacion", "entrega", "entrega-hallazgo", "entrega-ci", "brain", "brain-agrupado", "brain-inferencias", "ajustes")
+         "studio", "studio-comparacion", "studio-en-vivo", "entrega", "entrega-hallazgo", "entrega-ci", "brain", "brain-agrupado", "brain-inferencias", "ajustes")
 
 
 def prepare(root, workspace_db=None):
@@ -132,7 +132,7 @@ def take(pid, output, workspace_db=None):
         time.sleep(0.2)
     else:
         raise RuntimeError(f"No se pudo activar la ventana de pruebas: {result.stderr.strip()}")
-    deadline = time.monotonic() + 180
+    deadline = time.monotonic() + 230
     completed = {}
     while time.monotonic() < deadline:
         state = output / "escena.json"
@@ -235,6 +235,9 @@ def verify(reports):
     assert native["inicio"]["failure"]["number"] == 16
     assert native["inicio"]["failure"]["actionOpensCi"]
     assert native["entrega-ci"]["checks"] == reference["entrega-ci"]["checks"] == [14, 0, 0]
+    assert native["studio-en-vivo"]["rect"] == reference["studio-en-vivo"]["rect"]
+    assert native["studio-en-vivo"]["selected"] == reference["studio-en-vivo"]["selected"]
+    assert native["studio-en-vivo"]["isolated"] and native["studio-en-vivo"]["click"] == "Archivos"
     assert native["entrega-ci"]["codeVisible"] and reference["entrega-ci"]["codeVisible"]
     assert native["brain-inferencias"]["count"] == reference["brain-inferencias"]["count"] == 3
     assert native["brain-inferencias"]["approvedOnlyAfterConfirmation"]

@@ -2803,22 +2803,6 @@ html.is-light .git-log-body {
   flex: 1;
   min-height: 0;
 }
-.monaco .diff-unified-added { background: rgb(111 224 179 / 0.12); }
-.monaco .diff-unified-removed { background: rgb(255 107 93 / 0.12); }
-.monaco .diff-finding {
-  padding: 0 9px;
-  background: rgb(255 178 94 / 0.11);
-  border-inline-start: 2px solid var(--amber, #ffb25e);
-  font: 500 12px/2.2 var(--ui, system-ui);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.monaco .diff-finding-error {
-  background: rgb(255 107 93 / 0.11);
-  border-inline-start-color: var(--coral, #ff6b5d);
-}
-
 .viewer-msg {
   padding: 20px;
   color: var(--tx3);

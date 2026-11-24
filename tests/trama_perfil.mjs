@@ -30,11 +30,49 @@ async function referenceRoutes(vite) {
     Object.create(null), { timeout: 100 },
   );
   const fixtures = JSON.stringify({ projects: literal('PROJ'), memory: literal('MEM') });
+  const components = literal('COMPS');
+  const versions = literal('VERS');
+  const preview = original.slice(original.indexOf('function pv(p)'), original.indexOf('function thumb('));
+  const studioStyle = [...original.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((match) => match[1]).join('\n');
+  const studioPages = new Map(versions.map((version) => {
+    const html = runInNewContext(preview + '\npv(params)', {
+      params: version.p, COMPS: components, S: { studio: { locks: [], sel: null } },
+    }, { timeout: 100 }).replace(/data-comp="([a-z]+)"/g, (_match, id) =>
+      `id="part-${id}" data-component="${components.find((part) => part.id === id).n}"`);
+    return [`/${version.n}`, html];
+  }));
+  vite.middlewares.use('/__trama_studio', (request, response) => {
+    const html = studioPages.get(request.url);
+    if (!html) return response.writeHead(404).end();
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html>
+      <meta charset="utf-8"><link rel="stylesheet" href="/__trama_fuentes"><style>${studioStyle}</style>
+      ${html}<script>
+      const report = (state) => parent.postMessage({tramaStudio: state, ipc: typeof window.__TAURI_INTERNALS__}, '*');
+      document.querySelectorAll('.pv .side div').forEach((item) => item.addEventListener('click', () => {
+        document.querySelector('.pv .side .on')?.classList.remove('on');
+        item.classList.add('on');
+        report(item.textContent);
+      }));
+      addEventListener('message', (event) => {
+        if (event.source === parent && event.data === 'trama:archivos') {
+          document.querySelector('.pv .side div:nth-child(2)').click();
+        }
+      });
+      document.fonts.ready.then(() => report('lista'));
+      </script>`);
+  });
   vite.middlewares.use('/__trama_fixtures', (_request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' }).end(fixtures);
   });
   vite.middlewares.use('/__trama_fuentes', (_request, response) => {
     response.writeHead(200, { 'content-type': 'text/css' }).end(css);
+  });
+  const fonts = new Map(manifest.resources.filter((item) => item.path.endsWith('.woff2'))
+    .map((item) => ['/' + join(referenceDir, item.path), item]));
+  vite.middlewares.use(async (request, response, next) => {
+    const font = fonts.get(request.url);
+    if (!font) return next();
+    response.writeHead(200, { 'content-type': 'font/woff2', 'access-control-allow-origin': '*' }).end(await readFile(join(referenceDir, font.path)));
   });
   vite.middlewares.use('/__trama_referencia', (_request, response) => {
     const page = original
@@ -46,7 +84,7 @@ async function referenceRoutes(vite) {
   });
   vite.middlewares.use('/__trama_capturada', async (request, response) => {
     const name = request.url?.slice(1);
-    if (!/^(native|artifact)-(inicio|workspace(?:-arquitectura|-observar|-permiso)?|flow(?:-dependencias)?|studio(?:-comparacion)?|entrega(?:-hallazgo|-ci)?|brain(?:-agrupado|-inferencias)?|ajustes)$/.test(name ?? '')) {
+    if (!/^(native|artifact)-(inicio|workspace(?:-arquitectura|-observar|-permiso)?|flow(?:-dependencias)?|studio(?:-comparacion|-en-vivo)?|entrega(?:-hallazgo|-ci)?|brain(?:-agrupado|-inferencias)?|ajustes)$/.test(name ?? '')) {
       response.writeHead(400).end();
       return;
     }
@@ -102,6 +140,18 @@ const server = await createServer({
       });
     },
     transform(code, id) {
+      if (id.endsWith('/src/monaco.ts')) {
+        return code.replace("const THEME = 'filigranas-dark';",
+          'Reflect.get(window, "__perfilTrama")?.mark("Monaco evaluado");\nconst THEME = "filigranas-dark";');
+      }
+      if (id.endsWith('/src/Diff.tsx')) {
+        return code.replace('const request = ++latest;', 'const request = ++latest; Reflect.get(window, "__perfilTrama")?.mark("Diff solicitado");')
+          .replace('const lang = languageFor(change.path);', 'Reflect.get(window, "__perfilTrama")?.mark("Diff listo para montar"); const lang = languageFor(change.path);');
+      }
+      if (id.endsWith('/src/trama/ReviewDiff.tsx')) {
+        return code.replace('worker.postMessage({ id, texts });', 'Reflect.get(window, "__perfilTrama")?.mark("Diff enviado al worker"); worker.postMessage({ id, texts });')
+          .replace('if (active && data.id === revision) setData', 'if (active && data.id === revision) Reflect.get(window, "__perfilTrama")?.mark("Diff calculado"); if (active && data.id === revision) setData');
+      }
       if (id.endsWith('/src/main.tsx')) {
         return code.replace('import { StrictMode }', 'import { Profiler, StrictMode }').replace(
           '<App />',

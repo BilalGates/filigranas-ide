@@ -1,7 +1,7 @@
 import { getIdentifier } from '@tauri-apps/api/app';
 import { api, brain, git, health, sessions, skills } from '../src/ipc';
 import { verifyMotion } from './trama_movimiento.js';
-import { captureStudioState } from './trama_studio_escena';
+import { captureLiveStudioState, captureStudioState } from './trama_studio_escena';
 import { canvasHash, capture, frames, post, sleep, until } from './trama_comparativa';
 
 const report = { side: 'native', views: {} };
@@ -184,7 +184,7 @@ async function run() {
   if (!visible('.coach[aria-label="Coordinador"]') || !observation.textContent.includes('Encargo del PM')) {
     throw new Error('Observar cambió la conversación principal o abrió otra sesión');
   }
-  const source = await until(() => visible('.workspace-observation-diff .view-lines')?.textContent.includes('run_git'), 'el diff de la sesión en observación');
+  const source = await until(() => visible('.workspace-observation-diff .review-code-rows')?.textContent.includes('run_git'), 'el diff de la sesión en observación');
   conversation.scrollTop = conversation.scrollHeight;
   report.views['workspace-observar'] = { agent: 'Senior', pmVisible: true, readOnly: !document.querySelector('.workspace-observation .co-compose'), codeVisible: source };
   await read('workspace-observar');
@@ -239,6 +239,8 @@ async function run() {
   divider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   await until(() => divider.getAttribute('aria-valuenow') === '55', 'el divisor movido con el teclado');
 
+  await captureLiveStudioState(project, { button, until, visible, navigate, report, read });
+
   await navigate('Entrega');
   const file = spec.files.find((item) => item.path.endsWith('git_ops.rs'));
   const texts = await git.diffTexts(project.path, file.path, null);
@@ -255,12 +257,12 @@ async function run() {
   // El HTML vuelve a empezar por la primera línea al abrir el escenario de CI.
   await navigate('Flow');
   await navigate('Entrega');
-  await until(() => /Operaciones\s+remotas/.test(visible('.rev-diff .view-lines')?.textContent ?? ''), 'el diff desde el inicio');
+  await until(() => /Operaciones\s+remotas/.test(visible('.rev-diff .review-code-rows')?.textContent ?? ''), 'el diff desde el inicio');
   button('Actualizar').click();
   const ci = await until(() => document.querySelector('[aria-label="Recorrido de la entrega"] [aria-label="CI: 14/14"]'), 'el CI verde del SHA actual');
   ci.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   await until(() => visible('[aria-label="Estado de CI"]')?.textContent.includes('14 correctos · 0 fallidos · 0 pendientes'), 'el inspector de CI aprobado');
-  const codeVisible = /Operaciones\s+remotas/.test(visible('.rev-diff .view-lines')?.textContent ?? '');
+  const codeVisible = /Operaciones\s+remotas/.test(visible('.rev-diff .review-code-rows')?.textContent ?? '');
   if (!codeVisible) throw new Error('El CI cerró el diff que estaba abierto');
   const observations = await health.ci(project.path, null);
   report.views['entrega-ci'] = { number: 17, checks: observations.find((pull) => pull.number === 17).checks, codeVisible };

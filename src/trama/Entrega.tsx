@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeHealth from '../CodeHealth';
-import Diff from '../Diff';
+import ReviewDiff from './ReviewDiff';
 import GitPanel from '../GitPanel';
 import Larry from '../Larry';
 import Pending from '../Pending';
@@ -225,20 +225,24 @@ function Pipeline({ stages, active, onPick }: { stages: [Stage, string, string, 
   const ref = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(1000);
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, []);
-  const n = stages.length, step = (w - 100) / (n - 1);
+  const n = stages.length, step = (w - 60) / (n - 1);
   const col: Record<StState, string> = { done: '#6fe0b3', now: '#9db6ff', fail: '#ff6b5d', todo: 'rgba(220,226,236,.35)' };
   const nowI = Math.max(0, stages.findIndex((s) => s[3] === 'now' || s[3] === 'fail'));
   return (
     <svg id="pipesvg" ref={ref} role="group" aria-label="Recorrido de la entrega">
-      <line x1="50" x2={w - 50} y1="28" y2="28" stroke="rgba(255,255,255,.1)" strokeWidth="2" strokeDasharray="1 5" strokeLinecap="round" />
-      <line x1="50" x2={50 + nowI * step} y1="28" y2="28" stroke="rgba(111,224,179,.55)" strokeWidth="2" />
+      <line x1="30" x2={w - 30} y1="30" y2="30" stroke="rgba(255,255,255,.08)" strokeWidth="2" strokeDasharray="1 5" strokeLinecap="round" />
+      <line x1="30" x2={30 + nowI * step} y1="30" y2="30" stroke="rgba(111,224,179,.5)" strokeWidth="2" />
       {stages.map(([id, label, sub, st], i) => {
-        const x = 50 + i * step, c = col[st], on = active === id;
+        const x = 30 + i * step, c = col[st], on = active === id;
         return (
-          <g key={id} className={`st${on ? ' on' : ''}`} transform={`translate(${x},28)`} tabIndex={0} role="button" aria-label={`${label}: ${sub}`} onClick={() => onPick(id)} onKeyDown={(e) => e.key === 'Enter' && onPick(id)}>
+          <g key={id} className={`st${on ? ' on' : ''}`} transform={`translate(${x},30)`} tabIndex={0} role="button" aria-label={`${label}: ${sub}`} onClick={() => onPick(id)} onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault();
+            onPick(id);
+          }}>
             <rect x="-46" y="-16" width="92" height="66" rx="8" className="sthit" />
             {st === 'now' && <circle r="10" fill="none" stroke={c} strokeOpacity=".4" className="svgbreath" />}
-            <circle r={on ? 6 : 4.8} fill={st === 'todo' ? '#0d0f12' : c} stroke={c} strokeWidth="1.5" />
+            <circle r={on ? 6 : 4.5} fill={st === 'todo' ? '#0d0f12' : c} stroke={c} strokeWidth="1.5" />
             {on && <circle r="11" fill="none" stroke="#fff" strokeOpacity=".55" />}
             <text y="30" textAnchor="middle">{label}</text>
             <text className="s" y="45" textAnchor="middle">{w < 760 && i % 2 ? '' : sub.length > 18 ? `${sub.slice(0, 17)}…` : sub}</text>
@@ -282,7 +286,7 @@ function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, a
   if ((stage === 'cambios' || stage === 'ci') && diff) return (
     <>
       {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
-      <div className="rev-diff legacy"><Diff project={project} change={diff} findings={findings} finding={finding} inline showHeader={false} /></div>
+      <div className="rev-diff"><ReviewDiff project={project} change={diff} findings={findings} finding={finding} /></div>
     </>
   );
   if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;

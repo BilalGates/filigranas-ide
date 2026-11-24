@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api, git, sessions as sessionApi, tasks as taskApi, workSessions, type Project, type Session, type Task, type WorkSession, type Workspace } from '../ipc';
-import { STATUS } from '../Tasks';
+import { STATUS } from './taskMeta';
 import { useUi } from '../ui';
 import { Icon } from './icons';
 import { AgDot, EmptyArt, Root, Sigil, StDot, ago, ambient, sessionAgents, type Agent } from './kit';

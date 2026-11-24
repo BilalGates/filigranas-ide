@@ -444,6 +444,8 @@ mockIPC(
         return null;
       case 'session_interrupt':
         return null;
+      case 'session_permission_mode':
+        return a.mode;
       case 'session_changes':
         return { branch: 'ide/demo', head: '84ab176', upstream: null, ahead: 0, behind: 0, changes: [{ path: 'src/lib/autonomy.ts', orig: null, status: 'M', adds: 4, dels: 1 }] };
       case 'session_diff_texts': {

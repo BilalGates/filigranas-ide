@@ -14,7 +14,7 @@ type Props = {
   onJoin: () => void;
   onShare: (project: Project) => void;
   onProjectManager: (path: string) => void;
-  onProjectView: (path: string, tab: 'files' | 'git' | 'containers' | 'work') => void;
+  onProjectView: (path: string, tab: 'files' | 'git' | 'containers') => void;
   onProjectTerminal: (path: string) => void;
   onError: (message: string) => void;
   /** Sesiones del proyecto abierto, bajo su nombre. */
@@ -134,7 +134,6 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
                   onUpdate={onUpdate}
                   onError={onError}
                   onView={(tab) => {
-                    if (tab === 'work') setExpanded((cur) => new Set(cur).add(p.path));
                     onProjectView(p.path, tab);
                   }}
                   onTerminal={() => onProjectTerminal(p.path)}
@@ -212,7 +211,7 @@ function ProjectRow(props: {
   onSelect: () => void;
   onUpdate: (p: Promise<Workspace>) => void;
   onError: (message: string) => void;
-  onView: (tab: 'files' | 'git' | 'containers' | 'work') => void;
+  onView: (tab: 'files' | 'git' | 'containers') => void;
   onTerminal: () => void;
   onShare: () => void;
   onManager: () => void;
@@ -304,7 +303,6 @@ function ProjectRow(props: {
           <button role="menuitem" className="menu-item" onClick={() => run(onSelect)}>Abrir proyecto</button>
           <button role="menuitem" className="menu-item" onClick={() => run(onShare)}>Compartir proyecto</button>
           <button role="menuitem" className="menu-item" onClick={() => run(onManager)}>Abrir Project manager</button>
-          <button role="menuitem" className="menu-item" onClick={() => run(() => onView('work'))}>Trabajo</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('files'))}>Ver archivos</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('git'))}>Ver cambios</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('containers'))}>Ver contenedores</button>

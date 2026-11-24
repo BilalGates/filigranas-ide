@@ -334,8 +334,17 @@ impl Codex {
                         let _ = rpc.respond_error(id, "Filigranas no admite esta petición todavía");
                         return;
                     }
-                    sh.approvals.insert(id.to_string());
-                    Event { method, params, request_id: Some(id) }
+                    // En acceso total Filigranas aprueba por su cuenta. En automático no:
+                    // con el sandbox de Codex estas peticiones ya son salidas de la carpeta.
+                    let thread = params["threadId"].as_str().unwrap_or("").to_string();
+                    let full = sh.sessions.get(&thread).is_some_and(|sid|
+                        handle.state::<AppState>().permissions.get(*sid) == crate::autoapprove::Mode::Full);
+                    if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
+                        Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
+                    } else {
+                        sh.approvals.insert(id.to_string());
+                        Event { method, params, request_id: Some(id) }
+                    }
                 }
                 Incoming::Closed => {
                     for id in sh.sessions.values() {

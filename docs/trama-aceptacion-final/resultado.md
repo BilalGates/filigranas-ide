@@ -221,3 +221,30 @@ Los dos lienzos se compararon en la misma WKWebView a 1440 × 900 y 1×. Se fija
 11. Para las 16 escenas, pasar también `--workspace-db` a la captura. Se sembrará el fallo del CI antes de arrancar y se insertará la observación verde después de capturar el hallazgo de Entrega. El permiso del ensayo usa el mismo canal de la interfaz con una respuesta local. Las inferencias entran por los comandos normales de Brain y solo se aprueban desde su ficha.
 
 12. Para el estado 17, mantener el servidor de comparativas en el puerto 14572. Sirve el panel de Studio extraído de la referencia y la prueba guarda versiones de la URL local en el perfil aislado. La ejecución corta de rendimiento usa `?soloNavegacion=1` en la URL de desarrollo. El ensayo completo usa `?segundos=300` y el mismo perfil de carga.
+
+13. Tras las comparativas, finalizar la ventana temporal de escenas. Al arrancar el ensayo de 300 segundos, verificar el PID descendiente del proceso de desarrollo que usó el perfil de rendimiento. Activar esa ventana y vincular `caffeinate` a ese mismo PID. Registrar CPU y memoria del PID comprobado.
+
+## Tarjetas e inspectores en WKWebView · 24 de noviembre de 2026
+
+Workspace muestra diez marcas de avance con la proporción de subtareas terminadas cuando las hay. El estado de prueba conserva las tres sesiones y carece de subtareas asociadas. Entrega incluye archivos modificados sin hallazgos en el mapa y permite cambiar de diff desde él, con CI a la vista cuando está seleccionado. En Studio se pueden elegir las dos versiones del mismo tamaño desde el inspector. La selección de un componente muestra su posición y dimensiones capturadas.
+
+Se repitieron las 17 parejas a 1440 × 900 y escala 1× con el mismo HTML aprobado. Se verificaron el cambio de archivo desde el mapa, la selección de versión desde Studio, el divisor con el teclado y las tres preferencias de movimiento. Los nueve sigilos de Inicio coincidieron píxel a píxel. Los cuerpos de las siete vistas aún muestran diferencias. El porcentaje indica la proporción de píxeles cuyo mayor delta RGB supera 12 niveles.
+
+| Estado | Ronda anterior | Ronda actual |
+| --- | ---: | ---: |
+| Workspace · conversación y tarjetas | 18,58 % | 15,93 % |
+| Workspace · observar | 21,15 % | 19,94 % |
+| Workspace · permiso | 10,54 % | 12,55 % |
+| Studio · comparación | 19,59 % | 18,60 % |
+| Studio · lienzo en vivo | 16,75 % | 16,98 % |
+| Entrega · auditoría | 15,38 % | 15,20 % |
+| Entrega · hallazgo | 22,44 % | 22,18 % |
+| Entrega · CI | 16,14 % | 16,00 % |
+
+Las 21 transiciones promediaron 59,88 callbacks por segundo, con p95 de hasta 18 ms y un máximo de 28 ms. Con 32 repositorios y 240 tareas sintéticas, el tramo sostenido duró 303,213 s. Hizo 142 cambios de vista y recibió 2706 bytes del terminal. El p95 de respuesta visible fue 120 ms y el intervalo máximo de WebKit fue 92 ms. La secuencia corta de navegación entre Inicio, Flow, Studio y Entrega redujo su máximo anterior de 152 ms a 65 ms. El arranque registró un intervalo de 109 ms. La sesión de 300 s no repitió ninguna pausa superior a 100 ms.
+
+Las 82 muestras válidas de recursos cubren 245 s del proceso principal. Las medianas fueron 3,7 % de CPU y 111,53 MiB de memoria residente. La ventana de comparativas seguía abierta al iniciar el ensayo. Se cerró durante el recorrido y las muestras de recursos se limitaron al PID del ensayo tras activar la ventana correcta. El tramo mide callbacks de WebKit y latencia visible. Los cuadros presentados por la GPU y la memoria de los procesos WebContent requieren medición específica.
+
+[Comparativas y métricas](evidencias/tarjetas-inspectores-2026-11-24.json) · [Traza de 300 s](evidencias/rendimiento-300s-tarjetas-inspectores.json) · [Muestras de CPU y memoria](evidencias/recursos-300s-tarjetas-inspectores.json).
+
+Validación de regresión de esta ronda. La compilación y las 8 pruebas del frontend pasaron. Chrome completó los 17 recorridos automatizados. Rust ejecutó 133 pruebas correctamente y dejó 10 marcadas como ignoradas.

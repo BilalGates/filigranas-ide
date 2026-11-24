@@ -248,3 +248,42 @@ Las 82 muestras válidas de recursos cubren 245 s del proceso principal. Las med
 [Comparativas y métricas](evidencias/tarjetas-inspectores-2026-11-24.json) · [Traza de 300 s](evidencias/rendimiento-300s-tarjetas-inspectores.json) · [Muestras de CPU y memoria](evidencias/recursos-300s-tarjetas-inspectores.json).
 
 Validación de regresión de esta ronda. La compilación y las 8 pruebas del frontend pasaron. Chrome completó los 17 recorridos automatizados. Rust ejecutó 133 pruebas correctamente y dejó 10 marcadas como ignoradas.
+
+## Permiso de Workspace y recuperación del grafo · 24 de noviembre de 2026
+
+El aviso de conexión pasó al compositor cuando ya hay historial. La conversación reserva el ancho interior de la referencia aunque aparezca la barra de desplazamiento. La tarjeta de permiso mide 716 × 108,84 puntos, igual que la referencia. En esta captura su posición difiere -9,50 puntos en el eje horizontal y -0,88 en el vertical con respecto al HTML. ⌘N y el clic posterior se resolvieron con un único rechazo en el perfil aislado.
+
+En Brain, la regla de la cuadrícula para anchos grandes coincidía en prioridad con la del estilo base dentro de `@scope`. La etapa acababa en una fila de altura cero. La regla específica comparte ahora el ámbito del estilo base. El grafo ocupa 773 puntos de alto y el encuadre incluye las etiquetas laterales. El recorrido comprueba los límites de los nodos dibujados antes de capturar m1, los grupos y m10. Las capturas anteriores de Brain medían una superficie sin el grafo visible, lo que afecta a la comparación numérica de esa vista.
+
+Studio integra el acceso al diseñador de barra lateral en el encabezado de Pantallas. Flow, Entrega e Inicio recuperan tamaños de título o separaciones del HTML. Ajustes muestra los ámbitos en un solo control horizontal. Inicio incluye un permiso activo en la fixture, como en el HTML aprobado.
+
+Se obtuvieron 17 parejas de imágenes en la misma WKWebView a 1440 × 900 y escala 1×. Tras detectar un cambio de tamaño a mitad de un recorrido, la prueba pasó a validar el área visible y el tamaño de cada captura. La configuración de desarrollo fija las dimensiones de la ventana de pruebas. Los nueve sigilos de Inicio coincidieron. Las siete vistas aún tienen diferencias en sus cuerpos.
+
+| Estado | Ronda anterior | Ronda actual |
+| --- | ---: | ---: |
+| inicio | 14,84 % | 15,42 % |
+| workspace | 15,93 % | 9,17 % |
+| workspace-permiso | 12,55 % | 9,10 % |
+| workspace-observar | 19,94 % | 17,15 % |
+| flow | 9,42 % | 9,23 % |
+| studio | 16,69 % | 13,52 % |
+| studio-comparacion | 18,60 % | 14,04 % |
+| studio-en-vivo | 16,98 % | 13,01 % |
+| entrega | 15,20 % | 12,22 % |
+| entrega-hallazgo | 22,18 % | 16,95 % |
+| brain | 6,06 % | 6,32 % |
+| ajustes | 7,88 % | 7,20 % |
+
+La proporción mide los píxeles cuyo mayor delta RGB supera 12 niveles en la intersección de ambas superficies.
+
+Con 32 repositorios sintéticos y 240 tareas, el tramo sostenido duró 303,109 s. Hizo 142 cambios de vista con el terminal abierto. El p95 de WebKit fue 18 ms, el máximo 96 ms y la respuesta visible p95 126 ms. La secuencia de Inicio, Flow, Studio y Entrega llegó a 63 ms. El arranque llegó a 112 ms.
+
+Tras el último ajuste de alineación y orden del mapa, se repitieron las 21 transiciones. Promediaron 59,87 callbacks por segundo, con máximo de 34 ms. La verificación final con terminal duró 47,015 s y su intervalo máximo fue de 90 ms. Pasaron Completo, Sin ambiente y Reducido.
+
+Las 106 muestras del proceso principal verificado cubren 317 s. Registraron medianas de 3,90 % de CPU y 107,23 MiB de memoria residente. Los callbacks miden el bucle visible de WebKit. Los cuadros presentados por GPU requieren un contador específico.
+
+[Comparativas y geometría](evidencias/permiso-y-siete-vistas-2026-11-24.json) · [300 s](evidencias/rendimiento-300s-permiso.json) · [Verificación final](evidencias/rendimiento-final-permiso.json) · [CPU y memoria](evidencias/recursos-300s-permiso.json).
+
+Las tomas del HTML de Dependencias y Studio proceden de la primera pasada válida de la ronda. Coinciden en estado, resolución y escala con las tomas nativas finales. En las dos tomas del último pase se había seleccionado texto. La prueba limpia la selección durante cada captura.
+
+La compilación, las ocho pruebas del frontend y los 17 recorridos de regresión en Chrome pasaron. La prueba de Chrome exige que los nodos del mapa y el grupo Decisiones entren en el área visible.

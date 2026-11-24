@@ -1,0 +1,1915 @@
+{
+  "phases": [
+    {
+      "name": "arranque",
+      "elapsedMs": 3020,
+      "ipc": {
+        "codex_rate_limits": {
+          "count": 2,
+          "totalMs": 2797,
+          "worstMs": 1462
+        },
+        "get_workspace": {
+          "count": 2,
+          "totalMs": 107,
+          "worstMs": 91
+        },
+        "tools_status": {
+          "count": 2,
+          "totalMs": 2330,
+          "worstMs": 1193
+        },
+        "watch_project": {
+          "count": 2,
+          "totalMs": 16,
+          "worstMs": 14
+        },
+        "home_summary": {
+          "count": 2,
+          "totalMs": 1126,
+          "worstMs": 568
+        },
+        "jev_statusbar": {
+          "count": 2,
+          "totalMs": 18,
+          "worstMs": 10
+        },
+        "jev_usage": {
+          "count": 1,
+          "totalMs": 7,
+          "worstMs": 7
+        }
+      },
+      "react": {
+        "count": 12,
+        "medianMs": 3,
+        "p95Ms": 24,
+        "maxMs": 24
+      },
+      "frames": {
+        "count": 164,
+        "medianMs": 17,
+        "p95Ms": 24,
+        "maxMs": 112
+      },
+      "over50ms": 4,
+      "over100ms": 1,
+      "input": {
+        "count": 0,
+        "medianMs": 0,
+        "p95Ms": 0,
+        "maxMs": 0
+      },
+      "events": [
+        {
+          "name": "React 24 ms",
+          "ms": 570
+        }
+      ],
+      "gaps": [
+        {
+          "step": "",
+          "ms": 238,
+          "interval": 41
+        },
+        {
+          "step": "",
+          "ms": 520,
+          "interval": 54
+        },
+        {
+          "step": "",
+          "ms": 620,
+          "interval": 77
+        },
+        {
+          "step": "",
+          "ms": 694,
+          "interval": 74
+        },
+        {
+          "step": "",
+          "ms": 806,
+          "interval": 112
+        }
+      ]
+    },
+    {
+      "name": "navegación y grafo",
+      "elapsedMs": 8580,
+      "ipc": {
+        "session_orphans": {
+          "count": 2,
+          "totalMs": 8,
+          "worstMs": 5
+        },
+        "task_flow": {
+          "count": 5,
+          "totalMs": 25,
+          "worstMs": 7
+        },
+        "design_list": {
+          "count": 10,
+          "totalMs": 32,
+          "worstMs": 4
+        },
+        "git_status": {
+          "count": 23,
+          "totalMs": 1423,
+          "worstMs": 79
+        },
+        "git_log": {
+          "count": 20,
+          "totalMs": 1061,
+          "worstMs": 60
+        },
+        "git_branches": {
+          "count": 10,
+          "totalMs": 504,
+          "worstMs": 57
+        },
+        "git_stash_list": {
+          "count": 10,
+          "totalMs": 484,
+          "worstMs": 51
+        },
+        "health_list": {
+          "count": 10,
+          "totalMs": 173,
+          "worstMs": 20
+        },
+        "health_ci": {
+          "count": 10,
+          "totalMs": 474,
+          "worstMs": 52
+        },
+        "work_current": {
+          "count": 20,
+          "totalMs": 195,
+          "worstMs": 19
+        },
+        "tasks_list": {
+          "count": 10,
+          "totalMs": 200,
+          "worstMs": 24
+        },
+        "git_diff_texts": {
+          "count": 5,
+          "totalMs": 65,
+          "worstMs": 14
+        },
+        "larry_groups": {
+          "count": 4,
+          "totalMs": 745,
+          "worstMs": 195
+        },
+        "home_summary": {
+          "count": 3,
+          "totalMs": 569,
+          "worstMs": 203
+        }
+      },
+      "react": {
+        "count": 88,
+        "medianMs": 1,
+        "p95Ms": 6,
+        "maxMs": 13
+      },
+      "frames": {
+        "count": 483,
+        "medianMs": 17,
+        "p95Ms": 27,
+        "maxMs": 63
+      },
+      "over50ms": 3,
+      "over100ms": 0,
+      "input": {
+        "count": 25,
+        "medianMs": 54,
+        "p95Ms": 107,
+        "maxMs": 150
+      },
+      "events": [
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 1
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 493
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 643
+        },
+        {
+          "name": "main[aria-label=\"Studio\"]",
+          "ms": 1182
+        },
+        {
+          "name": "main[aria-label=\"Entrega\"] .rev",
+          "ms": 1428
+        },
+        {
+          "name": "Diff enviado al worker",
+          "ms": 1542
+        },
+        {
+          "name": "Diff calculado",
+          "ms": 1572
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 1783
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 2287
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 2394
+        },
+        {
+          "name": "main[aria-label=\"Studio\"]",
+          "ms": 2929
+        },
+        {
+          "name": "main[aria-label=\"Entrega\"] .rev",
+          "ms": 3161
+        },
+        {
+          "name": "Diff enviado al worker",
+          "ms": 3271
+        },
+        {
+          "name": "Diff calculado",
+          "ms": 3289
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 3512
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 4000
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 4083
+        },
+        {
+          "name": "main[aria-label=\"Studio\"]",
+          "ms": 4612
+        },
+        {
+          "name": "main[aria-label=\"Entrega\"] .rev",
+          "ms": 4847
+        },
+        {
+          "name": "Diff enviado al worker",
+          "ms": 4963
+        },
+        {
+          "name": "Diff calculado",
+          "ms": 4983
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 5201
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 5683
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 5773
+        },
+        {
+          "name": "main[aria-label=\"Studio\"]",
+          "ms": 6301
+        },
+        {
+          "name": "main[aria-label=\"Entrega\"] .rev",
+          "ms": 6547
+        },
+        {
+          "name": "Diff enviado al worker",
+          "ms": 6669
+        },
+        {
+          "name": "Diff calculado",
+          "ms": 6688
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 6904
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 7385
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 7465
+        },
+        {
+          "name": "main[aria-label=\"Studio\"]",
+          "ms": 7982
+        },
+        {
+          "name": "main[aria-label=\"Entrega\"] .rev",
+          "ms": 8216
+        },
+        {
+          "name": "Diff enviado al worker",
+          "ms": 8330
+        },
+        {
+          "name": "Diff calculado",
+          "ms": 8348
+        }
+      ],
+      "gaps": [
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 48,
+          "interval": 48
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 579,
+          "interval": 63
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 626,
+          "interval": 47
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 1837,
+          "interval": 59
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 2343,
+          "interval": 42
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 3551,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 3596,
+          "interval": 45
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 5241,
+          "interval": 45
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 5725,
+          "interval": 45
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 6944,
+          "interval": 46
+        }
+      ]
+    },
+    {
+      "name": "navegación sostenida con PTY",
+      "elapsedMs": 303109,
+      "ipc": {
+        "pty_open": {
+          "count": 1,
+          "totalMs": 12,
+          "worstMs": 12
+        },
+        "pty_write": {
+          "count": 1,
+          "totalMs": 1,
+          "worstMs": 1
+        },
+        "task_flow": {
+          "count": 71,
+          "totalMs": 647,
+          "worstMs": 14
+        },
+        "git_status": {
+          "count": 5,
+          "totalMs": 199,
+          "worstMs": 49
+        },
+        "home_summary": {
+          "count": 9,
+          "totalMs": 2031,
+          "worstMs": 279
+        },
+        "jev_statusbar": {
+          "count": 20,
+          "totalMs": 43,
+          "worstMs": 5
+        },
+        "codex_rate_limits": {
+          "count": 8,
+          "totalMs": 4285,
+          "worstMs": 697
+        },
+        "get_workspace": {
+          "count": 4,
+          "totalMs": 31,
+          "worstMs": 20
+        },
+        "tools_status": {
+          "count": 1,
+          "totalMs": 764,
+          "worstMs": 764
+        },
+        "pty_close": {
+          "count": 1,
+          "totalMs": 54,
+          "worstMs": 54
+        }
+      },
+      "react": {
+        "count": 470,
+        "medianMs": 2,
+        "p95Ms": 12,
+        "maxMs": 17
+      },
+      "frames": {
+        "count": 17667,
+        "medianMs": 17,
+        "p95Ms": 18,
+        "maxMs": 96
+      },
+      "over50ms": 132,
+      "over100ms": 0,
+      "input": {
+        "count": 142,
+        "medianMs": 110,
+        "p95Ms": 126,
+        "maxMs": 142
+      },
+      "events": [
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 14
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 2935
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 4255
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 7205
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 8518
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 11475
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 12788
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 15724
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 17042
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 20001
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 21322
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 24286
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 25602
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 28556
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 29873
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 32826
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 34136
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 37114
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 38435
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 41400
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 42714
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 45653
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 46954
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 49907
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 51216
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 54194
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 55514
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 58499
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 59810
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 62753
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 64071
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 67038
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 68351
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 71310
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 72631
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 75595
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 76908
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 79867
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 81182
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 84137
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 85436
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 88372
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 89686
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 92642
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 93955
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 96895
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 98208
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 101149
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 102462
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 105419
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 106732
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 109673
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 110986
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 113943
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 115256
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 118213
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 119531
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 122483
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 123799
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 126753
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 128066
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 131024
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 132341
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 135294
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 136604
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 139580
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 140901
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 143851
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 145164
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 148108
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 149426
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 152391
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 153704
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 156661
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 157978
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 160930
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 162247
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 165202
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 166522
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 169488
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 170807
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 173757
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 175079
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 178062
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 179390
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 182348
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 183647
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 186569
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 187870
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 190822
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 192113
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 195076
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 196389
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 199346
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 200663
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 203599
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 204907
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 207869
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 209183
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 212123
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 213434
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 216393
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 217702
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 220680
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 221990
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 224950
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 226255
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 229220
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 230525
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 233491
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 234804
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 237744
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 239061
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 241997
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 243307
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 246285
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 247590
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 250554
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 251863
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 254825
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 256131
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 259095
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 260397
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 263348
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 264671
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 267634
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 268951
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 271905
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 273187
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 276141
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 277449
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 280412
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 281722
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 284683
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 286026
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 288969
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 290253
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 293189
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 294495
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 297459
+        },
+        {
+          "name": ".flowg [data-gid]",
+          "ms": 298785
+        },
+        {
+          "name": "main[aria-label=\"Inicio\"]",
+          "ms": 301731
+        }
+      ],
+      "gaps": [
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 2996,
+          "interval": 75
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 4335,
+          "interval": 60
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 7264,
+          "interval": 73
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 8579,
+          "interval": 49
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 11538,
+          "interval": 77
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 15796,
+          "interval": 82
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 17118,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 20072,
+          "interval": 88
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 21392,
+          "interval": 50
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 24352,
+          "interval": 81
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 25683,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 28618,
+          "interval": 76
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 29949,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 32888,
+          "interval": 78
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 32934,
+          "interval": 46
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 34210,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 37188,
+          "interval": 89
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 38508,
+          "interval": 53
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 41464,
+          "interval": 77
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 42782,
+          "interval": 55
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 45708,
+          "interval": 69
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 47033,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 49973,
+          "interval": 81
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 51292,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 54262,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 55596,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 58566,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 59885,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 62816,
+          "interval": 80
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 62861,
+          "interval": 45
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 64133,
+          "interval": 46
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 67107,
+          "interval": 86
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 67150,
+          "interval": 43
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 68429,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 71379,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 72702,
+          "interval": 51
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 75660,
+          "interval": 79
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 76985,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 79937,
+          "interval": 87
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 81256,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 84187,
+          "interval": 67
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 85504,
+          "interval": 55
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 88437,
+          "interval": 80
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 89761,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 92711,
+          "interval": 86
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 92753,
+          "interval": 42
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 94028,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 96967,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 98276,
+          "interval": 55
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 101218,
+          "interval": 84
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 102540,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 105487,
+          "interval": 82
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 106805,
+          "interval": 53
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 109738,
+          "interval": 79
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 111064,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 114011,
+          "interval": 84
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 114054,
+          "interval": 43
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 115335,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 118278,
+          "interval": 79
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 119608,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 122552,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 123878,
+          "interval": 60
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 126819,
+          "interval": 80
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 128148,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 131095,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 132421,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 135360,
+          "interval": 81
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 136681,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 139651,
+          "interval": 85
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 140976,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 143918,
+          "interval": 80
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 148175,
+          "interval": 84
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 148217,
+          "interval": 42
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 149496,
+          "interval": 51
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 149537,
+          "interval": 41
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 152463,
+          "interval": 87
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 153787,
+          "interval": 61
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 156730,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 158055,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 160997,
+          "interval": 82
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 162321,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 165272,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 166593,
+          "interval": 51
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 169554,
+          "interval": 81
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 170885,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 173822,
+          "interval": 79
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 173869,
+          "interval": 47
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 175161,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 178129,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 179469,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 182400,
+          "interval": 67
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 183699,
+          "interval": 43
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 185446,
+          "interval": 45
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 186621,
+          "interval": 68
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 187945,
+          "interval": 53
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 190877,
+          "interval": 70
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 192189,
+          "interval": 54
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 195148,
+          "interval": 88
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 196472,
+          "interval": 63
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 199425,
+          "interval": 95
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 200726,
+          "interval": 52
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 203672,
+          "interval": 88
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 204981,
+          "interval": 54
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 207935,
+          "interval": 81
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 209262,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 212193,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 213503,
+          "interval": 49
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 216461,
+          "interval": 83
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 217780,
+          "interval": 53
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 220753,
+          "interval": 88
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 222057,
+          "interval": 52
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 225021,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 226331,
+          "interval": 54
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 229290,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 230593,
+          "interval": 48
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 233564,
+          "interval": 89
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 234883,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 237818,
+          "interval": 89
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 237859,
+          "interval": 41
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 239133,
+          "interval": 55
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 242069,
+          "interval": 87
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 243386,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 246354,
+          "interval": 85
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 247661,
+          "interval": 49
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 250625,
+          "interval": 87
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 251938,
+          "interval": 54
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 254893,
+          "interval": 84
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 256210,
+          "interval": 54
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 259162,
+          "interval": 82
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 260479,
+          "interval": 62
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 263425,
+          "interval": 92
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 264750,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 267709,
+          "interval": 90
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 269031,
+          "interval": 56
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 271948,
+          "interval": 58
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 273266,
+          "interval": 59
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 276213,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 277520,
+          "interval": 50
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 280476,
+          "interval": 79
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 281806,
+          "interval": 57
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 284756,
+          "interval": 89
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 284811,
+          "interval": 55
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 286100,
+          "interval": 55
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 289007,
+          "interval": 53
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 290322,
+          "interval": 53
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 293257,
+          "interval": 84
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 294567,
+          "interval": 58
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 297529,
+          "interval": 86
+        },
+        {
+          "step": ".flowg [data-gid]",
+          "ms": 298856,
+          "interval": 51
+        },
+        {
+          "step": "main[aria-label=\"Inicio\"]",
+          "ms": 301810,
+          "interval": 96
+        }
+      ]
+    }
+  ],
+  "hardware": {
+    "scale": 1,
+    "width": 1440,
+    "height": 900
+  },
+  "fixture": {
+    "repositories": 32,
+    "tasks": 240
+  },
+  "terminalBytes": 2706,
+  "motion": [
+    {
+      "value": "completo",
+      "effective": "completo",
+      "saved": "completo",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": true
+    },
+    {
+      "value": "sin-ambiente",
+      "effective": "sin-ambiente",
+      "saved": "sin-ambiente",
+      "working": "tv-spin",
+      "thinking": "tv-drift",
+      "permission": "tv-beat",
+      "flow": "tv-flowd",
+      "ambient": false
+    },
+    {
+      "value": "reducido",
+      "effective": "reducido",
+      "saved": "reducido",
+      "working": "none",
+      "thinking": "none",
+      "permission": "none",
+      "flow": "none",
+      "ambient": false
+    }
+  ],
+  "scene": {
+    "view": "Flow",
+    "lens": "exec",
+    "selected": "t2",
+    "nodes": [
+      {
+        "id": "L-aud",
+        "x": 30,
+        "y": 396
+      },
+      {
+        "id": "L-aud2",
+        "x": 30,
+        "y": 462
+      },
+      {
+        "id": "L-cod",
+        "x": 30,
+        "y": 264
+      },
+      {
+        "id": "L-jev",
+        "x": 30,
+        "y": 0
+      },
+      {
+        "id": "L-jun",
+        "x": 30,
+        "y": 330
+      },
+      {
+        "id": "L-pm",
+        "x": 30,
+        "y": 66
+      },
+      {
+        "id": "L-res",
+        "x": 30,
+        "y": 132
+      },
+      {
+        "id": "L-sen",
+        "x": 30,
+        "y": 198
+      },
+      {
+        "id": "t1",
+        "x": 280,
+        "y": 132
+      },
+      {
+        "id": "t2",
+        "x": 494,
+        "y": 198
+      },
+      {
+        "id": "t3",
+        "x": 494,
+        "y": 264
+      },
+      {
+        "id": "t4",
+        "x": 708,
+        "y": 330
+      },
+      {
+        "id": "t5",
+        "x": 708,
+        "y": 198
+      },
+      {
+        "id": "t6",
+        "x": 922,
+        "y": 66
+      },
+      {
+        "id": "t7",
+        "x": 922,
+        "y": 396
+      },
+      {
+        "id": "t8",
+        "x": 1136,
+        "y": 66
+      }
+    ]
+  }
+}

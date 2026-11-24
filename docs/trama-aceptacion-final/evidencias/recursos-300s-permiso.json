@@ -1,0 +1,541 @@
+{
+  "scope": "Proceso principal de Filigranas en el perfil de rendimiento, desde la activación de la ventana hasta el fin del recorrido",
+  "durationSeconds": 317,
+  "count": 106,
+  "cpuPercentMedian": 3.9,
+  "cpuPercentMax": 23.0,
+  "rssMiBMedian": 107.23,
+  "rssMiBMax": 111.36,
+  "samples": [
+    {
+      "seconds": 0,
+      "cpuPercent": 19.2,
+      "rssMiB": 106.81
+    },
+    {
+      "seconds": 3,
+      "cpuPercent": 3.9,
+      "rssMiB": 106.58
+    },
+    {
+      "seconds": 6,
+      "cpuPercent": 5.8,
+      "rssMiB": 107.41
+    },
+    {
+      "seconds": 9,
+      "cpuPercent": 7.7,
+      "rssMiB": 107.72
+    },
+    {
+      "seconds": 12,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.72
+    },
+    {
+      "seconds": 15,
+      "cpuPercent": 6.3,
+      "rssMiB": 107.72
+    },
+    {
+      "seconds": 18,
+      "cpuPercent": 3.6,
+      "rssMiB": 107.72
+    },
+    {
+      "seconds": 21,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.3
+    },
+    {
+      "seconds": 24,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.31
+    },
+    {
+      "seconds": 27,
+      "cpuPercent": 5.4,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 30,
+      "cpuPercent": 3.6,
+      "rssMiB": 107.31
+    },
+    {
+      "seconds": 33,
+      "cpuPercent": 2.8,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 36,
+      "cpuPercent": 6.2,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 39,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 42,
+      "cpuPercent": 3.3,
+      "rssMiB": 107.3
+    },
+    {
+      "seconds": 45,
+      "cpuPercent": 4.1,
+      "rssMiB": 107.3
+    },
+    {
+      "seconds": 48,
+      "cpuPercent": 3.8,
+      "rssMiB": 107.3
+    },
+    {
+      "seconds": 51,
+      "cpuPercent": 3.5,
+      "rssMiB": 107.3
+    },
+    {
+      "seconds": 54,
+      "cpuPercent": 2.6,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 57,
+      "cpuPercent": 6.0,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 60,
+      "cpuPercent": 3.6,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 63,
+      "cpuPercent": 5.2,
+      "rssMiB": 107.72
+    },
+    {
+      "seconds": 66,
+      "cpuPercent": 6.0,
+      "rssMiB": 107.53
+    },
+    {
+      "seconds": 69,
+      "cpuPercent": 3.9,
+      "rssMiB": 107.56
+    },
+    {
+      "seconds": 72,
+      "cpuPercent": 3.8,
+      "rssMiB": 107.67
+    },
+    {
+      "seconds": 75,
+      "cpuPercent": 2.9,
+      "rssMiB": 107.69
+    },
+    {
+      "seconds": 78,
+      "cpuPercent": 5.4,
+      "rssMiB": 107.7
+    },
+    {
+      "seconds": 81,
+      "cpuPercent": 3.5,
+      "rssMiB": 107.56
+    },
+    {
+      "seconds": 84,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.52
+    },
+    {
+      "seconds": 87,
+      "cpuPercent": 5.7,
+      "rssMiB": 107.53
+    },
+    {
+      "seconds": 90,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.61
+    },
+    {
+      "seconds": 93,
+      "cpuPercent": 3.3,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 96,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 99,
+      "cpuPercent": 5.0,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 102,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 105,
+      "cpuPercent": 3.1,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 108,
+      "cpuPercent": 5.4,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 111,
+      "cpuPercent": 3.0,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 114,
+      "cpuPercent": 3.6,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 117,
+      "cpuPercent": 4.3,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 120,
+      "cpuPercent": 4.4,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 123,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 126,
+      "cpuPercent": 2.9,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 129,
+      "cpuPercent": 5.4,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 132,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 136,
+      "cpuPercent": 3.4,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 139,
+      "cpuPercent": 6.1,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 142,
+      "cpuPercent": 3.7,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 145,
+      "cpuPercent": 3.3,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 148,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 151,
+      "cpuPercent": 5.2,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 154,
+      "cpuPercent": 3.6,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 157,
+      "cpuPercent": 3.3,
+      "rssMiB": 107.27
+    },
+    {
+      "seconds": 160,
+      "cpuPercent": 8.2,
+      "rssMiB": 107.22
+    },
+    {
+      "seconds": 163,
+      "cpuPercent": 3.1,
+      "rssMiB": 107.22
+    },
+    {
+      "seconds": 166,
+      "cpuPercent": 3.2,
+      "rssMiB": 107.22
+    },
+    {
+      "seconds": 169,
+      "cpuPercent": 4.4,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 172,
+      "cpuPercent": 4.6,
+      "rssMiB": 107.23
+    },
+    {
+      "seconds": 175,
+      "cpuPercent": 3.7,
+      "rssMiB": 107.25
+    },
+    {
+      "seconds": 178,
+      "cpuPercent": 3.4,
+      "rssMiB": 108.02
+    },
+    {
+      "seconds": 181,
+      "cpuPercent": 6.2,
+      "rssMiB": 107.7
+    },
+    {
+      "seconds": 184,
+      "cpuPercent": 3.7,
+      "rssMiB": 107.78
+    },
+    {
+      "seconds": 187,
+      "cpuPercent": 4.4,
+      "rssMiB": 107.83
+    },
+    {
+      "seconds": 190,
+      "cpuPercent": 4.4,
+      "rssMiB": 109.34
+    },
+    {
+      "seconds": 193,
+      "cpuPercent": 7.1,
+      "rssMiB": 109.97
+    },
+    {
+      "seconds": 196,
+      "cpuPercent": 23.0,
+      "rssMiB": 110.81
+    },
+    {
+      "seconds": 199,
+      "cpuPercent": 3.3,
+      "rssMiB": 111.36
+    },
+    {
+      "seconds": 202,
+      "cpuPercent": 7.7,
+      "rssMiB": 111.36
+    },
+    {
+      "seconds": 205,
+      "cpuPercent": 3.3,
+      "rssMiB": 111.27
+    },
+    {
+      "seconds": 208,
+      "cpuPercent": 2.9,
+      "rssMiB": 97.38
+    },
+    {
+      "seconds": 211,
+      "cpuPercent": 11.1,
+      "rssMiB": 106.67
+    },
+    {
+      "seconds": 214,
+      "cpuPercent": 4.5,
+      "rssMiB": 106.73
+    },
+    {
+      "seconds": 217,
+      "cpuPercent": 5.9,
+      "rssMiB": 106.81
+    },
+    {
+      "seconds": 220,
+      "cpuPercent": 3.3,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 223,
+      "cpuPercent": 5.3,
+      "rssMiB": 107.28
+    },
+    {
+      "seconds": 226,
+      "cpuPercent": 4.4,
+      "rssMiB": 107.05
+    },
+    {
+      "seconds": 229,
+      "cpuPercent": 3.5,
+      "rssMiB": 107.14
+    },
+    {
+      "seconds": 232,
+      "cpuPercent": 6.0,
+      "rssMiB": 107.08
+    },
+    {
+      "seconds": 235,
+      "cpuPercent": 4.3,
+      "rssMiB": 107.05
+    },
+    {
+      "seconds": 238,
+      "cpuPercent": 4.1,
+      "rssMiB": 107.05
+    },
+    {
+      "seconds": 241,
+      "cpuPercent": 4.1,
+      "rssMiB": 106.48
+    },
+    {
+      "seconds": 244,
+      "cpuPercent": 4.7,
+      "rssMiB": 105.66
+    },
+    {
+      "seconds": 247,
+      "cpuPercent": 3.9,
+      "rssMiB": 105.77
+    },
+    {
+      "seconds": 250,
+      "cpuPercent": 3.1,
+      "rssMiB": 105.78
+    },
+    {
+      "seconds": 253,
+      "cpuPercent": 5.7,
+      "rssMiB": 106.05
+    },
+    {
+      "seconds": 256,
+      "cpuPercent": 4.1,
+      "rssMiB": 106.06
+    },
+    {
+      "seconds": 259,
+      "cpuPercent": 4.1,
+      "rssMiB": 106.06
+    },
+    {
+      "seconds": 262,
+      "cpuPercent": 5.9,
+      "rssMiB": 105.91
+    },
+    {
+      "seconds": 265,
+      "cpuPercent": 3.3,
+      "rssMiB": 105.73
+    },
+    {
+      "seconds": 268,
+      "cpuPercent": 3.9,
+      "rssMiB": 105.73
+    },
+    {
+      "seconds": 271,
+      "cpuPercent": 2.7,
+      "rssMiB": 105.77
+    },
+    {
+      "seconds": 274,
+      "cpuPercent": 4.3,
+      "rssMiB": 105.44
+    },
+    {
+      "seconds": 277,
+      "cpuPercent": 4.1,
+      "rssMiB": 105.5
+    },
+    {
+      "seconds": 280,
+      "cpuPercent": 3.5,
+      "rssMiB": 105.44
+    },
+    {
+      "seconds": 283,
+      "cpuPercent": 6.6,
+      "rssMiB": 105.53
+    },
+    {
+      "seconds": 286,
+      "cpuPercent": 5.3,
+      "rssMiB": 105.75
+    },
+    {
+      "seconds": 289,
+      "cpuPercent": 3.8,
+      "rssMiB": 104.09
+    },
+    {
+      "seconds": 292,
+      "cpuPercent": 3.7,
+      "rssMiB": 104.11
+    },
+    {
+      "seconds": 295,
+      "cpuPercent": 4.3,
+      "rssMiB": 104.02
+    },
+    {
+      "seconds": 299,
+      "cpuPercent": 3.9,
+      "rssMiB": 104.05
+    },
+    {
+      "seconds": 302,
+      "cpuPercent": 3.7,
+      "rssMiB": 104.98
+    },
+    {
+      "seconds": 305,
+      "cpuPercent": 4.7,
+      "rssMiB": 104.97
+    },
+    {
+      "seconds": 308,
+      "cpuPercent": 4.0,
+      "rssMiB": 100.92
+    },
+    {
+      "seconds": 311,
+      "cpuPercent": 2.3,
+      "rssMiB": 75.77
+    },
+    {
+      "seconds": 314,
+      "cpuPercent": 5.4,
+      "rssMiB": 76.88
+    },
+    {
+      "seconds": 317,
+      "cpuPercent": 0.0,
+      "rssMiB": 75.61
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Trama v2 · Correcciones y aceptación
 
-22–23 de noviembre de 2026 · macOS 27.2.1 arm64 · base `136dc6d` · rama `codex/trama-aceptacion-final`.
+22–24 de noviembre de 2026 · macOS 27.2.1 arm64 · base `136dc6d` · rama `codex/trama-aceptacion-final`.
 
 **El rendimiento mejoró en los recorridos medidos. La aceptación integral de Trama v2 sigue abierta.**
 
@@ -53,15 +53,25 @@ Los nueve sigilos coinciden en todos sus canales. Las siete superficies completa
 
 En la última vuelta, las 21 transiciones alcanzaron su opacidad final, con p95 de 314 ms. Los callbacks de WebKit promediaron 59,9 Hz. El intervalo p95 fue de 18–19 ms y el mayor intervalo fue de 30 ms. Completo mantuvo las señales y el lienzo ambiental. Sin ambiente mantuvo las señales y detuvo el lienzo. Reducido dejó ambos quietos. Los tres valores se escribieron en la preferencia local y la prueba de recarga de Chrome verificó su persistencia. [Resultados de las 21 transiciones y los tres modos](evidencias/permisos-ci-inferencias-wkwebview.json).
 
+## Workspace, Entrega y Studio en vivo · 24 de noviembre
+
+Se compararon 17 estados de las siete vistas en WKWebView a 1440 × 900 y escala 1×. El HTML y sus fuentes archivadas se verificaron antes de generar las dos páginas de prueba. Los nueve sigilos de Inicio coincidieron en todos sus canales.
+
+- Workspace sitúa el plan y los cambios junto al autor que los presenta. El hilo observado y Entrega comparten el visor de código. El diff unificado conserva la ruta, los números de línea, el alcance del worktree y los enlaces de auditoría.
+- Studio puede ejecutar dentro del lienzo la URL local de una versión capturada. La selección y las protecciones usan las medidas guardadas con la versión. El modo Interactuar permite usar la página. Las comparaciones usan las capturas guardadas de cada versión.
+- La versión de prueba usa el panel extraído del HTML y generado por el servidor local. Studio capturó sus componentes por la ruta habitual y WKWebView ejecutó la página aislada. «Lista de cambios» midió `164, 58, 262, 206` en ambos renderizados, con la cabecera protegida. El ensayo activó «Archivos» mediante un clic automatizado dentro de la página de prueba. Verificó el origen aislado, la ausencia de acceso al IPC del IDE y la vuelta a la imagen guardada.
+
+En el cuerpo común de Entrega, la proporción de píxeles que difieren en más de 12 niveles en algún canal bajó del 28,23 % al 15,38 %. En Observar pasó del 24,26 % al 21,15 %. La escena interactiva de Studio conserva un 16,75 % según el mismo criterio. Las cifras incluyen diferencias de datos y composición. Se mantiene abierta la aceptación de las siete vistas. [Estados, intervalos y píxeles](evidencias/workspace-entrega-studio-2026-11-24.json).
+
 ## Resultado por área
 
 | Área | Referencia a 1440 × 900 | Paridad visual | Función comprobada | Pendiente para aceptar | Resultado |
 | --- | --- | --- | --- | --- | --- |
 | Inicio | [Original](evidencias/inicio-1440x900-artifact.png) | Retícula de 8 pt del HTML, esfera del lienzo y filas compactas, con fecha y jerarquía de acciones del export. El campo en reposo coincide píxel a píxel. | Navegación nativa, 32 repositorios Git y estado de 240 tareas desde SQLite. | Misma composición con proyectos, sesiones, actividad y atenciones equivalentes. | Abierto |
-| Workspace | [Original](evidencias/workspace-1440x900-artifact.png) | Plan enriquecido, tarjetas, permiso ámbar y observación junto al código. | Ocho tareas y diez dependencias en SQLite. Intro selecciona la tarea en Flow. El permiso delegado se decide una sola vez en la fixture local. | Actividad y conversación con los mismos detalles de sesión y progreso. | Abierto |
+| Workspace | [Original](evidencias/workspace-1440x900-artifact.png) | Plan y tarjeta de cambios integrados en la conversación, permiso ámbar y observación junto al código. | Ocho tareas y diez dependencias en SQLite. Intro selecciona la tarea en Flow. El permiso delegado se decide una sola vez en la fixture local. | Actividad y conversación con los mismos detalles de sesión y progreso. | Abierto |
 | Flow | [Original](evidencias/flow-1440x900-artifact.png) | Se restauraron la cabecera del ejemplo, los carriles de Jev y del segundo auditor y el encuadre del export. Las posiciones de los 16 nodos y la selección de t2 coinciden con el export. [Medidas](evidencias/flow-posiciones.json). | Grafo y cambio Ejecución/Dependencias en macOS con 240 tareas. Regresiones de historial agrupado y rutas sin origen. | Misma cronología, inspector y actividad de agentes reales. | Abierto |
-| Studio | [Original](evidencias/studio-1440x900-artifact.png) | Lienzo centrado, columnas de 212 y 316 pt, barra inferior y encargo en el inspector. | Cuatro PNG, seis referencias y cabecera protegida. v3 figura como aprobada y seleccionada. [Evidencia nativa](evidencias/studio-wkwebview.json). | Comparar la vista previa interactiva, la herramienta de selección y las iteraciones con sesiones reales. | Abierto |
-| Entrega | [Original](evidencias/entrega-1440x900-artifact.png) | El diff unificado coloca los hallazgos abiertos en las líneas del archivo y permanece visible al seleccionar CI. | WKWebView verificó `git_ops.rs`, hallazgos en las líneas 20 y 27, CI fallido para el SHA vigente y el estado 14/14. | Misma composición del diff, evidencias y estados de integración. | Abierto |
+| Studio | [Original](evidencias/studio-1440x900-artifact.png) | Lienzo centrado con página local en vivo, selección y protecciones. Versiones guardadas junto al inspector. | La v3 local se ejecutó dentro de WKWebView. «Lista de cambios» conservó su rectángulo y la cabecera quedó protegida. [Evidencia nativa](evidencias/workspace-entrega-studio-2026-11-24.json). | Composición del inspector, estados de iteración y referencias de la pantalla interactiva. | Abierto |
+| Entrega | [Original](evidencias/entrega-1440x900-artifact.png) | Visor de diff con tipografía, numeración y marcas del HTML. Los hallazgos están en la línea y el diff permanece visible al seleccionar CI. | WKWebView verificó `git_ops.rs`, hallazgos en las líneas 20 y 27, CI fallido para el SHA vigente y el estado 14/14. | Composición completa de la auditoría, evidencias y estados de integración. | Abierto |
 | Brain | [Original](evidencias/brain-1440x900-artifact.png) | Mapa abre una distribución radial por tipo con agrupación opcional. Se conserva la red del proyecto para explorar tareas, proyectos y PR. | Filtro SQLite antes del límite, caducidad y procedencia. Creación con teclado en Chromium. | Capturas nativas de Mapa, Foco, Índice y Contexto con todas las relaciones de la referencia. | Abierto |
 | Ajustes | [Original](evidencias/ajustes-1440x900-artifact.png) | Ámbito en la navegación lateral, catálogo y duplicidades junto a la matriz. | WKWebView comprobó los siete roles, las 42 asignaciones, las 11 activas y el vínculo local a la norma. Los tres modos sobreviven a la recarga en Chromium. | Configuración de modelos, permisos y ámbito por sesión con los mismos estados del export. | Abierto |
 
@@ -75,7 +85,7 @@ El perfil de carga y el ejemplo de Flow son dos conjuntos de datos distintos. La
 | Entrega | Texto base y final de `git_ops.rs` extraído del Artifact y reproducido en Git. Cuatro hallazgos del ejemplo recorren la importación SARIF. El identificador persiste según el contrato de auditoría. Las etapas del pipeline todavía tienen datos distintos. | [Recorte nativo](evidencias/entrega-wkwebview-recorte.webp) · [Superposición](evidencias/entrega-superposicion.webp) · [Diferencias](evidencias/entrega-diferencias.webp) · [Fixture](evidencias/fixture-entrega.json) |
 | Ajustes | Matriz base de las seis skills y siete roles. El catálogo y el análisis reflejan los datos del perfil de prueba. | [Recorte nativo](evidencias/ajustes-wkwebview-recorte.webp) · [Superposición](evidencias/ajustes-superposicion.webp) · [Diferencias](evidencias/ajustes-diferencias.webp) · [Comprobaciones](evidencias/escenas-nativas.json) |
 
-Las superposiciones y diferencias aplican el mismo recorte en ambas capturas, sin reescalar. El recorte excluye el estado de cuenta y se limita al cuerpo de la vista. Las capturas completas están en el Escritorio. Estas comparaciones muestran la colocación de elementos, el tamaño del lienzo y los pendientes de cada composición.
+Las superposiciones y diferencias aplican el mismo recorte en ambas capturas, sin reescalar. El recorte excluye el estado de cuenta y se limita al cuerpo de la vista. Las capturas completas de esta ronda están en «Evidencias Trama v2 - Lienzo y fluidez 2026-11-24», en el Escritorio.
 
 ## Rendimiento nativo
 
@@ -137,6 +147,14 @@ La secuencia corta que incluye Studio y Entrega aún registró dos intervalos de
 - Brain aplica FTS, tipo, vigencia y alcance antes de limitar la selección. La regresión usa más de 300 recuerdos y recupera un resultado anterior con acento, comprueba su caducidad y excluye resultados de otro proyecto.
 - Se retiró la función ambiental sin referencias y las reglas que apagaban animaciones informativas en Sin ambiente. La actualización de ventanas cancela fotogramas pendientes. El canvas ambiental reduce el cálculo por fuente a las dos dimensiones separadas y se detiene al ocultar la ventana.
 
+### Tirón del diff de solo lectura
+
+La secuencia de cinco ciclos reprodujo un intervalo de 149 ms frente a los 152 ms de la ronda anterior. La primera evaluación de Monaco ocurrió durante ese intervalo, cuando el recorrido había vuelto a Inicio. Otro intervalo, de 111 ms, coincidió con el primer montaje del editor en Entrega. En esa secuencia, la mayor lectura del texto del diff por IPC fue de 15 ms. La instrumentación de prueba registró el destino y las marcas del renderer junto a los intervalos de WebKit.
+
+Entrega y Observar calculan las diferencias de líneas en un worker y solo pintan la ventana de líneas visible, con margen para el desplazamiento. El editor y el diff de dos columnas siguen usando Monaco. En desarrollo, Vite prepara la dependencia del algoritmo antes de navegar, para evitar que la primera lectura recargue la página.
+
+Los máximos de navegación posteriores fueron 76 ms con el primer visor y 73, 58 y 74 ms en las tres pasadas siguientes, cada una con cinco ciclos. El recorrido de 21 transiciones de las siete vistas promedió 59,9 Hz de callbacks de WebKit y tuvo un máximo de 29 ms. El primer ensayo sostenido registró un máximo de 91 ms durante 230 s y después agotó la espera de Flow. Un reintento llegó al límite sin entregar un informe. En el siguiente arranque, macOS tampoco expuso una ventana de prueba para activarla. Los 300 s completos quedan pendientes en esta ronda. [Llegada de fotogramas, marcas de Monaco y ensayos](evidencias/tiron-wkwebview-2026-11-24.json).
+
 ### Recursos observados y límites
 
 En el tramo de cinco minutos, el proceso principal pasó de 4,3 % a 3,4 % de CPU mediana y de 99,41 a 102,25 MiB de RSS mediana. Los picos fueron 26,9 % y 40,4 % de CPU, y 125,86 y 114,66 MiB de RSS. La entrada del sistema incluye muestras de arranque. Las cifras corresponden al proceso de Filigranas. [Muestras resumidas](evidencias/cpu-memoria.json).
@@ -180,7 +198,7 @@ Los dos lienzos se compararon en la misma WKWebView a 1440 × 900 y 1×. Se fija
 - R-02 y R-03 tienen corrección y pruebas específicas. R-05 conserva el filtro IPC por webview y la validación de rutas. El descubrimiento de proyectos excluye enlaces simbólicos y la regresión prueba el caso. Fetch y el listado de stashes validan el proyecto contra el workspace antes de invocar Git. La revisión completa de IPC privilegiado y procesos sigue abierta.
 - Se retiraron la consulta de metadatos adicionales de Brain limitada a 60, el sondeo individual de Flow, la máscara que reemplazaba los puntos del Artifact y los estilos de calma obsoletos. La limpieza de rutas y componentes antiguos depende de comprobar las siete sustituciones funcionales.
 - Pasaron `pnpm install --frozen-lockfile`, `pnpm build`, 5 pruebas TypeScript, 132 Rust y Clippy. Pasaron 17 recorridos en Chromium, incluida la selección por teclado en el plan de Workspace. La suite Rust conserva sus 10 pruebas ignoradas. El perfil de rendimiento se ejecutó en `tauri dev` con el perfil aislado. La instalación habitual de macOS y su base SQLite quedaron fuera de las pruebas.
-- En la última ronda pasaron la compilación, 8 pruebas TypeScript, 133 Rust y 17 recorridos en Chrome. Se ejecutaron aparte 16 escenas y 21 transiciones en WKWebView.
+- En la ronda del 24 de noviembre pasaron la compilación, 8 pruebas TypeScript, 133 Rust y 17 recorridos en Chrome. Se ejecutaron aparte 17 escenas y 21 transiciones en WKWebView.
 
 ## Reproducción
 
@@ -201,3 +219,5 @@ Los dos lienzos se compararon en la misma WKWebView a 1440 × 900 y 1×. Se fija
 10. Para preparar Workspace y Observación, regenerar `fixture-workspace.json` con `design/trama-v2/parity.py --reference-only --section workspace --width 1440 --workspace-fixture ARCHIVO`. Al preparar los repositorios, `--workspace-db` admite la base existente del perfil aislado de escenas. Comprueba las ocho tareas antes de guardar el historial y enlazar las sesiones de prueba. El perfil no necesita enviar turnos a un proveedor durante este recorrido.
 
 11. Para las 16 escenas, pasar también `--workspace-db` a la captura. Se sembrará el fallo del CI antes de arrancar y se insertará la observación verde después de capturar el hallazgo de Entrega. El permiso del ensayo usa el mismo canal de la interfaz con una respuesta local. Las inferencias entran por los comandos normales de Brain y solo se aprueban desde su ficha.
+
+12. Para el estado 17, mantener el servidor de comparativas en el puerto 14572. Sirve el panel de Studio extraído de la referencia y la prueba guarda versiones de la URL local en el perfil aislado. La ejecución corta de rendimiento usa `?soloNavegacion=1` en la URL de desarrollo. El ensayo completo usa `?segundos=300` y el mismo perfil de carga.

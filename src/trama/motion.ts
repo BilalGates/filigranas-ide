@@ -17,16 +17,17 @@ function write(key: string, value: string) {
 }
 
 const media = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+const savedIntensity = Number(read(FIELD) ?? '1');
 let state = {
   motion: (['completo', 'sin-ambiente', 'reducido'].includes(read(KEY) ?? '') ? read(KEY) : 'completo') as Motion,
-  intensity: Math.max(0, Math.min(1.6, Number(read(FIELD) ?? '1') || 1)),
+  intensity: Number.isFinite(savedIntensity) ? Math.max(0, Math.min(1.6, savedIntensity)) : 1,
   systemReduced: !!media?.matches,
 };
 const listeners = new Set<() => void>();
 
 /** Modo efectivo: la preferencia del sistema reduce siempre. */
 export const effectiveMotion = (): Motion => (state.systemReduced ? 'reducido' : state.motion);
-export const ambientEnabled = () => effectiveMotion() === 'completo';
+export const ambientEnabled = () => effectiveMotion() === 'completo' && state.intensity > 0;
 
 function apply() {
   document.documentElement.dataset.motion = effectiveMotion();

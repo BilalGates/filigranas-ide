@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
 import UsagePanel from '../Usage';
 import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
-import { shortcut } from '../ui';
+import { setLightTheme, shortcut, useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
 import { setFieldIntensity, setMotion, useMotion, type Motion } from './motion';
@@ -185,7 +185,7 @@ function Agents({ project, projectName, agentSessions }: { project: string | nul
 
 function Look() {
   const m = useMotion();
-  const [light, setLight] = useState(document.documentElement.classList.contains('is-light'));
+  const { light } = useUi();
   const ST: [string, string, string][] = [['idle', 'Reposo', 'Sin movimiento. El campo se queda quieto y el bucle se detiene.'], ['thinking', 'Razonamiento', 'Respiración profunda; la luz se difunde despacio.'], ['working', 'Ejecución', 'Halo que gira y energía que fluye hacia la tarea.'], ['waiting', 'Espera de permiso', 'Doble latido ámbar, focalizado en quien espera.'], ['blocked', 'Bloqueo', 'Quieto, contorno discontinuo.'], ['done', 'Finalización', 'Onda de resolución y reposo estable.']];
   return <>
     <h2 className="vt">Movimiento y apariencia</h2>
@@ -197,7 +197,7 @@ function Look() {
     ))}</div>
     <div className="srow"><div><div className="t">Intensidad del campo ambiental {sc('g')}</div><div className="d">Luz de actividad tras el vidrio</div></div><input type="range" min={0} max={1.6} step={0.1} value={m.intensity} onChange={(e) => setFieldIntensity(Number(e.currentTarget.value))} aria-label="Intensidad del campo" disabled={m.motion !== 'completo' || m.systemReduced} /></div>
     <div className="srow"><div><div className="t">Tema {sc('g')}</div><div className="d">Oscuro o claro ({shortcut('⌘⇧L')})</div></div>
-      <div className="seg" role="radiogroup" aria-label="Tema">{[['oscuro', 'Oscuro'], ['claro', 'Claro']].map(([id, l]) => <button key={id} className={(light ? 'claro' : 'oscuro') === id ? 'on' : ''} role="radio" aria-checked={(light ? 'claro' : 'oscuro') === id} onClick={() => { document.documentElement.classList.toggle('is-light', id === 'claro'); setLight(id === 'claro'); }}>{l}</button>)}</div></div>
+      <div className="seg" role="radiogroup" aria-label="Tema">{[['oscuro', 'Oscuro'], ['claro', 'Claro']].map(([id, l]) => <button key={id} className={(light ? 'claro' : 'oscuro') === id ? 'on' : ''} role="radio" aria-checked={(light ? 'claro' : 'oscuro') === id} onClick={() => setLightTheme(id === 'claro')}>{l}</button>)}</div></div>
     <div className="srow"><div><div className="t">Tipografía</div><div className="d">SF Pro para la interfaz (13 px base, 14 px lectura) · Iosevka para código</div></div><span className="mono">Iosevka</span></div>
   </>;
 }

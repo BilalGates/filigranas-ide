@@ -168,7 +168,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
           </div>
           <div className="seg" role="group" aria-label="Vista">
             {([['map', 'map', 'Mapa'], ['focus', 'focus', 'Foco'], ['index', 'list', 'Índice'], ['ctx', 'layers', 'Contexto']] as [Lens, string, string][]).map(([id, ic, l]) => (
-              <button key={id} className={lens === id ? 'on' : ''} aria-pressed={lens === id} disabled={id === 'ctx' && p == null} onClick={() => { if (id === 'focus' && focus == null && sel != null) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
+              <button key={id} className={lens === id ? 'on' : ''} aria-label={l} aria-pressed={lens === id} disabled={id === 'ctx' && p == null} onClick={() => { if (id === 'focus' && focus == null && sel != null) setFocus(sel); setLens(id); }}><Icon name={ic} size={14} /><span className="hide-s">{l}</span></button>
             ))}
           </div>
           <button className="btn sm" onClick={() => setEditing({ project: p, draft: newDraft(p == null) })}><Icon name="plus" size={12} /> Recuerdo</button>
@@ -482,10 +482,13 @@ function Insp({ m, mems, links, project, entry, scopeAll, lens, onSel, onFocus, 
         </div>
       </div>
       <div className="sec"><span className="lab">Por qué existe</span><p className="mut2" style={{ margin: '6px 0 8px', whiteSpace: 'pre-wrap' }}>{m.why || 'Sin justificación registrada.'}</p>
-        <div className="col" style={{ gap: 4 }}>{m.origins.map((o, i) => (
-          <button key={i} className="orow" onClick={() => { if (o.t === 'task') onTask(o.ref as number, m.project); else if (o.t === 'pr' && o.url) void pr.open(o.url).catch((e) => setError(String(e))); }}>
-            <Icon name={ORIGT[o.t][0]} size={14} /><span className="grow">{o.label}</span><span className="mut">{ORIGT[o.t][1]}</span>
-          </button>))}</div>
+        <div className="col" style={{ gap: 4 }}>{m.origins.map((o, i) => {
+          const url = o.t === 'pr' ? o.url : null;
+          const detail = <><Icon name={ORIGT[o.t][0]} size={14} /><span className="grow">{o.label}</span><span className="mut">{ORIGT[o.t][1]}</span></>;
+          if (o.t === 'task') return <button key={i} className="orow" onClick={() => onTask(o.ref as number, m.project)}>{detail}</button>;
+          if (url) return <button key={i} className="orow" onClick={() => void pr.open(url).catch((e) => setError(String(e)))}>{detail}</button>;
+          return <div key={i} className="orow">{detail}</div>;
+        })}</div>
       </div>
       <div className="sec"><span className="lab">Vigencia</span><div className="vig">
         {m.status === 'sustituido' ? <><span className="chip">Sustituido</span> {rels.filter((r) => r.type === 'sustituye' && r.inv).map((r) => <button key={r.id} className="lnk" onClick={() => onSel(r.to)}>Ver el recuerdo que lo sustituye</button>)}</>
@@ -547,7 +550,7 @@ function EntryForm({ project, draft, onClose, onSaved }: { project: string | nul
         <label className="tr-field-row">Tipo<select value={form.kind} onChange={(e) => change({ kind: e.currentTarget.value as BrainKind })}>{KINDS.map((k) => <option key={k} value={k}>{KIND[k][2]}</option>)}</select></label>
         <label className="tr-field-row">Ámbito<select value={form.global ? 'global' : 'proyecto'} disabled={!project || draft.id != null} onChange={(e) => change(e.currentTarget.value === 'global' ? { global: true, task: null, sourceTask: null, sourceRun: null } : { global: false })}>{project && <option value="proyecto">Este proyecto</option>}<option value="global">Global (todos los proyectos)</option></select></label>
         {!form.global && <label className="tr-field-row span">Tarea del recuerdo<select value={form.task ?? ''} onChange={(e) => change({ task: Number(e.currentTarget.value) || null, sourceTask: null, sourceRun: null })}><option value="">Todo el proyecto</option>{taskOptions(tasks)}</select></label>}
-        <label className="tr-field-row span">Enunciado<input autoFocus value={form.title} maxLength={160} onChange={(e) => change({ title: e.currentTarget.value })} /></label>
+        <label className="tr-field-row span">Enunciado<input data-initial-focus value={form.title} maxLength={160} onChange={(e) => change({ title: e.currentTarget.value })} /></label>
         <label className="tr-field-row span">Por qué existe<textarea rows={4} value={form.body} maxLength={1200} onChange={(e) => change({ body: e.currentTarget.value })} /></label>
         <label className="tr-field-row span">Fuente<input value={form.source} maxLength={400} placeholder="acta, PR, conversación…" onChange={(e) => change({ source: e.currentTarget.value })} /></label>
         {!form.global && <>

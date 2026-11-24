@@ -17,7 +17,7 @@ import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
 import { Cheatsheet, Palette, type Command } from './Palette';
-import { emit, shortcut, toggleMute, useUi } from './ui';
+import { emit, setLightTheme, shortcut, toggleMute, useUi } from './ui';
 import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Browser from './Browser';
@@ -57,6 +57,7 @@ type TerminalTab = { id: number; project: string; number: number; session?: numb
 export default function App() {
   useQuotaEvents();
   const [ws, setWs] = useState<Workspace | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [project, setProject] = useState<string | null>(null);
   const currentProject = useRef(project);
@@ -134,7 +135,7 @@ export default function App() {
     try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
   });
   const setDest = useCallback((d: Dest) => { if (d !== 'entrega') { setEntregaScope(null); setEntregaStage(null); } if (d !== 'flow') setFlowTask(null); setDestState(d); saveDest(d); }, []);
-  const { activity, muted } = useUi();
+  const { activity, muted, light } = useUi();
   const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
   const pmReady = !!project && pmChat?.project === project;
   const pmSession = pmReady ? pmChat.session : null;
@@ -236,7 +237,10 @@ export default function App() {
   };
 
   const refresh = useCallback(() => {
-    api.workspace().then(setWs, (e) => setError(String(e)));
+    api.workspace().then(
+      (workspace) => { setWs(workspace); setWorkspaceError(null); },
+      (e) => setWorkspaceError(String(e)),
+    );
   }, []);
 
   // Recargar cuando el núcleo detecta cambios en la raíz o al volver a la ventana.
@@ -399,9 +403,7 @@ export default function App() {
     if (project && sessionsOf === project && view === 'coach' && !pmProjects.has(project) && agentSessions.length) setView(agentSessions[0].id);
   }, [project, sessionsOf, view, pmProjects, agentSessions]);
 
-  const openStudio = () => { setStudioView('captures'); setDest('studio'); };
   const revealRight = (tab: RightTab) => {
-    if (tab === 'design') { openStudio(); return; }
     setRightView(tab);
     setNoRight(false);
   };
@@ -456,8 +458,9 @@ export default function App() {
   };
 
   const shareDialog = shareMode && <Sharing target={shareMode === 'join' ? null : shareMode} onClose={() => setShareMode(null)} />;
-  if (!ws) return <div className="app" />;
-  if (!ws.root) return <><Onboarding onDone={setWs} onJoin={() => setShareMode('join')}
+  if (!ws && !workspaceError) return <div className="app" />;
+  if (!ws?.root) return <><Onboarding onDone={(workspace) => { setWs(workspace); setWorkspaceError(null); }}
+    recoveryError={workspaceError} onRetry={refresh} onJoin={() => setShareMode('join')}
     github={toolList?.find((tool) => tool.id === 'gh')} onToolsRefresh={checkTools} />{shareDialog}</>;
 
   const current = ws.projects.find((p) => p.path === project);
@@ -552,7 +555,6 @@ export default function App() {
       { id: 'tasks', label: 'Flow · tareas', run: () => openTask(current.path, null) },
       { id: 'health', label: 'Code Health', run: () => openEntrega('tests') },
       { id: 'pending', label: 'Ramas sin integrar', run: openPending },
-      { id: 'design', label: RIGHT_PANELS.design.title, run: () => showRight('design') },
     ] : []),
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openEntrega('pr') },
@@ -569,7 +571,7 @@ export default function App() {
     { id: 'deny', label: 'rechazar permiso', keys: '⌘N', run: () => {} },
     { id: 'usage', label: 'uso de los modelos', keys: '⌘U', run: toggleUsage },
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
-    { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => document.documentElement.classList.toggle('is-light') },
+    { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => setLightTheme(!light) },
   ];
   // Las órdenes del Workspace llevan a él; las globales no cambian de destino.
   const GLOBAL = new Set(['palette', 'cheat', 'usage', 'mute', 'theme', 'send', 'stop', 'model', 'effort', 'allow', 'deny']);
@@ -581,7 +583,7 @@ export default function App() {
   const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
   const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`', Comma: ',' };
   keys.current = (e) => {
-    if (shareMode) return;
+    if (shareMode || e.defaultPrevented || (e.target instanceof Element && e.target.closest('.tr-modal'))) return;
     if (!(e.metaKey || e.ctrlKey)) {
       if (e.ctrlKey && e.code === 'Backquote') toggleTerminal();
       return;
@@ -663,8 +665,6 @@ export default function App() {
   const browserOpen = panelOpen && rightView === 'browser';
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
     if (tab === 'browser') return false;
-    // Studio es un destino propio: sin botón duplicado en el carril
-    if (tab === 'design') return false;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
@@ -673,10 +673,10 @@ export default function App() {
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
   const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
   const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
-  const errorToast = error && (
-    <button className="toast" onClick={() => setError(null)} title="cerrar">
+  const errorToast = (error || workspaceError) && (
+    <button className="toast" onClick={() => { setError(null); setWorkspaceError(null); }} title="cerrar">
       <Icon name="warn" size={13} />
-      <span>{error}</span>
+      <span>{error ?? workspaceError}</span>
     </button>
   );
 
@@ -715,7 +715,8 @@ export default function App() {
       {dest === 'inicio' && (
         <Boundary name="Inicio">
         <Home ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
-          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null} onFlow={() => setDest('flow')}
+          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
+          onFlow={(path) => { if (path !== project) selectProject(path); setDest('flow'); }}
           onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
           onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
           onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path); openEntrega('tarea', null); } }}
@@ -730,7 +731,7 @@ export default function App() {
       )}
       {dest === 'flow' && (
         <Boundary name="Flow">
-        <Flow project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+        <Flow key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
           pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
           onOpenSession={(id) => { setView(id); setDest('workspace'); }}
           focusTask={flowTask}

@@ -4,11 +4,13 @@ import GithubConnect from './GithubConnect';
 import { api, type Tool, type Workspace } from './ipc';
 
 /** Primer arranque: elegir la carpeta raíz de proyectos. */
-export default function Onboarding({ onDone, onJoin, github, onToolsRefresh }: {
+export default function Onboarding({ onDone, onJoin, github, onToolsRefresh, recoveryError, onRetry }: {
   onDone: (ws: Workspace) => void;
   onJoin: () => void;
   github?: Tool;
   onToolsRefresh: () => void;
+  recoveryError: string | null;
+  onRetry: () => void;
 }) {
   const [path, setPath] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -18,8 +20,10 @@ export default function Onboarding({ onDone, onJoin, github, onToolsRefresh }: {
   }, []);
 
   const pick = async () => {
-    const chosen = await open({ directory: true, defaultPath: path || undefined });
-    if (typeof chosen === 'string') setPath(chosen);
+    try {
+      const chosen = await open({ directory: true, defaultPath: path || undefined });
+      if (typeof chosen === 'string') setPath(chosen);
+    } catch (reason) { setError(String(reason)); }
   };
 
   const submit = (e: React.FormEvent) => {
@@ -43,10 +47,11 @@ export default function Onboarding({ onDone, onJoin, github, onToolsRefresh }: {
             elegir
           </button>
         </div>
-        {error && <p className="error">{error}</p>}
+        {(error || recoveryError) && <p className="error" role="alert">{error ?? recoveryError}</p>}
         <button className="primary" type="submit" disabled={!path.trim()}>
           continuar
         </button>
+        {recoveryError && <button className="ghost" type="button" onClick={onRetry}>Reintentar carpeta actual</button>}
         <button className="ghost" type="button" onClick={onJoin}>Unirse a un proyecto</button>
         <GithubConnect tool={github} onRefresh={onToolsRefresh} />
       </form>

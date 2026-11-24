@@ -20,6 +20,9 @@ const TONES: Record<string, Tone[]> = {
 };
 
 let muted = read('filigranas.silencio') === '1';
+const THEME_KEY = 'filigranas.tema';
+let light = read(THEME_KEY) === 'claro';
+document.documentElement.classList.toggle('is-light', light);
 let ctx: AudioContext | null = null;
 
 function read(key: string) {
@@ -64,6 +67,14 @@ export function toggleMute() {
   return muted;
 }
 
+export function setLightTheme(value: boolean) {
+  if (light === value) return;
+  light = value;
+  document.documentElement.classList.toggle('is-light', light);
+  try { localStorage.setItem(THEME_KEY, light ? 'claro' : 'oscuro'); } catch { /* sin almacenamiento */ }
+  notify();
+}
+
 // ── actividad de las pestañas ──────────────────────────────
 // Cada vista informa de su estado; la barra de pestañas lo pinta
 // (borde animado si trabaja, punto rojo si pide permiso).
@@ -82,10 +93,10 @@ function reportActivity(key: string, state: Activity) {
 
 const listeners = new Set<() => void>();
 function notify() {
-  snapshot = { activity, muted };
+  snapshot = { activity, muted, light };
   listeners.forEach((l) => l());
 }
-let snapshot = { activity, muted };
+let snapshot = { activity, muted, light };
 
 export function useUi() {
   return useSyncExternalStore(

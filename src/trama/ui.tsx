@@ -4,27 +4,34 @@ import { Icon } from './icons';
 /** Diálogo modal con foco atrapado y Escape. */
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   const id = useId();
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const node = ref.current;
-    const first = node?.querySelector<HTMLElement>('[autofocus], input, textarea, select, button');
-    first?.focus();
+    if (!node) return;
+    const focusable = () => [...node.querySelectorAll<HTMLElement>('button, input, textarea, select, a[href], [tabindex]')]
+      .filter((element) => !element.matches(':disabled') && element.tabIndex >= 0 && element.getClientRects().length > 0);
+    const items = focusable();
+    (items.find((element) => element.hasAttribute('data-initial-focus')) ?? items[0] ?? node).focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
-      if (e.key !== 'Tab' || !node) return;
-      const items = [...node.querySelectorAll<HTMLElement>('button:not(:disabled), input, textarea, select, [tabindex="0"]')];
-      if (!items.length) return;
+      if (e.key === 'Escape' && !e.defaultPrevented) { e.stopPropagation(); close.current(); }
+      if (e.key !== 'Tab') return;
+      const items = focusable();
+      if (!items.length) { e.preventDefault(); return; }
       const a = items[0], b = items[items.length - 1];
-      if (e.shiftKey && document.activeElement === a) { b.focus(); e.preventDefault(); }
+      if (document.activeElement === node || (e.shiftKey && document.activeElement === a)) {
+        (e.shiftKey ? b : a).focus(); e.preventDefault();
+      }
       else if (!e.shiftKey && document.activeElement === b) { a.focus(); e.preventDefault(); }
     };
-    node?.addEventListener('keydown', onKey);
-    return () => { node?.removeEventListener('keydown', onKey); prev?.focus?.(); };
-  }, [onClose]);
+    node.addEventListener('keydown', onKey);
+    return () => { node.removeEventListener('keydown', onKey); prev?.focus(); };
+  }, []);
   return (
     <div className="tr-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} className="tr-modal" role="dialog" aria-modal="true" aria-labelledby={id} style={wide ? { width: 'min(720px, 94vw)' } : undefined}>
+      <div ref={ref} className="tr-modal" role="dialog" aria-modal="true" aria-labelledby={id} tabIndex={-1} style={wide ? { width: 'min(720px, 94vw)' } : undefined}>
         <h3 id={id}>{title}</h3>
         {children}
       </div>

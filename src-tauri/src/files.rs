@@ -116,12 +116,24 @@ fn root_for(state: &AppState, session: Option<i64>) -> CmdResult<std::path::Path
 
 /// Lee un archivo ya validado. Rechaza binarios y archivos grandes.
 pub(crate) fn read_file(file: &Path) -> CmdResult<String> {
-    let meta = std::fs::metadata(file).map_err(err)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    // Comprobar el objeto abierto y acotar la lectura aunque cambie su tamaño.
+    let file = options.open(file).map_err(err)?;
+    let meta = file.metadata().map_err(err)?;
+    if !meta.is_file() {
+        return Err("solo se pueden leer archivos normales".into());
+    }
     if meta.len() > MAX_TEXT {
         return Err(format!("archivo demasiado grande ({} KB)", meta.len() / 1024));
     }
     let mut bytes = Vec::with_capacity(meta.len() as usize);
-    std::fs::File::open(file).map_err(err)?.read_to_end(&mut bytes).map_err(err)?;
+    file.take(MAX_TEXT + 1).read_to_end(&mut bytes).map_err(err)?;
     text(bytes)
 }
 
@@ -130,10 +142,10 @@ pub(crate) fn text(bytes: Vec<u8>) -> CmdResult<String> {
     if bytes.len() as u64 > MAX_TEXT {
         return Err(format!("archivo demasiado grande ({} KB)", bytes.len() / 1024));
     }
-    if bytes.iter().take(8192).any(|&b| b == 0) {
+    if bytes.contains(&0) {
         return Err("archivo binario".into());
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    String::from_utf8(bytes).map_err(|_| "el archivo no está codificado en UTF-8".into())
 }
 
 #[cfg(test)]
@@ -144,6 +156,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("filigranas-files-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn editor_reads_only_regular_utf8_files_under_the_size_limit() {
+        let dir = temp_dir();
+        let file = dir.join("note.txt");
+        std::fs::write(&file, "nota de prueba").unwrap();
+        assert_eq!(read_file(&file).unwrap(), "nota de prueba");
+        assert!(read_file(&dir).is_err());
+
+        std::fs::write(&file, "x".repeat(MAX_TEXT as usize + 1)).unwrap();
+        assert!(read_file(&file).unwrap_err().contains("demasiado grande"));
+        std::fs::write(&file, [b'a', 0xe9, b'z']).unwrap();
+        assert!(read_file(&file).unwrap_err().contains("UTF-8"));
+        let mut content = vec![b'x'; 9000];
+        content.push(0);
+        std::fs::write(&file, content).unwrap();
+        assert_eq!(read_file(&file).unwrap_err(), "archivo binario");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

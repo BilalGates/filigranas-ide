@@ -216,7 +216,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
         agent={directName ?? 'Project manager'} project={session?.worktree ?? project} onDiff={onDiff} />}
       <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} workflow={hidden ? undefined : workflow}>
-        {opening && <div className="muted">abriendo el coordinador…</div>}
+        {opening && !hasWork && <div className="muted" role="status">Abriendo el coordinador…</div>}
         {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {history.error && <div className="co-error">{history.error}</div>}
         {error && (
@@ -247,6 +247,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
               {info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel) && <option value={info.pinnedModel}>{info.pinnedModel} · no disponible</option>}
               {info.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
             </select> : <span className="chip is-static">codex{info?.model ? ` · ${info.model}` : ''}</span>}
+            {opening && hasWork && <span className="co-connecting" role="status">Conectando…</span>}
             {task && <button className="co-btn" onClick={onClearTask} title="desvincular los próximos mensajes" disabled={!!running}>#{task.id} {task.title} ×</button>}
           </>
         }

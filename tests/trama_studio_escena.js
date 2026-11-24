@@ -37,7 +37,8 @@ export async function captureStudioState(project, { button, destination, until, 
   await until(() => button(`Abrir ${project.name}`)).then((el) => el.click());
   await until(() => button(`Proyectos · ${project.name}`));
   destination('Studio');
-  await until(() => button('Pantallas y versiones')).then((el) => el.click());
+  const back = await until(() => visible('.studio .slist') || button('Pantallas y versiones'));
+  if (back.matches('button')) back.click();
   await until(() => [...document.querySelectorAll('.studio .scrn')].find((item) => item.textContent.trim().startsWith('Panel de Git')))
     .then((el) => el.click());
   await until(() => visible('.studio .ver'));

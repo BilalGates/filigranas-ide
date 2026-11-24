@@ -132,30 +132,32 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
-      {items.map((it, index) => (
-        <Fragment key={it.id}>
-          <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
-            plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
-          {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
-        </Fragment>
-      ))}
-      {queue.map((ask) => (
-        <div className="co-approval" key={ask.key} role="group" aria-label="Petición de permiso">
-          <div className="co-approval-title"><span className="tv co-approval-signal"><StDot st="waiting" s={14} /></span>{ask.agent && <b>{ask.agent}</b>}<span>{ask.title}</span></div>
-          {ask.command && <pre className="co-code co-approval-command">{ask.command}</pre>}
-          {ask.files?.map((file) => (
-            <div key={file} className="co-file">{ask.root && file.startsWith(ask.root + '/') ? file.slice(ask.root.length + 1) : rel(file)}</div>
-          ))}
-          {ask.detail && <pre className="co-code">{ask.detail}</pre>}
-          {ask.reason && <p className="co-text muted">{ask.reason}</p>}
-          <div className="co-actions">
-            <button className="co-btn co-allow" onClick={() => ask.decide('acceptForSession')}>Permitir en esta sesión{ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
-            <button className="co-btn co-secondary" onClick={() => ask.decide('accept')}>Solo esta vez{!ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
-            <button className="co-btn co-secondary" aria-label="Ahora no" onClick={() => ask.decide('decline')}>Ahora no<kbd aria-hidden="true">⌘N</kbd></button>
+      <div className="co-log-inner">
+        {items.map((it, index) => (
+          <Fragment key={it.id}>
+            <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
+              plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
+            {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
+          </Fragment>
+        ))}
+        {queue.map((ask) => (
+          <div className="co-approval" key={ask.key} role="group" aria-label="Petición de permiso">
+            <div className="co-approval-title"><span className="tv co-approval-signal"><StDot st="waiting" s={14} /></span>{ask.agent && <b>{ask.agent}</b>}<span>{ask.title}</span></div>
+            {ask.command && <pre className="co-code co-approval-command">{ask.command}</pre>}
+            {ask.files?.map((file) => (
+              <div key={file} className="co-file">{ask.root && file.startsWith(ask.root + '/') ? file.slice(ask.root.length + 1) : rel(file)}</div>
+            ))}
+            {ask.detail && <pre className="co-code">{ask.detail}</pre>}
+            {ask.reason && <p className="co-text muted">{ask.reason}</p>}
+            <div className="co-actions">
+              <button className="co-btn co-allow" onClick={() => ask.decide('acceptForSession')}>Permitir en esta sesión{ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
+              <button className="co-btn co-secondary" onClick={() => ask.decide('accept')}>Solo esta vez{!ask.agent && <kbd aria-hidden="true">⌘Y</kbd>}</button>
+              <button className="co-btn co-secondary" aria-label="Ahora no" onClick={() => ask.decide('decline')}>Ahora no<kbd aria-hidden="true">⌘N</kbd></button>
+            </div>
           </div>
-        </div>
-      ))}
-      {children}
+        ))}
+        {children}
+      </div>
     </div>
   );
 }

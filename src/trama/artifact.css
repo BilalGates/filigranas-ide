@@ -199,7 +199,7 @@
 :scope .termbody .p{color:var(--skyhi)}
 :scope .termbody input{background:none;border:0;outline:0;font:inherit;width:70%;color:var(--tx)}
 :scope .flow{display:grid;grid-template-columns:minmax(0,1fr) 330px;grid-template-rows:auto minmax(0,1fr) 146px;height:100%}
-:scope .flowh{grid-column:1/3;display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+:scope .flowh{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 :scope .flowh h2{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em}
 :scope .stage{position:relative;overflow:hidden}
 :scope .stage svg.g{position:absolute;inset:0;width:100%;height:100%;cursor:grab}
@@ -353,7 +353,7 @@
 :scope .commit input{width:100%;background:none;border:0;outline:0;font:12px var(--mono);color:var(--tx)}
 :scope .commit .fl{font:11px var(--mono);color:var(--tx3);margin-top:3px}
 :scope .brain{display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);height:100%}
-:scope .brainh{grid-column:1/3;display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+:scope .brainh{grid-column:1/3;display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 :scope .mems{overflow:auto;padding:12px 16px 30px}
 :scope .mgroup{margin:11px 0 6px;font-size:11px;color:var(--tx3);font-weight:600}
 :scope .mem{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:11px;padding:11px 12px;margin-bottom:6px;border-radius:11px;background:rgba(14,16,19,.6);box-shadow:inset 0 0 0 1px var(--line);cursor:pointer;transition:background .15s}
@@ -370,9 +370,9 @@
 :scope .rel i.f{background:var(--skyhi)}
 :scope .set{display:grid;grid-template-columns:200px minmax(0,1fr);height:100%}
 :scope .snav{border-right:1px solid var(--line);padding:12px 8px;background:rgba(5,6,8,.55)}
-:scope .snav button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 11px;border-radius:8px;color:var(--tx2);font-size:13px;text-align:left}
-:scope .snav button:hover{background:rgba(255,255,255,.04);color:var(--tx)}
-:scope .snav button.on{background:rgba(255,255,255,.07);color:var(--tx)}
+:scope .snav > button{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:8px;color:var(--tx2);font-size:12.5px;text-align:left}
+:scope .snav > button:hover{background:rgba(255,255,255,.04);color:var(--tx)}
+:scope .snav > button.on{background:rgba(255,255,255,.07);color:var(--tx)}
 :scope .sbody{overflow:auto;padding:18px 24px 40px}
 :scope .sbody h2{margin:0 0 4px;font-size:20px;letter-spacing:-.015em;font-weight:600}
 :scope .sbody .lead{color:var(--tx3);margin:0 0 16px;font-size:13px;max-width:640px}
@@ -564,8 +564,8 @@
 :scope.w-tiny .search{width:auto}
 :scope.w-tiny .legend{display:none}
 :scope .home h1{font-size:30px;margin:2px 0 4px}
-:scope .home .when{font-size:var(--fs-m);color:var(--tx2)}
-:scope .resume h2{font-size:var(--fs-2xl)}
+:scope .home .when{font-size:12px;color:var(--tx3)}
+:scope .resume h2{font-size:19px}
 :scope .resume .last{font-size:var(--fs-m);line-height:1.5}
 :scope .agline{font-size:var(--fs-m)}
 /* Directorio de proyectos */
@@ -668,8 +668,7 @@
 :scope .agcursor{font-size:11.5px}
 :scope .termbody{font-size:12.5px;color:#d3d6dc}
 :scope .ws.code .conv{visibility:hidden}
-:scope .flowh{gap:12px}
-:scope .flowh h2{font-size:var(--fs-xl)}
+:scope .flowh h2{font-size:15px}
 :scope .flowh .seg,:scope .flowh > .btn{flex:none}
 :scope .flowh.is-demo h2{font-size:15px}
 :scope.w-narrow .flowh.is-demo .flow-scope{display:none}
@@ -773,6 +772,15 @@
 :scope .brain{grid-template-rows:auto auto minmax(0,1fr)}
 :scope .brain>.stage{grid-row:3}
 :scope .brain>.insp{grid-row:2/4}
+@media (min-width: 1200px) {
+  :scope .brain.map-inspection{grid-template-rows:auto minmax(0,1fr)}
+  :scope .brain.map-inspection > .stage,:scope .brain.map-inspection > .insp{grid-row:2}
+  :scope .brain.map-inspection > .bfilters {
+    grid-row:2;justify-self:end;align-self:start;width:min(560px,calc(100% - 24px));
+    margin:12px;padding:6px 8px;gap:6px;border:0;border-radius:9px;
+    background:rgba(16,18,22,.92);box-shadow:inset 0 0 0 1px var(--line)
+  }
+}
 :scope .brainh h2{margin:0;font-size:var(--fs-xl)}
 :scope .bsearch{display:flex;align-items:center;gap:6px;height:30px;padding:0 10px;border-radius:8px;background:rgba(255,255,255,.04);box-shadow:inset 0 0 0 1px var(--line2);color:var(--tx3);min-width:220px}
 :scope .bsearch:focus-within{box-shadow:inset 0 0 0 1px rgba(157,182,255,.55)}
@@ -915,8 +923,7 @@
 :scope .refs .refb:hover{transform:translateY(-1px)}
 :scope .lockrow{font-size:var(--fs-m)}
 :scope .req{font-size:var(--fs-m);grid-template-columns:22px minmax(0,1fr) auto;align-items:start}
-:scope .pipe h2{margin:0;font-size:var(--fs-xl)}
-:scope .pipe svg{height:86px}
+:scope .pipe h2{margin:0;font-size:15px}
 :scope .st text{font:500 12.5px var(--ui);fill:var(--tx2)}
 :scope .st text.s{font:11.5px var(--mono);fill:var(--tx3)}
 :scope .st .sthit{fill:transparent}
@@ -939,9 +946,7 @@
 :scope .check .mono{font-size:11.5px}
 :scope .commit input{font-size:12.5px}
 :scope .commit .fl{font-size:11.5px;color:var(--tx2)}
-:scope .snav button{font-size:var(--fs-m)}
-:scope .sbody h2{font-size:var(--fs-2xl)}
-:scope .sbody .lead{font-size:var(--fs-l);color:var(--tx2);max-width:680px;line-height:1.55}
+:scope .sbody .lead{font-size:12.5px;color:var(--tx3);max-width:640px;line-height:1.55}
 :scope .srow .t{font-size:var(--fs-l)}
 :scope .srow .d{font-size:var(--fs-m);color:var(--tx2)}
 :scope .prov .pt{font-weight:600;font-size:var(--fs-l)}

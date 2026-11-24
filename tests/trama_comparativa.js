@@ -15,6 +15,17 @@ export async function post(report) {
   if (!response.ok) throw new Error('No se pudo guardar el estado de la comparativa');
 }
 
+const anchors = {
+  inicio: { card: ['.resume', '.resume'], projects: ['.projects', '.projects'] },
+  workspace: { log: ['.coach .co-log', '.msgs'], composer: ['.coach .co-compose', '.composer'] },
+  'workspace-permiso': { card: ['.co-approval', '.msgs .perm'], command: ['.co-approval-command', '.msgs .perm code'], actions: ['.co-approval .co-actions', '.msgs .perm > .row:last-child'], composer: ['.coach .co-compose', '.composer'] },
+  flow: { header: ['.flowh', '.flowh'], stage: ['.flow .stage', '.flow .stage'], inspector: ['.flow .insp', '.flow .insp'] },
+  studio: { screens: ['.studio .slist', '.studio .slist'], stage: ['.studio .canvasw', '.studio .canvasw'], inspector: ['.studio .insp', '.studio .insp'] },
+  entrega: { pipeline: ['.pipe', '.pipe'], audit: ['.rev .audit', '.rev .audit'] },
+  brain: { stage: ['.brain .stage', '.brain .stage'], controls: ['.bfilters-map', '.brain .legend'], inspector: ['.brain .insp', '.brain .insp'] },
+  ajustes: { navigation: ['.snav', '.snav'], scope: ['.settings-scope .seg', '.snav .seg'], skills: ['.skill-matrix', '.mx'] },
+};
+
 export async function capture(report, view, selector) {
   await document.fonts.ready;
   await sleep(700);
@@ -27,14 +38,30 @@ export async function capture(report, view, selector) {
   const height = Math.max(...rects.map((rect) => rect.bottom)) - y;
   report.views[view].viewport = { width: innerWidth, height: innerHeight, scale: devicePixelRatio };
   report.views[view].body = { x, y, width, height };
+  if (anchors[view]) report.views[view].geometry = Object.fromEntries(Object.entries(anchors[view]).flatMap(([name, selectors]) => {
+    const target = document.querySelector(selectors[report.side === 'native' ? 0 : 1]);
+    if (!target?.getClientRects().length) return [];
+    const { x, y, width, height } = target.getBoundingClientRect();
+    return [[name, { x, y, width, height }]];
+  }));
   if (report.side === 'native' && (view === 'workspace' || view === 'workspace-arquitectura')) {
     const diagram = document.querySelector('.co-architecture').getBoundingClientRect();
     report.views[view].diagram = { x: diagram.x, y: diagram.y, width: diagram.width, height: diagram.height };
   }
-  report.ready = view;
-  await post(report);
-  const name = report.side + '-' + view;
-  await until(async () => (await fetch('/__trama_capturada/' + name)).ok, name, 45000);
+  const clearSelection = () => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) selection.removeAllRanges();
+  };
+  document.addEventListener('selectionchange', clearSelection);
+  try {
+    clearSelection();
+    report.ready = view;
+    await post(report);
+    const name = report.side + '-' + view;
+    await until(async () => (await fetch('/__trama_capturada/' + name)).ok, name, 45000);
+  } finally {
+    document.removeEventListener('selectionchange', clearSelection);
+  }
 }
 
 export async function frames(duration) {

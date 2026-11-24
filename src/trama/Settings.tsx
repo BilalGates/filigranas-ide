@@ -31,7 +31,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
             <span className="lab">Ámbito</span>
             <div className="seg" role="group" aria-label="Ámbito de las skills">
               <button aria-pressed={!projectSkills || !project} className={!projectSkills || !project ? 'on' : ''} onClick={() => setProjectSkills(false)}>Global</button>
-              {project && <button aria-pressed={projectSkills} className={projectSkills ? 'on' : ''} onClick={() => setProjectSkills(true)}>{projectName ?? 'Proyecto'}</button>}
+              {project && <button aria-pressed={projectSkills} className={projectSkills ? 'on' : ''} title={projectName ?? undefined} onClick={() => setProjectSkills(true)}>Proyecto</button>}
               {project && <button onClick={() => pick('agentes')}>Sesión</button>}
             </div>
           </div>}

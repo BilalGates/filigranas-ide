@@ -10,6 +10,7 @@ export type GraphOptions = {
   nodes: GNode[];
   edges: GEdge[];
   node: (n: GNode, selected: boolean) => string;
+  extent?: (n: GNode) => [left: number, top: number, right: number, bottom: number] | undefined;
   under?: () => string;
   edgePath?: (e: GEdge, a: GNode, b: GNode) => string | null;
   edgeDecor?: (e: GEdge, a: GNode, b: GNode) => string;
@@ -123,7 +124,13 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
   }
   function bounds() {
     let a = 1e9, b = 1e9, c = -1e9, d = -1e9;
-    for (const n of o.nodes) { a = Math.min(a, n.x - n.w / 2); b = Math.min(b, n.y - n.h / 2); c = Math.max(c, n.x + n.w / 2); d = Math.max(d, n.y + n.h / 2); }
+    for (const n of o.nodes) {
+      const [left, top, right, bottom] = o.extent?.(n) ?? [n.x - n.w / 2, n.y - n.h / 2, n.x + n.w / 2, n.y + n.h / 2];
+      a = Math.min(a, left);
+      b = Math.min(b, top);
+      c = Math.max(c, right);
+      d = Math.max(d, bottom);
+    }
     const p = o.pad ?? [30, 30, 30, 30];
     return [a - p[3], b - p[0], c + p[1], d + p[2]];
   }

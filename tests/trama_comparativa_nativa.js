@@ -103,25 +103,6 @@ async function run() {
   const read = (name) => capture(report, name, name.startsWith('workspace')
     ? ['.threads', 'main.center', ...(name === 'workspace-observar' ? ['#workspace-right-panel'] : [])] : 'main[aria-label]');
 
-  await open('filigranas-ide');
-  await navigate('Inicio');
-  await until(() => fixture.projects.every((item) => button(`Abrir ${item.n}`)), 'los nueve proyectos de Inicio');
-  await until(() => visible('.prow .br')?.textContent, 'las ramas del resumen de Inicio');
-  report.views.inicio = {
-    projects: fixture.projects.length,
-    groups: new Set(fixture.projects.map((p) => p.g)).size,
-    sigils: Object.fromEntries(await Promise.all(fixture.projects.map(async ({ n }) =>
-      [n, await canvasHash(button(`Abrir ${n}`).querySelector('canvas'))]))),
-  };
-  const failure = await until(() => [...document.querySelectorAll('.home .aitem')].find((item) =>
-    item.textContent.includes('CI fallido en kaza') && item.textContent.includes('PR #16')), 'el CI fallido del SHA actual');
-  report.views.inicio.failure = { project: 'kaza', number: 16 };
-  await read('inicio');
-  failure.querySelector('button').click();
-  await until(() => visible('[aria-label="Estado de CI"]')?.textContent.includes('13 correctos · 1 fallidos · 0 pendientes'), 'el CI fallido al abrir Entrega');
-  report.views.inicio.failure.actionOpensCi = true;
-
-  await open('filigranas-ide');
   const workspaceFixture = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-workspace.json').then((response) => response.json());
   const savedSessions = await sessions.list(project.path);
   const { useReportActivity } = await import('../src/ui');
@@ -146,11 +127,36 @@ async function run() {
   const activityHost = document.createElement('div');
   document.body.append(activityHost);
   const activity = createRoot(activityHost);
-  activity.render([createElement(Permission, { key: 'permission' }), ...workspaceFixture.sessions.map((item) => {
+  const activate = (stage) => activity.render([createElement(Permission, { key: 'permission' }), ...workspaceFixture.sessions.map((item) => {
     const session = savedSessions.find((entry) => entry.providerSession === 'trama-fixture-' + item.id);
     if (!session) throw new Error('Falta la sesión sintética ' + item.id);
-    return createElement(Activity, { id: session.id, state: item.state, key: session.id });
+    return createElement(Activity, { id: session.id, state: item.state, key: stage + ':' + session.id });
   })]);
+
+  await open('filigranas-ide');
+  activate('inicio');
+  await navigate('Inicio');
+  await until(() => fixture.projects.every((item) => button(`Abrir ${item.n}`)), 'los nueve proyectos de Inicio');
+  await until(() => visible('.prow .br')?.textContent, 'las ramas del resumen de Inicio');
+  report.views.inicio = {
+    projects: fixture.projects.length,
+    groups: new Set(fixture.projects.map((p) => p.g)).size,
+    sigils: Object.fromEntries(await Promise.all(fixture.projects.map(async ({ n }) =>
+      [n, await canvasHash(button(`Abrir ${n}`).querySelector('canvas'))]))),
+  };
+  const failure = await until(() => [...document.querySelectorAll('.home .aitem')].find((item) =>
+    item.textContent.includes('CI fallido en kaza') && item.textContent.includes('PR #16')), 'el CI fallido del SHA actual');
+  const homePermission = await until(() => [...document.querySelectorAll('.home .aitem')].find((item) =>
+    item.textContent.includes('Programador') && item.textContent.includes('pide permiso')), 'el permiso real en el resumen de Inicio');
+  report.views.inicio.permission = homePermission.querySelector('.t').textContent;
+  report.views.inicio.failure = { project: 'kaza', number: 16 };
+  await read('inicio');
+  failure.querySelector('button').click();
+  await until(() => visible('[aria-label="Estado de CI"]')?.textContent.includes('13 correctos · 1 fallidos · 0 pendientes'), 'el CI fallido al abrir Entrega');
+  report.views.inicio.failure.actionOpensCi = true;
+
+  await open('filigranas-ide');
+  activate('workspace');
   const permission = await until(() => visible('.coach[aria-label="Coordinador"] .co-approval'), 'el permiso de la sesión en el hilo del PM');
   const plan = await until(() => visible('.co-plan-graph svg'), 'el plan de Workspace');
   const nodes = [...plan.querySelectorAll('g[role="button"]')];
@@ -193,13 +199,20 @@ async function run() {
   await read('workspace-observar');
   button('Cerrar observación').click();
   await until(() => !visible('.workspace-observation') && !document.querySelector('.app.has-panel'), 'la vuelta a la disposición anterior');
-  permission.scrollIntoView({ block: 'end' });
+  conversation.scrollTop = conversation.scrollHeight;
+  await until(() => {
+    const rect = permission.getBoundingClientRect();
+    const log = conversation.getBoundingClientRect();
+    return rect.top >= log.top && rect.bottom <= log.bottom;
+  }, 'la tarjeta de permiso visible completa al final de la conversación');
   const permissionTitle = permission.querySelector('.co-approval-title b').textContent;
   const permissionCommand = permission.querySelector('.co-approval-command').textContent;
   report.views['workspace-permiso'] = { source: permissionTitle, command: permissionCommand, actions: permission.querySelectorAll('button').length };
   await read('workspace-permiso');
   const reject = permission.querySelector('[aria-label="Ahora no"]');
-  reject.click();
+  const shortcut = new KeyboardEvent('keydown', { code: 'KeyN', key: 'n', metaKey: true, cancelable: true });
+  window.dispatchEvent(shortcut);
+  if (!shortcut.defaultPrevented) throw new Error('⌘N no llegó al permiso visible');
   reject.click();
   await until(() => !visible('.coach[aria-label="Coordinador"] .co-approval'), 'la retirada del permiso decidido');
   if (decisions.length !== 1 || decisions[0] !== 'decline') throw new Error('Se decidió un permiso más de una vez');
@@ -289,14 +302,25 @@ async function run() {
 
   await navigate('Brain');
   await until(() => button('Inferidos'), 'el filtro de inferencias').then((el) => el.click());
+  const isInBrainViewport = (node) => {
+    const svg = node?.closest('.brg');
+    if (!svg) return false;
+    const bounds = svg.getBoundingClientRect();
+    const dot = node.querySelector('circle')?.getBoundingClientRect();
+    return bounds.height > 400 && dot?.width > 0 && dot.left >= bounds.left && dot.right <= bounds.right &&
+      dot.top >= bounds.top && dot.bottom <= bounds.bottom;
+  };
   const selected = await until(() => visible(`.gn[data-gid="${selectedMemory}"]`), 'el recuerdo m1');
+  await until(() => isInBrainViewport(selected), 'el recuerdo dibujado dentro del lienzo de Brain');
   selected.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
   await until(() => selected.classList.contains('sel'), 'la selección del recuerdo m1');
+  document.activeElement?.blur();
   report.views.brain = { selected: 'm1', confirmed: fixture.memory.filter((entry) => entry.ok).length, inferred: 0 };
   await read('brain');
   await until(() => button('Agrupar'), 'el agrupamiento de Brain').then((el) => el.click());
   const groups = () => document.querySelectorAll('.brg .gn[data-gid^="K-"]').length;
-  await until(() => groups() === 5, 'los cinco grupos de recuerdos');
+  await until(() => groups() === 5 && [...document.querySelectorAll('.brg .gn[data-gid^="K-"]')].every(isInBrainViewport),
+    'los cinco grupos de recuerdos dibujados dentro del lienzo');
   report.views['brain-agrupado'] = { groups: groups() };
   await read('brain-agrupado');
   button('Agrupar').click();
@@ -305,6 +329,7 @@ async function run() {
   const count = () => document.querySelectorAll('.brg .gn[data-gid^="-"]').length;
   await until(() => count() === 3, 'las tres inferencias en el grafo');
   const node = document.querySelector(`.brg .gn[data-gid="-${memory.id}"]`);
+  await until(() => isInBrainViewport(node), 'la inferencia dibujada dentro del lienzo');
   node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
   const inference = await until(() => document.querySelector('#binsp textarea[aria-label="Inferencia"]'), 'la inferencia m10 seleccionada');
   document.activeElement?.blur();

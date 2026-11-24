@@ -200,7 +200,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
           <button className="tbtn narrow-only" onClick={() => setInspOpen(!inspOpen)} aria-label="Ficha"><Icon name="panel" size={16} /></button>
         </div>
         {lens !== 'ctx' && (
-          <div className="bfilters" role="group" aria-label="Filtros">
+          <div className={lens === 'map' && !inNetwork ? 'bfilters bfilters-map' : 'bfilters'} role="group" aria-label="Filtros">
             {lens === 'map' && <button className="btn sm" aria-pressed={network} onClick={() => { setNetwork(!network); setNetworkNode(null); setSel(null); }}><Icon name="brain" size={13} /> Red del proyecto</button>}
             {inNetwork ? <label className="fsel"><select aria-label="Tipo de nodo" value={networkKind ?? ''} onChange={(e) => { setNetworkKind((e.target.value || null) as BrainNodeKind | null); selectNetwork(null); }}>
               <option value="">Todos los nodos</option><option value="project">Proyectos</option><option value="task">Tareas</option><option value="pr">Pull requests</option>
@@ -223,7 +223,13 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
             <span className="mut2 bcount">{inNetwork ? `${graph?.nodes.length ?? 0} nodos` : `${filtered.length} de ${mems.length + (showInferences ? Math.min(inferences.length, 60) : 0)}`}{graph?.limited && ' · vista parcial'}</span>
             {lens === 'focus' && hist.length > 0 && <button className="btn sm ghost" onClick={() => { const h = [...hist]; const prev = h.pop()!; setHist(h); setFocus(prev); setSel(prev); }}><Icon name="back" size={12} /> Volver</button>}
             <span className="grow" />
-            {!inNetwork && <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>}
+            {lens === 'map' && !inNetwork && <span className="brain-kind-legend" aria-label="Tipos de recuerdo">
+              {KINDS.map((kind) => <span key={kind}><i style={{ background: KIND[kind][1] }} />{KIND[kind][0]}</span>)}
+            </span>}
+            {!inNetwork && (lens === 'map' || lens === 'focus') && <details className="brain-map-relations">
+              <summary className="btn sm ghost">Relaciones</summary>
+              <span className="blegend">{(Object.keys(RELT) as BrainLinkKind[]).map((k) => <span key={k}><svg width="22" height="8" aria-hidden="true"><path className={`ge r-${k} lg`} d="M1 4H21" /></svg>{RELT[k][0].toLowerCase()}</span>)}</span>
+            </details>}
           </div>
         )}
         <div className="stage bstage">
@@ -360,6 +366,20 @@ function mapModel(mems: Mem[], links: BrainLink[], label: string, grouped: boole
   }
   return { nodes, edges, under: () => '' };
 }
+function mapExtent(n: GNode): [number, number, number, number] | undefined {
+  const { x, y } = n;
+  const radius = n.h / 2;
+  if (n.kind === 'radial') {
+    const labelWidth = tr((n.m as Mem).x, 34).length * 6.4;
+    const edge = radius + 8;
+    return [x - edge - (x < 0 ? labelWidth : 0), y - 14, x + edge + (x < 0 ? 0 : labelWidth), y + 14];
+  }
+  if (n.kind === 'project' || n.kind === 'cluster') {
+    const labelWidth = Math.max(n.w / 2, n.kind === 'project' ? 50 : 60);
+    return [x - radius - labelWidth, y - radius - 8, x + radius + labelWidth, y + radius + 30];
+  }
+  return undefined;
+}
 function focusModel(m: Mem, all: Mem[], links: BrainLink[]) {
   const nodes: GNode[] = [], edges: GEdge[] = [], under: string[] = [];
   nodes.push({ id: String(m.id), kind: 'center', m, x: 0, y: 0, w: 320, h: 92, keep: true, aria: m.x });
@@ -408,7 +428,7 @@ function BrainGraphView({ lens, mems, all, links, sel, focus, q, grouped, scopeL
     const byId = () => g.current!.nodes;
     if (!g.current) {
       g.current = createGraph(el, {
-        nodes: model.nodes, edges: model.edges, under: model.under, node: memNode, edgePath: brainEdgePath, dim: true,
+        nodes: model.nodes, edges: model.edges, under: model.under, node: memNode, extent: mapExtent, edgePath: brainEdgePath, dim: true,
         selected: lens === 'focus' ? (fm ? String(fm.id) : null) : sel != null ? String(sel) : null, pad: lens === 'focus' ? [60, 240, 60, 160] : [70, 20, 20, 20], maxFit: lens === 'focus' ? 1.1 : 1, minFit: 0.5,
         label: 'Mapa de conocimiento: flechas para moverse, Intro abre el foco',
         onSelect: (id) => {

@@ -173,14 +173,19 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   ) : null;
   return (
     <Root label="Studio">
-      <div className="studio-views" role="group" aria-label="Vista de Studio">
-        <button className="btn sm" aria-pressed={view === 'captures'} onClick={() => onView('captures')}>Pantallas y versiones</button>
-        <button className="btn sm" aria-pressed={view === 'canvas'} onClick={() => onView('canvas')}>Diseñar barra lateral</button>
-      </div>
-      {view === 'canvas' ? <section className="studio-sidebar-design" aria-label="Diseño de barra lateral">{canvas}</section> :
+      {view === 'canvas' ? <>
+        <div className="studio-views">
+          <button className="btn sm" onClick={() => onView('captures')}><Icon name="back" size={13} /> Pantallas y versiones</button>
+        </div>
+        <section className="studio-sidebar-design" aria-label="Diseño de barra lateral">{canvas}</section>
+      </> :
       <div className={`studio${inspOpen ? ' insp-open' : ''}${leftOpen ? ' left-open' : ''}`}>
         <aside className="slist" aria-label="Pantallas y versiones">
-          <div className="ph"><h3 className="grow">Pantallas</h3><button className="tbtn" onClick={newScreen} aria-label="Nueva pantalla" title="Nueva pantalla"><Icon name="plus" size={14} /></button></div>
+          <div className="ph">
+            <h3 className="grow">Pantallas</h3>
+            <button className="tbtn" aria-label="Diseñar barra lateral" title="Diseñar barra lateral" onClick={() => onView('canvas')}><Icon name="sidebar" size={14} /></button>
+            <button className="tbtn" onClick={newScreen} aria-label="Nueva pantalla" title="Nueva pantalla"><Icon name="plus" size={14} /></button>
+          </div>
           {[...(screens ?? [])].sort((a, b) => (a.id ?? 0) - (b.id ?? 0)).map((s) => (
             <button key={s.id} className={`scrn${s.id === screenId ? ' on' : ''}`} onClick={() => { if (s.id === screenId) return; ++shotsRequest.current; setShots(null); setShotId(null); setScreenId(s.id); setRegion(FULL); setCompareId(null); setCmp(null); }}>
               <Icon name="screen" size={14} /><span className="grow">{s.name}</span>{s.approved != null && <span className="chip tiny mint">aprobada</span>}
@@ -193,7 +198,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
               {shots === null ? <div className="tr-skel" style={{ height: 36 }} /> : shots.map((x, i) => (
                 <button key={x.id} className={`ver${x.id === shotId && !cmp ? ' on' : ''} st-${ST[x.status] ?? x.status}`} onClick={() => { setShotId(x.id); setCompareId(null); setCmp(null); }}>
                   <span className="th">{images[x.id] ? <img src={images[x.id]} alt="" /> : null}</span>
-                  <span className="vt2"><span className="v1">v{shots.length - i} <span className={`chip tiny ${x.id === screen.approved ? 'mint' : x.status === 'candidate' ? 'sky' : ''}`}>{x.id === screen.approved ? 'aprobada' : ST[x.status] ?? x.status}</span></span><span className="v2">{x.source}{x.note ? ` · ${x.note}` : ''}</span></span>
+                  <span className="vt2"><span className="v1">v{shots.length - i} <span className={`chip tiny ${x.id === screen.approved ? 'mint' : x.status === 'candidate' ? 'sky' : ''}`}>{x.id === screen.approved ? 'aprobada' : ST[x.status] ?? x.status}</span></span><span className="v2" title={x.source}>{x.note || x.source}</span></span>
                 </button>
               ))}
               {shots && !shots.length && <p className="mut2" style={{ margin: 0 }}>{screen.url ? 'Captura la URL o importa un PNG para crear la primera versión.' : 'Importa un PNG para crear la primera versión.'}</p>}
@@ -451,7 +456,6 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
     <>
       {comparison}
       {!comparison && <div className="sec"><span className="lab">Selección</span>
-        {shot && components?.length === 0 && <p className="mut2">Esta versión permite marcar regiones. Para seleccionar componentes, captura una página local desde Studio.</p>}
         {shot && selected && <>
           <div className="row wrap studio-selection-heading"><h3 className="grow">{selected.name}</h3>
             <button className="btn sm" disabled={busy} onClick={() => {
@@ -487,7 +491,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           </div>
         </details>}
         {!validRegion(region) && <p role="status">La región debe quedar dentro de la pantalla.</p>}
-        {selected ? null : full ? <p className="mut2">Usa <span className="kbd">V</span> para seleccionar un componente. Pulsa <span className="kbd">R</span> y marca una región en la captura para acotar el cambio; con <span className="kbd">H</span> mueves el lienzo y con <span className="kbd">C</span> comparas con la referencia.</p> : (
+        {selected ? null : full ? <p className="mut studio-inspector-note">{components?.length ? 'Selecciona un componente en el lienzo.' : 'Captura una página local para seleccionar componentes.'} Con <b>R</b> marca una región y di qué cambiar.</p> : (
           <>
             <div className="row" style={{ marginTop: 6 }}><h3 className="grow">Región marcada</h3></div>
             <dl className="kv"><dt>Posición</dt><dd className="mono">{Math.round(region.x)} %, {Math.round(region.y)} %</dd><dt>Tamaño</dt><dd className="mono">{Math.round(region.width)} × {Math.round(region.height)} %{shot ? ` · ${Math.round((region.width / 100) * shot.width)} × ${Math.round((region.height / 100) * shot.height)} px` : ''}</dd></dl>

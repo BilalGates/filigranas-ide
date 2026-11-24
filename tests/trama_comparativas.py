@@ -166,8 +166,15 @@ def take(pid, output, workspace_db=None):
         elif scene in VIEWS:
             shot = output / f"{side}-{scene}.png"
             if not shot.exists():
+                viewport = report["views"][scene]["viewport"]
+                if [viewport["width"], viewport["height"]] != window["size"]:
+                    raise RuntimeError(f"El tamaño de la ventana cambió durante {side}-{scene}: {viewport}")
                 partial = output / "capturando.png"
                 subprocess.run(["screencapture", "-x", "-o", "-l", str(window["id"]), partial], check=True)
+                with Image.open(partial) as screenshot:
+                    expected = tuple(round(n * viewport["scale"]) for n in window["size"])
+                    if screenshot.size != expected:
+                        raise RuntimeError(f"El tamaño de la captura cambió durante {side}-{scene}: {screenshot.size}")
                 if workspace_db and side == "native" and scene == "entrega-hallazgo":
                     root = Path(os.environ["VITE_TRAMA_SCENE_ROOT"])
                     observe_ci(workspace_db, root / "filigranas-ide", number=17, state="success", counts=[14, 0, 0])

@@ -143,7 +143,7 @@ export function ConversationTeam({ items, sessions, onObserve, onSession }: { it
             {Array.from({ length: 10 }, (_, i) => <i key={i} className={i < filled ? 'f' : undefined} />)}
           </span>
           <button className="btn sm" onClick={() => onObserve(id)}><Icon name="eye" size={13} /> Observar<span className="sr-only"> {task.title}</span></button>
-          <button className="btn sm ghost" onClick={() => onSession(id)}>{agent.state === 'waiting' ? 'Ver permiso' : 'Entrar'}<span className="sr-only"> {agent.name}</span></button>
+          <button className="btn sm ghost" onClick={() => onSession(id)}>Entrar<span className="sr-only"> {agent.name}</span></button>
         </div>
       </div>;
     })}

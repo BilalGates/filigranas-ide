@@ -6,6 +6,8 @@ import { Composer, ConversationLog, ConversationObservation, useChatHistory, wit
 import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { useReportActivity } from './ui';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
+import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
+import { Icon } from './trama/icons';
 
 const APPROVAL_METHODS = ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'];
 
@@ -18,7 +20,7 @@ type Props = {
   onDiff: (c: Change) => void;
   workflow?: ConversationWorkflow;
   observation?: HTMLElement | null;
-  session?: { id: number; name: string; worktree: string | null };
+  session?: { id: number; name: string; worktree: string | null; branch?: string | null; base?: string | null };
   task?: { id: number; title: string } | null;
   onClearTask?: () => void;
   onActivity?: (status: string) => void;
@@ -45,6 +47,8 @@ export default function Coordinator({ project, hidden, switching, providerPicker
   const [items, setItems] = useState<CItem[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [autoNotes, setAutoNotes] = useState<string[]>([]);
+  const permission = usePermissionMode(session?.id ?? null);
   const [running, setRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(true);
@@ -112,6 +116,11 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       }
       if (!thread.current || params?.threadId !== thread.current) return;
       if (APPROVAL_METHODS.includes(method)) return setApprovals((a) => [...a, { requestId, method, params }]);
+      if (method === 'filigranas/autoApproved') {
+        const p = params?.params ?? {};
+        const what = params?.request === 'item/fileChange/requestApproval' ? 'cambio de archivos' : p.command ? `orden «${String(p.command).slice(0, 120)}»` : 'orden';
+        return setAutoNotes((n) => [...n.slice(-19), `Aprobado automáticamente (acceso total): ${what}`]);
+      }
       switch (method) {
         case 'thread/tokenUsage/updated':
           onContext?.(contextRemaining(params.tokenUsage?.last?.totalTokens, params.tokenUsage?.modelContextWindow));
@@ -219,6 +228,8 @@ export default function Coordinator({ project, hidden, switching, providerPicker
         {opening && !hasWork && <div className="muted" role="status">Abriendo el coordinador…</div>}
         {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {history.error && <div className="co-error">{history.error}</div>}
+        {autoNotes.map((note, i) => <div key={i} className="co-auto"><Icon name="check" size={12} />{note}</div>)}
+        {permission.error && <div className="co-error">{permission.error}</div>}
         {error && (
           <div className="co-error">
             {error}
@@ -234,6 +245,8 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       <Composer
         providerPicker={providerPicker}
         draftKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
+        context={session && <SessionContext project={project} worktree={session.worktree} branch={session.branch ?? null} base={session.base ?? null} />}
+        permission={session && <PermissionChip mode={permission.mode} onMode={permission.setMode} />}
         disabled={!info || switching === true}
         running={!!running}
         efforts={automaticTask == null ? info?.efforts ?? ['medium'] : ['auto', ...(info?.efforts ?? ['medium'])]}

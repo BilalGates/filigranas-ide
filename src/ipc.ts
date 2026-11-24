@@ -187,6 +187,8 @@ export const chats = {
 };
 
 export const sessions = {
+  /** Nivel de permisos: pedir, automático (dentro de la carpeta) o acceso total. */
+  permissionMode: (id: number, mode: 'ask' | 'auto' | 'full') => invoke<string>('session_permission_mode', { id, mode }),
   list: (project: string) => invoke<Session[]>('session_list', { project }),
   create: (project: string, engine: string, task: number | null = null, skillRole: SkillRole | null = null) => invoke<CreatedSession>('session_create', { project, engine, task, skillRole }),
   history: (id: number) => invoke<any[]>('session_history', { id }),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { brain, pr, tasks as taskApi, type BrainDraft, type BrainEntry, type BrainGraphData, type BrainInference, type BrainKind, type BrainLink, type BrainLinkKind, type BrainNodeKind, type BrainValidity, type Project, type Task } from '../ipc';
-import { STATUS } from '../Tasks';
+import { STATUS } from './taskMeta';
 import { createGraph, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
 import { EmptyArt, Root } from './kit';

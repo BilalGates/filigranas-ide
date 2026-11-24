@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api, type HomeSummary, type Project, type Session, type Workspace } from '../ipc';
-import { STATUS } from '../Tasks';
+import { STATUS } from './taskMeta';
 import { useUi } from '../ui';
 import { Icon } from './icons';
 import { AgDot, EmptyArt, Root, Sigil, StDot, ago, sessionAgents, type Agent } from './kit';

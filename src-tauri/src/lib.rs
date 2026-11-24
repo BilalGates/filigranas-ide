@@ -1,6 +1,7 @@
 mod acp;
 mod approval;
 mod attachments;
+mod autoapprove;
 mod brain;
 mod brain_graph;
 mod brain_links;
@@ -64,6 +65,8 @@ pub(crate) struct AppState {
     pub tracker: tracker::Tracker,
     pub publication: Mutex<()>,
     pub approvals: approval::Approvals,
+    /// Nivel de permisos elegido para cada sesión (pedir, automático o total).
+    pub permissions: autoapprove::Modes,
     pub jev_gate: Mutex<()>,
     pub chat_gate: Mutex<()>,
     // Se libera después de destruir los recursos del perfil.
@@ -144,6 +147,7 @@ pub fn run() {
                 tracker: Default::default(),
                 publication: Default::default(),
                 approvals: Default::default(),
+                permissions: Default::default(),
                 jev_gate: Default::default(),
                 chat_gate: Default::default(),
             });
@@ -277,6 +281,7 @@ pub fn run() {
             claude::session_send,
             claude::session_interrupt,
             claude::session_respond,
+            autoapprove::session_permission_mode,
             claude::session_close,
             claude::session_set_option,
             claude::claude_chat_options,

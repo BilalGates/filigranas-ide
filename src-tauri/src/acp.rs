@@ -150,6 +150,7 @@ impl Acp {
         let (stdout, stdin) = (child.stdout.take().ok_or("sin salida del agente")?, child.stdin.take().ok_or("sin entrada del agente")?);
 
         let (id, handle, pending) = (session.id, app.clone(), self.pending.clone());
+        let cwd = std::path::PathBuf::from(session.cwd());
         let emit = move |msg: Value| {
             let _ = handle.emit("session", Event { id, msg });
         };
@@ -177,6 +178,16 @@ impl Acp {
                     if method != "session/request_permission" {
                         let _ = rpc.respond_error(rid, "Filigranas no ofrece este método");
                         return;
+                    }
+                    // Nivel de permisos de la sesión: Filigranas puede aprobar por su cuenta.
+                    let mode = tracker_handle.state::<AppState>().permissions.get(id);
+                    let (kind, paths) = crate::autoapprove::acp_request(&params["toolCall"]);
+                    if crate::autoapprove::approves(mode, &cwd, kind, &paths) {
+                        if let Some(option) = pick_option(&params["options"], "accept") {
+                            let _ = rpc.respond(rid, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
+                            on_emit(json!({ "type": "auto_approved", "toolCall": params["toolCall"] }));
+                            return;
+                        }
                     }
                     let key = format!("{id}:{rid}");
                     if let Ok(mut p) = pending.lock() {

@@ -111,7 +111,14 @@ const IN_FLIGHT = new Set(['running', 'verifying', 'waiting_approval']);
 export function ConversationTeam({ items, sessions, onObserve, onSession }: { items: Task[] } & ConversationWorkflow) {
   const activity = useAgentsActivity();
   const linked = new Map<number, Task>();
+  const children = new Map<number, { done: number; total: number }>();
   for (const item of items) {
+    if (item.parentId != null && item.status !== 'cancelled') {
+      const count = children.get(item.parentId) ?? { done: 0, total: 0 };
+      count.total++;
+      if (item.status === 'done') count.done++;
+      children.set(item.parentId, count);
+    }
     for (const session of item.sessions) {
       const active = activity[String(session.id)];
       if (!session.closed && !linked.has(session.id) && (active || IN_FLIGHT.has(item.status))) linked.set(session.id, item);
@@ -124,13 +131,21 @@ export function ConversationTeam({ items, sessions, onObserve, onSession }: { it
 
   if (!rows.length) return null;
   return <section className="tv co-team" aria-label="Actividad de las tareas">
-    {rows.slice(0, 8).map(({ agent, task, id }) => <div className="co-team-row" key={id}>
-      <AgDot a={agent} />
-      <div><div>{agent.name} <span className="mut">· {task.title}</span></div><div className="co-team-status">{agent.did}</div></div>
-      <div className="co-team-actions">
-        <button className="co-btn" onClick={() => onObserve(id)}><Icon name="eye" size={13} /> Observar<span className="sr-only"> {task.title}</span></button>
-        <button className="co-btn" onClick={() => onSession(id)}>{agent.state === 'waiting' ? 'Ver permiso' : 'Entrar'}<span className="sr-only"> {agent.name}</span></button>
-      </div>
-    </div>)}
+    {rows.slice(0, 8).map(({ agent, task, id }) => {
+      const count = children.get(task.id);
+      const filled = count ? Math.round(10 * count.done / count.total) : Number(task.status === 'done') * 10;
+      const progress = count ? `${count.done} de ${count.total} subtareas terminadas` : 'Sin subtareas para medir el avance';
+      return <div className="co-team-row" key={id}>
+        <AgDot a={agent} />
+        <div><div>{agent.name} <span className="mut">· {task.title}</span></div><div className="co-team-status">{agent.did}</div></div>
+        <div className="row co-team-actions">
+          <span className="prog" role="img" aria-label={progress} title={progress}>
+            {Array.from({ length: 10 }, (_, i) => <i key={i} className={i < filled ? 'f' : undefined} />)}
+          </span>
+          <button className="btn sm" onClick={() => onObserve(id)}><Icon name="eye" size={13} /> Observar<span className="sr-only"> {task.title}</span></button>
+          <button className="btn sm ghost" onClick={() => onSession(id)}>{agent.state === 'waiting' ? 'Ver permiso' : 'Entrar'}<span className="sr-only"> {agent.name}</span></button>
+        </div>
+      </div>;
+    })}
   </section>;
 }

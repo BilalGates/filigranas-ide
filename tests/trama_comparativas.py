@@ -55,6 +55,20 @@ def prepare_workspace(project, db):
     expected = Path.home() / "Library/Application Support/com.filigranas.ide.trama-escenas/filigranas.db"
     if db.resolve() != expected.resolve() or not db.is_file():
         raise ValueError("Solo se admite la base existente del perfil aislado de escenas")
+    ipc = project / "src/ipc.ts"
+    delivery = json.loads(Path("docs/trama-aceptacion-final/evidencias/fixture-entrega.json").read_text())
+    original = next(item["before"] for item in delivery["files"] if item["path"] == "src/ipc.ts")
+    added = (
+        "  push: (p: string) => invoke<string>('git_push', { project: p }),\n"
+        "  stash: (p: string) => invoke<string>('git_stash', { project: p }),\n"
+        "  // Operaciones de consulta que usa el panel.\n"
+        "  status: (p: string) => invoke<string>('git_status', { project: p }),\n"
+        "  log: (p: string) => invoke<string>('git_log', { project: p }),\n"
+    )
+    changed = original.removesuffix("};\n") + added + "};\n"
+    if ipc.read_text() not in (original, changed):
+        raise ValueError("src/ipc.ts debe corresponder a la fixture de Entrega")
+    ipc.write_text(changed)
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("DELETE FROM github_pulls WHERE project=? AND repository=? AND number=17",

@@ -146,6 +146,24 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
   const newScreen = () => setEditing({ id: null, name: '', url: '', constraints: '', revision: null, approved: null });
   const version = (item: DesignShot) => shots ? `v${shots.length - shots.findIndex((entry) => entry.id === item.id)}` : '';
   const compareTitle = comparable && cmp && reference && shot ? `${version(reference)} ↔ ${version(shot)}` : null;
+  const comparison = compareTitle && shot && reference && (
+    <div className="sec studio-inspector-compare" aria-label="Versiones comparadas">
+      <h3>{compareTitle}</h3>
+      <div className="row studio-compare-versions">
+        <select className="in" aria-label="Versión anterior" value={reference.id} onChange={(event) => setCompareId(Number(event.currentTarget.value))}>
+          {shots?.filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height)
+            .map((item) => <option key={item.id} value={item.id}>{version(item)}</option>)}
+        </select>
+        <span className="mut">frente a</span>
+        <select className="in" aria-label="Versión posterior" value={shot.id} onChange={(event) => setShotId(Number(event.currentTarget.value))}>
+          {shots?.filter((item) => item.id !== reference.id && item.width === reference.width && item.height === reference.height)
+            .map((item) => <option key={item.id} value={item.id}>{version(item)}</option>)}
+        </select>
+      </div>
+      <span className="lab">Comparación visual</span>
+      <p className="mut studio-inspector-note">Mueve el divisor para inspeccionar las dos versiones.</p>
+    </div>
+  );
   const composer = shot && screen ? (
     <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
       onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
@@ -191,7 +209,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
             <div className="seg" role="group" aria-label="Tamaño de captura">
               {SIZES.slice(0, 4).map(([w, h]) => <button key={w} className={size[0] === w ? 'on' : ''} aria-pressed={size[0] === w} onClick={() => setSize([w, h])}>{w}</button>)}
             </div>
-            {shot && screen && <div className="studio-version-compare">
+            {shot && screen && !compareTitle && <div className="studio-version-compare">
               <label className="fsel">Comparar con<select value={compareId ?? ''} onChange={(e) => { setCompareId(e.target.value ? Number(e.target.value) : null); setCmp('split'); }} aria-label="Comparar con versión">
                 <option value="">Referencia aprobada</option>
                 {(shots ?? []).filter((item) => item.id !== shot.id && item.width === shot.width && item.height === shot.height).map((item) => <option key={item.id} value={item.id}>#{item.id} · {item.note || ST[item.status]}</option>)}
@@ -231,7 +249,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
         </section>
         <aside className="insp" aria-label="Inspector de diseño">
           {screen ? (
-            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} compareTitle={compareTitle} onSize={setSize}
+            <StudioInsp key={screen.id} screen={screen} shot={shot} region={region} parsed={parsed} busy={busy} sent={sent} size={size} comparison={comparison} onSize={setSize}
               candidateImage={shot ? images[shot.id] : undefined} referenceImage={comparable && reference ? images[reference.id] : undefined}
               components={components} selected={selected} onSelect={chooseComponent} onRegion={changeRegion} onSave={saveConstraints}
               composer={composer} references={<StudioReferences key={screen.id} project={project} screen={screen.id!} included={referenceIds} onIncluded={setReferenceIds} />}
@@ -377,7 +395,7 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   const touches = locks.filter((l) => !isFull(region) && l.region.x < region.x + region.width && l.region.x + l.region.width > region.x && l.region.y < region.y + region.height && l.region.y + l.region.height > region.y);
   if (cmp) return (
     <div className="sec studio-composer">
-      <div className="row wrap"><b>Antes → versión seleccionada</b><span className="mut2">{locks.length} {locks.length === 1 ? 'protección' : 'protecciones'} en la pantalla</span><span className="grow" />
+      <div className="row wrap">
         <div className="seg" role="group" aria-label="Modo de comparación">{([['split', 'compare', 'Divisor'], ['side', 'side', 'Lado a lado'], ['diff', 'diff', 'Diferencias']] as [Cmp, string, string][]).map(([id, ic, l]) => <button key={id} className={cmp === id ? 'on' : ''} aria-pressed={cmp === id} onClick={() => onCmp(id)}><Icon name={ic} size={13} />{l}</button>)}</div>
       </div>
       <div className="row wrap" style={{ marginTop: 8 }}><span className="grow" />
@@ -413,9 +431,9 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
   );
 }
 
-function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, compareTitle, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
+function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateImage, referenceImage, components, selected, onSelect, comparison, composer, references, onSize, onRegion, onSave, onCapture, onImport }: {
   screen: DesignScreen; shot: DesignShot | null; region: DesignRegion; parsed: { locks: Lock[]; rest: string }; busy: boolean; sent: { text: string; label: string; at: number }[]; size: [number, number];
-  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; compareTitle: string | null; composer: React.ReactNode; references: React.ReactNode;
+  components?: DesignComponent[]; selected: DesignComponent | null; onSelect: (c: DesignComponent | null) => void; comparison: React.ReactNode; composer: React.ReactNode; references: React.ReactNode;
   candidateImage?: string; referenceImage?: string; onSize: (size: [number, number]) => void; onRegion: (r: DesignRegion) => void; onSave: (locks: Lock[], rest: string) => void; onCapture: (note: string) => void; onImport: (f: File, note: string) => void;
 }) {
   const [name, setName] = useState('');
@@ -431,29 +449,28 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
   }} />;
   return (
     <>
-      {compareTitle && <div className="studio-inspector-compare" aria-label="Versiones comparadas">
-        <div className="sec"><h3>{compareTitle}</h3></div>
-        {composer}
-      </div>}
-      {!compareTitle && <div className="sec"><span className="lab">Selección</span>
-        {shot && components && components.length > 0 && <label className="studio-components">Componente
-          <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
-            <option value="">Seleccionar componente…</option>
-            {components.map((item) => <option key={item.selector} value={item.selector}>{item.name} · {item.kind}</option>)}
-          </select>
-        </label>}
+      {comparison}
+      {!comparison && <div className="sec"><span className="lab">Selección</span>
         {shot && components?.length === 0 && <p className="mut2">Esta versión permite marcar regiones. Para seleccionar componentes, captura una página local desde Studio.</p>}
         {shot && selected && <>
-          <div className="row wrap"><h3 className="grow">{selected.name}</h3>
+          <div className="row wrap studio-selection-heading"><h3 className="grow">{selected.name}</h3>
             <button className="btn sm" disabled={busy} onClick={() => {
               const locked = parsed.locks.some((item) => item.selector === selected.selector);
               onSave(locked ? parsed.locks.filter((item) => item.selector !== selected.selector)
                 : [...parsed.locks, { region, selector: selected.selector, text: selected.name }], parsed.rest);
             }}><Icon name="lock" size={13} /> {parsed.locks.some((item) => item.selector === selected.selector) ? 'Desproteger componente' : 'Proteger componente'}</button>
           </div>
-          <dl className="kv"><dt>Tamaño</dt><dd>{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
-            <dt>Radio</dt><dd>{selected.radius}</dd><dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
+          <dl className="kv studio-selection-meta"><dt>Tamaño</dt><dd className="mono">{Math.round(selected.width)} × {Math.round(selected.height)} px</dd>
+            <dt>Radio</dt><dd className="mono">{selected.radius}</dd>
+            <dt>Posición</dt><dd className="mono">{Math.round(selected.x)}, {Math.round(selected.y)} px</dd>
+            <dt>Selector</dt><dd className="mono studio-selector">{selected.selector}</dd></dl>
         </>}
+        {shot && components && components.length > 0 && <label className="studio-components">Componente
+          <select className="in" value={selected?.selector ?? ''} onChange={(e) => onSelect(components.find((item) => item.selector === e.currentTarget.value) ?? null)}>
+            <option value="">Seleccionar componente…</option>
+            {components.map((item) => <option key={item.selector} value={item.selector}>{item.name} · {item.kind}</option>)}
+          </select>
+        </label>}
         {shot && !selected && <details open={!full}><summary className="lab">Coordenadas de la región</summary><div className="studio-region-fields">{(['x', 'y', 'width', 'height'] as const).map((key) => (
           <label key={key}>{({ x: 'X', y: 'Y', width: 'Ancho', height: 'Alto' })[key]} %
             <input className="in" type="number" min={0} max={100} value={Math.round(region[key])} onChange={(event) => onRegion({ ...region, [key]: event.target.valueAsNumber || 0 })} />
@@ -497,9 +514,9 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
       <div className="sec"><span className="lab">Cambios pedidos · {sent.length}</span>
         <div style={{ marginTop: 6 }}>{sent.length ? sent.map((r, i) => <div key={i} className="req"><span className="n">{sent.length - i}</span><div><div>{r.text}</div><div className="mono mut2" style={{ fontSize: 11.5, marginTop: 2 }}>{r.label} · {new Date(r.at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div></div></div>) : <p className="mut2">Ninguno en esta sesión.</p>}</div>
       </div>
-      {!compareTitle && composer}
+      {composer}
       {references}
-      <div className="sec"><span className="lab">Nueva versión</span>
+      <details className="sec studio-new-version"><summary className="lab">Nueva versión</summary>
         <div className="studio-region-fields">
           <label>Ancho de captura<input className="in" type="number" min={64} max={4096} value={size[0] || ''} onChange={(event) => onSize([event.target.valueAsNumber || 0, size[1]])} /></label>
           <label>Alto de captura<input className="in" type="number" min={64} max={4096} value={size[1] || ''} onChange={(event) => onSize([size[0], event.target.valueAsNumber || 0])} /></label>
@@ -511,7 +528,7 @@ function StudioInsp({ screen, shot, region, parsed, busy, sent, size, candidateI
           <input ref={file} type="file" accept="image/png" hidden onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) { onImport(f, note); setNote(''); } e.currentTarget.value = ''; }} />
         </div>
         <dl className="kv" style={{ marginTop: 10 }}><dt>URL</dt><dd className="mono">{screen.url}</dd><dt>Revisión</dt><dd>{screen.revision ?? '—'}</dd>{shot && <><dt>Versión</dt><dd className="mono">{shot.width} × {shot.height} · {shot.source}</dd></>}</dl>
-      </div>
+      </details>
     </>
   );
 }

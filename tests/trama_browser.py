@@ -205,6 +205,7 @@ def check_studio_surfaces(browser, url):
     page, errors = start(browser, url)
     page.get_by_role("button", name="Abrir calaix", exact=True).click()
     destination(page, "Studio")
+    page.get_by_text("Nueva versión", exact=True).click()
     expect(page.get_by_label("Ancho de captura")).to_have_value("1440")
     page.get_by_text("Coordenadas de la región", exact=True).click()
     page.get_by_label("Ancho %", exact=True).fill("55")

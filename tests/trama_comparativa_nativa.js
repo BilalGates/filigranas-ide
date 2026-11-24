@@ -170,6 +170,9 @@ async function run() {
     architecture: [...architecture.querySelectorAll('svg g > rect')].length,
     changes: [...preview.querySelectorAll('code')].map((line) => line.textContent),
     team: [...document.querySelectorAll('.co-team-status')].map((status) => status.textContent),
+    progress: [...document.querySelectorAll('.co-team-row .prog')].map((dots) => ({
+      label: dots.getAttribute('aria-label'), ticks: dots.childElementCount,
+    })),
   };
   if (document.querySelector('.app.has-panel')) throw new Error('Workspace debe empezar en la disposición de conversación');
   const conversation = document.querySelector('.coach[aria-label="Coordinador"] .co-log');
@@ -235,6 +238,16 @@ async function run() {
   if (!comparison.textContent.startsWith('v3 ↔ v4')) throw new Error('Se están comparando otras versiones');
   report.views['studio-comparacion'] = { baseline: 3, candidate: 4 };
   await read('studio-comparacion');
+  const baselinePicker = comparison.querySelector('select[aria-label="Versión anterior"]');
+  const changeBaseline = (label) => {
+    baselinePicker.value = [...baselinePicker.options].find((option) => option.textContent === label).value;
+    baselinePicker.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  changeBaseline('v2');
+  await until(() => comparison.textContent.startsWith('v2 ↔ v4'), 'el cambio de versión desde el inspector');
+  changeBaseline('v3');
+  await until(() => comparison.textContent.startsWith('v3 ↔ v4'), 'el regreso a la versión anterior');
+  report.views['studio-comparacion'].inspectorPicker = true;
   const divider = document.querySelector('[aria-label="Divisor antes y después"]');
   divider.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   await until(() => divider.getAttribute('aria-valuenow') === '55', 'el divisor movido con el teclado');
@@ -247,8 +260,14 @@ async function run() {
   if (texts.old !== file.before || texts.new !== file.after) throw new Error('Diferencia Git distinta del Artifact');
   const inline = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.textContent);
   await until(() => ['f1', 'f2'].every((id) => inline().some((line) => line.endsWith(id))), 'los dos hallazgos inline');
-  report.views.entrega = { path: file.path, inline: inline() };
+  const tiles = [...document.querySelectorAll('.audit-map .tmap')];
+  const ipcTile = tiles.find((tile) => tile.title.endsWith('/ipc.ts'));
+  if (!ipcTile || tiles.length < 3) throw new Error('El mapa de auditoría debe incluir archivos sin hallazgos');
+  report.views.entrega = { path: file.path, inline: inline(), filesInMap: tiles.map((tile) => tile.title) };
   await read('entrega');
+  ipcTile.click();
+  await until(() => ipcTile.getAttribute('aria-pressed') === 'true' && visible('.rev-diff .review-code-rows')?.textContent.includes('gitOps'), 'el diff elegido desde el mapa');
+  report.views.entrega.mapOpensDiff = true;
   const finding = await until(() => [...document.querySelectorAll('.audit .fitem')].find((item) => item.textContent.startsWith('f1')), 'el hallazgo f1');
   finding.click();
   await until(() => finding.classList.contains('on') && visible('.diff-finding-error')?.textContent.includes('L27'), 'la línea 27 de f1');

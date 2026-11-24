@@ -6,7 +6,7 @@ import Larry from '../Larry';
 import Pending from '../Pending';
 import Publish from '../Publish';
 import WorkSession from '../WorkSession';
-import { git, health, sessions as sessionApi, tasks as taskApi, workSessions, type DiffTarget, type GitStatus, type HealthRun, type LogRow, type PrInfo, type Session, type Task, type WorkSession as Work } from '../ipc';
+import { git, health, sessions as sessionApi, tasks as taskApi, workSessions, type Change, type DiffTarget, type GitStatus, type HealthRun, type LogRow, type PrInfo, type Session, type Task, type WorkSession as Work } from '../ipc';
 import { Icon } from './icons';
 import { EmptyArt, Root, StDot, ago } from './kit';
 
@@ -93,8 +93,6 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   // con cambios pendientes, el primer archivo abre el diff como protagonista
   useEffect(() => { if (!diff && stage == null && status?.changes[0]) setDiff(sid == null ? status.changes[0] : { ...status.changes[0], session: sid }); }, [status, diff, stage, sid]);
 
-  if (!project) return <Root label="Entrega"><div className="rev-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Entrega reúne cambios, commits, revisión, PR y CI del proyecto abierto.</p></div></div></Root>;
-
   const changes = status?.changes ?? [];
   const lastRun = runs?.[0] ?? null;
   const open = lastRun ? lastRun.findings.filter((f) => f.status === 'open') : [];
@@ -103,6 +101,8 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
       ? lastRun?.findings.filter((finding) => finding.status === 'open' && finding.path === diff.path && finding.line != null)
       : undefined,
   [lastRun, diff, sid]);
+
+  if (!project) return <Root label="Entrega"><div className="rev-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Entrega reúne cambios, commits, revisión, PR y CI del proyecto abierto.</p></div></div></Root>;
 
   const exactPull = status?.headSha ? pulls?.find((p) => p.head === status.headSha && p.state === 'OPEN')
     ?? pulls?.find((p) => p.head === status.headSha) : undefined;
@@ -130,6 +130,19 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
     else if (!diff && changes[0]) setDiff({ ...changes[0], session: sid ?? undefined });
   };
 
+  const openChange = (change: Change, keepCi = false) => {
+    setFinding(undefined);
+    setDiff({ ...change, session: sid ?? undefined });
+    setStage(keepCi && stage === 'ci' ? 'ci' : 'cambios');
+  };
+  const selectAuditFile = (path: string) => {
+    const change = changes.find((entry) => entry.path === path);
+    if (change) openChange(change, true);
+    else onFile(path, sid, chosen?.worktree ?? null);
+  };
+  const errors = open.filter((f) => f.severity === 'error').length;
+  const warnings = open.filter((f) => f.severity === 'warning').length;
+
   const openFinding = (item: HealthRun['findings'][number]) => {
     if (!item.path) return;
     const change = changes.find((entry) => entry.path === item.path);
@@ -137,8 +150,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
       onFile(item.path, sid, chosen?.worktree ?? null);
       return;
     }
-    setDiff({ ...change, session: sid ?? undefined });
-    setStage('cambios');
+    openChange(change, true);
     setFinding({ fingerprint: item.fingerprint });
   };
 
@@ -164,7 +176,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
             {changes.length ? changes.map((change) => (
               <button key={change.path} className={`frow${diff?.path === change.path ? ' on' : ''}`}
                 title={change.orig ? `${change.orig} → ${change.path}` : change.path}
-                onClick={() => { setDiff({ ...change, session: sid ?? undefined }); setStage('cambios'); }}>
+                onClick={() => openChange(change)}>
                 <span className={`sev ${change.status === '!' || change.status === 'D' ? 'h' : change.status === 'M' ? 'm' : ''}`}
                   aria-label={change.status} />
                 <span className="p">{change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/') + 1) : ''}<b>{change.path.split('/').pop()}</b></span>
@@ -187,13 +199,16 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
           </section>
           <aside className="audit" aria-label="Auditoría">
             <div className="sec">
-              <div className="row"><h3 className="grow">Auditoría</h3>{open.filter((f) => f.severity === 'error').length > 0 && <span className="chip coral">{open.filter((f) => f.severity === 'error').length} errores</span>}{open.filter((f) => f.severity === 'warning').length > 0 && <span className="chip amber">{open.filter((f) => f.severity === 'warning').length} avisos</span>}</div>
-              <p className="mut2">{lastRun ? `Última revisión: ${lastRun.tool} · ${OUTCOME[lastRun.outcome] ?? lastRun.outcome} · ${ago(lastRun.observed)}. Cada hallazgo enlaza a su archivo.` : 'Sin revisiones todavía. Ejecuta una comprobación desde Tests para ver hallazgos verificables.'}</p>
-              {open.length > 0 && <Treemap findings={open} onFile={(p) => onFile(p, sid, chosen?.worktree ?? null)} />}
+              <div className="row"><h3 className="grow">Auditoría</h3>
+                {errors > 0 && <span className="chip coral">{errors} {errors === 1 ? 'alto' : 'altos'}</span>}
+                {warnings > 0 && <span className="chip amber">{warnings} {warnings === 1 ? 'medio' : 'medios'}</span>}
+              </div>
+              <p className="mut audit-intro">{lastRun ? 'Cada hallazgo enlaza a su archivo y línea.' : 'Ejecuta una comprobación desde Tests para ver los hallazgos.'}</p>
+              {(changes.length > 0 || open.some((item) => item.path)) && <Treemap findings={open} changes={changes} selected={diff?.path} onFile={selectAuditFile} />}
               {open.slice(0, 12).map((f) => (
                 <button key={f.fingerprint} className={`fitem${finding?.fingerprint === f.fingerprint ? ' on' : ''}`} onClick={() => openFinding(f)}>
                   <span className={`sev ${f.severity === 'error' ? 'h' : f.severity === 'warning' ? 'm' : 'l'}`} />
-                  <span><span className="ft">{f.rule}</span><span className="mono mut2 fmeta">{f.path ?? '—'}{f.line ? `:${f.line}` : ''} · {f.severity}</span></span>
+                  <span><span className="ft">{f.rule}</span><span className="mono mut fmeta" title={f.path ?? undefined}>{f.path?.split('/').pop() ?? '—'}{f.line ? `:${f.line}` : ''} · {lastRun?.tool}</span></span>
                 </button>
               ))}
               {lastRun && !open.length && <div className="fnote" style={{ padding: 0 }}><Icon name="check" size={13} /> Sin hallazgos abiertos</div>}
@@ -253,25 +268,29 @@ function Pipeline({ stages, active, onPick }: { stages: [Stage, string, string, 
   );
 }
 
-function Treemap({ findings, onFile }: { findings: HealthRun['findings']; onFile: (p: string) => void }) {
-  const by = new Map<string, HealthRun['findings']>();
-  findings.forEach((f) => { const k = f.path ?? 'sin archivo'; by.set(k, [...(by.get(k) ?? []), f]); });
-  const items = [...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 4);
-  const total = items.reduce((s, [, v]) => s + v.length, 0);
-  // reparto en dos columnas: el mayor a la izquierda, el resto apilado
-  const [first, ...rest] = items;
-  const lw = rest.length ? Math.max(40, Math.round((first[1].length / total) * 100)) : 100;
-  const restTotal = rest.reduce((s, [, v]) => s + v.length, 0) || 1;
-  let top = 0;
-  const box = (k: string, v: HealthRun['findings'], style: React.CSSProperties) => (
-    <button key={k} className="tmap" style={style} onClick={() => k !== 'sin archivo' && onFile(k)} title={k}>{k.split('/').pop()}
-      {v.slice(0, 6).map((f, i) => <span key={i} className="fd" style={{ left: 12 + i * 16, bottom: 10, background: f.severity === 'error' ? 'var(--coral)' : f.severity === 'warning' ? 'var(--amber)' : 'var(--tx3)' }} />)}
-    </button>
-  );
+function Treemap({ findings, changes, selected, onFile }: {
+  findings: HealthRun['findings']; changes: Change[]; selected?: string; onFile: (path: string) => void;
+}) {
+  const files = new Map(changes.map((change) => [change.path, {
+    findings: [] as HealthRun['findings'], lines: (change.adds ?? 0) + (change.dels ?? 0),
+  }]));
+  for (const finding of findings) {
+    if (!finding.path) continue;
+    const file = files.get(finding.path) ?? { findings: [], lines: 0 };
+    file.findings.push(finding);
+    files.set(finding.path, file);
+  }
+  const entries = [...files].sort(([, a], [, b]) => b.findings.length - a.findings.length || b.lines - a.lines).slice(0, 4);
   return (
-    <div className="tree" role="group" aria-label="Archivos con hallazgos">
-      {box(first[0], first[1], { left: 0, top: 0, width: `${rest.length ? lw - 1 : 100}%`, height: '100%' })}
-      {rest.map(([k, v]) => { const h = Math.round((v.length / restTotal) * 100); const el = box(k, v, { left: `${lw}%`, top: `${top}%`, width: `${100 - lw}%`, height: `${h - 2}%` }); top += h; return el; })}
+    <div className="tree audit-map" role="group" aria-label="Mapa de archivos" data-count={entries.length}>
+      {entries.map(([path, data]) => <button key={path} className="tmap" title={path}
+        aria-label={`Revisar ${path}`} aria-pressed={selected === path} onClick={() => onFile(path)}>
+        {path.split('/').pop()}
+        <span className="map-findings" aria-hidden="true">
+          {data.findings.slice(0, 6).map((finding) => <i key={finding.fingerprint}
+            className={`sev ${finding.severity === 'error' ? 'h' : finding.severity === 'warning' ? 'm' : 'l'}`} />)}
+        </span>
+      </button>)}
     </div>
   );
 }

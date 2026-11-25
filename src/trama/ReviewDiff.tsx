@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { git, sessions, type DiffTarget, type HealthFinding } from '../ipc';
+import { git, sessions, type DiffTarget } from '../ipc';
 import type { unifiedDiff } from '../unifiedDiff';
 
 type ComputedDiff = ReturnType<typeof unifiedDiff>;
-type ReviewRow = ComputedDiff['rows'][number] & { notes: HealthFinding[]; top: number };
+import type { ReviewNote } from './findings';
+export type { ReviewNote };
+type ReviewRow = ComputedDiff['rows'][number] & { notes: ReviewNote[]; top: number };
 const LINE = 22;
-const NOTE = 36;
+// Tarjeta del HTML: 7 pt de relleno, título de 15 pt y revisores de 24 pt,
+// con 2 pt arriba y 6 pt abajo. Sin revisores ocupa solo el título.
+const noteHeight = (note: ReviewNote) => (note.who?.length ? 53 : 29) + 8;
+const notesHeight = (notes: ReviewNote[]) => notes.reduce((total, note) => total + noteHeight(note), 0);
 const GUTTER = 10;
 const OVERSCAN = 440;
-const NO_FINDINGS: HealthFinding[] = [];
+const NO_FINDINGS: ReviewNote[] = [];
 const TOKENS = /(\/\/.*|#(?=\s).*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\b(pub|fn|let|if|else|match|use|crate|export|const|function|return|Ok|Err|async|await|struct|enum)\b|\b([a-z_]\w*)(?=\s*\()|\b(\d+(?:\.\d+)?)\b/gi;
 
 function code(text: string): ReactNode {
@@ -33,14 +38,14 @@ function firstRow(rows: ReviewRow[], offset: number) {
   while (low < high) {
     const mid = Math.floor((low + high) / 2);
     const row = rows[mid];
-    if (row.top + LINE + (row.notes.length ? NOTE : 0) <= offset) low = mid + 1;
+    if (row.top + LINE + notesHeight(row.notes) <= offset) low = mid + 1;
     else high = mid;
   }
   return low;
 }
 
 export default function ReviewDiff({ project, change, findings = NO_FINDINGS, finding }: {
-  project: string; change: DiffTarget; findings?: HealthFinding[]; finding?: { fingerprint: string };
+  project: string; change: DiffTarget; findings?: ReviewNote[]; finding?: { fingerprint: string };
 }) {
   const { path, orig, session } = change;
   const scope = JSON.stringify([project, session, path, orig]);
@@ -94,7 +99,7 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
   }, [scope, project, path, orig, session]);
 
   const { rows, height, positions } = useMemo(() => {
-    const byLine = new Map<number, HealthFinding[]>();
+    const byLine = new Map<number, ReviewNote[]>();
     for (const item of findings) {
       if (item.line == null) continue;
       let at = byLine.get(item.line);
@@ -106,10 +111,15 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
     const rows: ReviewRow[] = (result?.rows ?? []).map((row) => {
       const notes = row.modified == null ? NO_FINDINGS : byLine.get(row.modified) ?? NO_FINDINGS;
       const top = height;
-      for (const note of notes) positions.set(note.fingerprint, top);
-      height += LINE + (notes.length ? NOTE : 0);
+      let offset = top + LINE;
+      for (const note of notes) {
+        positions.set(note.fingerprint, offset + noteHeight(note) / 2 - 2);
+        offset += noteHeight(note);
+      }
+      height += LINE + notesHeight(notes);
       return { ...row, top, notes };
     });
+    if (result?.noFinalNewline) height += LINE;
     return { rows, height, positions };
   }, [result, findings]);
 
@@ -123,7 +133,8 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
   useEffect(() => {
     const top = finding && positions.get(finding.fingerprint);
     const element = container.current;
-    if (element && top != null) element.scrollTop = Math.max(0, top - element.clientHeight / 2 + LINE);
+    // Centra la tarjeta del hallazgo, como scrollIntoView({block:'center'}) en el HTML.
+    if (element && top != null) element.scrollTop = Math.max(0, GUTTER + top - element.clientHeight / 2);
   }, [finding, positions]);
 
   const first = firstRow(rows, Math.max(0, viewport.y - OVERSCAN));
@@ -142,10 +153,16 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
           <span className="review-gutter" aria-hidden="true">{row.type === 'added' ? '+' : row.type === 'removed' ? '−' : ''}</span>
           <code>{code(row.text)}</code>
         </div>
-        {row.notes.length > 0 && <div className={`diff-finding${row.notes.some((note) => note.severity === 'error') ? ' diff-finding-error' : ''}`} role="note">
-          <div>{row.notes.map((note) => <span key={note.fingerprint}>L{note.line} · {note.rule}</span>)}</div>
-        </div>}
+        {row.notes.map((note) => <div key={note.fingerprint} className={`diff-finding${note.severity === 'error' ? ' diff-finding-error' : ''}`}
+          role="note" aria-label={`Línea ${note.line}: ${note.title ?? note.rule}`} data-rule={note.rule}>
+          <span className={`sev ${note.severity === 'error' ? 'h' : note.severity === 'warning' ? 'm' : 'l'}`} aria-hidden="true" />
+          <div><b>{note.title ?? note.rule}</b>
+            {note.who && note.who.length > 0 && <div className="who2">{note.who.map((name) => <span key={name} className="chip">{name}</span>)}
+              {note.who.length > 1 && <span className="chip sky">coinciden</span>}</div>}</div>
+        </div>)}
       </div>)}
+      {result.noFinalNewline && end >= rows.length && <div className="review-code-eof" role="note">
+        {result.noFinalNewline === 'modified' ? 'Sin salto de línea al final' : 'Sin salto de línea al final en la versión anterior'}</div>}
     </div>}
   </div>;
 }

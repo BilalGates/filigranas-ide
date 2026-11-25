@@ -1,0 +1,10 @@
+{
+ "plantilla": "Animation Hitches (xctrace)",
+ "proceso": "filigranas (PID de la ventana de pruebas)",
+ "duracionRegistradaS": 16.23,
+ "hitches": 0,
+ "superficiesPorSegundo": "solo la pantalla Built-In: 0–3 intercambios/s",
+ "pantallaDeLaVentana": "external-1 (sin filas de intercambio de superficies en la exportación)",
+ "escrituraTemporal": "unos 170 MB/s en la carpeta temporal; dos grabaciones llenaron el disco y se interrumpieron",
+ "conclusion": "La traza no permite contar cuadros presentados por la GPU en la pantalla de la ventana. Queda sin verificar."
+}

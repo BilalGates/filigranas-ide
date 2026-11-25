@@ -22,28 +22,41 @@
       "path": "src-tauri/src/git_ops.rs",
       "label": "push no comprueba si la rama remota está protegida",
       "line": 27,
-      "severity": "error"
+      "severity": "error",
+      "who": [
+        "Claude Opus",
+        "Codex"
+      ]
     },
     {
       "id": "f2",
       "path": "src-tauri/src/git_ops.rs",
       "label": "stash pop: el conflicto deja el árbol a medias sin aviso en la interfaz",
       "line": 20,
-      "severity": "warning"
+      "severity": "warning",
+      "who": [
+        "Claude Opus"
+      ]
     },
     {
       "id": "f3",
       "path": "src/GitPanel.tsx",
       "label": "Un error de red se muestra como stderr crudo",
       "line": 7,
-      "severity": "warning"
+      "severity": "warning",
+      "who": [
+        "Codex"
+      ]
     },
     {
       "id": "f4",
       "path": "src/GitPanel.tsx",
       "label": "Nombre ambiguo: run() se usa para dos cosas",
       "line": 6,
-      "severity": "note"
+      "severity": "note",
+      "who": [
+        "Codex"
+      ]
     }
   ]
 }

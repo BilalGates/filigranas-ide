@@ -97,7 +97,7 @@ def entrega_fixture(page, destination):
       const findings = FINDS.map((finding) => ({
         id: finding.id, path: path(finding.f), label: finding.t,
         line: CODE[finding.f].slice(0, finding.line + 1).filter(([tag]) => tag !== 'd').length,
-        severity: { h: 'error', m: 'warning', l: 'note' }[finding.sev],
+        severity: { h: 'error', m: 'warning', l: 'note' }[finding.sev], who: finding.who,
       }));
       return { files, findings };
     }""")
@@ -111,7 +111,8 @@ def workspace_fixture(page, destination):
       const [user, plan, architecture, , diff] = S.msgs.pm;
       const plain = (html) => {
         const node = document.createElement('div');
-        node.innerHTML = html.replaceAll('<b>', '**').replaceAll('</b>', '**');
+        node.innerHTML = html.replaceAll('<b>', '**').replaceAll('</b>', '**')
+          .replace(/<span class="mono">([^<]*)<\/span>/g, '`$1`');
         return node.textContent;
       };
       go('workspace');
@@ -130,8 +131,11 @@ def workspace_fixture(page, destination):
         sessions: ['sen', 'cod', 'jun'].map((id) => {
           const agent = AG.find((entry) => entry.id === id);
           return { id, task: agent.task, name: agent.role, engine: agent.engine === 'Codex' ? 'codex' : 'claude', state: agent.state,
-            items: S.msgs[id].filter((item) => item.k === 'ai' || item.k === 'brief').map((item, index) =>
-              ({ id: id + '-' + index, type: 'agentMessage', text: plain(item.x), by: item.k === 'brief' ? 'Project manager' : agent.role })),
+            // Cada acción del HTML entra como una orden terminada tras su mensaje.
+            items: S.msgs[id].filter((item) => item.k === 'ai' || item.k === 'brief').flatMap((item, index) => [
+              { id: id + '-' + index, type: 'agentMessage', text: plain(item.x), by: item.k === 'brief' ? 'Project manager' : agent.role },
+              ...(item.acts ?? []).map((command, act) => ({ id: `${id}-${index}-${act}`, type: 'commandExecution', command, status: 'completed', exitCode: 0 })),
+            ]),
           };
         }),
         items: [

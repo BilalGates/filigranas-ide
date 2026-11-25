@@ -1,5 +1,6 @@
 import { getIdentifier } from '@tauri-apps/api/app';
-import { api, brain, git, health, sessions, skills } from '../src/ipc';
+import { api, brain, git, health, sessions, skills, tools } from '../src/ipc';
+import { sarifFixture } from './trama_sarif.js';
 import { verifyMotion } from './trama_movimiento.js';
 import { captureLiveStudioState, captureStudioState } from './trama_studio_escena';
 import { canvasHash, capture, frames, post, sleep, until } from './trama_comparativa';
@@ -54,6 +55,8 @@ async function seedMemory(project, memory) {
 
 async function run() {
   if (await getIdentifier() !== 'com.filigranas.ide.trama-escenas') throw new Error('Se requiere el perfil aislado de escenas');
+  // El perfil aislado no actualiza las CLI instaladas del usuario.
+  await tools.autoUpdate(false);
   const root = import.meta.env.VITE_TRAMA_SCENE_ROOT;
   if (!/^\/(?:private\/)?tmp\/trama-escenas-[^/]+\/repos$/.test(root ?? '')) throw new Error('Raíz de escenas inválida');
   const fixture = await fetch('/__trama_fixtures').then((response) => response.json());
@@ -82,13 +85,7 @@ async function run() {
     inferred.set(item.id, { id, title: item.x });
   }
   const spec = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-entrega.json').then((res) => res.json());
-  const results = spec.findings.map((f) => ({
-    ruleId: f.id, level: f.severity, message: { text: f.label },
-    locations: [{ physicalLocation: { artifactLocation: { uri: f.path }, region: { startLine: f.line } } }],
-  }));
-  await health.import(project.path, null, JSON.stringify({
-    version: '2.1.0', runs: [{ tool: { driver: { name: 'Trama v2 fixture' } }, results }],
-  }));
+  await health.import(project.path, null, sarifFixture(spec.findings));
 
   localStorage.setItem('filigranas.destino', 'inicio');
   localStorage.setItem('filigranas.disposicion', 'chat');
@@ -138,6 +135,9 @@ async function run() {
   await navigate('Inicio');
   await until(() => fixture.projects.every((item) => button(`Abrir ${item.n}`)), 'los nueve proyectos de Inicio');
   await until(() => visible('.prow .br')?.textContent, 'las ramas del resumen de Inicio');
+  // Las sesiones montadas publican su propio reposo; se vuelve a declarar la
+  // actividad de la fixture cuando Inicio ya las ha cargado.
+  activate('inicio-cargado');
   report.views.inicio = {
     projects: fixture.projects.length,
     groups: new Set(fixture.projects.map((p) => p.g)).size,
@@ -271,8 +271,11 @@ async function run() {
   const file = spec.files.find((item) => item.path.endsWith('git_ops.rs'));
   const texts = await git.diffTexts(project.path, file.path, null);
   if (texts.old !== file.before || texts.new !== file.after) throw new Error('Diferencia Git distinta del Artifact');
-  const inline = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.textContent);
-  await until(() => ['f1', 'f2'].every((id) => inline().some((line) => line.endsWith(id))), 'los dos hallazgos inline');
+  const inline = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.getAttribute('aria-label'));
+  const rules = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.dataset.rule);
+  await until(() => ['f1', 'f2'].every((id) => rules().includes(id)), 'los dos hallazgos inline');
+  const agreed = document.querySelector('.diff-finding[data-rule="f1"] .who2')?.textContent;
+  if (agreed !== 'Claude OpusCodexcoinciden') throw new Error(`Revisores de f1 inesperados: ${agreed}`);
   const tiles = [...document.querySelectorAll('.audit-map .tmap')];
   const ipcTile = tiles.find((tile) => tile.title.endsWith('/ipc.ts'));
   if (!ipcTile || tiles.length < 3) throw new Error('El mapa de auditoría debe incluir archivos sin hallazgos');
@@ -281,10 +284,12 @@ async function run() {
   ipcTile.click();
   await until(() => ipcTile.getAttribute('aria-pressed') === 'true' && visible('.rev-diff .review-code-rows')?.textContent.includes('gitOps'), 'el diff elegido desde el mapa');
   report.views.entrega.mapOpensDiff = true;
-  const finding = await until(() => [...document.querySelectorAll('.audit .fitem')].find((item) => item.textContent.startsWith('f1')), 'el hallazgo f1');
+  const f1 = spec.findings.find((item) => item.id === 'f1');
+  const finding = await until(() => [...document.querySelectorAll('.audit .fitem')].find((item) => item.textContent.startsWith(f1.label)), 'el hallazgo f1');
+  if (!finding.textContent.endsWith('git_ops.rs:27 · Claude Opus + Codex')) throw new Error(`Ficha de f1 inesperada: ${finding.textContent}`);
   finding.click();
-  await until(() => finding.classList.contains('on') && visible('.diff-finding-error')?.textContent.includes('L27'), 'la línea 27 de f1');
-  report.views['entrega-hallazgo'] = { id: 'f1', line: 27 };
+  await until(() => finding.classList.contains('on') && visible('.diff-finding-error')?.getAttribute('aria-label') === `Línea 27: ${f1.label}`, 'la línea 27 de f1');
+  report.views['entrega-hallazgo'] = { id: 'f1', line: 27, title: f1.label, who: ['Claude Opus', 'Codex'] };
   await read('entrega-hallazgo');
   // El HTML vuelve a empezar por la primera línea al abrir el escenario de CI.
   await navigate('Flow');

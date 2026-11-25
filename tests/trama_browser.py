@@ -110,7 +110,7 @@ def check_delivery(browser, url):
     expect(page.locator(".review-code .review-code-line").first).to_be_visible()
     expect(page.get_by_role("button", name="Tests: correcto")).to_be_visible()
     expect(page.get_by_role("complementary", name="Auditoría")).to_contain_text("Espacios al final")
-    expect(page.locator(".diff-finding")).to_contain_text("L11 · Espacios al final")
+    expect(page.locator(".diff-finding")).to_have_attribute("aria-label", "Línea 11: Espacios al final de línea")
     audit = page.get_by_role("complementary", name="Auditoría")
     finding = audit.get_by_role("button", name=re.compile("Espacios al final"))
     finding.click()
@@ -169,11 +169,14 @@ def check_frame(browser, url):
     jev = footer.get_by_role("button", name=re.compile(r"Jev local"))
     expect(jev).to_contain_text("0/100")
     jev.click()
+    # El consumo de Jev abre primero su diálogo; Herramientas lleva al panel completo.
+    page.get_by_role("dialog", name="Consumo de Jev").get_by_role("button", name="Herramientas").click()
     expect(page.get_by_role("heading", name="Herramientas y Jev")).to_be_visible()
     page.get_by_role("button", name="Cerrar uso").click()
     controls = page.locator(".tb-right")
-    expect(controls.get_by_role("button", name="Necesita tu atención", exact=True)).to_be_visible()
-    assert controls.locator("button").last.get_attribute("aria-label") == "Necesita tu atención"
+    attention = controls.get_by_role("button", name=re.compile(r"^Necesita atención"))
+    expect(attention).to_be_visible()
+    assert controls.locator("button").last.get_attribute("aria-label").startswith("Necesita atención")
     controls.get_by_role("button", name="Agentes de este proyecto").click()
     expect(page.get_by_role("main", name="Flow")).to_be_visible()
     assert not errors, errors

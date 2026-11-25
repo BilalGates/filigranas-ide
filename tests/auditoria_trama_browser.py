@@ -54,13 +54,14 @@ def check_create_dependent_task(browser, url):
     page.get_by_role("button", name="Abrir calaix", exact=True).click()
     destination(page, "Flow")
     page.get_by_role("button", name="Tarea", exact=True).click()
-    work = page.get_by_role("region", name="Trabajo del proyecto")
+    # Desde bd7b47a la tarea se crea en el diálogo de Flow.
+    work = page.get_by_role("dialog", name="Nueva tarea")
     work.get_by_label("Título", exact=True).fill("Tarea dependiente de auditoría")
     work.get_by_label("Objetivo", exact=True).fill("Verificar el alta directa desde Flow.")
     work.get_by_label("Criterios de aceptación").fill("La dependencia aparece en la ficha.")
     dependency = work.get_by_role("group", name="Depende de").get_by_role("checkbox").first
     dependency.check()
-    work.get_by_role("button", name="guardar", exact=True).click()
+    work.get_by_role("button", name="Guardar", exact=True).click()
     page.wait_for_function("window.auditTaskDraft != null")
     draft = page.evaluate("window.auditTaskDraft")
     assert draft["project"].endswith("/calaix")

@@ -73,6 +73,8 @@ def prepare_workspace(project, db):
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("DELETE FROM github_pulls WHERE project=? AND repository=? AND number=17",
                      (str(project), "trama-prueba/filigranas-ide"))
+        # Cada recorrido importa de nuevo los informes SARIF de los revisores.
+        conn.execute("DELETE FROM health_runs WHERE project=?", (str(project),))
         task_ids = dict(conn.execute("SELECT title,id FROM tasks WHERE project=?", (str(project),)))
         if len(task_ids) != 8 or set(task_ids) != {item["title"] for item in fixture["tasks"]}:
             raise ValueError("El proyecto temporal debe contener las ocho tareas del Artifact")
@@ -125,15 +127,27 @@ def observe_ci(db, project, *, number, state, counts, wrong_sha=False):
         )
 
 
+# Deja el puntero fuera de la ventana: un estado hover no debe entrar en las capturas.
+POINTER = """
+function run(argv) {
+    ObjC.import('CoreGraphics');
+    const window = Application('System Events').applicationProcesses.whose({unixId: Number(argv[0])})[0].windows[0];
+    const [x, y] = window.position(), [width, height] = window.size();
+    $.CGWarpMouseCursorPosition({x: x > 40 ? x - 20 : x + width + 20, y: y + height / 2});
+    return 'ok';
+}
+"""
+
+
 def take(pid, output, workspace_db=None):
     process = subprocess.check_output(["ps", "-p", str(pid), "-o", "comm="], text=True).strip()
-    if "/target/debug/filigranas" not in process:
+    if not process.endswith("target/debug/filigranas"):
         raise ValueError("Se requiere el ejecutable de desarrollo")
     locate = WINDOW.replace(
         "w.kCGWindowLayer === 0",
         "w.kCGWindowBounds.Width >= 900 && w.kCGWindowBounds.Height >= 600",
     )
-    deadline = time.monotonic() + 15
+    deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         result = subprocess.run(
             ["osascript", "-l", "JavaScript", "-", str(pid), "1440", "900", "0"],
@@ -146,7 +160,8 @@ def take(pid, output, workspace_db=None):
         time.sleep(0.2)
     else:
         raise RuntimeError(f"No se pudo activar la ventana de pruebas: {result.stderr.strip()}")
-    deadline = time.monotonic() + 230
+    subprocess.run(["osascript", "-l", "JavaScript", "-", str(pid)], input=POINTER, text=True, check=True, capture_output=True, timeout=8)
+    deadline = time.monotonic() + 420
     completed = {}
     while time.monotonic() < deadline:
         state = output / "escena.json"
@@ -207,9 +222,17 @@ def compare(output, reports):
         max_channel = ImageChops.lighter(ImageChops.lighter(diff.getchannel("R"), diff.getchannel("G")), diff.getchannel("B"))
         histogram = max_channel.histogram()
         pixels = original.width * original.height
+        # Misma medida con cada superficie desde su propio origen: la cabecera
+        # nativa mide 48 pt por la norma del semáforo y la del HTML 42 pt.
+        x0, x1 = max(a["x"], b["x"]), min(a["x"] + a["width"], b["x"] + b["width"])
+        height = min(a["height"], b["height"])
+        crop = lambda image, body: image.crop(tuple(round(scale * v) for v in (x0, body["y"], x1, body["y"] + height)))
+        shifted = ImageChops.difference(crop(reference, a), crop(native, b))
+        shifted_max = ImageChops.lighter(ImageChops.lighter(shifted.getchannel("R"), shifted.getchannel("G")), shifted.getchannel("B"))
         results[view] = {
             "region": region, "pixels": pixels, "different": pixels - histogram[0],
             "deltaGreaterThan12": sum(histogram[13:]),
+            "alignedDeltaGreaterThan12Pct": round(100 * sum(shifted_max.histogram()[13:]) / (shifted.width * shifted.height), 2),
         }
         Image.blend(original, actual, 0.5).save(output / f"{view}-superposicion.webp", lossless=True)
         diff.point(lambda value: min(value * 3, 255)).save(output / f"{view}-diferencias.webp", lossless=True)

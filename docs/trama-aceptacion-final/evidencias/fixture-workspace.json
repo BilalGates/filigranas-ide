@@ -85,20 +85,62 @@
         {
           "id": "sen-0",
           "type": "agentMessage",
-          "text": "Encargo del PM · t2: implementar fetch, pull, push y stash en git_ops.rs. Reparto: src-tauri/src/git_ops.rs. Criterio: tests verdes y errores de red legibles.",
+          "text": "Encargo del PM · t2: implementar fetch, pull, push y stash en `git_ops.rs`. Reparto: `src-tauri/src/git_ops.rs`. Criterio: tests verdes y errores de red legibles.",
           "by": "Project manager"
         },
         {
           "id": "sen-1",
           "type": "agentMessage",
-          "text": "Empiezo por fetch y pull reutilizando run_git(). Push queda detrás de la confirmación existente.",
+          "text": "Empiezo por fetch y pull reutilizando `run_git()`. Push queda detrás de la confirmación existente.",
           "by": "Senior"
+        },
+        {
+          "id": "sen-1-0",
+          "type": "commandExecution",
+          "command": "Leer git_ops.rs (312 líneas)",
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "id": "sen-1-1",
+          "type": "commandExecution",
+          "command": "Leer git.rs · run_git()",
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "id": "sen-1-2",
+          "type": "commandExecution",
+          "command": "Editar git_ops.rs · fetch()",
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "id": "sen-1-3",
+          "type": "commandExecution",
+          "command": "Editar git_ops.rs · pull()",
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "id": "sen-1-4",
+          "type": "commandExecution",
+          "command": "cargo check · sin errores",
+          "status": "completed",
+          "exitCode": 0
         },
         {
           "id": "sen-2",
           "type": "agentMessage",
           "text": "fetch y pull listos. Sigo con **stash** y **stash pop**; el conflicto de pop devolverá un estado en lugar de un error.",
           "by": "Senior"
+        },
+        {
+          "id": "sen-2-0",
+          "type": "commandExecution",
+          "command": "Editar git_ops.rs · stash()",
+          "status": "completed",
+          "exitCode": 0
         }
       ]
     },
@@ -112,13 +154,13 @@
         {
           "id": "cod-0",
           "type": "agentMessage",
-          "text": "Encargo del PM · t3: contrato tipado en src/ipc.ts para las cuatro operaciones.",
+          "text": "Encargo del PM · t3: contrato tipado en `src/ipc.ts` para las cuatro operaciones.",
           "by": "Project manager"
         },
         {
           "id": "cod-1",
           "type": "agentMessage",
-          "text": "El reparto de esta sesión es src-tauri/, pero el contrato vive en src/ipc.ts. Necesito permiso para editar fuera del reparto.",
+          "text": "El reparto de esta sesión es `src-tauri/`, pero el contrato vive en `src/ipc.ts`. Necesito permiso para editar fuera del reparto.",
           "by": "Programador"
         }
       ]
@@ -139,8 +181,22 @@
         {
           "id": "jun-1",
           "type": "agentMessage",
-          "text": "Copio el patrón de isolate.rs: repositorio temporal con remoto local.",
+          "text": "Copio el patrón de `isolate.rs`: repositorio temporal con remoto local.",
           "by": "Junior"
+        },
+        {
+          "id": "jun-1-0",
+          "type": "commandExecution",
+          "command": "Leer isolate.rs · tests",
+          "status": "completed",
+          "exitCode": 0
+        },
+        {
+          "id": "jun-1-1",
+          "type": "commandExecution",
+          "command": "Escribir test fetch_updates_refs",
+          "status": "completed",
+          "exitCode": 0
         }
       ]
     }

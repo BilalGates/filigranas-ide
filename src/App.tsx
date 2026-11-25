@@ -88,6 +88,7 @@ export default function App() {
   const [observed, setObserved] = useState<number | null>(null);
   const beforeObservation = useRef<{ tab: RightTab; hidden: boolean } | null>(null);
   const [observationTarget, setObservationTarget] = useState<HTMLDivElement | null>(null);
+  const [observationTabs, setObservationTabs] = useState<HTMLElement | null>(null);
   const [dirty, setDirty] = useState(false);
   const [agentSessions, setAgentSessions] = useState<Session[]>([]);
   const [flowFocus, setFlowFocus] = useState<{ project: string; task: number } | null>(null);
@@ -983,7 +984,7 @@ export default function App() {
         </button>
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
-        observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation } : undefined}
+        observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
         root={ws.root} location={panelLocation}>
         <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
         {current && conflictFiles && (
@@ -1028,7 +1029,7 @@ export default function App() {
         {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
         {observedPanel && <section className="workspace-observation" aria-label={`Observando a ${observedPanel.name}`}>
           <WorkspaceChanges key={observedPanel.id} project={observedPanel.project} session={observedPanel.worktree ? observedPanel.id : null}
-            conversation={<div ref={setObservationTarget} className="workspace-observation-log" />}
+            conversation={<div ref={setObservationTarget} className="workspace-observation-log" />} tabsTarget={observationTabs}
             onDiff={showDiff} onEntrega={() => { setEntregaScope(observedPanel.worktree ? observedPanel.id : null); setDest('entrega'); }} />
         </section>}
         {panelOpen && current && rightView === 'editor' &&

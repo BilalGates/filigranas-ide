@@ -5,6 +5,7 @@ import { ConversationArchitecture, ConversationChange } from './trama/Conversati
 import ConversationPlan, { ConversationTeam, useConversationTasks, type ConversationWorkflow } from './trama/ConversationPlan';
 import { useDelegatedPermissions } from './trama/pendingPermissions';
 import { StDot } from './trama/kit';
+import { Icon } from './trama/icons';
 import { readArchitecture } from './trama/conversationContent';
 import Splitter, { SIZES } from './Splitter';
 import { beep, shortcut } from './ui';
@@ -81,6 +82,8 @@ type LogProps = {
 };
 
 /** Lista de mensajes que sigue el final salvo que el usuario haya subido. */
+const ACTION = new Set<string | undefined>(['commandExecution', 'dynamicToolCall', 'mcpToolCall']);
+
 export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children }: LogProps) {
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -133,13 +136,25 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
       }}
     >
       <div className="co-log-inner">
-        {items.map((it, index) => (
-          <Fragment key={it.id}>
+        {items.map((it, index) => {
+          // Las acciones seguidas se agrupan bajo «N acciones», como en el HTML.
+          if (ACTION.has(it.type)) {
+            if (ACTION.has(items[index - 1]?.type)) return null;
+            let end = index;
+            while (ACTION.has(items[end + 1]?.type)) end++;
+            const group = items.slice(index, end + 1);
+            const running = group.some((item) => item.status === 'inProgress');
+            return <details key={it.id} className="co-acts">
+              <summary><Icon name="chev" size={12} /> {group.length} {group.length === 1 ? 'acción' : 'acciones'}{running && <span className="co-status is-inProgress"> …</span>}</summary>
+              <div className="co-actlist">{group.map((item) => <ItemView key={item.id} it={item} agent={agent} rel={rel} onDiff={onDiff} />)}</div>
+            </details>;
+          }
+          return <Fragment key={it.id}>
             <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
               plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
             {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
-          </Fragment>
-        ))}
+          </Fragment>;
+        })}
         {queue.map((ask) => (
           <div className="co-approval" key={ask.key} role="group" aria-label="Petición de permiso">
             <div className="co-approval-title"><span className="tv co-approval-signal"><StDot st="waiting" s={14} /></span>{ask.agent && <b>{ask.agent}</b>}<span>{ask.title}</span></div>
@@ -186,6 +201,13 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
         </div>
       );
     case 'agentMessage':
+      // En el hilo de otro agente, el mensaje del PM es su encargo: franja del HTML.
+      if (it.by === 'Project manager' && agent !== 'Project manager') return (
+        <div className="co-brief" role="note" aria-label="Encargo del Project manager">
+          <Icon name="flow" size={14} />
+          <Prose text={it.text ?? ''} />
+        </div>
+      );
       return (
         <div className="co-msg is-agent">
           <div className="co-by">{it.by ?? agent}</div>

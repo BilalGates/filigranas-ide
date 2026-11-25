@@ -1,6 +1,6 @@
 # Trama v2 · Correcciones y aceptación
 
-22–24 de noviembre de 2026 · macOS 27.2.1 arm64 · base `136dc6d` · rama `codex/trama-aceptacion-final`.
+22–25 de noviembre de 2026 · macOS 27.2.1 arm64 · base `136dc6d` · rama `codex/trama-aceptacion-final`.
 
 **El rendimiento mejoró en los recorridos medidos. La aceptación integral de Trama v2 sigue abierta.**
 
@@ -287,3 +287,65 @@ Las 106 muestras del proceso principal verificado cubren 317 s. Registraron medi
 Las tomas del HTML de Dependencias y Studio proceden de la primera pasada válida de la ronda. Coinciden en estado, resolución y escala con las tomas nativas finales. En las dos tomas del último pase se había seleccionado texto. La prueba limpia la selección durante cada captura.
 
 La compilación, las ocho pruebas del frontend y los 17 recorridos de regresión en Chrome pasaron. La prueba de Chrome exige que los nodos del mapa y el grupo Decisiones entren en el área visible.
+
+## Fuente, Observar y Entrega · 25 de noviembre de 2026
+
+Bilal decidió usar JetBrains Mono en las superficies de Trama, porque es la fuente con la que se ve el HTML aprobado. Los woff2 archivados con la referencia se sirven en local desde [`src/trama/fonts.css`](../../src/trama/fonts.css), con su licencia OFL y sin peticiones a la red. `--mono` cambia en `artifact.css`, en las reglas de Trama y en el lienzo de Inicio. Monaco y el terminal conservan Iosevka, y la ficha de tipografía de Ajustes indica qué fuente se usa en cada sitio.
+
+- **Entrega.**
+  - Cada hallazgo en línea muestra el título de la regla del informe SARIF, sus revisores y «coinciden» cuando lo señalan varios. Antes mostraba «L27 · f1».
+  - La auditoría agrupa por archivo, línea y regla las ejecuciones de una misma importación.
+  - El recorrido traza el tramo verde hasta la etapa en curso. El título vuelve a medir 20 pt y el hallazgo elegido queda centrado.
+  - El diff deja de añadir una fila vacía tras el salto final. Cuando una versión termina sin él, muestra «Sin salto de línea al final».
+- **Observar.**
+  - La cabecera reproduce las pestañas del HTML: los archivos que toca el agente y, activa, la observación.
+  - El panel llega al borde y el riel se oculta mientras dura la observación.
+  - En el hilo de un agente, el encargo del PM aparece como franja.
+  - Las acciones seguidas se agrupan bajo «N acciones» y los mensajes se apilan con el espaciado de `.m-ai`.
+- **Fixture.**
+  - El informe SARIF trae una ejecución por revisor, con el título de cada regla.
+  - Las sesiones de Workspace incluyen las acciones del HTML como órdenes terminadas.
+  - Los perfiles aislados desactivan la actualización automática de las CLI. Así no se tocan las CLI instaladas del usuario y desaparece el aviso de actualización de las capturas.
+
+Se repitieron los 17 estados en WKWebView a 1440 × 900 y 1×. Las 17 parejas se validaron por tamaño y área visible, y los nueve sigilos coincidieron en sus cuatro canales. El informe da dos medidas. La **absoluta** compara la intersección en coordenadas de ventana. La **alineada** mide cada cuerpo desde su propio origen, porque la cabecera nativa mide 48 pt y la del HTML, 42 pt.
+
+| Estado | Absoluta 24 nov → 25 nov | Alineada 24 nov → 25 nov |
+| --- | ---: | ---: |
+| Workspace · observar | 17,15 % → 16,00 % | 18,13 % → 17,25 % |
+| Entrega · hallazgo L27 | 16,95 % → 14,85 % | 15,99 % → 11,56 % |
+| Entrega · mapa de auditoría | 12,22 % → 12,30 % | 11,95 % → 9,34 % |
+| Entrega · CI 14/14 | 12,95 % → 12,79 % | 12,60 % → 9,70 % |
+| Workspace · conversación | 9,17 % → 8,63 % | 11,45 % → 11,44 % |
+| Workspace · permiso | 9,10 % → 8,57 % | 11,38 % → 11,37 % |
+
+Los demás estados varían menos de 0,1 puntos.
+
+Observar empeoró en rondas intermedias, hasta 19,13 % en la absoluta. El desglose por zonas atribuyó el aumento a cuatro causas:
+- La pestaña de la observación ocupaba el lugar de las pestañas de archivos del HTML.
+- El margen de 8 pt del panel.
+- El riel de 44 pt estrechaba el centro.
+- El hilo era más corto y adelantaba el código.
+
+En la ronda final mejoran las siete zonas.
+
+En la tarjeta de permiso, el origen nativo difiere 0,5 pt del HTML en el eje horizontal. Se confirmó una sola decisión, `decline`.
+
+Las mediciones de píxeles tienen dos fuentes de ruido. La ventana nativa es translúcida, y lo que hay detrás altera los tonos oscuros entre 2 y 4 niveles, con variaciones de hasta 1 punto. Además, un puntero sobre la ventana dejaba un estado hover en la captura. Esta ronda tiene el mismo fondo que la anterior, y la prueba aparta ahora el puntero antes de capturar.
+
+Las 21 transiciones alcanzaron su opacidad final. Promediaron 59,82 callbacks de WebKit por segundo, con un p95 máximo de 18 ms y un máximo de 38 ms. Completo, Sin ambiente y Reducido se aplicaron y guardaron. La recarga se verificó en Chrome.
+
+El ensayo sostenido usó 32 réplicas, 240 tareas y el terminal abierto. Duró **272,5 s de los 300 s previstos**: la ventana quedó oculta por un vídeo o un cambio de escritorio, y se documentó el tramo medido. Hubo 15.528 callbacks, una cadencia media de 56,97 Hz, mediana de 17 ms, p95 de 18 ms y máximo de 84 ms. Ningún intervalo superó los 100 ms. La respuesta visible tuvo un p95 de 117 ms. El proceso principal registró medianas de 3,50 % de CPU y 73,66 MiB de RSS.
+
+Animation Hitches registró 16,2 s sin tirones. Solo exportó intercambios de superficie de la pantalla Built-In, no de la pantalla externa donde estaba la ventana. Además escribe unos 170 MB/s en la carpeta temporal, y dos grabaciones llenaron el disco. Los cuadros presentados por la GPU quedan sin verificar.
+
+La compilación, las 11 pruebas TypeScript, 137 pruebas Rust (10 ignoradas) y los 17 recorridos de Chrome pasaron. Tres comprobaciones de Chrome se actualizaron a la interfaz vigente: el diálogo «Consumo de Jev», el diálogo «Nueva tarea» de Flow y el botón «Necesita atención». También fallaban en el commit de partida.
+
+**La paridad de las siete vistas sigue abierta.**
+- **Workspace · observar:** el HTML usa avatar y modelo en la autoría, mientras que aquí aparecen un punto y el rol. Falta la marca «Senior editando stash()» en el código. El ámbito es «Cambios del proyecto», con tres archivos, frente a los dos de la sesión.
+- **Entrega:** la auditoría no tiene evidencias de typecheck, cargo test, clippy y build, ni la tesela «tests». Las etapas de Tarea, Tests y PR muestran los datos de la fixture.
+- **Inicio, Flow, Studio, Brain y Ajustes:** conservan las diferencias de la ronda anterior.
+
+[Resumen y zonas](evidencias/fuente-observar-entrega-2026-11-25.json) · [272 s](evidencias/rendimiento-272s-fuente.json) · [CPU y memoria](evidencias/recursos-272s-fuente.json) · [Instruments](evidencias/gpu-instruments-2026-11-25.json) · [Observar alineado](evidencias/workspace-observar-detalle-alineado.webp) · [Hallazgo alineado](evidencias/entrega-hallazgo-detalle-alineado.webp). Las capturas completas están en «Evidencias Trama v2 - Fuente, Observar y Entrega 2026-11-25», en el Escritorio.
+
+Reproducción: pasos 5 y 9 a 13. La captura espera hasta 60 s a la ventana y 420 s al recorrido. Antes de capturar, aparta el puntero de la ventana. Animation Hitches necesita más de 20 GB libres por cada dos minutos.
+

@@ -1,5 +1,6 @@
 import { getIdentifier } from '@tauri-apps/api/app';
 import { api, git, health, skills } from '../src/ipc';
+import { sarifFixture } from './trama_sarif.js';
 
 const report = { views: {} };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,13 +31,7 @@ async function run() {
   const project = ws.projects.find((item) => item.name === 'filigranas-ide')?.path;
   if (ws.projects.length !== 1 || !project) throw new Error('Proyecto de escenas inesperado');
   const spec = await fetch('/docs/trama-aceptacion-final/evidencias/fixture-entrega.json').then((res) => res.json());
-  const result = spec.findings.map((f) => ({
-    ruleId: f.id, level: f.severity, message: { text: f.label },
-    locations: [{ physicalLocation: { artifactLocation: { uri: f.path }, region: { startLine: f.line } } }],
-  }));
-  await health.import(project, null, JSON.stringify({
-    version: '2.1.0', runs: [{ tool: { driver: { name: 'Trama v2 fixture' } }, results: result }],
-  }));
+  await health.import(project, null, sarifFixture(spec.findings));
   localStorage.setItem('filigranas.destino', 'inicio');
   localStorage.setItem('filigranas.movimiento', 'reducido');
   localStorage.setItem('filigranas.ajustes', 'skills');
@@ -53,14 +48,14 @@ async function run() {
   const file = spec.files.find((item) => item.path.endsWith('git_ops.rs'));
   const texts = await git.diffTexts(project, file.path, null);
   if (texts.old !== file.before || texts.new !== file.after) throw new Error('Git no devolvió el contenido exacto del Artifact');
-  const findings = (await health.list(project, null))[0].findings;
+  const findings = (await health.list(project, null)).flatMap((run) => run.findings);
   for (const f of spec.findings) {
     if (!findings.some((item) => item.rule === f.id && item.path === f.path && item.line === f.line && item.severity === f.severity)) {
       throw new Error(`No se conservó la localización de ${f.id}`);
     }
   }
-  const inline = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.textContent);
-  await until(() => ['f1', 'f2'].every((id) => inline().some((line) => line.endsWith(id))), 'ambos hallazgos inline');
+  const inline = () => [...document.querySelectorAll('.diff-finding')].map((el) => el.getAttribute('aria-label'));
+  await until(() => ['f1', 'f2'].every((id) => document.querySelector(`.diff-finding[data-rule="${id}"]`)), 'ambos hallazgos inline');
   report.views.entrega = { exactFile: file.path, findings: findings.length, inline: inline() };
   await record('entrega');
 

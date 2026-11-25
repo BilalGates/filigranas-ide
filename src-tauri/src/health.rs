@@ -26,7 +26,13 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
             project TEXT NOT NULL, scope INTEGER NOT NULL, fingerprint TEXT NOT NULL,
             status TEXT NOT NULL, resolution TEXT NOT NULL, PRIMARY KEY(project,scope,fingerprint)
          );",
-    )
+    )?;
+    // Título de la regla en el catálogo de la herramienta (aditivo).
+    let has_title: i64 = conn.query_row("SELECT count(*) FROM pragma_table_info('health_findings') WHERE name='title'", [], |r| r.get(0))?;
+    if has_title == 0 {
+        conn.execute_batch("ALTER TABLE health_findings ADD COLUMN title TEXT")?;
+    }
+    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -36,6 +42,7 @@ struct Finding {
     path: Option<String>,
     line: Option<u32>,
     rule: String,
+    title: Option<String>,
     severity: String,
     previous: bool,
     status: String,
@@ -94,7 +101,7 @@ fn report_path(uri: &str, base: Option<&str>, cwd: &Path) -> Option<String> {
 
 fn finding(tool: &str, path: Option<String>, line: Option<u32>, rule: &str, severity: &str) -> Finding {
     let fingerprint = format!("{:x}", Sha256::digest(json!([tool, path, line, rule]).to_string()));
-    Finding { fingerprint, path, line, rule: rule.into(), severity: severity.into(), previous: false,
+    Finding { fingerprint, path, line, rule: rule.into(), title: None, severity: severity.into(), previous: false,
         status: "open".into(), resolution: String::new() }
 }
 
@@ -105,6 +112,13 @@ fn revision(value: &str) -> Option<String> {
 fn identifier(value: &str) -> Option<&str> {
     (!value.is_empty() && value.len() <= 180 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b" -_.:/@#".contains(&b)))
         .then_some(value)
+}
+
+/// Descripción corta de la regla en el catálogo de la herramienta. Es texto
+/// estático de la regla, no del resultado: una línea, sin controles, acotada.
+fn rule_title(rule: Option<&Value>) -> Option<String> {
+    let text = rule?["shortDescription"]["text"].as_str()?.trim();
+    (!text.is_empty() && text.chars().count() <= 160 && !text.chars().any(char::is_control)).then(|| text.into())
 }
 
 fn parse_sarif(report: &str, cwd: &Path) -> CmdResult<Vec<Evidence>> {
@@ -152,7 +166,9 @@ fn parse_sarif(report: &str, cwd: &Path) -> CmdResult<Vec<Evidence>> {
             };
             // Keep machine evidence and the report digest. Raw SARIF messages
             // and snippets can contain secret values and are never retained.
-            findings.push(finding(tool, path, line, rule, severity));
+            let mut item = finding(tool, path, line, rule, severity);
+            item.title = rule_title(referenced);
+            findings.push(item);
         }
         let rev = run["versionControlProvenance"][0]["revisionId"].as_str().and_then(revision);
         let success = run["invocations"].as_array().filter(|items| !items.is_empty())
@@ -176,9 +192,9 @@ fn save(conn: &Connection, project: &str, session: Option<i64>, task: Option<i64
         if inserted == 0 { continue; }
         let id = tx.last_insert_rowid();
         for row in item.findings {
-            tx.execute("INSERT INTO health_findings(run,fingerprint,path,line,rule,severity) VALUES(?1,?2,?3,?4,?5,?6)
+            tx.execute("INSERT INTO health_findings(run,fingerprint,path,line,rule,severity,title) VALUES(?1,?2,?3,?4,?5,?6,?7)
                         ON CONFLICT(run,fingerprint) DO UPDATE SET severity=excluded.severity WHERE excluded.severity='error'",
-                params![id,row.fingerprint,row.path,row.line,row.rule,row.severity]).map_err(err)?;
+                params![id,row.fingerprint,row.path,row.line,row.rule,row.severity,row.title]).map_err(err)?;
         }
     }
     tx.commit().map_err(err)
@@ -215,7 +231,7 @@ fn list(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<Vec
     let mut finding_query = conn.prepare(
         "SELECT f.fingerprint,f.path,f.line,f.rule,f.severity,COALESCE(s.status,'open'),COALESCE(s.resolution,''),
          EXISTS(SELECT 1 FROM health_findings p JOIN health_runs r ON r.id=p.run
-                WHERE r.project=?1 AND r.session IS ?2 AND r.id<f.run AND p.fingerprint=f.fingerprint)
+                WHERE r.project=?1 AND r.session IS ?2 AND r.id<f.run AND p.fingerprint=f.fingerprint),f.title
          FROM health_findings f LEFT JOIN health_resolution s
            ON s.fingerprint=f.fingerprint AND s.project=?1 AND s.scope=ifnull(?2,0)
          WHERE f.run=?3 ORDER BY CASE f.severity WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END,f.path,f.line",
@@ -229,7 +245,7 @@ fn list(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<Vec
         let mut run = run.map_err(err)?;
         run.findings = finding_query.query_map(params![project,session,run.id], |r| Ok(Finding {
             fingerprint:r.get(0)?, path:r.get(1)?, line:r.get(2)?, rule:r.get(3)?, severity:r.get(4)?,
-            status:r.get(5)?, resolution:r.get(6)?, previous:r.get(7)?,
+            status:r.get(5)?, resolution:r.get(6)?, previous:r.get(7)?, title:r.get(8)?,
         })).map_err(err)?.collect::<rusqlite::Result<_>>().map_err(err)?;
         result.push(run);
     }
@@ -417,7 +433,8 @@ mod tests {
 
     #[test]
     fn imports_traceable_sarif_and_deduplicates_without_saving_secret_content() {
-        let report = json!({"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Semgrep","version":"1.2.3"}},
+        let report = json!({"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Semgrep","version":"1.2.3",
+            "rules":[{"id":"example.rule","shortDescription":{"text":"Regla de ejemplo"}}]}},
             "results":[{"ruleId":"example.rule","level":"error","message":{"text":"SECRET SAMPLE"},
             "locations":[{"physicalLocation":{"artifactLocation":{"uri":"src/main.rs"},"region":{"startLine":7}}}]}]}]}).to_string();
         let conn = crate::db::open(Path::new(":memory:")).unwrap();
@@ -429,6 +446,8 @@ mod tests {
         assert_eq!(rows[0].findings[0].path.as_deref(), Some("src/main.rs"));
         assert_eq!(rows[0].findings[0].line, Some(7));
         assert_eq!(rows[0].version.as_deref(), Some("1.2.3"));
+        assert_eq!(rows[0].findings[0].title.as_deref(), Some("Regla de ejemplo"));
+        assert_eq!(rule_title(Some(&json!({"shortDescription":{"text":"dos\nlíneas"}}))), None);
         assert!(!serde_json::to_string(&rows).unwrap().contains("SECRET SAMPLE"));
         assert!(relative("../outside").is_none());
         assert!(report_path("%2e%2e/outside", None, Path::new("/tmp/project")).is_none());

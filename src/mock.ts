@@ -901,8 +901,8 @@ function mockHealth(): HealthRun[] {
       id: 101, task: null, tool: 'git', version: '2.50', source: 'diff --check · árbol de trabajo',
       revision: '84ab176', digest: null, outcome: 'findings', observed,
       findings: [
-        { fingerprint: 'example-whitespace', path: 'src/lib/autonomy.ts', line: 11, rule: 'Espacios al final de línea', severity: 'error', previous: false, status: 'open', resolution: '' },
-        { fingerprint: 'example-queue', path: 'src/lib/queue.ts', line: 3, rule: 'Cobertura de la cola', severity: 'warning', previous: false, status: 'open', resolution: '' },
+        { fingerprint: 'example-whitespace', path: 'src/lib/autonomy.ts', line: 11, rule: 'Espacios al final de línea', title: null, severity: 'error', previous: false, status: 'open', resolution: '' },
+        { fingerprint: 'example-queue', path: 'src/lib/queue.ts', line: 3, rule: 'Cobertura de la cola', title: null, severity: 'warning', previous: false, status: 'open', resolution: '' },
       ],
     },
     {

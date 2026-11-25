@@ -3,6 +3,9 @@
 import re, sys
 src = open('design/trama-v2/style.css').read() + '\n' + open('design/trama-v2/v2.css').read()
 src = re.sub(r'/\*.*?\*/', '', src, flags=re.S)
+# Decisión del 25 de noviembre de 2026: Trama usa JetBrains Mono, la fuente con
+# la que se ve el HTML aprobado (src/trama/fonts.css). Iosevka queda en Monaco y xterm.
+src = src.replace('--mono:Iosevka,"JetBrains Mono",', '--mono:"JetBrains Mono",')
 
 def parse(s, i=0):
     out = []

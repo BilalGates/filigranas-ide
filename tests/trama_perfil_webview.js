@@ -1,5 +1,5 @@
 import { isTauri } from '@tauri-apps/api/core';
-import { api, pty, tasks } from '../src/ipc';
+import { api, pty, tasks, tools } from '../src/ipc';
 import { verifyMotion } from './trama_movimiento.js';
 import { captureStudioState } from './trama_studio_escena';
 import { Channel } from '@tauri-apps/api/core';
@@ -123,6 +123,8 @@ async function run() {
   const url = new URL(location.href);
   const seconds = Number(import.meta.env.VITE_TRAMA_SECONDS ?? url.searchParams.get('segundos') ?? '60');
   if (!Number.isFinite(seconds) || seconds < 15 || seconds > 3600) throw new Error('Duración inválida');
+  // El perfil aislado no actualiza las CLI instaladas del usuario.
+  await tools.autoUpdate(false);
   const tasksPerProject = 240;
   localStorage.setItem('filigranas.destino', 'inicio');
   localStorage.setItem('filigranas.movimiento', 'completo');

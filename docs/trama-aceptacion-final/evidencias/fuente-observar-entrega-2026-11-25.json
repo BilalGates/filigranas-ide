@@ -1,0 +1,241 @@
+{
+  "fecha": "2026-11-25",
+  "referenceSha256": "7e20b6e508b43c0f76c54f42da6e423ee9e9b280265f9d0767d2bf1e2d18fd38",
+  "criterio": "Porcentaje de píxeles cuyo mayor delta RGB supera 12 niveles. Absoluta: intersección de los cuerpos en coordenadas de ventana. Alineada: cada cuerpo desde su origen (cabecera nativa de 48 pt frente a 42 pt del HTML).",
+  "resumen": {
+    "inicio": {
+      "absoluta": {
+        "anterior": 15.42,
+        "actual": 15.48
+      },
+      "alineada": {
+        "anterior": 15.18,
+        "actual": 15.2
+      }
+    },
+    "workspace": {
+      "absoluta": {
+        "anterior": 9.17,
+        "actual": 8.63
+      },
+      "alineada": {
+        "anterior": 11.45,
+        "actual": 11.44
+      }
+    },
+    "workspace-arquitectura": {
+      "absoluta": {
+        "anterior": 9.0,
+        "actual": 9.07
+      },
+      "alineada": {
+        "anterior": 9.84,
+        "actual": 9.59
+      }
+    },
+    "workspace-observar": {
+      "absoluta": {
+        "anterior": 17.15,
+        "actual": 16.0
+      },
+      "alineada": {
+        "anterior": 18.13,
+        "actual": 17.25
+      }
+    },
+    "workspace-permiso": {
+      "absoluta": {
+        "anterior": 9.1,
+        "actual": 8.57
+      },
+      "alineada": {
+        "anterior": 11.38,
+        "actual": 11.37
+      }
+    },
+    "flow": {
+      "absoluta": {
+        "anterior": 9.23,
+        "actual": 9.3
+      },
+      "alineada": {
+        "anterior": 9.96,
+        "actual": 10.03
+      }
+    },
+    "flow-dependencias": {
+      "absoluta": {
+        "anterior": 9.52,
+        "actual": 9.58
+      },
+      "alineada": {
+        "anterior": 10.18,
+        "actual": 10.25
+      }
+    },
+    "studio": {
+      "absoluta": {
+        "anterior": 13.52,
+        "actual": 13.52
+      },
+      "alineada": {
+        "anterior": 16.14,
+        "actual": 16.13
+      }
+    },
+    "studio-comparacion": {
+      "absoluta": {
+        "anterior": 14.04,
+        "actual": 14.04
+      },
+      "alineada": {
+        "anterior": 16.5,
+        "actual": 16.5
+      }
+    },
+    "studio-en-vivo": {
+      "absoluta": {
+        "anterior": 13.01,
+        "actual": 13.02
+      },
+      "alineada": {
+        "anterior": 15.8,
+        "actual": 15.8
+      }
+    },
+    "entrega": {
+      "absoluta": {
+        "anterior": 12.22,
+        "actual": 12.3
+      },
+      "alineada": {
+        "anterior": 11.95,
+        "actual": 9.34
+      }
+    },
+    "entrega-hallazgo": {
+      "absoluta": {
+        "anterior": 16.95,
+        "actual": 14.85
+      },
+      "alineada": {
+        "anterior": 15.99,
+        "actual": 11.56
+      }
+    },
+    "entrega-ci": {
+      "absoluta": {
+        "anterior": 12.95,
+        "actual": 12.79
+      },
+      "alineada": {
+        "anterior": 12.6,
+        "actual": 9.7
+      }
+    },
+    "brain": {
+      "absoluta": {
+        "anterior": 6.32,
+        "actual": 6.35
+      },
+      "alineada": {
+        "anterior": 6.74,
+        "actual": 6.76
+      }
+    },
+    "brain-agrupado": {
+      "absoluta": {
+        "anterior": 6.06,
+        "actual": 6.09
+      },
+      "alineada": {
+        "anterior": 6.73,
+        "actual": 6.76
+      }
+    },
+    "brain-inferencias": {
+      "absoluta": {
+        "anterior": 6.17,
+        "actual": 6.2
+      },
+      "alineada": {
+        "anterior": 6.38,
+        "actual": 6.41
+      }
+    },
+    "ajustes": {
+      "absoluta": {
+        "anterior": 7.2,
+        "actual": 7.25
+      },
+      "alineada": {
+        "anterior": 7.21,
+        "actual": 7.27
+      }
+    }
+  },
+  "zonas": {
+    "workspace-observar": {
+      "anterior": {
+        "hilos": 11.15,
+        "centro": 19.63,
+        "borde central": 10.82,
+        "cabecera de la observación": 25.28,
+        "cambios": 35.11,
+        "hilo observado": 14.63,
+        "código": 21.06
+      },
+      "actual": {
+        "hilos": 11.13,
+        "centro": 18.84,
+        "borde central": 9.39,
+        "cabecera de la observación": 19.08,
+        "cambios": 27.25,
+        "hilo observado": 14.31,
+        "código": 20.64
+      }
+    },
+    "entrega-hallazgo": {
+      "anterior": {
+        "recorrido": 10.44,
+        "archivos": 8.07,
+        "diff": 20.08,
+        "auditoría": 16.83
+      },
+      "actual": {
+        "recorrido": 6.64,
+        "archivos": 6.6,
+        "diff": 11.3,
+        "auditoría": 20.21
+      }
+    },
+    "entrega": {
+      "anterior": {
+        "recorrido": 10.44,
+        "archivos": 8.07,
+        "diff": 14.1,
+        "auditoría": 10.95
+      },
+      "actual": {
+        "recorrido": 6.64,
+        "archivos": 6.6,
+        "diff": 9.96,
+        "auditoría": 12.26
+      }
+    },
+    "entrega-ci": {
+      "anterior": {
+        "recorrido": 11.36,
+        "archivos": 7.99,
+        "diff": 14.1,
+        "auditoría": 13.5
+      },
+      "actual": {
+        "recorrido": 7.27,
+        "archivos": 6.53,
+        "diff": 9.96,
+        "auditoría": 13.56
+      }
+    }
+  }
+}

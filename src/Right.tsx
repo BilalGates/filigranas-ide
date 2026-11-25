@@ -23,7 +23,7 @@ type Props = {
   onEditor: () => void;
   editor: { name: string; path: string; diff: boolean } | null;
   onCloseEditor: () => void;
-  observation?: { title: string; close: () => void };
+  observation?: { title: string; close: () => void; mark?: ReactNode; tabs?: (element: HTMLElement | null) => void };
   /** Carpeta de repositorios elegida al abrir Filigranas y ruta que muestra el panel. */
   root?: string | null;
   location?: string | null;
@@ -62,12 +62,18 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ob
       aria-labelledby="right-panel-title" hidden={hidden}>
       <Splitter size={observation ? SIZES.observe : SIZES.git} axis="x" invert
         label="Ancho del panel derecho" className="is-right" />
-      <header className="panel-head">
+      {observation ? <header className="panel-head obs-head">
+        {/* Pestañas del HTML: archivos que toca el agente y, activa, la observación. */}
+        <span className="obs-files" ref={observation.tabs} />
+        <span className="obs-tab">{observation.mark}<h2 id="right-panel-title">{observation.title}</h2>
+          <button className="obs-close" onClick={observation.close} aria-label="Cerrar observación"><Icon name="close" size={11} /></button></span>
+        <span className="grow" />
+      </header> : <header className="panel-head">
         <Icon name={panel.icon} size={15} />
         {crumb ? (
           <h2 id="right-panel-title" className="is-path" title={`${panel.title} · ${location}`} aria-label={`${editing ? editor.name : panel.title} · ${crumb}`}><Crumb path={crumb} /></h2>
         ) : (
-          <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{observation?.title ?? (editing ? editor.name : panel.title)}</h2>
+          <h2 id="right-panel-title" title={editing ? editor.path : undefined}>{editing ? editor.name : panel.title}</h2>
         )}
         {editing && editor.diff && <span className="right-panel-kind">diff</span>}
         <span className="grow" />
@@ -76,13 +82,12 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ob
             <Icon name="file" size={14} />
           </button>
         )}
-        {observation && <button className="tb-btn" onClick={observation.close} aria-label="Cerrar observación"><Icon name="close" size={12} /></button>}
         {editing && (
           <button className="tb-btn" onClick={onCloseEditor} aria-label={`Cerrar ${editor.name}`} title={shortcut('cerrar archivo · ⌘W')}>
             <Icon name="close" size={12} />
           </button>
         )}
-      </header>
+      </header>}
       <div className={`panel-body is-${tab}`}>
         {children}
       </div>

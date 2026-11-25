@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeHealth from '../CodeHealth';
-import ReviewDiff from './ReviewDiff';
+import ReviewDiff, { type ReviewNote } from './ReviewDiff';
+import { openFindings } from './findings';
 import GitPanel from '../GitPanel';
 import Larry from '../Larry';
 import Pending from '../Pending';
@@ -20,7 +21,6 @@ type StState = 'done' | 'now' | 'fail' | 'todo';
 const noop = () => {};
 const OUTCOME: Record<string, string> = { passed: 'correcto', failed: 'falló', findings: 'con hallazgos', incomplete: 'incompleto', unknown: 'desconocido' };
 const checkTotal = (pull: PrInfo) => pull.checks.reduce((count, checks) => count + checks, 0);
-
 export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null, initialStage = null, initialCi = false, onConsumeCi }: {
   initialScope?: number | null;
   /** Etapa con la que se abre (Code Health, PR, commits o ramas sin integrar). */
@@ -98,12 +98,13 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
 
   const changes = status?.changes ?? [];
   const lastRun = runs?.[0] ?? null;
-  const open = lastRun ? lastRun.findings.filter((f) => f.status === 'open') : [];
+  const open = useMemo(() => openFindings(runs), [runs]);
   const diffFindings = useMemo(() =>
     diff && (diff.session ?? null) === sid
-      ? lastRun?.findings.filter((finding) => finding.status === 'open' && finding.path === diff.path && finding.line != null)
+      ? open.filter((finding) => finding.path === diff.path && finding.line != null)
       : undefined,
-  [lastRun, diff, sid]);
+  [open, diff, sid]);
+  const reviewers = [...new Set((diffFindings ?? []).flatMap((item) => item.who ?? []))];
 
   if (!project) return <Root label="Entrega"><div className="rev-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Entrega reúne cambios, commits, revisión, PR y CI del proyecto abierto.</p></div></div></Root>;
 
@@ -146,7 +147,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
   const errors = open.filter((f) => f.severity === 'error').length;
   const warnings = open.filter((f) => f.severity === 'warning').length;
 
-  const openFinding = (item: HealthRun['findings'][number]) => {
+  const openFinding = (item: ReviewNote) => {
     if (!item.path) return;
     const change = changes.find((entry) => entry.path === item.path);
     if (!change || item.line == null) {
@@ -197,7 +198,7 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
             </>}
           </aside>
           <section className="diffv" aria-label="Contenido">
-            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings} finding={finding}
+            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings} finding={finding} reviewers={reviewers}
               onDiff={(c) => { setDiff(c); setStage('cambios'); }} onFile={onFile} onConflicts={onConflicts} onChanged={() => { onBranchesChanged(); void load(); }} onStage={selectStage} />
           </section>
           <aside className="audit" aria-label="Auditoría">
@@ -206,12 +207,12 @@ export default function Entrega({ project, projectName, agentSessions, onFile, o
                 {errors > 0 && <span className="chip coral">{errors} {errors === 1 ? 'alto' : 'altos'}</span>}
                 {warnings > 0 && <span className="chip amber">{warnings} {warnings === 1 ? 'medio' : 'medios'}</span>}
               </div>
-              <p className="mut audit-intro">{lastRun ? 'Cada hallazgo enlaza a su archivo y línea.' : 'Ejecuta una comprobación desde Tests para ver los hallazgos.'}</p>
+              <p className="mut audit-intro">{lastRun ? 'Sin puntuaciones: cada hallazgo enlaza a su línea y a su evidencia.' : 'Ejecuta una comprobación desde Tests para ver los hallazgos.'}</p>
               {(changes.length > 0 || open.some((item) => item.path)) && <Treemap findings={open} changes={changes} selected={diff?.path} onFile={selectAuditFile} />}
               {open.slice(0, 12).map((f) => (
                 <button key={f.fingerprint} className={`fitem${finding?.fingerprint === f.fingerprint ? ' on' : ''}`} onClick={() => openFinding(f)}>
                   <span className={`sev ${f.severity === 'error' ? 'h' : f.severity === 'warning' ? 'm' : 'l'}`} />
-                  <span><span className="ft">{f.rule}</span><span className="mono mut fmeta" title={f.path ?? undefined}>{f.path?.split('/').pop() ?? '—'}{f.line ? `:${f.line}` : ''} · {lastRun?.tool}</span></span>
+                  <span><span className="ft" title={f.title ? f.rule : undefined}>{f.title ?? f.rule}</span><span className="mono mut fmeta" title={f.path ?? undefined}>{f.path?.split('/').pop() ?? '—'}{f.line ? `:${f.line}` : ''} · {f.who?.join(' + ')}</span></span>
                 </button>
               ))}
               {lastRun && !open.length && <div className="fnote" style={{ padding: 0 }}><Icon name="check" size={13} /> Sin hallazgos abiertos</div>}
@@ -245,7 +246,10 @@ function Pipeline({ stages, active, onPick }: { stages: [Stage, string, string, 
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, []);
   const n = stages.length, step = (w - 60) / (n - 1);
   const col: Record<StState, string> = { done: '#6fe0b3', now: '#9db6ff', fail: '#ff6b5d', todo: 'rgba(220,226,236,.35)' };
-  const nowI = Math.max(0, stages.findIndex((s) => s[3] === 'now' || s[3] === 'fail'));
+  // El tramo verde llega a la última etapa en curso antes de la primera pendiente.
+  const firstTodo = stages.findIndex((s) => s[3] === 'todo');
+  const reached = (firstTodo < 0 ? stages : stages.slice(0, firstTodo)).map((s) => s[3]).lastIndexOf('now');
+  const nowI = reached >= 0 ? reached : Math.max(0, stages.findIndex((s) => s[3] === 'now' || s[3] === 'fail'));
   return (
     <svg id="pipesvg" ref={ref} role="group" aria-label="Recorrido de la entrega">
       <line x1="30" x2={w - 30} y1="30" y2="30" stroke="rgba(255,255,255,.08)" strokeWidth="2" strokeDasharray="1 5" strokeLinecap="round" />
@@ -298,16 +302,20 @@ function Treemap({ findings, changes, selected, onFile }: {
   );
 }
 
-function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, finding, onDiff, onFile, onConflicts, onChanged, onStage }: {
+function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, finding, reviewers = [], onDiff, onFile, onConflicts, onChanged, onStage }: {
   stage: Stage; project: string; diff: DiffTarget | null; chosen: Session | null; sid: number | null; status: GitStatus | null; log: LogRow[] | null; work: Work | null; tasks: Task[] | null; agentSessions: Session[];
-  findings?: HealthRun['findings'];
+  findings?: ReviewNote[];
   finding?: { fingerprint: string };
+  reviewers?: string[];
   onDiff: (c: DiffTarget) => void; onFile: (path: string, session: number | null, root: string | null) => void; onConflicts: (f: string[]) => void; onChanged: () => void; onStage: (s: Stage) => void;
 }) {
-  const head = (icon: string, title: string, extra?: React.ReactNode) => <div className="tabs"><span className="tab on"><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
+  const head = (icon: string, title: string, extra?: React.ReactNode, full?: string) => <div className="tabs"><span className="tab on" title={full}><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
+  const base = (path: string) => path.split('/').pop() ?? path;
   if ((stage === 'cambios' || stage === 'ci') && diff) return (
     <>
-      {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : diff.path, <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button>)}
+      {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : base(diff.path), <>
+        {reviewers.length > 0 && <span className="chip"><Icon name="agent" size={11} /> revisado por {reviewers.length > 1 ? `${reviewers.slice(0, -1).join(', ')} y ${reviewers.at(-1)}` : reviewers[0]}</span>}
+        <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button></>, diff.path)}
       <div className="rev-diff"><ReviewDiff project={project} change={diff} findings={findings} finding={finding} /></div>
     </>
   );

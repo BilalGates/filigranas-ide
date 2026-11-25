@@ -387,7 +387,7 @@ export const githubLogin = {
 };
 
 export type HealthFinding = {
-  fingerprint: string; path: string | null; line: number | null; rule: string; severity: string;
+  fingerprint: string; path: string | null; line: number | null; rule: string; title: string | null; severity: string;
   previous: boolean; status: string; resolution: string;
 };
 export type HealthRun = {

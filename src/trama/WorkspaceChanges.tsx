@@ -1,12 +1,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { listen } from '@tauri-apps/api/event';
 import ReviewDiff from './ReviewDiff';
 import { git, sessions, type Change, type DiffTarget } from '../ipc';
 import { Icon } from './icons';
 
-export default function WorkspaceChanges({ project, session, onDiff, onEntrega, conversation }: {
+export default function WorkspaceChanges({ project, session, onDiff, onEntrega, conversation, tabsTarget }: {
   project: string; session: number | null; onDiff: (change: DiffTarget) => void; onEntrega: () => void;
   conversation?: ReactNode;
+  /** Cabecera de la observación: recibe una pestaña por archivo cambiado. */
+  tabsTarget?: HTMLElement | null;
 }) {
   const [changes, setChanges] = useState<Change[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -27,7 +30,12 @@ export default function WorkspaceChanges({ project, session, onDiff, onEntrega, 
   }, [project, session]);
 
   const selection = conversation && !failed ? changes?.slice(0, 3).find((change) => change.path === selected) ?? changes?.[0] : undefined;
-  return <><div className="workspace-changes" aria-label={conversation ? 'Cambios observados' : 'Cambios del editor'} role="group">
+  const tabs = tabsTarget && conversation && !failed && changes?.length ? createPortal(changes.slice(0, 3).map((change) => (
+    <button key={change.path} className="obs-file" title={change.path} aria-pressed={selection?.path === change.path} onClick={() => setSelected(change.path)}>
+      <Icon name="file" size={13} />{change.path.split('/').at(-1)}<span className="obs-file-mark" aria-label="con cambios" />
+    </button>
+  )), tabsTarget) : null;
+  return <>{tabs}<div className="workspace-changes" aria-label={conversation ? 'Cambios observados' : 'Cambios del editor'} role="group">
     <span className="workspace-changes-label">{session == null ? 'Cambios del proyecto' : 'Cambios de la sesión'}</span>
     <div className="workspace-change-files">
       {failed ? <span role="status">No se pudieron leer los cambios</span> : changes == null ? <span>Consultando…</span> : !changes.length ? <span>Sin cambios</span> : changes.slice(0, 3).map((change) => (
@@ -44,7 +52,7 @@ export default function WorkspaceChanges({ project, session, onDiff, onEntrega, 
   </div>
   {conversation}
   {selection && <div className="workspace-observation-diff" aria-label="Código observado" role="region">
-    <div className="workspace-observation-caption">Código observado · {selection.path.split('/').at(-1)}</div>
+    <div className="workspace-observation-caption" title={selection.path}>Código que está tocando</div>
     <ReviewDiff project={project} change={session == null ? selection : { ...selection, session }} />
   </div>}
   </>;

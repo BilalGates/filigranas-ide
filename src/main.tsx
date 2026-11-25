@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import './styles.css';
+import './trama/fonts.css';
 import './trama/trama.css';
 import './trama/artifact.css';
 import './trama/shell.css';
@@ -16,8 +17,9 @@ html.dataset.platform = ua.includes('Mac') ? 'mac' : ua.includes('Windows') ? 'w
 restoreLayout();
 
 async function start() {
-  // Monaco y xterm miden el ancho de los caracteres al crearse.
-  await document.fonts.load('12px Iosevka');
+  // Monaco y xterm miden el ancho de los caracteres al crearse. Los lienzos de
+  // Trama dibujan texto con JetBrains Mono y necesitan la fuente ya cargada.
+  await Promise.all(['12px Iosevka', '12px "JetBrains Mono"', '500 12px "JetBrains Mono"'].map((font) => document.fonts.load(font)));
   // En el navegador (sin Tauri) se usa el núcleo simulado.
   const native = isTauri();
   if (native) html.dataset.native = 'true';

@@ -12,7 +12,7 @@
 --violet:#a995ff;
 --pearl:linear-gradient(115deg,#bcd3ff 0%,#e9c8ff 28%,#ffc9d8 52%,#ffe1b8 74%,#c4f2e6 100%);
 --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro",Inter,system-ui,sans-serif;
---mono:Iosevka,"JetBrains Mono","SF Mono",Menlo,monospace;
+--mono:"JetBrains Mono","SF Mono",Menlo,monospace;
 --dot:Doto,"JetBrains Mono",monospace;
 --ease:cubic-bezier(.22,1,.36,1);--r1:5px;--r2:7px;--r3:11px;--r4:14px}
 }

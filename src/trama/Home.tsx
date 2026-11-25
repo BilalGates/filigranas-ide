@@ -345,18 +345,18 @@ function Tapestry({ agents, label, sub, resting }: { agents: Agent[]; label: str
           c.fillStyle = a.state === 'waiting' ? `rgba(255,178,94,${al})` : `rgba(${rgb},${al})`;
           const z = near ? 2.6 : 1.4; c.fillRect(x, yy, z, z);
         }
-        c.fillStyle = `rgba(${rgb},.95)`; c.font = '600 10px Iosevka,"JetBrains Mono",monospace';
+        c.fillStyle = `rgba(${rgb},.95)`; c.font = '600 10px "JetBrains Mono",monospace';
         c.fillText(a.name.toUpperCase(), 18, y - 8);
       });
       c.strokeStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.moveTo(cx + 30, cy - 30); c.lineTo(cx + 58, cy - 58); c.stroke();
       c.fillStyle = '#fff'; c.font = '600 11px -apple-system,Inter,sans-serif'; c.fillText(lb, cx + 62, cy - 62);
-      c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '10px Iosevka,"JetBrains Mono",monospace'; c.fillText(sb, cx + 62, cy - 48);
+      c.fillStyle = 'rgba(255,255,255,.55)'; c.font = '10px "JetBrains Mono",monospace'; c.fillText(sb, cx + 62, cy - 48);
       if (!A.length) {
         // reposo: dos hilos tenues para los motores disponibles, sin actividad
         ['CODEX · LIBRE', 'CLAUDE · LIBRE'].forEach((name, i) => {
           const y = H * (0.36 + i * 0.28);
           for (let k = 0; k < 60; k++) { const p = k / 60, x = 18 + p * (cx - 62), yy = y + (cy - y) * (p * p * (3 - 2 * p)); c.fillStyle = `rgba(190,200,230,${0.1 + 0.08 * breath})`; c.fillRect(x, yy, 1.3, 1.3); }
-          c.fillStyle = 'rgba(190,200,230,.5)'; c.font = '600 10px Iosevka,"JetBrains Mono",monospace'; c.fillText(name, 18, y - 8);
+          c.fillStyle = 'rgba(190,200,230,.5)'; c.font = '600 10px "JetBrains Mono",monospace'; c.fillText(name, 18, y - 8);
         });
       }
       if (live) raf = requestAnimationFrame(frame);

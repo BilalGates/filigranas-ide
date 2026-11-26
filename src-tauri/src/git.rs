@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 use crate::{err, files, workspace::project_path, AppState, CmdResult};
 

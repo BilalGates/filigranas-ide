@@ -4,7 +4,7 @@ import { invoke, type Channel } from '@tauri-apps/api/core';
 // accede al sistema de archivos ni ejecuta comandos por su cuenta.
 
 export type Group = { id: number; name: string };
-export type Project = { name: string; path: string; groupId: number | null; archived: boolean };
+export type Project = { name: string; path: string; folder?: string | null; groupId: number | null; archived: boolean };
 export type Workspace = { root: string | null; groups: Group[]; projects: Project[] };
 export type Entry = { name: string; path: string; dir: boolean };
 

@@ -741,7 +741,9 @@ pub async fn coordinator_send(app: AppHandle, project: String, text: String, eff
     if text.trim().is_empty() && attachments.is_empty() {
         return Err("mensaje vacío".into());
     }
-    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e) && !(e == "auto" && session.is_none() && task.is_some())) {
+    // «auto» enruta con Jev en las tareas del PM; fuera de ellas usa el esfuerzo por defecto del modelo.
+    let effort = effort.filter(|e| e != "auto" || (session.is_none() && task.is_some()));
+    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e) && e != "auto") {
         return Err("nivel de esfuerzo no válido".into());
     }
     tauri::async_runtime::spawn_blocking(move || {

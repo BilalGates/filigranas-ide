@@ -204,7 +204,8 @@ pub(crate) fn project_path(conn: &Connection, path: &str) -> CmdResult<String> {
     let rel = p.strip_prefix(&root_c).map_err(|_| "ruta fuera de la carpeta de proyectos".to_string())?.to_path_buf();
     let depth = rel.components().count();
     let not_project = || "no es un proyecto de la carpeta raíz".to_string();
-    if depth == 0 || depth > MAX_DEPTH || !is_main_repo(&p) {
+    // Un hijo directo de la raíz se acepta como antes; más abajo solo un repositorio.
+    if depth == 0 || depth > MAX_DEPTH || (depth > 1 && !is_main_repo(&p)) {
         return Err(not_project());
     }
     // Ninguna carpeta intermedia puede ser oculta, un repositorio o un worktree.
@@ -427,7 +428,7 @@ mod tests {
         db::set_setting(&conn, "root", &paths::to_string(&paths::canonical(&tmp).unwrap())).unwrap();
         assert!(project_path(&conn, &paths::to_string(&tmp.join("Trabajo/dash"))).is_ok());
         assert!(project_path(&conn, &paths::to_string(&tmp.join("Trabajo/dash/sub"))).is_err());
-        assert!(project_path(&conn, &paths::to_string(&tmp.join("Trabajo"))).is_err());
+        assert!(project_path(&conn, &paths::to_string(&tmp.join("Personal/app-worktrees"))).is_err());
 
         let ws = load(&conn).unwrap();
         let names: Vec<_> = ws.groups.iter().map(|g| g.name.clone()).collect();

@@ -244,15 +244,15 @@ html:root { --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
 }
 .tv .skill-insights > .pane { padding: 12px; }
 .tv .tr-settings-card { margin-block: 14px; border: 1px solid var(--line2); border-radius: var(--r3); }
-.tv .tr-settings-heading { padding: 10px 14px; border-bottom: 1px solid var(--line2); }
-.tv .tr-settings-body { padding: 0 14px; }
-.tv .tr-settings-body .tr-tool-row { grid-template-columns: 8px minmax(84px, 1fr) minmax(80px, 1fr) auto minmax(80px, 1fr); align-items: center; gap: 8px; }
-.tv .tr-settings-body .tr-tool-row .tool-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tv .tr-settings-usage { margin: 0; padding: 12px 14px; }
-@media (max-width: 1050px) {
-  .tv .tr-settings-body .tr-tool-row { grid-template-columns: 8px minmax(85px, 1fr) minmax(80px, 1fr); }
-  .tv .tr-settings-body .tr-tool-row .tool-detail { grid-column: 2 / -1; }
-}
+/* Modelos y herramientas: una tarjeta por bloque, con la acción en la cabecera. */
+.tv .tools-panel.is-settings { max-width: 860px; }
+.tv .tools-panel.is-settings .tools-stack { gap: 14px; }
+.tv .tools-block.tr-settings-card { margin: 0; }
+.tv .tr-settings-card > .tools-head { padding: 9px 14px; border-bottom: 1px solid var(--line2); }
+.tv .tr-settings-card > .tools-list-wrap { padding: 2px 14px; }
+.tv .tr-settings-card > .tools-body { padding: 14px; }
+.tv .tr-settings-card > .tools-note { margin: 0; padding: 0 14px 12px; }
 
 .workspace-changes { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--glass); font-size: var(--fs-s); min-width: 0; }
 .workspace-changes-label { color: var(--tx3); font-size: 11px; font-weight: 500; flex: none; }
@@ -544,3 +544,72 @@ html.is-light .tb-q { background: var(--raised-2); }
 .tv .brain-inference-actions { margin-top: 8px; gap: 5px; }
 .tv .brain-inference-actions .btn { height: 24px; gap: 4px; padding-inline: 7px; font-size: 12px; }
 .tv .ci-inspector { margin-top: 8px; overflow-wrap: anywhere; }
+
+/* ── Compositor: fila de contexto, chips y desplegables ─────────── */
+/* Fila «dónde trabaja la sesión»: discreta, alineada con el compositor. */
+.sb-context { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: wrap; width: min(760px, calc(100% - 44px)); margin: 0 auto 6px; padding-inline: 4px; }
+.app:not(.has-panel) > .center .sb-context { margin-inline: auto max(12px, calc((100% - 760px) / 2 - 22px)); }
+.sb-chip { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 7px; border-radius: 6px; background: rgba(255,255,255,.03); box-shadow: inset 0 0 0 1px var(--line); color: var(--tx3); font-size: 11px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.sb-chip svg { flex: none; opacity: .75; }
+.sb-chip.mono, .sb-chip .mono { font-family: var(--mono); font-size: 10.5px; }
+.sb-chip.btn { cursor: pointer; }
+.sb-chip.btn:hover, .sb-chip.btn[aria-expanded='true'] { color: var(--tx); background: rgba(255,255,255,.06); }
+.sb-chip.is-warn { color: #ffb25e; box-shadow: inset 0 0 0 1px rgba(255,178,94,.3); }
+.sb-context .grow { flex: 1; }
+.sb-context .sb-menu { padding: 12px; }
+.sb-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--tx2); }
+.sb-form { display: grid; gap: 10px; }
+.sb-form .sb-row { display: grid; gap: 4px; }
+.sb-form .lab { font-size: 11px; color: var(--tx3); }
+.sb-form .in { height: 28px; padding: 0 9px; border: 0; border-radius: 7px; outline: none; background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 1px var(--line); color: var(--tx); font-size: 12.5px; }
+.sb-form .in:focus { box-shadow: inset 0 0 0 1px rgba(157,182,255,.45); }
+.sb-form .sb-slug, .sb-form .mut { font-size: 11px; color: var(--tx3); }
+
+/* Chips del compositor: texto pequeño, sin fondo hasta pasar por encima. */
+.co-compose-bar .chip, .co-compose-bar .cm-trigger { height: 24px; gap: 6px; padding: 0 8px; border-radius: 7px; font-size: 12px; color: var(--tx3); }
+.co-compose-bar .chip:hover:not(:disabled):not(.is-static), .co-compose-bar .cm-trigger.is-open { background: rgba(255,255,255,.06); color: var(--tx); }
+.co-compose-bar .cm-trigger .plogo, .co-compose-bar .chip .plogo { opacity: .9; }
+.cm-caret { opacity: .45; }
+
+/* Menús: superficie oscura, borde fino, sombra larga. */
+.cm-menu, .sb-menu { background: rgba(22, 24, 29, 0.98); border-radius: 11px; box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 22px 48px -16px rgba(0,0,0,.85); backdrop-filter: blur(16px); }
+.cm-heading { padding: 5px 10px 6px; font-size: 10.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--tx4); }
+.cm-item, .sb-item { border-radius: 7px; gap: 10px; padding: 6px 8px 6px 9px; }
+.cm-item.is-on, .sb-item[aria-checked='true'] { background: rgba(255,255,255,.04); }
+.cm-check, .sb-item > svg:last-child { color: var(--skyhi); }
+.cm-icon { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 1px var(--line); color: var(--tx2); }
+.cm-icon .plogo { width: 14px; height: 14px; }
+
+/* Logos: monocromos; Claude con su tono cálido, Codex en blanco. */
+.plogo { flex: none; }
+.plogo.is-claude { color: #d97757; }
+.plogo.is-codex { color: var(--tx); }
+.plogo.is-mono { color: var(--tx2); }
+
+/* ── Bandeja «Necesita atención» de la barra superior ──────────── */
+.attn-wrap { position: relative; }
+.tb-attention { width: 30px; height: 28px; display: grid; place-items: center; border-radius: 8px; }
+.tb-attention.is-on { background: rgba(255,255,255,.07); color: var(--tx); }
+.attn-count { position: absolute; top: 1px; right: 0; min-width: 14px; height: 14px; padding: 0 3px; display: grid; place-items: center; border-radius: 7px; background: #3a3d45; color: var(--tx); font-size: 9.5px; font-weight: 600; line-height: 1; box-shadow: 0 0 0 2px #0b0c0f; }
+.attn-count.is-urgent { background: #ff9f43; color: #1a1208; }
+.attn-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 60; width: 320px; padding: 6px; border-radius: 12px; background: rgba(22, 24, 29, 0.98); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 22px 48px -16px rgba(0,0,0,.85); backdrop-filter: blur(16px); animation: pop 140ms var(--ease); }
+.attn-head { padding: 6px 10px 8px; font-size: 10.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--tx4); }
+.attn-empty { margin: 0; padding: 14px 10px 16px; font-size: 12.5px; color: var(--tx3); text-align: center; }
+.attn-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px; color: var(--tx2); font-size: 12.5px; line-height: 1.4; text-align: left; }
+.attn-item svg { flex: none; margin-top: 1px; }
+.attn-item:hover, .attn-item:focus-visible { outline: none; background: rgba(255,255,255,.05); color: var(--tx); }
+.attn-item.is-warn svg { color: #ffb25e; }
+.attn-item.is-bad svg { color: var(--coral, #ff7a7a); }
+.attn-item.is-mut svg { color: var(--tx3); }
+.attn-foot { display: block; width: 100%; margin-top: 4px; padding: 9px 10px 7px; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; color: var(--tx3); font-size: 11.5px; text-align: left; }
+.attn-foot:hover { color: var(--tx); }
+
+/* Paneles del proyecto en la cabecera del Workspace, junto a la disposición. */
+.ws-panels { display: flex; align-items: center; gap: 2px; padding: 2px; margin-right: 6px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); }
+.ws-panels .tb-btn { position: relative; width: 26px; height: 24px; border-radius: 6px; }
+.ws-panels .tb-btn.is-on { background: rgba(255,255,255,.08); color: var(--tx); }
+.ws-panels .dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; }
+/* En Código, los paneles y «Conversación» flotan arriba a la derecha. */
+.ws-back { display: flex; align-items: center; gap: 6px; background: transparent; }
+.ws-back > .tr-btn, .ws-back > .ws-panels { background: var(--glass3); }
+.ws-back > .ws-panels { margin-right: 0; }

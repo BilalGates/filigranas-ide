@@ -83,6 +83,7 @@ const G: Record<string, string> = {
   screen: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M9 20h6M12 16.5V20"/><circle class="n" cx="17.5" cy="8" r="1.1"/>',
   clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/><circle class="n" cx="12" cy="12" r="1.2"/>',
   source: '<path d="M5 5h9l5 5v9H5z"/><path d="M8.5 12h7M8.5 15.5h5"/><circle class="n" cx="14" cy="5" r="1.4"/>',
+  bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0111 0v5.5l1.5 2h-14z"/><path d="M10 20.5a2 2 0 004 0"/>',
   signal: '<path d="M5 17a7 7 0 0114 0"/><path d="M8.5 17a3.5 3.5 0 017 0"/><circle class="n" cx="12" cy="17" r="1.6"/>',
   code: '<path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/><circle class="n" cx="12" cy="12" r="1.3"/>',
   split: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/><circle class="n" cx="7.5" cy="9" r="1.1"/>',

@@ -1,23 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { health, tasks as taskApi, workSessions, type PrInfo, type Session, type Task, type WorkSession } from '../ipc';
+import { health, tasks as taskApi, workSessions, type PrInfo, type Project, type Session, type Task, type WorkSession } from '../ipc';
 import { Icon } from './icons';
 import { STATUS } from './taskMeta';
+import { parsePmActivityKey } from './workspaceContext';
 
 const ATTENTION = new Set(['waiting_approval', 'blocked', 'failed', 'paused_quota']);
 type Item = { key: string; icon: string; tone: 'warn' | 'bad' | 'mut'; text: string; run: () => void };
 
 /**
- * Botón «Necesita atención» de la barra superior: un desplegable con lo que
- * espera al usuario en el proyecto abierto (permisos, CI, cuota, tareas).
- * Solo muestra estados que registra el núcleo.
+ * Botón «Necesita atención» de la barra superior: reúne peticiones de permiso
+ * de cualquier proyecto/sesión activa e incidencias del proyecto actual (CI,
+ * pausas, tareas). Siempre identifica proyecto y sesión de origen.
  */
-export default function Attention({ project, projectName, sessions, activity, onSession, onTask, onEntrega, onHome }: {
+export default function Attention({ project, projectName, projects, sessions, allSessions, activity, onSession, onTask, onEntrega, onHome }: {
   project: string | null;
   projectName: string | null;
+  projects?: Project[];
   sessions: Session[];
+  allSessions?: Session[];
   activity: Record<string, string | null>;
-  onSession: (id: number | 'coach') => void;
+  onSession: (id: number | 'coach', sessionProject?: string) => void;
   onTask: (id: number) => void;
   onEntrega: (stage: 'ci' | 'tarea') => void;
   onHome: () => void;
@@ -52,15 +55,43 @@ export default function Attention({ project, projectName, sessions, activity, on
     return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
   }, [open]);
 
+  const projectNames = new Map((projects ?? []).map((p) => [p.path, p.name]));
+  const nameOf = (p: string) => projectNames.get(p) ?? (p === project && projectName ? projectName : p.split(/[\\/]/).filter(Boolean).pop() ?? p);
+  const globalSessions = allSessions ?? sessions;
+
   const items: Item[] = [];
   for (const [key, state] of Object.entries(activity)) {
     if (state !== 'permiso') continue;
-    const s = key === 'coach' ? null : sessions.find((x) => String(x.id) === key);
-    if (key !== 'coach' && !s) continue;
-    items.push({ key: `p${key}`, icon: 'warn', tone: 'warn', text: `${s ? s.name : 'Project manager'} pide permiso`, run: () => onSession(s ? s.id : 'coach') });
+    const pmProj = parsePmActivityKey(key);
+    if (pmProj || key === 'coach') {
+      const targetProject = pmProj ?? project;
+      if (!targetProject) continue;
+      items.push({
+        key: `p:${key}`,
+        icon: 'warn',
+        tone: 'warn',
+        text: `${nameOf(targetProject)} · Project manager pide permiso`,
+        run: () => onSession('coach', targetProject),
+      });
+      continue;
+    }
+    const s = globalSessions.find((x) => String(x.id) === key);
+    if (!s) continue;
+    const label = s.title?.trim() || s.name;
+    items.push({
+      key: `p:${key}`,
+      icon: 'warn',
+      tone: 'warn',
+      text: `${nameOf(s.project)} · ${label} pide permiso`,
+      run: () => onSession(s.id, s.project),
+    });
   }
   if (ci) items.push({ key: 'ci', icon: 'close', tone: 'bad', text: `CI fallido en la PR #${ci.number} (${ci.branch})`, run: () => onEntrega('ci') });
-  for (const s of sessions) if (s.paused) items.push({ key: `z${s.id}`, icon: 'pause', tone: 'mut', text: `${s.name} en pausa · ${s.paused}`, run: () => onSession(s.id) });
+  for (const s of globalSessions) if (s.paused) {
+    const label = s.title?.trim() || s.name;
+    const prefix = s.project !== project ? `${nameOf(s.project)} · ` : '';
+    items.push({ key: `z${s.id}`, icon: 'pause', tone: 'mut', text: `${prefix}${label} en pausa · ${s.paused}`, run: () => onSession(s.id, s.project) });
+  }
   if (work?.state === 'review') items.push({ key: 'w', icon: 'flow', tone: 'warn', text: 'Sesión de trabajo lista para revisar', run: () => onEntrega('tarea') });
   for (const t of list) if (ATTENTION.has(t.status) && t.status !== 'waiting_approval')
     items.push({ key: `t${t.id}`, icon: t.status === 'paused_quota' ? 'pause' : t.status === 'failed' ? 'close' : 'lock', tone: t.status === 'failed' ? 'bad' : 'mut', text: `#${t.id} ${STATUS[t.status]}: ${t.title}`, run: () => onTask(t.id) });

@@ -114,55 +114,325 @@ body { font-size: var(--fs-m); }
 
 svg.ti .n { fill: currentColor; stroke: none; }
 
-/* ── marco: columna de destinos + workspace ────────────────────────── */
-/* La rejilla añade una columna a la izquierda; el resto de columnas del
-   workspace se desplaza una posición. Filas y barra de título, iguales. */
+/* ── marco: barra de herramientas + WorkspaceShell permanente ────────── */
 .app {
-  grid-template-columns: var(--dest-w) var(--side-w, 232px) minmax(0, 1fr) auto auto;
-  --right-width-limit: max(240px, calc(100vw - var(--dest-w) - var(--workspace-sidebar-width) - 292px));
+  grid-template-columns: var(--dest-w) minmax(0, 1fr);
   isolation: isolate;
 }
-.app.no-side { grid-template-columns: var(--dest-w) 0 minmax(0, 1fr) auto auto; }
 html[data-native][data-platform='mac'] .app { background: rgb(6 7 9 / 0.8); }
 html[data-backdrop][data-platform='win'] .app { background: rgb(6 7 9 / 0.74); }
-.app > .sidebar { grid-column: 2; }
-.app > .center { grid-column: 3; }
-.app > .rail { grid-column: 4; }
-.app > .right { grid-column: 5; }
-.splitter.is-side { left: calc(var(--dest-w) + var(--side-w, 232px) - 5px); }
-.app.no-side .center { margin-left: 0; }
-.titlebar, .statusbar, .app > .sidebar, .app > .center, .app > .rail, .app > .right, .tr-dest, .tr-nav { position: relative; z-index: 1; }
-.titlebar { border-bottom: 1px solid var(--line); background: rgb(6 7 9 / 0.4); }
-.statusbar { background: rgb(4 5 6 / 0.6); font: 11.5px var(--mono); color: var(--tx2); }
+.titlebar, .statusbar, .tr-nav, .ws-shell { position: relative; z-index: 1; }
+.titlebar { border-bottom: 0; }
+.statusbar { background: #0c0d0f; border-top: 0; font: 11.5px var(--mono); color: var(--tx2); }
+html.is-light .statusbar { background: var(--frame); }
+@keyframes trIn { from { opacity: 0; transform: translateY(6px); } }
 
-/* Fuera del Workspace sus columnas se ocultan pero conservan su caja,
-   para que Monaco y xterm no pierdan tamaño ni estado. */
-.app.is-dest > .sidebar,
-.app.is-dest > .center,
-.app.is-dest > .rail,
-.app.is-dest > .right,
-.app.is-dest > .splitter.is-side { visibility: hidden; pointer-events: none; }
-.tr-dest {
-  grid-column: 2 / -1;
+/* ── WorkspaceShell: único contenedor central elevado sobre el fondo ── */
+.ws-shell {
+  grid-column: 2;
   grid-row: 2;
+  display: flex;
   min-width: 0;
   min-height: 0;
-  margin: 0 8px 8px 0;
+  margin: 0 8px 6px 0;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  background: rgb(12 14 18 / 0.66);
+  overflow: hidden;
+}
+html.is-light .ws-shell {
+  border-color: var(--line-2);
+  background: rgb(252 252 253 / 0.84);
+}
+.ws-pane {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: width 220ms var(--ease), opacity 180ms var(--ease);
+}
+.ws-shell.is-dragging .ws-pane,
+html[data-motion='reducido'] .ws-pane {
+  transition: none;
+}
+.ws-pane.is-hidden {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  z-index: -1;
+}
+
+.ws-inner {
+  --workspace-sidebar-width: var(--side-w, 232px);
+  --right-width-limit: max(220px, calc(100% - var(--workspace-sidebar-width) - 260px));
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--side-w, 232px) minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr);
+}
+.ws-inner.no-side {
+  --workspace-sidebar-width: 0px;
+  grid-template-columns: 0 minmax(0, 1fr) auto auto;
+}
+.ws-inner > .sidebar { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; }
+.ws-inner > .center { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
+.ws-inner > .rail { grid-column: 3; grid-row: 1; }
+.ws-inner > .right { grid-column: 4; grid-row: 1; }
+.ws-inner > .splitter.is-side { left: calc(var(--side-w, 232px) - 5px); }
+.ws-inner.no-side:not(.has-side-drawer) > .sidebar { visibility: hidden; pointer-events: none; overflow: hidden; }
+.ws-inner.no-side > .center { margin-left: 0; }
+.ws-inner.is-wide > .right {
+  width: min(max(var(--git-w, 360px), min(760px, 50%)), var(--right-width-limit));
+}
+.ws-inner > .right {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+/* En vista dividida estrecha, el cajón de conversaciones flota sin aplastar el chat. */
+.ws-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgb(6 7 9 / 0.54);
+  backdrop-filter: blur(2px);
+}
+.ws-inner.has-side-drawer > .sidebar {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  z-index: 25;
+  width: min(260px, 82%);
+  background: rgb(14 15 19 / 0.97);
+  border-right: 1px solid var(--line-2);
+  box-shadow: 18px 0 44px -16px rgb(0 0 0 / 0.85);
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* Divisor central entre Workspace y herramienta acoplada */
+.ws-splitter {
+  flex: none;
+  width: 8px;
+  position: relative;
+  z-index: 12;
+  cursor: col-resize;
+  outline: none;
+}
+.ws-splitter::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--line);
+  transition: background 140ms var(--ease), width 140ms var(--ease);
+}
+.ws-splitter:hover::after,
+.ws-splitter:focus-visible::after,
+.ws-shell.is-dragging .ws-splitter::after {
+  width: 2px;
+  background: var(--skyhi);
+}
+
+/* Columna compacta de Workspace minimizado (recuperable en un clic) */
+.ws-compact {
+  flex: none;
+  width: 52px;
+  padding: 0;
+  border-right: 1px solid var(--line);
+  display: flex;
+  min-height: 0;
+}
+.ws-compact-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 6px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tx2);
+  transition: background 150ms var(--ease), color 150ms var(--ease);
+}
+.ws-compact-btn:hover,
+.ws-compact-btn:focus-visible {
+  outline: none;
+  background: var(--hover);
+  box-shadow: none;
+  color: var(--tx);
+}
+.ws-compact-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.ws-compact-sigil {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: block;
+}
+.ws-compact-sigil canvas { width: 100%; height: 100%; display: block; }
+.ws-compact-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.ws-compact-expand {
+  color: var(--tx3);
+  display: grid;
+  place-items: center;
+}
+.ws-compact-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.ws-compact-idle-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tx4);
+}
+.ws-compact-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  font: 600 10px var(--mono);
+}
+.ws-compact-badge.is-warn { background: var(--amber); color: #161108; }
+.ws-compact-badge.is-live { background: rgb(157 182 255 / 0.18); color: var(--skyhi); box-shadow: inset 0 0 0 1px rgb(157 182 255 / 0.35); }
+.ws-compact-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-height: 220px;
+}
+
+/* ToolPane acoplable (comparte el marco único de .ws-shell, sin cabecera de subventana) */
+.tool-pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: var(--r-l);
-  background: var(--glass);
-  box-shadow: inset 0 0 0 1px var(--line);
-  animation: trIn var(--d3) var(--ease);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: wsToolIn 220ms var(--ease);
 }
-.tr-dest[hidden] { display: none; }
-.app:not(.is-dest) > :is(.center, .sidebar, .rail, .right) {
-  animation: trIn var(--d3) var(--ease);
+.tool-pane.is-dormant {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+  animation: none;
 }
-@keyframes trIn { from { opacity: 0; transform: translateY(6px); } }
+@keyframes wsToolIn {
+  from { opacity: 0; transform: translateX(10px); }
+}
+html[data-motion='reducido'] .tool-pane {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-pane { transition: none; }
+  .tool-pane { animation: none; }
+}
+/* Único control flotante y discreto para colapsar Workspace a columna compacta */
+.tool-ws-min {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 40;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--tx3);
+  background: rgb(14 15 19 / 0.56);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  backdrop-filter: blur(10px);
+  opacity: 0.72;
+  transition: opacity 140ms var(--ease), background 140ms var(--ease), color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+.tool-ws-min:hover,
+.tool-ws-min:focus-visible {
+  outline: none;
+  opacity: 1;
+  color: var(--tx);
+  background: rgb(26 28 34 / 0.84);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+html.is-light .tool-ws-min {
+  background: rgb(255 255 255 / 0.72);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+html.is-light .tool-ws-min:hover,
+html.is-light .tool-ws-min:focus-visible {
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.16);
+}
+/* Espacio reservado a la derecha en las cabeceras propias de cada vista cuando el botón flotante está visible */
+.tool-pane.has-ws-min .flowh,
+.tool-pane.has-ws-min .brainh,
+.tool-pane.has-ws-min .pipe,
+.tool-pane.has-ws-min .studio-views,
+.tool-pane.has-ws-min .browser-bar,
+.tool-pane.has-ws-min .tool-containers {
+  padding-right: 48px;
+}
+.tool-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+.tool-body > .browser-panel {
+  flex: 1;
+  min-height: 0;
+}
+.tool-containers {
+  padding: 16px 20px;
+  overflow: auto;
+}
 
-/* columna de destinos */
+/* columna de herramientas (sin Workspace) */
 .tr-nav {
   grid-column: 1;
   grid-row: 2 / 3;
@@ -184,9 +454,12 @@ html[data-backdrop][data-platform='win'] .app { background: rgb(6 7 9 / 0.74); }
   transition: color var(--d2) var(--ease), background var(--d2) var(--ease);
 }
 .tr-nb .ti { width: 19px; height: 19px; }
-.tr-nb:hover { color: var(--tx); background: rgb(255 255 255 / 0.05); }
-.tr-nb[aria-current='page'] { color: var(--tx); background: rgb(255 255 255 / 0.07); box-shadow: inset 0 0 0 1px var(--line-2); }
-.tr-nb[aria-current='page']::before {
+.tr-nb:hover:not(:disabled) { color: var(--tx); background: rgb(255 255 255 / 0.05); }
+.tr-nb:disabled { opacity: 0.35; cursor: default; }
+.tr-nb.is-active,
+.tr-nb[aria-pressed='true'] { color: var(--tx); background: rgb(255 255 255 / 0.07); box-shadow: inset 0 0 0 1px var(--line-2); }
+.tr-nb.is-active::before,
+.tr-nb[aria-pressed='true']::before {
   content: '';
   position: absolute;
   left: -9px;
@@ -496,11 +769,11 @@ html:not([data-motion='reducido']) .co-approval { animation: trPop var(--d2) var
 /* iconos solos, como en el Artifact */
 .center { container-type: inline-size; }
 /* Código: el editor ocupa el área del chat; la conversación sigue montada. */
-.app.lay-code > .right { grid-column: 3; width: auto; margin: 0 0 8px; transition: none; }
-.app.lay-code > .center { visibility: hidden; }
-.app.lay-code > .right > .splitter { display: none; }
-.app.lay-code.no-side > .right { margin-left: 8px; }
-.ws-back { grid-column: 3; grid-row: 2; justify-self: end; align-self: start; margin: 7px 10px 0 0; z-index: 3; background: var(--glass3); }
+.ws-inner.lay-code > .right { grid-column: 2; width: auto; margin: 0; transition: none; box-shadow: none; }
+.ws-inner.lay-code > .center { visibility: hidden; }
+.ws-inner.lay-code > .right > .splitter { display: none; }
+.ws-inner.lay-code.no-side > .right { margin-left: 0; }
+.ws-back { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; margin: 7px 10px 0 0; z-index: 3; background: var(--glass3); }
 
 /* ── Flow ──────────────────────────────────────────────────────────── */
 .tr-flow .tr-head { flex-wrap: wrap; }

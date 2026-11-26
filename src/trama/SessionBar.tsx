@@ -3,37 +3,48 @@ import { listen } from '@tauri-apps/api/event';
 import { api, git, sessions, workSessions, type GitStatus, type WorkSession } from '../ipc';
 import { Icon } from './icons';
 
-/** Nivel de permisos de una sesión (ver src-tauri/src/autoapprove.rs). */
+/** Nivel de permisos de una sesión o del Project manager (ver src-tauri/src/autoapprove.rs). */
 export type PermissionMode = 'ask' | 'auto' | 'full';
 const MODES: { id: PermissionMode; label: string; icon: string; text: string }[] = [
-  { id: 'ask', label: 'Pedir permiso', icon: 'lock', text: 'Cada petición del agente te llega para aprobarla o rechazarla.' },
-  { id: 'auto', label: 'Automático', icon: 'shield', text: 'Aprueba solo lecturas y ediciones dentro de la carpeta de la sesión. Terminal, red, borrados y lo que salga de la carpeta siguen preguntando.' },
-  { id: 'full', label: 'Acceso total', icon: 'unlock', text: 'Aprueba cualquier petición del agente en esta sesión, también fuera de su carpeta. Úsalo solo si confías en el encargo.' },
+  { id: 'ask', label: 'Con autorización', icon: 'lock', text: 'Cada petición del agente te llega para aprobarla o rechazarla.' },
+  { id: 'auto', label: 'Auto', icon: 'shield', text: 'Aprueba lecturas y ediciones dentro de la carpeta del proyecto. Terminal, red, borrados y lo que salga de la carpeta siguen preguntando.' },
+  { id: 'full', label: 'Full control', icon: 'unlock', text: 'Aprueba cualquier petición del agente en este chat, también fuera de su carpeta. Úsalo solo si confías en el encargo.' },
 ];
-const KEY = (id: number) => `filigranas.permisos.${id}`;
+const KEY = (scope: string) => `filigranas.permisos.${scope}`;
 
-function readMode(id: number): PermissionMode {
-  try { const v = localStorage.getItem(KEY(id)); return v === 'auto' || v === 'full' ? v : 'ask'; } catch { return 'ask'; }
+function readMode(scope: string, fallbackScope?: string): PermissionMode {
+  try {
+    const v = localStorage.getItem(KEY(scope));
+    if (v === 'auto' || v === 'full' || v === 'ask') return v;
+    if (fallbackScope) {
+      const parent = localStorage.getItem(KEY(fallbackScope));
+      if (parent === 'auto' || parent === 'full') return parent;
+    }
+    return 'ask';
+  } catch {
+    return 'ask';
+  }
 }
 
-/** Nivel guardado de la sesión; se vuelve a fijar en el núcleo al abrirla. */
-export function usePermissionMode(id: number | null) {
-  const [mode, setModeState] = useState<PermissionMode>(() => id == null ? 'ask' : readMode(id));
+/** Nivel guardado del chat; se vuelve a fijar en el núcleo al abrirlo. */
+export function usePermissionMode(id: number | null, project: string | null = null, storageScope?: string, fallbackScope?: string) {
+  const scope = storageScope ?? (id != null ? String(id) : project ? `pm:${project}` : null);
+  const [mode, setModeState] = useState<PermissionMode>(() => scope == null ? 'ask' : readMode(scope, fallbackScope));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (id == null) return;
-    const saved = readMode(id);
+    if (scope == null || (id == null && !project)) return;
+    const saved = readMode(scope, fallbackScope);
     setModeState(saved);
-    sessions.permissionMode(id, saved).catch((e) => setError(String(e)));
-  }, [id]);
+    sessions.permissionMode(id, saved, id == null ? project : null).catch((e) => setError(String(e)));
+  }, [id, project, scope, fallbackScope]);
   const setMode = useCallback((next: PermissionMode) => {
-    if (id == null) return;
-    sessions.permissionMode(id, next).then(() => {
+    if (scope == null || (id == null && !project)) return;
+    sessions.permissionMode(id, next, id == null ? project : null).then(() => {
       setModeState(next);
       setError(null);
-      try { if (next === 'ask') localStorage.removeItem(KEY(id)); else localStorage.setItem(KEY(id), next); } catch { /* sin almacenamiento */ }
+      try { if (next === 'ask') localStorage.removeItem(KEY(scope)); else localStorage.setItem(KEY(scope), next); } catch { /* sin almacenamiento */ }
     }, (e) => setError(String(e)));
-  }, [id]);
+  }, [id, project, scope]);
   return { mode, setMode, error };
 }
 
@@ -52,18 +63,23 @@ function useOutside(open: boolean, close: () => void) {
   return ref;
 }
 
-/** Chip de permisos de la barra del compositor. */
+/** Chip de modo de trabajo (permisos) de la barra del compositor. */
 export function PermissionChip({ mode, onMode, disabled }: { mode: PermissionMode; onMode: (m: PermissionMode) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const current = MODES.find((m) => m.id === mode)!;
   return (
     <div className="sb-wrap" ref={ref}>
-      <button type="button" className={`chip sb-perm is-${mode}`} aria-haspopup="menu" aria-expanded={open} disabled={disabled}
-        title={current.text} onClick={() => setOpen(!open)}>
-        <Icon name={current.icon} size={12} />{current.label}
+      <button type="button" className={`chip cm-trigger sb-perm is-${mode}${open ? ' is-open' : ''}`} aria-haspopup="menu" aria-expanded={open} disabled={disabled}
+        aria-label={`Modo de trabajo: ${current.label}`} title={current.text} onClick={() => setOpen(!open)}>
+        <Icon name={current.icon} size={12} />
+        <span>{current.label}</span>
+        <svg className="cm-caret" width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+          <path d="M2.5 6.2 5 3.8l2.5 2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
       </button>
-      {open && <div className="sb-menu up" role="menu" aria-label="Permisos de la sesión">
+      {open && <div className="sb-menu up" role="menu" aria-label="Modo de trabajo del modelo">
+        <div className="cm-heading">Modo de trabajo</div>
         {MODES.map((m) => <button key={m.id} type="button" role="menuitemradio" aria-checked={m.id === mode} className={`sb-item is-${m.id}`}
           onClick={() => { onMode(m.id); setOpen(false); }}>
           <Icon name={m.icon} size={14} /><span className="sb-text"><b>{m.label}</b><small>{m.text}</small></span>{m.id === mode && <Icon name="check" size={13} />}

@@ -162,7 +162,7 @@ export default function Flow({ project, projectName, initialTask, agentSessions,
     taskApi.link(project, task, session).then(() => setRefresh((count) => count + 1), (e) => setError(String(e)));
   };
 
-  const agents = useMemo(() => sessionAgents(agentSessions.filter((session) => session.project === project), activity, pm), [agentSessions, activity, pm, project]);
+  const agents = useMemo(() => sessionAgents(agentSessions.filter((session) => session.project === project), activity, pm, project), [agentSessions, activity, pm, project]);
   const model = useMemo<FModel | null>(() => demo ? demoModel() : snapshot ? realModel(snapshot.tasks, snapshot.runs, agents) : null, [demo, snapshot, agents]);
   const c = useMemo(() => { const k: Record<FStatus, number> = { done: 0, running: 0, waiting: 0, blocked: 0, backlog: 0 }; model?.tasks.forEach((t) => k[t.status]++); return k; }, [model]);
   const pick = (id: string | null) => { setSel(id); if (id) setInspOpen(true); };

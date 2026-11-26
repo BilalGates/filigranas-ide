@@ -3,6 +3,7 @@ import type { Session } from '../ipc';
 import { useUi } from '../ui';
 import { Icon } from './icons';
 import { useMotion } from './motion';
+import { pmActivityKey } from './workspaceContext';
 
 // Piezas comunes de Trama v2 portadas del Artifact (marcado y clases iguales,
 // datos reales). Los estilos viven en artifact.css (ámbito .tv).
@@ -14,19 +15,36 @@ const HUES = ['#b09cff', '#8fc4ff', '#7fe3c4', '#ffc27a', '#7fd6ff', '#ffd9a0', 
 /** Agente real: el PM o una sesión abierta, con su estado de actividad. */
 export type Agent = { id: string; session: number | null; name: string; engine: string; h: string; state: AgState; did: string; branch: string | null };
 
-export function sessionAgents(sessions: Session[], activity: Record<string, 'trabajando' | 'permiso' | null>, pm: { engine: string } | null): Agent[] {
+export function sessionAgents(
+  sessions: Session[],
+  activity: Record<string, 'trabajando' | 'permiso' | null>,
+  pm: { engine: string } | null,
+  project?: string | null,
+): Agent[] {
   const out: Agent[] = [];
-  const st = (key: string): AgState => activity[key] === 'trabajando' ? 'working' : activity[key] === 'permiso' ? 'waiting' : 'idle';
+  const st = (key: string, backend?: Session['status']): AgState => {
+    if (activity[key] === 'permiso' || backend === 'esperando') return 'waiting';
+    if (activity[key] === 'trabajando' || backend === 'trabajando') return 'working';
+    if (backend === 'terminada') return 'done';
+    return 'idle';
+  };
   if (pm) {
-    const s = st('coach');
+    const pmKey = project ? pmActivityKey(project) : 'coach';
+    const s = st(pmKey);
     out.push({ id: 'pm', session: null, name: 'Project manager', engine: pm.engine, h: '#7aa2ff', state: s === 'working' ? 'thinking' : s, did: s === 'idle' ? 'En espera' : STATE_LABEL[s === 'working' ? 'thinking' : s], branch: null });
   }
   sessions.forEach((x, i) => {
-    const s = st(String(x.id));
+    const s = st(String(x.id), x.status);
     const engine = x.engine === 'claude' ? 'Claude' : x.engine === 'codex' ? 'Codex' : x.engine;
+    const label = x.title?.trim() || x.name;
     out.push({
-      id: String(x.id), session: x.id, name: `${x.name} · ${engine}`, engine, h: HUES[i % HUES.length], state: x.paused ? 'paused' : s,
-      did: x.paused ? 'En pausa' : s === 'working' ? (x.branch ? `Trabajando en ${x.branch}` : 'Trabajando') : s === 'waiting' ? 'Espera tu permiso' : x.worktree ? `En reposo · ${x.branch ?? 'worktree'}` : 'En reposo',
+      id: String(x.id), session: x.id, name: `${label} · ${engine}`, engine, h: HUES[i % HUES.length], state: x.paused ? 'paused' : s,
+      did: x.paused ? 'En pausa'
+        : s === 'working' ? (x.branch && x.parentSession == null ? `Trabajando en ${x.branch}` : 'Trabajando')
+        : s === 'waiting' ? 'Espera tu permiso'
+        : s === 'done' ? 'Terminada'
+        : x.parentSession != null ? 'En espera'
+        : x.worktree ? `En reposo · ${x.branch ?? 'worktree'}` : 'En reposo',
       branch: x.branch,
     });
   });
@@ -75,8 +93,8 @@ export function Sigil({ name }: { name: string }) {
       if (z < 0.5) continue;
       c.fillStyle = `rgb(${r | 0},${g | 0},${bb | 0})`; c.fillRect(x + (4 - z) / 2, y + (4 - z) / 2, z, z);
     }
-    c.fillStyle = 'rgba(255,255,255,.92)'; c.font = '600 22px -apple-system,Inter,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText((name[0] ?? '?').toUpperCase(), W / 2, H / 2 + 1);
+    c.fillStyle = 'rgba(255,255,255,.94)'; c.font = '500 30px "Libre Caslon Condensed",Georgia,serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText((name[0] ?? '?').toUpperCase(), W / 2, H / 2 + 2);
   }, [name]);
   return <canvas ref={ref} aria-hidden="true" />;
 }
@@ -91,17 +109,37 @@ export function EmptyArt() {
   );
 }
 
-/** Raíz de un destino: clases de tamaño y movimiento del Artifact. */
-export function useTv() {
+/** Raíz de una herramienta: adapta sus clases al ancho real de su contenedor. */
+export function useTv(width?: number) {
   const m = useMotion();
-  const [w, setW] = useState(() => window.innerWidth);
-  useEffect(() => { const on = () => setW(window.innerWidth); window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
+  const [winW, setWinW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    if (width !== undefined) return;
+    const on = () => setWinW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, [width]);
+  const w = width ?? winW;
   const reduced = m.systemReduced || m.motion === 'reducido';
-  return `tv tr-root${w < 1100 ? ' w-narrow' : ''}${w < 900 ? ' w-tiny' : ''}${reduced ? ' reduced' : ''}`;
+  return `tv tr-root${w < 1040 ? ' w-narrow' : ''}${w < 780 ? ' w-tiny' : ''}${reduced ? ' reduced' : ''}`;
 }
 export function Root({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
-  const cls = useTv();
-  return <main className={`${cls} ${className}`} aria-label={label}>{children}</main>;
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const next = Math.round(el.getBoundingClientRect().width);
+      if (next > 0) setWidth(next);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const cls = useTv(width);
+  return <div ref={ref} className={`${cls} ${className}`} role="region" aria-label={label}>{children}</div>;
 }
 export function useAgentsActivity() { return useUi().activity; }
 

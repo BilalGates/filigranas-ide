@@ -235,6 +235,6 @@ function Look() {
     <div className="srow"><div><div className="t">Intensidad del campo ambiental {sc('g')}</div><div className="d">Luz de actividad tras el vidrio</div></div><input type="range" min={0} max={1.6} step={0.1} value={m.intensity} onChange={(e) => setFieldIntensity(Number(e.currentTarget.value))} aria-label="Intensidad del campo" disabled={m.motion !== 'completo' || m.systemReduced} /></div>
     <div className="srow"><div><div className="t">Tema {sc('g')}</div><div className="d">Oscuro o claro ({shortcut('⌘⇧L')})</div></div>
       <div className="seg" role="radiogroup" aria-label="Tema">{[['oscuro', 'Oscuro'], ['claro', 'Claro']].map(([id, l]) => <button key={id} className={(light ? 'claro' : 'oscuro') === id ? 'on' : ''} role="radio" aria-checked={(light ? 'claro' : 'oscuro') === id} onClick={() => setLightTheme(id === 'claro')}>{l}</button>)}</div></div>
-    <div className="srow"><div><div className="t">Tipografía</div><div className="d">SF Pro para la interfaz (13 px base, 14 px lectura) · JetBrains Mono en las vistas de Trama: diffs, rutas, cifras y lienzos · Iosevka en el editor y el terminal</div></div><span className="mono">JetBrains Mono · Iosevka</span></div>
+    <div className="srow"><div><div className="t">Tipografía</div><div className="d">Libre Caslon Condensed en títulos y encabezados · Bricolage Grotesque en la interfaz (13 px base, 14 px lectura) · JetBrains Mono en las vistas de Trama · Iosevka en el editor y el terminal</div></div><span className="mono">Caslon · Bricolage · Mono</span></div>
   </>;
 }

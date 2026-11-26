@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use crate::{db, err, workspace::project_path, AppState, CmdResult};
 
@@ -202,57 +202,63 @@ fn write(conn: &rusqlite::Connection, project: &str, services: &[Service]) -> Cm
 }
 
 #[tauri::command]
-pub fn services_list(state: State<AppState>, project: String, logs_for: Option<String>) -> CmdResult<Vec<ServiceView>> {
-    let (project, services) = {
-        let conn = state.db.lock().map_err(err)?;
-        let project = project_path(&conn, &project)?;
-        let services = read(&conn, &project)?;
-        (project, services)
-    };
-    let registry = state.services.projects.lock().map_err(err)?;
-    let processes = registry.get(&project);
-    services.into_iter().map(|service| {
-        let show_logs = logs_for.as_deref() == Some(&service.id);
-        let mut view = ServiceView { service, state: "stopped", pid: None, exit_code: None, logs: None };
-        if let Some(process) = processes.and_then(|p| p.get(&view.service.id)) {
-            let process = process.lock().map_err(err)?;
-            view.state = process.state;
-            view.pid = process.child.as_ref().map(Child::id);
-            view.exit_code = process.exit_code;
-            if show_logs {
-                let mut logs = process.logs.lock().map_err(err)?;
-                view.logs = Some(String::from_utf8_lossy(logs.make_contiguous()).into_owned());
+pub async fn services_list(app: AppHandle, project: String, logs_for: Option<String>) -> CmdResult<Vec<ServiceView>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (project, services) = {
+            let conn = state.db.lock().map_err(err)?;
+            let project = project_path(&conn, &project)?;
+            let services = read(&conn, &project)?;
+            (project, services)
+        };
+        let registry = state.services.projects.lock().map_err(err)?;
+        let processes = registry.get(&project);
+        services.into_iter().map(|service| {
+            let show_logs = logs_for.as_deref() == Some(&service.id);
+            let mut view = ServiceView { service, state: "stopped", pid: None, exit_code: None, logs: None };
+            if let Some(process) = processes.and_then(|p| p.get(&view.service.id)) {
+                let process = process.lock().map_err(err)?;
+                view.state = process.state;
+                view.pid = process.child.as_ref().map(Child::id);
+                view.exit_code = process.exit_code;
+                if show_logs {
+                    let mut logs = process.logs.lock().map_err(err)?;
+                    view.logs = Some(String::from_utf8_lossy(logs.make_contiguous()).into_owned());
+                }
             }
-        }
-        Ok(view)
-    }).collect()
+            Ok(view)
+        }).collect()
+    }).await.map_err(err)?
 }
 
 #[tauri::command]
-pub fn service_save(state: State<AppState>, project: String, form: ServiceForm) -> CmdResult<String> {
-    let conn = state.db.lock().map_err(err)?;
-    let project = project_path(&conn, &project)?;
-    let mut services = read(&conn, &project)?;
-    let name = form.name.trim();
-    let command = form.command.trim();
-    if name.is_empty() || name.len() > 120 || command.is_empty() || command.len() > 8192 || form.port == Some(0) {
-        return Err("Comprueba el nombre, el comando y el puerto.".into());
-    }
-    if services.iter().any(|s| Some(&s.id) != form.id.as_ref() && s.name.to_lowercase() == name.to_lowercase()) {
-        return Err("Ya existe un servicio con ese nombre.".into());
-    }
-    let registry = state.services.projects.lock().map_err(err)?;
-    let id = form.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let service = Service { id: id.clone(), name: name.into(), command: command.into(), port: form.port };
-    if form.id.is_some() {
-        let existing = services.iter_mut().find(|s| s.id == id).ok_or("Servicio desconocido")?;
-        require_stopped(registry.get(&project), &id)?;
-        *existing = service;
-    } else {
-        services.push(service);
-    }
-    write(&conn, &project, &services)?;
-    Ok(id)
+pub async fn service_save(app: AppHandle, project: String, form: ServiceForm) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        let project = project_path(&conn, &project)?;
+        let mut services = read(&conn, &project)?;
+        let name = form.name.trim();
+        let command = form.command.trim();
+        if name.is_empty() || name.len() > 120 || command.is_empty() || command.len() > 8192 || form.port == Some(0) {
+            return Err("Comprueba el nombre, el comando y el puerto.".into());
+        }
+        if services.iter().any(|s| Some(&s.id) != form.id.as_ref() && s.name.to_lowercase() == name.to_lowercase()) {
+            return Err("Ya existe un servicio con ese nombre.".into());
+        }
+        let registry = state.services.projects.lock().map_err(err)?;
+        let id = form.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let service = Service { id: id.clone(), name: name.into(), command: command.into(), port: form.port };
+        if form.id.is_some() {
+            let existing = services.iter_mut().find(|s| s.id == id).ok_or("Servicio desconocido")?;
+            require_stopped(registry.get(&project), &id)?;
+            *existing = service;
+        } else {
+            services.push(service);
+        }
+        write(&conn, &project, &services)?;
+        Ok(id)
+    }).await.map_err(err)?
 }
 
 fn require_stopped(processes: Option<&HashMap<String, ProcessRef>>, id: &str) -> CmdResult<()> {
@@ -271,33 +277,37 @@ fn require_stopped(processes: Option<&HashMap<String, ProcessRef>>, id: &str) ->
 pub enum ServiceAction { Start, Stop, Restart, Remove }
 
 #[tauri::command]
-pub fn service_action(state: State<AppState>, project: String, id: String, action: ServiceAction) -> CmdResult<()> {
-    let conn = state.db.lock().map_err(err)?;
-    let project = project_path(&conn, &project)?;
-    let mut services = read(&conn, &project)?;
-    let index = services.iter().position(|s| s.id == id).ok_or("Servicio desconocido")?;
-    let mut registry = state.services.projects.lock().map_err(err)?;
-    let processes = registry.entry(project.clone()).or_default();
-    if matches!(action, ServiceAction::Remove) {
-        require_stopped(Some(processes), &id)?;
-        services.remove(index);
-        write(&conn, &project, &services)?;
-        processes.remove(&id);
-        return Ok(());
-    }
-    if let Some(process) = processes.get(&id) {
-        let mut process = process.lock().map_err(err)?;
-        process.refresh()?;
-        match action {
-            ServiceAction::Start if process.child.is_some() => return Ok(()),
-            ServiceAction::Stop | ServiceAction::Restart => process.stop()?,
-            _ => {}
+pub async fn service_action(app: AppHandle, project: String, id: String, action: ServiceAction) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        let project = project_path(&conn, &project)?;
+        let mut services = read(&conn, &project)?;
+        let index = services.iter().position(|s| s.id == id).ok_or("Servicio desconocido")?;
+        let mut registry = state.services.projects.lock().map_err(err)?;
+        let processes = registry.entry(project.clone()).or_default();
+        if matches!(action, ServiceAction::Remove) {
+            require_stopped(Some(processes), &id)?;
+            services.remove(index);
+            write(&conn, &project, &services)?;
+            processes.remove(&id);
+            return Ok(());
         }
-    }
-    if matches!(action, ServiceAction::Start | ServiceAction::Restart) {
-        processes.insert(id, start(&project, &services[index])?);
-    }
-    Ok(())
+        drop(conn);
+        if let Some(process) = processes.get(&id) {
+            let mut process = process.lock().map_err(err)?;
+            process.refresh()?;
+            match action {
+                ServiceAction::Start if process.child.is_some() => return Ok(()),
+                ServiceAction::Stop | ServiceAction::Restart => process.stop()?,
+                _ => {}
+            }
+        }
+        if matches!(action, ServiceAction::Start | ServiceAction::Restart) {
+            processes.insert(id, start(&project, &services[index])?);
+        }
+        Ok(())
+    }).await.map_err(err)?
 }
 
 #[cfg(all(test, unix))]

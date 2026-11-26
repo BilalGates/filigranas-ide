@@ -488,20 +488,23 @@ fn publish(repo: &Path, remote: &Github<'_>, edit: &Publish, confirm: impl FnOnc
 }
 
 #[tauri::command]
-pub fn pr_review_publish(state: tauri::State<AppState>, path: String, session: Option<i64>, edit: Publish) -> CmdResult<Review> {
-    let project = project(&state, &path)?;
-    let dir = crate::isolate::work_dir(&state, &project, session)?;
-    let target = Target::read(&dir)?;
-    crate::work::publication(&*state.db.lock().map_err(err)?, &project, &dir, &edit.base)?;
-    if target.branch != edit.expected_branch || target.head != edit.expected_head || target.repository != edit.expected_repository {
-        return Err("la rama, el commit o el repositorio cambió. Vuelve a revisar el borrador".into());
-    }
-    let pending = publication_attempt(&project, &target, &edit.base).pending(&*state.db.lock().map_err(err)?)?;
-    let mut message = format!("Publicar en {} · {} → {} · {}", target.repository, target.branch, edit.base, target.head);
-    if pending {
-        message.push_str("\nEl intento anterior quedó sin confirmar. Se buscará la PR en GitHub antes de intentar abrirla de nuevo.");
-    }
-    state.approvals.prepare(("pr_publish", &project, session, &target, &edit, pending), message, &target.head)
+pub async fn pr_review_publish(app: AppHandle, path: String, session: Option<i64>, edit: Publish) -> CmdResult<Review> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let project = project(&state, &path)?;
+        let dir = crate::isolate::work_dir(&state, &project, session)?;
+        let target = Target::read(&dir)?;
+        crate::work::publication(&*state.db.lock().map_err(err)?, &project, &dir, &edit.base)?;
+        if target.branch != edit.expected_branch || target.head != edit.expected_head || target.repository != edit.expected_repository {
+            return Err("la rama, el commit o el repositorio cambió. Vuelve a revisar el borrador".into());
+        }
+        let pending = publication_attempt(&project, &target, &edit.base).pending(&*state.db.lock().map_err(err)?)?;
+        let mut message = format!("Publicar en {} · {} → {} · {}", target.repository, target.branch, edit.base, target.head);
+        if pending {
+            message.push_str("\nEl intento anterior quedó sin confirmar. Se buscará la PR en GitHub antes de intentar abrirla de nuevo.");
+        }
+        state.approvals.prepare(("pr_publish", &project, session, &target, &edit, pending), message, &target.head)
+    }).await.map_err(err)?
 }
 
 #[tauri::command]
@@ -616,16 +619,19 @@ pub fn merged_worktree(conn: &Connection, session: &crate::db::Session) -> CmdRe
 }
 
 #[tauri::command]
-pub fn pr_review_merge(state: tauri::State<AppState>, path: String, session: Option<i64>, edit: Merge) -> CmdResult<Review> {
-    let project = project(&state, &path)?;
-    let dir = crate::isolate::work_dir(&state, &project, session)?;
-    let target = Target::read(&dir)?;
-    let conn = state.db.lock().map_err(err)?;
-    let known = github::pulls(&conn, &project, Some(&target.repository), &target.branch)?
-        .into_iter().find(|pull| pull.number == edit.number && pull.head == edit.head && pull.base == edit.base && pull.merge_ready())
-        .ok_or("actualiza el estado de la PR antes de revisar el merge")?;
-    state.approvals.prepare(("pr_merge", &project, session, &target, &edit),
-        format!("Fusionar {}/#{} hacia {} · {} · {}", target.repository, known.number, edit.base, edit.head, edit.method), &edit.head)
+pub async fn pr_review_merge(app: AppHandle, path: String, session: Option<i64>, edit: Merge) -> CmdResult<Review> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let project = project(&state, &path)?;
+        let dir = crate::isolate::work_dir(&state, &project, session)?;
+        let target = Target::read(&dir)?;
+        let conn = state.db.lock().map_err(err)?;
+        let known = github::pulls(&conn, &project, Some(&target.repository), &target.branch)?
+            .into_iter().find(|pull| pull.number == edit.number && pull.head == edit.head && pull.base == edit.base && pull.merge_ready())
+            .ok_or("actualiza el estado de la PR antes de revisar el merge")?;
+        state.approvals.prepare(("pr_merge", &project, session, &target, &edit),
+            format!("Fusionar {}/#{} hacia {} · {} · {}", target.repository, known.number, edit.base, edit.head, edit.method), &edit.head)
+    }).await.map_err(err)?
 }
 
 #[tauri::command]

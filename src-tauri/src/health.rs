@@ -262,15 +262,18 @@ pub async fn health_list(app: AppHandle, project: String, session: Option<i64>) 
 }
 
 #[tauri::command]
-pub fn health_file(state: State<AppState>, project: String, session: Option<i64>, path: String) -> CmdResult<String> {
-    let conn = state.db.lock().map_err(err)?;
-    let (project, item) = stored_scope(&conn, &project, session)?;
-    let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
-    drop(conn);
-    let path = relative(&path).ok_or("ruta del hallazgo inválida")?;
-    let root = Path::new(&cwd);
-    let target = crate::paths::inside(root, &root.join(path))?;
-    Ok(crate::paths::to_string(&target))
+pub async fn health_file(app: AppHandle, project: String, session: Option<i64>, path: String) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        let (project, item) = stored_scope(&conn, &project, session)?;
+        let cwd = item.as_ref().map_or(project.as_str(), |item| item.cwd());
+        drop(conn);
+        let path = relative(&path).ok_or("ruta del hallazgo inválida")?;
+        let root = Path::new(&cwd);
+        let target = crate::paths::inside(root, &root.join(path))?;
+        Ok(crate::paths::to_string(&target))
+    }).await.map_err(err)?
 }
 
 #[tauri::command]

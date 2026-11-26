@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 
 use crate::approval::{Proof, Review};
 
@@ -112,11 +112,14 @@ impl PushPlan {
 }
 
 #[tauri::command]
-pub fn git_review_push(state: State<AppState>, project: String, set_upstream: bool) -> Result<Review, String> {
-    let path = crate::isolate::work_dir(&state, &project, None)?;
-    let plan = PushPlan::read(&path, set_upstream)?;
-    state.approvals.prepare(("git_push", &path, &plan),
-        format!("Publicar {} → {}/{} · {}", plan.branch, plan.label(), plan.dest, plan.head), &plan.head)
+pub async fn git_review_push(app: AppHandle, project: String, set_upstream: bool) -> Result<Review, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = crate::isolate::work_dir(&state, &project, None)?;
+        let plan = PushPlan::read(&path, set_upstream)?;
+        state.approvals.prepare(("git_push", &path, &plan),
+            format!("Publicar {} → {}/{} · {}", plan.branch, plan.label(), plan.dest, plan.head), &plan.head)
+    }).await.map_err(err)?
 }
 
 #[tauri::command]

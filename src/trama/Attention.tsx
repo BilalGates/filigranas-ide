@@ -69,8 +69,8 @@ export default function Attention({ project, projectName, sessions, activity, on
   return (
     <div className="attn-wrap" ref={root}>
       <button className={`tb-btn tb-attention${open ? ' is-on' : ''}`} aria-haspopup="menu" aria-expanded={open}
-        aria-label={items.length ? `Necesita atención · ${items.length} pendientes` : 'Necesita atención'} title="Necesita atención" onClick={() => setOpen(!open)}>
-        <Icon name="signal" size={16} />{items.length > 0 && <span className={`dot ${urgent ? 'is-permiso' : 'is-mut'}`} aria-hidden="true" />}
+        aria-label={items.length ? `Necesita atención · ${items.length} pendientes` : 'Necesita atención'} title={items.length ? `${items.length} ${items.length === 1 ? 'cosa espera' : 'cosas esperan'} tu atención` : 'Nada pendiente'} onClick={() => setOpen(!open)}>
+        <Icon name="bell" size={15} />{items.length > 0 && <span className={`attn-count${urgent ? ' is-urgent' : ''}`} aria-hidden="true">{items.length > 9 ? '9+' : items.length}</span>}
       </button>
       {open && <div className="attn-menu" role="menu" aria-label="Necesita atención">
         <div className="attn-head">Necesita atención</div>

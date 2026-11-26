@@ -911,7 +911,6 @@ html[data-resizing] .right {
   padding-block: 8px;
 }
 .usage-popup .co-log { padding: 8px 14px 14px; }
-.usage-popup .tool-row { flex-wrap: wrap; }
 .usage-tools {
   display: flex;
   align-items: center;
@@ -1506,22 +1505,148 @@ button.co-file:hover {
 .co-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 6px;
   padding: 0;
-  margin: 6px 4px 0 0;
+  margin: 8px 6px 2px 0;
   list-style: none;
 }
 .co-attachments li {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   min-width: 0;
   max-width: min(100%, 230px);
+  height: 28px;
   padding-left: 7px;
-  border: 1px solid var(--line-2);
-  border-radius: 5px;
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
   color: var(--tx2);
   font-size: 11.5px;
+}
+.co-attachments li.has-thumb {
+  padding-left: 3px;
+}
+.co-attachments li > img {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+.co-attachments li > svg {
+  flex: none;
+  color: var(--tx3);
+}
+.co-attachments li > button {
+  flex: none;
+}
+/* Mensajes encolados mientras el agente trabaja: encima del texto, dentro de la caja. */
+.co-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 6px 8px 0;
+  margin: 0 0 8px;
+  list-style: none;
+  border-bottom: 1px solid var(--line-2);
+}
+.co-queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--tx2);
+}
+.co-queue-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--tx3);
+  font-size: 10.5px;
+}
+.co-queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.co-queue-count {
+  flex: none;
+  color: var(--tx3);
+  font-size: 11px;
+}
+.co-queue li.is-paused .co-queue-text {
+  color: var(--err);
+}
+.co-compose-bar .send.is-queue {
+  margin-right: 2px;
+}
+/* Adjuntos en la burbuja del usuario. */
+.co-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.co-msg-thumb {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  cursor: zoom-in;
+}
+.co-msg-thumb img {
+  display: block;
+  max-width: 160px;
+  max-height: 120px;
+  object-fit: cover;
+}
+.co-msg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 240px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  color: var(--tx2);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.co-msg-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.co-msg-chip > svg {
+  flex: none;
+  color: var(--tx3);
+}
+.co-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgb(0 0 0 / 0.72);
+  cursor: zoom-out;
+}
+.co-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
 }
 .co-attachments li > span {
   overflow: hidden;
@@ -1592,8 +1717,7 @@ button.co-file:hover {
 
 /* Larry, publicar, ramas sin integrar, conflictos y herramientas. */
 .larry-commit,
-.conflict-file,
-.tool-row {
+.conflict-file {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1659,41 +1783,124 @@ button.co-file:hover {
 .conflict-sides > * {
   background: var(--panel);
 }
-.tool-row {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-}
 .tool-dot {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--tx4);
 }
 
-.jev-settings { max-width: 72ch; margin-top: 18px; }
-.jev-settings h2 { margin: 0; font-size: inherit; }
-.jev-options { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; }
-.jev-options input[type="number"] { width: 7ch; }
-.jev-settings .jev-check { grid-template-columns: auto 1fr; align-items: start; }
+/* Herramientas: CLI, actualización y Jev (panel emergente y Ajustes). */
+.tools-stack { display: flex; flex-direction: column; gap: 22px; }
+.tools-block { display: flex; flex-direction: column; min-width: 0; }
+.tools-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 28px; }
+.tools-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--tx); }
+.tools-head .co-link { flex: none; }
+.tools-body { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.tools-help { margin: 0; font-size: 12px; line-height: 1.5; color: var(--tx3); }
+.tools-note { margin: 4px 0 0; }
 
-.tool-dot.is-ok {
-  background: var(--ok);
+.tools-list-wrap { container: tools / inline-size; }
+.tools-list { margin: 0; padding: 0; list-style: none; }
+.tools-empty { padding: 10px 0; }
+.tool-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-areas: "logo main badge" ". detail detail" ". actions actions";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.tool-item:first-child { border-top: 0; }
+.tool-logo {
+  grid-area: logo;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-m);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--tx2);
+}
+.tool-main { grid-area: main; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tool-main .tool-name { font-size: 13px; color: var(--tx); }
+.tool-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--tx3); }
+.tool-badge {
+  grid-area: badge;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, currentColor 11%, transparent);
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--tx2);
+}
+.tool-badge.is-ok { color: var(--ok); }
+.tool-badge.is-sin-sesión,
+.tool-badge.is-falta { color: var(--warn); }
+.tool-badge .tool-dot { background: currentColor; }
+.tool-item .tool-detail { grid-area: detail; min-width: 0; font-family: var(--mono); font-size: 11.5px; }
+.tool-actions { grid-area: actions; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tool-actions .github-connect { justify-content: flex-start; }
+.plogo.is-gh { color: var(--tx); }
+/* Con anchura suficiente, columnas compartidas: estado, versión y cuenta alineados. */
+@container tools (min-width: 560px) {
+  .tools-list { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto minmax(0, 190px) auto; column-gap: 14px; }
+  .tool-item { grid-column: 1 / -1; grid-template-columns: subgrid; grid-template-areas: "logo main badge detail actions"; }
+  .tool-actions { justify-content: flex-end; max-width: 320px; }
+  .tool-actions .github-connect { justify-content: flex-end; }
 }
 
-.tool-dot.is-sin-sesión,
-.tool-dot.is-falta {
-  background: var(--warn);
-}
+.tools-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 2px 10px; }
+.tools-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--blau); }
+.tools-option label { font-size: 12.5px; color: var(--tx); cursor: pointer; }
+.tools-option .tools-help { grid-column: 2; }
 
-.tool-state.is-ok {
-  color: var(--ok);
+.jev-form { display: flex; flex-direction: column; gap: 16px; }
+.jev-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px 16px; }
+.jev-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.jev-field.is-wide { grid-column: 1 / -1; }
+.jev-label { font-size: 12px; font-weight: 500; color: var(--tx2); }
+.jev-field select,
+.jev-field input {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-m);
+  background-color: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  font-size: 12.5px;
+  color: var(--tx);
 }
-
-.tool-state.is-sin-sesión,
-.tool-state.is-falta {
-  color: var(--warn);
+.jev-field select {
+  padding-right: 28px;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--tx3) 50%), linear-gradient(135deg, var(--tx3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 11px) 50%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
 }
+.jev-field select option { background: var(--raised); color: var(--tx); }
+.jev-field select:disabled,
+.jev-field input:disabled { opacity: 0.5; }
+.jev-checks { display: flex; flex-direction: column; gap: 10px; }
+.jev-check { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; column-gap: 10px; font-size: 12.5px; line-height: 1.45; color: var(--tx2); cursor: pointer; }
+.jev-check input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--blau); }
+.jev-credential p { margin: 8px 0 0; line-height: 1.5; }
+.jev-credential code { font-family: var(--mono); font-size: 11.5px; }
+.jev-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
 
 .tool-detail {
   overflow: hidden;
@@ -1703,20 +1910,6 @@ button.co-file:hover {
 }
 
 /* Actualización de las CLI de IA: sección de Herramientas y aviso emergente. */
-.cli-updates {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-width: 72ch;
-  margin-top: 18px;
-}
-.cli-updates-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-.cli-updates h2 { margin: 0; font-size: inherit; }
 .cli-updates p { margin: 0; }
 .cli-update-list {
   display: flex;
@@ -1730,11 +1923,13 @@ button.co-file:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 30px;
-  padding: 0 14px;
-  border-radius: var(--r-l);
+  min-height: 32px;
+  padding: 4px 12px 4px 4px;
+  border-radius: var(--r-m);
   background: var(--hover);
 }
+.cli-update-list .tool-logo { width: 24px; height: 24px; border-radius: var(--r-s); }
+.cli-update-list .tool-name { white-space: nowrap; }
 .cli-update-list .tool-detail {
   flex: 1;
   min-width: 0;
@@ -1745,15 +1940,8 @@ button.co-file:hover {
   color: var(--tx3);
   white-space: nowrap;
 }
-.tool-dot.is-updated,
-.tool-dot.is-current {
-  background: var(--ok);
-}
 .cli-update-state.is-updated {
   color: var(--ok);
-}
-.tool-dot.is-failed {
-  background: var(--warn);
 }
 .cli-update-state.is-failed {
   color: var(--warn);
@@ -1895,14 +2083,9 @@ html[data-resizing] .splitter:active::after {
   bottom: 0;
   width: 7px;
 }
-.tool-dot.is-falta,
-.tool-dot.is-sin-sesión {
-  background: var(--grana-hi);
-}
 .tool-name {
   font-weight: 500;
 }
-.tool-state,
 .tool-detail {
   font-size: 12px;
   color: var(--tx3);
@@ -3104,3 +3287,130 @@ html.is-light .git-log-body {
 .github-profile-popup p { color: var(--tx3); margin: 5px 0 0; font-size: 11px; }
 .github-profile-image { width: 40px; height: 40px; display: grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; color: var(--tx2); }
 .github-profile-image svg { width: 32px; height: 32px; }
+
+/* ── desplegables del compositor (ChipMenu y permisos) ─────── */
+
+.cm,
+.sb-wrap {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
+.cm-trigger {
+  max-width: 220px;
+}
+.cm-trigger.is-open {
+  background: var(--hover);
+  color: var(--tx);
+}
+.cm-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-caret {
+  flex: none;
+  opacity: 0.6;
+  transition: transform 140ms var(--ease);
+}
+.cm-trigger.is-open .cm-caret {
+  transform: rotate(180deg);
+}
+.cm-menu,
+.sb-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 260px;
+  max-width: min(340px, calc(100vw - 32px));
+  max-height: min(440px, 70vh);
+  overflow-y: auto;
+  padding: 5px;
+  border-radius: var(--r-l);
+  background: var(--raised);
+  box-shadow: var(--pop);
+  animation: pop-up 140ms var(--ease);
+}
+.cm-heading {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--tx4);
+}
+.cm-item,
+.sb-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px 5px 10px;
+  border-radius: 4px;
+  color: var(--tx2);
+  text-align: left;
+}
+.cm-item:hover:not(:disabled),
+.cm-item:focus-visible,
+.sb-item:hover,
+.sb-item:focus-visible {
+  outline: none;
+  background: var(--hover);
+  color: var(--tx);
+}
+.cm-item.is-on,
+.sb-item[aria-checked='true'] {
+  color: var(--tx);
+}
+.cm-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cm-text,
+.sb-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.cm-label {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-text b {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.cm-text small,
+.sb-text small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--tx4);
+  white-space: normal;
+}
+.sb-menu {
+  width: 300px;
+}
+.cm-check {
+  flex: none;
+  color: var(--blau);
+}
+.sb-item > svg:last-child {
+  flex: none;
+  color: var(--blau);
+}
+@keyframes pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+.cm.is-down .cm-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  animation-name: pop;
+}

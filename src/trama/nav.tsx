@@ -42,12 +42,14 @@ export function saveResume(r: Resume) {
 }
 
 /** Columna de destinos. `badges`: recuento real de lo que necesita atención. */
-export function DestNav({ dest, onDest, badges, live, browser, github }: {
+export function DestNav({ dest, onDest, badges, live, browser, containers, github }: {
   dest: Dest;
   onDest: (d: Dest) => void;
   badges: Partial<Record<Dest, number>>;
   live: Partial<Record<Dest, boolean>>;
   browser?: { open: boolean; run: () => void };
+  /** Panel de contenedores del proyecto abierto. */
+  containers?: { open: boolean; run: () => void };
   github?: ReactNode;
 }) {
   const [tip, setTip] = useState<{ label: string; keys: string; x: number; y: number } | null>(null);
@@ -74,6 +76,10 @@ export function DestNav({ dest, onDest, badges, live, browser, github }: {
           <Icon name="globe" size={19} />
         </button>
       </>}
+      {containers && <button className="tr-nb" aria-pressed={containers.open} aria-label="Contenedores" onClick={containers.run}
+        onMouseEnter={(e) => show(e, 'Contenedores', '⌘⇧O')} onMouseLeave={() => setTip(null)} onFocus={(e) => show(e, 'Contenedores', '⌘⇧O')} onBlur={() => setTip(null)}>
+        <Icon name="box" size={19} />
+      </button>}
       <span className="sp" />
       {button(DESTS[DESTS.length - 1])}
       {github && <div className="tr-gh">{github}</div>}

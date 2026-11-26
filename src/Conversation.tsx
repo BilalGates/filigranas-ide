@@ -8,7 +8,9 @@ import { StDot } from './trama/kit';
 import { Icon } from './trama/icons';
 import { readArchitecture } from './trama/conversationContent';
 import Splitter, { SIZES } from './Splitter';
+import ChipMenu from './ChipMenu';
 import { beep, shortcut } from './ui';
+import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from './chatAttachments';
 
 // Piezas comunes a las conversaciones del coordinador y de las sesiones de
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
@@ -19,6 +21,26 @@ const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Nivel que admite el modelo más cercano a `effort`; «auto» se conserva. */
+export function nearestEffort(effort: string, efforts: string[]) {
+  if (effort === 'auto' || efforts.includes(effort) || !efforts.length) return effort;
+  const rank = (e: string) => EFFORT_ORDER.indexOf(e);
+  return efforts.filter((e) => e !== 'auto').reduce((best, e) =>
+    Math.abs(rank(e) - rank(effort)) < Math.abs(rank(best) - rank(effort)) ? e : best);
+}
+
+const EFFORT_HINT: Record<string, string> = {
+  auto: 'El proveedor usa su nivel por defecto',
+  minimal: 'Lo justo para responder',
+  low: 'Respuestas rápidas para tareas sencillas',
+  medium: 'Equilibrio entre rapidez y profundidad',
+  high: 'Piensa más antes de cambiar código',
+  xhigh: 'Para problemas difíciles; tarda más',
+  max: 'El máximo que admite el modelo',
+};
 const CONTEXT_MARKER = '\n\n[Filigranas IDE: historial del proveedor anterior]\n';
 
 export function useChatHistory(project: string, session: number | null | undefined) {
@@ -193,13 +215,17 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
   onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean;
 }) {
   switch (it.type) {
-    case 'userMessage':
+    case 'userMessage': {
+      const raw = (it.content ?? []).map((c) => c.text ?? '').join('\n').split('\n\n[Filigranas IDE: skills administradas del turno]\n', 1)[0].split(CONTEXT_MARKER, 1)[0];
+      const { text, attachments } = splitAttachments(raw);
       return (
         <div className="co-msg is-user">
           <div className="co-by">tú</div>
-          <Prose text={(it.content ?? []).map((c) => c.text ?? '').join('\n').split('\n\n[Filigranas IDE: skills administradas del turno]\n', 1)[0].split(CONTEXT_MARKER, 1)[0]} />
+          <Prose text={text} />
+          {attachments.length > 0 && <MessageAttachments items={attachments} />}
         </div>
       );
+    }
     case 'agentMessage':
       // En el hilo de otro agente, el mensaje del PM es su encargo: franja del HTML.
       if (it.by === 'Project manager' && agent !== 'Project manager') return (
@@ -280,12 +306,72 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
   }
 }
 
+// Miniaturas de las imágenes enviadas en esta ejecución, por nombre. La ruta
+// local que recibe el proveedor no se sirve al webview: tras reabrir, chip.
+const previewUrls = new WeakMap<File, string>();
+const sentPreviews = new Map<string, string>();
+function previewOf(file: File) {
+  let url = previewUrls.get(file);
+  if (!url && /^image\/(png|jpeg|webp|gif)$/.test(file.type) && typeof URL.createObjectURL === 'function') {
+    url = URL.createObjectURL(file);
+    previewUrls.set(file, url);
+  }
+  return url;
+}
+
+const FileGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+    <path d="M4 1.5h5L12.5 5v9.5h-8.5z M9 1.5V5h3.5" strokeLinejoin="round" />
+  </svg>
+);
+
+function MessageAttachments({ items }: { items: ShownAttachment[] }) {
+  const [zoom, setZoom] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!zoom) return;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape') setZoom(null); };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, [zoom]);
+  return (
+    <div className="co-msg-attachments" aria-label="Adjuntos">
+      {items.map((item, index) => {
+        const url = item.kind === 'image' ? sentPreviews.get(item.name) : undefined;
+        if (url) return (
+          <button key={index} type="button" className="co-msg-thumb" title={item.name}
+            aria-label={`Ampliar ${item.name}`} onClick={() => setZoom({ url, name: item.name })}>
+            <img src={url} alt={item.name} />
+          </button>
+        );
+        if (item.kind === 'link') return (
+          <a key={index} className="co-msg-chip" href={item.name} target="_blank" rel="noreferrer" title={item.name}>
+            <span>{item.name.replace(/^https?:\/\//, '')}</span>
+          </a>
+        );
+        return (
+          <span key={index} className="co-msg-chip" title={item.path ?? item.name}>
+            <FileGlyph /><span>{item.name}</span>
+          </span>
+        );
+      })}
+      {zoom && createPortal(
+        <div className="co-lightbox" role="dialog" aria-label={zoom.name} onClick={() => setZoom(null)}>
+          <img src={zoom.url} alt={zoom.name} />
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 type ComposerProps = {
   disabled: boolean;
   running: boolean;
   efforts: string[];
   effort: string;
   onEffort: (e: string) => void;
+  /** Qué decide «automático» en este contexto (proveedor o enrutamiento de la tarea). */
+  autoHint?: string;
   providerPicker?: ReactNode;
   /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
   model?: ReactNode;
@@ -302,6 +388,8 @@ type ComposerProps = {
 const drafts = new Map<string, string>();
 type DraftAttachment = { kind: 'file'; file: File } | { kind: 'link'; url: string };
 const draftAttachments = new Map<string, DraftAttachment[]>();
+const queues = new Map<string, Queued<DraftAttachment>[]>();
+let queueSeq = 0;
 const FILE_LIMIT = 10 * 1024 * 1024;
 const BATCH_LIMIT = 20 * 1024 * 1024;
 const IMAGE_LIMIT = 5_000_000;
@@ -327,7 +415,7 @@ function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
 }
 
 /** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, providerPicker, model, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
+export function Composer({ disabled, running, efforts, effort, onEffort, autoHint, providerPicker, model, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const busy = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -338,6 +426,15 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
   const [attachMenu, setAttachMenu] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [queue, setQueueState] = useState<Queued<DraftAttachment>[]>(() => queues.get(draftKey) ?? []);
+  const [queuePaused, setQueuePaused] = useState(false);
+  const queueRef = useRef(queue);
+  const setQueue = (items: Queued<DraftAttachment>[]) => {
+    queueRef.current = items;
+    if (items.length) queues.set(draftKey, items);
+    else queues.delete(draftKey);
+    setQueueState(items);
+  };
 
   useEffect(() => {
     if (!attachMenu) return;
@@ -399,10 +496,35 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
     }
   };
 
+  const dispatch = (text: string, items: DraftAttachment[]) => {
+    for (const item of items) {
+      const url = item.kind === 'file' ? previewOf(item.file) : undefined;
+      if (url && item.kind === 'file') sentPreviews.set(item.file.name, url);
+    }
+    return Promise.all(items.map(encodeAttachment))
+      .catch((e: Error) => {
+        setAttachmentError(e.message);
+        throw e;
+      })
+      .then((payload) => onSend(text, payload));
+  };
+
   const send = () => {
     const el = area.current;
     const text = el?.value.trim();
-    if (!el || text === undefined || (!text && !attachments.length) || busy.current || disabled || running) return;
+    if (!el || text === undefined || (!text && !attachments.length) || disabled) return;
+    // En marcha (o con cola pendiente), el mensaje espera y sale al terminar el turno.
+    if (running || queueRef.current.length || busy.current) {
+      if (!running && !queueRef.current.length) return;
+      setAttachMenu(false);
+      setAttachmentError(null);
+      el.value = '';
+      drafts.delete(draftKey);
+      setQueue([...queueRef.current, { id: ++queueSeq, text, attachments }]);
+      updateAttachments([]);
+      beep('tick');
+      return;
+    }
     busy.current = true;
     setSubmitting(true);
     setAttachMenu(false);
@@ -410,12 +532,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
     el.value = '';
     drafts.delete(draftKey);
     beep('send');
-    Promise.all(attachments.map(encodeAttachment))
-      .catch((e: Error) => {
-        setAttachmentError(e.message);
-        throw e;
-      })
-      .then((payload) => onSend(text, payload))
+    dispatch(text, attachments)
       .then(() => updateAttachments([]))
       .catch(() => {
         if (text && !drafts.has(draftKey)) {
@@ -428,6 +545,31 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
         setSubmitting(false);
       });
   };
+
+  // Al terminar el turno sale lo encolado. Tras un envío desde la cola se
+  // espera a ver el turno nuevo en marcha antes de mandar el resto.
+  const awaitingTurn = useRef(false);
+  if (running) awaitingTurn.current = false;
+  useEffect(() => {
+    if (running || disabled || queuePaused || busy.current || awaitingTurn.current || !queue.length) return;
+    const { batch, rest, text, attachments: items } = takeBatch(queue, (a) => (a.kind === 'file' ? a.file.size : 0));
+    busy.current = true;
+    awaitingTurn.current = true;
+    setSubmitting(true);
+    setQueue(rest);
+    beep('send');
+    dispatch(text, items)
+      .catch(() => {
+        // No se pierde: vuelve al principio de la cola hasta reintentar.
+        awaitingTurn.current = false;
+        setQueue([...batch, ...queueRef.current]);
+        setQueuePaused(true);
+      })
+      .finally(() => {
+        busy.current = false;
+        setSubmitting(false);
+      });
+  }, [running, disabled, queue, queuePaused]);
 
   // ⌘. interrumpe, ⌘⇧E cambia el esfuerzo y ⌘M abre el modelo.
   const root = useRef<HTMLDivElement>(null);
@@ -460,6 +602,25 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
     <>
     {context}
     <div className="co-compose" ref={root}>
+      {queue.length > 0 && (
+        <ul className="co-queue" aria-label="Mensajes en cola">
+          {queue.map((item) => (
+            <li key={item.id}>
+              <span className="co-queue-tag">en cola</span>
+              <span className="co-queue-text" title={item.text}>{item.text || item.attachments.map((a) => (a.kind === 'file' ? a.file.name : a.url)).join(', ')}</span>
+              {item.text && item.attachments.length > 0 && <span className="co-queue-count">+{item.attachments.length}</span>}
+              <button type="button" className="icon" aria-label="Quitar de la cola" title="quitar de la cola"
+                onClick={() => setQueue(queueRef.current.filter((q) => q.id !== item.id))}>×</button>
+            </li>
+          ))}
+          {queuePaused && (
+            <li className="is-paused">
+              <span className="co-queue-text">No se pudo enviar.</span>
+              <button type="button" className="co-btn" onClick={() => { setAttachmentError(null); setQueuePaused(false); }}>reintentar</button>
+            </li>
+          )}
+        </ul>
+      )}
       <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
       <textarea
         ref={area}
@@ -470,7 +631,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
           else drafts.delete(draftKey);
         }}
         aria-label="Mensaje"
-        placeholder={running ? 'trabajando… puedes interrumpir' : placeholder}
+        placeholder={running ? 'trabajando… lo que envíes quedará en cola' : placeholder}
         rows={2}
         disabled={disabled}
         onPaste={(e) => {
@@ -480,7 +641,8 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
           addFiles(files);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+          // ↩ envía; ⇧↩ hace salto de línea. Mientras un IME compone, ↩ confirma el texto.
+          if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             send();
           }
@@ -490,8 +652,10 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
         <ul className="co-attachments" aria-label="Adjuntos del mensaje">
           {attachments.map((item, index) => {
             const name = item.kind === 'file' ? item.file.name : item.url;
+            const thumb = item.kind === 'file' ? previewOf(item.file) : undefined;
             return (
-              <li key={index}>
+              <li key={index} className={thumb ? 'has-thumb' : undefined}>
+                {thumb ? <img src={thumb} alt="" /> : item.kind === 'file' && <FileGlyph />}
                 <span title={name}>{name}</span>
                 <button type="button" className="icon" disabled={submitting}
                   aria-label={`Quitar ${name}`} onClick={() => {
@@ -543,20 +707,27 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
           {providerPicker}
           {model && <span className="co-model">{model}</span>}
           {efforts.length > 0 && (
-            <button
-              className="chip"
-              title={shortcut('esfuerzo · ⌘⇧E')}
+            <ChipMenu
+              className="co-effort"
+              label="Razonamiento"
+              heading="Razonamiento"
+              title={shortcut('razonamiento · ⌘⇧E')}
               disabled={disabled}
-              onClick={() => {
-                beep('tick');
-                onEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]);
-              }}
-            >
-              {EFFORT_LABEL[effort] ?? effort}
-            </button>
+              value={effort}
+              display={effort === 'auto' ? 'razonamiento automático' : `razonamiento ${EFFORT_LABEL[effort] ?? effort}`}
+              options={efforts.map((e) => ({ value: e, label: capitalize(EFFORT_LABEL[e] ?? e), hint: e === 'auto' ? autoHint ?? EFFORT_HINT.auto : EFFORT_HINT[e] }))}
+              onChange={(e) => { beep('tick'); onEffort(e); }}
+            />
           )}
           {permission}
         </div>
+        {running && (
+          <button className="send is-queue" aria-label="Poner en cola" title={shortcut('poner en cola · ↩')} onClick={send} disabled={disabled}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" />
+            </svg>
+          </button>
+        )}
         {running ? (
           <button className="send" aria-label="Detener" title={shortcut('detener · ⌘.')} onClick={onInterrupt}>
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
@@ -564,7 +735,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, provide
             </svg>
           </button>
         ) : (
-          <button className="send" aria-label="Enviar" title={shortcut('enviar · ⌘↩')} onClick={send} disabled={disabled || submitting}>
+          <button className="send" aria-label="Enviar" title={shortcut('enviar · ↩ · salto de línea · ⇧↩')} onClick={send} disabled={disabled || submitting}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" />
             </svg>

@@ -3,7 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 /** Atajo para mostrar: los atajos se definen con ⌘ y en Windows se leen como Ctrl. */
 export const shortcut = (keys: string) =>
   document.documentElement.dataset.platform === 'win'
-    ? keys.replaceAll('⌘', 'Ctrl+').replaceAll('⇧', 'Shift+').replaceAll('↩', 'Enter')
+    ? keys.replaceAll('⌘', 'Ctrl+').replaceAll('⇧', 'Shift+').replaceAll('⌥', 'Alt+').replaceAll('↩', 'Enter')
     : keys;
 
 // ── sonido ─────────────────────────────────────────────────

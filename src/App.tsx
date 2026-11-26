@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
+import ChipMenu from './ChipMenu';
+import ProviderLogo from './ProviderLogo';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
@@ -584,7 +586,7 @@ export default function App() {
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
     { id: 'larry', label: 'Larry · commits', keys: '⌘⇧G', run: () => openEntrega('commit') },
-    { id: 'send', label: 'enviar mensaje', keys: '⌘↩', run: () => {} },
+    { id: 'send', label: 'enviar mensaje (⇧↩ salto de línea)', keys: '↩', run: () => {} },
     { id: 'stop', label: 'interrumpir', keys: '⌘.', run: () => {} },
     { id: 'model', label: 'modelo', keys: '⌘M', run: () => {} },
     { id: 'effort', label: 'esfuerzo', keys: '⌘⇧E', run: () => {} },
@@ -636,13 +638,11 @@ export default function App() {
 
   const chatEngine = activeSession?.engine ?? (view === 'coach' && hasPm && pmReady ? pmEngine : null);
   const providerPicker = (chatEngine === 'codex' || chatEngine === 'claude') && (
-    <select className="chip-select co-provider" aria-label="Proveedor de la conversación"
+    <ChipMenu className="co-provider" label="Proveedor de la conversación" heading="Proveedor"
       title={centerTitle?.state ? 'Interrumpe el turno o espera a que termine para cambiar de proveedor' : 'Cambiar de proveedor'}
       value={chatEngine} disabled={switching !== null || !!centerTitle?.state}
-      onChange={(e) => changeEngine(e.currentTarget.value as ChatEngine)}>
-      <option value="codex">Codex</option>
-      <option value="claude">Claude Code</option>
-    </select>
+      options={[{ value: 'codex', label: 'Codex', hint: 'OpenAI', icon: <ProviderLogo engine="codex" /> }, { value: 'claude', label: 'Claude Code', hint: 'Anthropic', icon: <ProviderLogo engine="claude" /> }]}
+      onChange={(value) => changeEngine(value as ChatEngine)} />
   );
   const row = (key: string, active: boolean, name: string, meta: string | null, state: string | null, onClick: () => void, onClose?: () => void, tag?: string) => (
     <div key={key} className={`srow${active ? ' is-on' : ''}`}>
@@ -692,13 +692,31 @@ export default function App() {
   };
   const panelOpen = !noRight && (!!current || rightView === 'browser') && (rightView !== 'observe' || !!observing);
   const browserOpen = panelOpen && rightView === 'browser';
+  // Cambios y Archivos viven en la cabecera del Workspace; Contenedores, en
+  // el menú izquierdo. El rail solo muestra paneles contextuales.
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
-    if (tab === 'browser') return false;
+    if (tab === 'browser' || tab === 'git' || tab === 'files' || tab === 'containers') return false;
     if (tab === 'observe') return !!observing;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
     return true;
   });
+  // Cambios y Archivos: en la cabecera del Workspace y, en Código, junto a «Conversación».
+  const panelButtons = (
+    <div className="ws-panels" role="group" aria-label="Paneles del proyecto">
+      {(['git', 'files'] as const).map((id) => {
+        const panel = RIGHT_PANELS[id];
+        const active = panelOpen && rightView === id;
+        return (
+          <button key={id} className={`tb-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
+            aria-label={panel.title} aria-pressed={active} aria-controls="workspace-right-panel" title={shortcut(`${panel.title} · ${panel.keys}`)}>
+            <Icon name={panel.icon} size={15} />
+            {id === 'git' && dirty && <span className="dot is-dirty" />}
+          </button>
+        );
+      })}
+    </div>
+  );
   const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null) : [];
   const fieldDim = { inicio: 1, workspace: layout === 'code' ? 0.35 : 0.7, studio: 0.55, entrega: 0.7, flow: 0.9, brain: 0.85, ajustes: 0.6 }[dest];
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
@@ -741,6 +759,7 @@ export default function App() {
 
       <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
         browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
+        containers={current ? { open: dest === 'workspace' && panelOpen && rightView === 'containers', run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('containers'); } else showRight('containers'); } } : undefined}
         github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
           onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
       <Boundary name="Inicio">
@@ -862,6 +881,7 @@ export default function App() {
             {!providerPicker && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
             {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
             <span className="grow" />
+            {current && panelButtons}
             <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
               { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
             <button className={`tb-btn ws-term${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label="Terminal" aria-pressed={termOpen} title={shortcut('terminal · ⌘J')}><Icon name="terminal" size={15} /></button>
@@ -960,7 +980,7 @@ export default function App() {
           onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
       </main>
 
-      <nav className="rail" aria-label="Paneles y utilidades">
+      {panelTabs.length > 0 && <nav className="rail" aria-label="Paneles y utilidades">
         {panelTabs.map((id) => {
           const panel = RIGHT_PANELS[id];
           const label = id === 'editor' && editorTab ? `Editor · ${editorTab.name}` : panel.title;
@@ -976,12 +996,15 @@ export default function App() {
             </Fragment>
           );
         })}
-      </nav>
+      </nav>}
 
       {layout === 'code' && panelOpen && rightView !== 'observe' && dest === 'workspace' && (
-        <button className="tr-btn sm ws-back" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
-          <Icon name="chat" size={13} /> Conversación
-        </button>
+        <div className="ws-back">
+          {current && panelButtons}
+          <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
+            <Icon name="chat" size={13} /> Conversación
+          </button>
+        </div>
       )}
       <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
         observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}

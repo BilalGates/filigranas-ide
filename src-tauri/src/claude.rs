@@ -214,7 +214,8 @@ impl Claude {
         } else {
             cmd.args(["--session-id", &session.provider_session]);
         }
-        if let Some(e) = effort {
+        // «auto»: sin --effort, Claude Code usa su nivel por defecto.
+        if let Some(e) = effort.filter(|e| *e != "auto") {
             cmd.args(["--effort", e]);
         }
         if let Some(model) = &pinned_model {
@@ -460,7 +461,7 @@ pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<
     if text.trim().is_empty() && attachments.is_empty() {
         return Err("mensaje vacío".into());
     }
-    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e)) {
+    if effort.as_deref().is_some_and(|e| !EFFORTS.contains(&e) && e != "auto") {
         return Err("nivel de esfuerzo no válido".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -495,6 +496,8 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
     if session.engine == "codex" {
         drop(git_gate);
         drop(gate);
+        // En Codex, «auto» fuera de una tarea es el esfuerzo por defecto del modelo.
+        let effort = effort.filter(|e| e != "auto");
         return crate::codex::send_turn(app, &session.project, Some(&session), None, message, effort);
     }
     if session.engine == "claude" {

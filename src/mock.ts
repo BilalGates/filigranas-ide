@@ -262,6 +262,7 @@ mockIPC(
         else meta[name].archived = a.archived;
         return workspace();
       }
+      case 'open_worktree':
       case 'reveal_project':
         return null;
       case 'share_start':

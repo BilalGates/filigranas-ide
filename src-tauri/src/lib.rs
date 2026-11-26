@@ -222,6 +222,7 @@ pub fn run() {
             workspace::set_archived,
             workspace::create_project,
             workspace::reveal_project,
+            workspace::open_worktree,
             browser::browser_open,
             browser::browser_place,
             browser::browser_action,

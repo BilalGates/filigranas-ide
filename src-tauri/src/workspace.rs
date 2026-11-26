@@ -337,6 +337,42 @@ pub fn create_project(state: State<AppState>, name: String) -> CmdResult<Workspa
 #[tauri::command]
 pub fn reveal_project(state: State<AppState>, path: String) -> CmdResult<()> {
     let path = project_path(&*state.db.lock().map_err(err)?, &path)?;
+    reveal(&path)
+}
+
+/// Abre en el explorador o en VS Code el worktree de una sesión aislada.
+/// Solo acepta rutas registradas como worktree de alguna sesión.
+#[tauri::command]
+pub fn open_worktree(state: State<AppState>, path: String, editor: bool) -> CmdResult<()> {
+    let known: bool = state
+        .db
+        .lock()
+        .map_err(err)?
+        .query_row("SELECT EXISTS(SELECT 1 FROM sessions WHERE worktree = ?1)", [&path], |r| r.get(0))
+        .map_err(err)?;
+    if !known {
+        return Err("no es el worktree de ninguna sesión".into());
+    }
+    if !Path::new(&path).is_dir() {
+        return Err(format!("ya no existe la carpeta {path}"));
+    }
+    if editor {
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/C", "code"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut cmd = std::process::Command::new("code");
+        let mut child = cmd.arg(&path).spawn().map_err(|e| format!("no se pudo abrir VS Code: {e}"))?;
+        std::thread::spawn(move || { let _ = child.wait(); });
+        return Ok(());
+    }
+    reveal(&path)
+}
+
+fn reveal(path: &str) -> CmdResult<()> {
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(windows)]

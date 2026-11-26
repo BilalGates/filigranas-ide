@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { git, sessions, workSessions, type GitStatus, type WorkSession } from '../ipc';
+import { api, git, sessions, workSessions, type GitStatus, type WorkSession } from '../ipc';
 import { Icon } from './icons';
 
 /** Nivel de permisos de una sesión (ver src-tauri/src/autoapprove.rs). */
@@ -78,6 +78,28 @@ export function PermissionChip({ mode, onMode, disabled }: { mode: PermissionMod
  * carpeta, rama y sincronización); el motor ya está en la barra del compositor. En una sesión directa el
  * chip de rama abre la sesión de trabajo (objetivo + rama) que exige el núcleo.
  */
+/** Carpeta del worktree aislado: muestra su ruta y la abre en el explorador o en VS Code. */
+function WorktreeChip({ path, folder }: { path: string; folder: string }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useOutside(open, () => setOpen(false));
+  const run = (editor: boolean) => api.openWorktree(path, editor).then(() => setOpen(false), (e) => setError(String(e)));
+  return (
+    <div className="sb-wrap" ref={ref}>
+      <button type="button" className="sb-chip btn" aria-expanded={open} title={path} onClick={() => { setError(null); setOpen(!open); }}>
+        <Icon name="folder" size={12} />{folder}
+      </button>
+      {open && <div className="sb-menu up" role="menu" aria-label="Carpeta del worktree">
+        <p className="sb-note mono" style={{ wordBreak: "break-all" }}>{path}</p>
+        <button type="button" role="menuitem" className="menu-item" onClick={() => void run(false)}>Mostrar en el explorador</button>
+        <button type="button" role="menuitem" className="menu-item" onClick={() => void run(true)}>Abrir en VS Code</button>
+        <button type="button" role="menuitem" className="menu-item" onClick={() => void navigator.clipboard.writeText(path).then(() => setOpen(false))}>Copiar ruta</button>
+        {error && <p className="sb-note" role="alert">{error}</p>}
+      </div>}
+    </div>
+  );
+}
+
 export function SessionContext({ project, worktree, branch, base, extra }: {
   project: string; worktree: string | null; branch: string | null; base: string | null; extra?: ReactNode;
 }) {
@@ -103,7 +125,8 @@ export function SessionContext({ project, worktree, branch, base, extra }: {
   return (
     <div className="sb-context" aria-label="Dónde trabaja la sesión">
       <span className="sb-chip" title={direct ? 'Trabaja en la carpeta del proyecto' : `Copia aislada en ${worktree}`}><Icon name="screen" size={12} />{direct ? 'Este equipo' : 'Copia aislada'}</span>
-      <span className="sb-chip" title={worktree ?? project}><Icon name="folder" size={12} />{folder}</span>
+      {worktree ? <WorktreeChip path={worktree} folder={folder ?? ""} />
+        : <span className="sb-chip" title={project}><Icon name="folder" size={12} />{folder}</span>}
       <div className="sb-wrap" ref={ref}>
         <button type="button" className={`sb-chip btn${direct && !active ? ' is-warn' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}
           title={direct ? (active ? `Sesión de trabajo: ${active.objective}` : 'Sin sesión de trabajo: fíjala para que el agente pueda escribir') : `${branch} ← ${base ?? '—'}`}>

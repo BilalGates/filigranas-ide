@@ -756,7 +756,6 @@ mockIPC(
           { id: 'agy', name: 'Antigravity', role: 'agente ejecutor', installed: true, loggedIn: null, detail: '1.5.9', login: 'agy' },
           { id: 'devin', name: 'Devin', role: 'agente ejecutor', installed: false, loggedIn: null, detail: 'no está instalada o no está en el PATH', login: 'devin auth login' },
           { id: 'gh', name: 'GitHub', role: 'publicar ramas y PR', installed: true, loggedIn: mockGithub?.state === 'complete', account: mockGithub?.state === 'complete' ? 'demo' : null, detail: 'gh version 2.101.0', login: null },
-          { id: 'node', name: 'Node.js', role: 'agrupar commits (Larry)', installed: true, loggedIn: null, detail: 'v26.0.0', login: null },
         ];
       case 'tools_update': {
         const from = mockCodexVersion;

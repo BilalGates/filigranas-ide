@@ -41,7 +41,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
           {sec === 'modelos' && <>
             <h2 className="vt">Modelos y herramientas</h2>
             <p className="lead">Filigranas usa las CLI con su sesión habitual; no guarda tokens. El catálogo muestra el estado de las herramientas disponibles. El modelo de cada conversación se elige en su propio selector.</p>
-            <div className="tr-settings-card"><Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} /></div>
+            <Tools tools={tools} checking={checking} hidden={false} onRefresh={onRefreshTools} autoUpdates={autoUpdates} onLogin={onLogin} surface="settings" />
           </>}
           {sec === 'skills' && <SkillsSec project={project} scope={projectSkills ? project : null} />}
           {sec === 'permisos' && <>

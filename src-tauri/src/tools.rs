@@ -39,7 +39,7 @@ struct Spec {
     update: Option<&'static [&'static str]>,
 }
 
-const SPECS: [Spec; 7] = [
+const SPECS: [Spec; 6] = [
     Spec { id: "codex", name: "Codex", role: "coordinador y Larry", status: Some(&["login", "status"]), login: Some("codex login"), update: Some(&["update"]) },
     Spec { id: "claude", name: "Claude Code", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("claude auth login"), update: Some(&["update"]) },
     Spec { id: "opencode", name: "OpenCode", role: "agente ejecutor", status: Some(&["auth", "list"]), login: Some("opencode auth login"), update: Some(&["upgrade"]) },
@@ -47,7 +47,6 @@ const SPECS: [Spec; 7] = [
     // Sin orden de actualización confirmada.
     Spec { id: "devin", name: "Devin", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("devin auth login"), update: None },
     Spec { id: "gh", name: "GitHub", role: "publicar ramas y PR", status: Some(&["auth", "status", "--hostname", "github.com", "--active"]), login: None, update: None },
-    Spec { id: "node", name: "Node.js", role: "agrupar commits (Larry)", status: None, login: None, update: None },
 ];
 
 /// Ejecuta una orden corta; `None` si no se pudo lanzar (no instalada).
@@ -187,7 +186,7 @@ fn check(spec: &Spec) -> Tool {
 pub async fn tools_status() -> CmdResult<Vec<Tool>> {
     tauri::async_runtime::spawn_blocking(|| {
         let handles: Vec<_> = SPECS.iter()
-            .filter(|s| matches!(s.id, "codex" | "claude" | "gh" | "node"))
+            .filter(|s| matches!(s.id, "codex" | "claude" | "gh"))
             .map(|s| std::thread::spawn(move || check(s)))
             .collect();
         handles.into_iter().map(|h| h.join().map_err(|_| "falló una comprobación".to_string())).collect()

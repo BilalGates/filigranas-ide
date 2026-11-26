@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import GithubConnect from './GithubConnect';
 import { Icon } from './GitPanel';
+import ProviderLogo from './ProviderLogo';
 import { jev, tools as toolsApi, type CliUpdate, type JevSettings, type JevStatus, type Tool } from './ipc';
 
 /** Resultado de una actualización en pocas palabras. */
@@ -33,48 +34,61 @@ function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada' {
 /** Estado y acceso a las herramientas del IDE. */
 export default function Tools({ tools, checking, hidden, onLogin, onRefresh, autoUpdates, surface }: Props) {
   const settings = surface === 'settings';
-  const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh', 'node'].includes(id));
+  const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh'].includes(id));
+  // En Ajustes cada bloque es una tarjeta; en el panel emergente, una lista seguida.
+  const block = settings ? 'tools-block tr-settings-card' : 'tools-block';
   return (
-    <section className={settings ? "tr-settings-tools" : "coach"} aria-label="Herramientas" hidden={hidden}>
-      <div className={settings ? "row tr-settings-heading" : "co-head"}>
-        <span className="muted">CLI de los agentes, Node y GitHub</span>
-        <span className={settings ? "grow" : "push"} />
-        <button className="co-link" onClick={onRefresh} disabled={checking}>
-          {checking ? 'comprobando…' : 'volver a comprobar'}
-        </button>
-      </div>
-      <div className={settings ? "tr-settings-body" : "co-log"}>
-        {!tools && <div className="muted">comprobando las herramientas…</div>}
-        {visible?.map((t) => {
-          const state = toolState(t);
-          return (
-            <div className={settings ? "srow tr-tool-row" : "tool-row"} key={t.id}>
-              <span className={`tool-dot is-${state.replace(' ', '-')}`} aria-hidden="true" />
-              <span className="tool-name">{t.name}</span>
-              <span className="muted">{t.role}</span>
-              <span className={`tool-state is-${state.replace(' ', '-')}`}>{state === 'instalada' ? 'instalada · sesión no comprobable' : state}</span>
-              <span className="muted tool-detail" title={t.detail}>
-                {t.detail}
-              </span>
-              {t.id === 'gh' && <GithubConnect tool={t} onRefresh={onRefresh} />}
-              {t.installed && t.login && state !== 'ok' && (
-                <button
-                  className="co-btn"
-                  disabled={!onLogin}
-                  onClick={() => onLogin?.(t.login!)}
-                  title={onLogin ? `abre un terminal con «${t.login}»` : `abre un proyecto o ejecuta «${t.login}» en tu terminal`}
-                >
-                  iniciar sesión
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {visible?.some((t) => !t.installed) && (
-          <div className="co-aside">Instala las que faltan con su instalador habitual y vuelve a comprobar; la app las busca con el PATH de tu shell.</div>
-        )}
-        {!hidden && <CliUpdates onRefresh={onRefresh} last={autoUpdates ?? null} />}
-        {!hidden && <JevRouting />}
+    <section className={settings ? 'tools-panel is-settings' : 'tools-panel coach'} aria-label="Herramientas" hidden={hidden}>
+      <div className={settings ? 'tools-stack' : 'tools-stack co-log'}>
+        <div className={block}>
+          <div className="tools-head">
+            <h3>CLI de los agentes y GitHub</h3>
+            <button className="co-link" onClick={onRefresh} disabled={checking}>
+              {checking ? 'comprobando…' : 'volver a comprobar'}
+            </button>
+          </div>
+          <div className="tools-list-wrap">
+            <ul className="tools-list" aria-busy={checking}>
+              {!tools && <li className="muted tools-empty">comprobando las herramientas…</li>}
+              {visible?.map((t) => {
+                const state = toolState(t);
+                const tone = state.replace(' ', '-');
+                return (
+                  <li className="tool-item" key={t.id}>
+                    <span className="tool-logo"><ProviderLogo engine={t.id} size={16} /></span>
+                    <span className="tool-main">
+                      <span className="tool-name">{t.name}</span>
+                      <span className="tool-role">{t.role}</span>
+                    </span>
+                    <span className={`tool-badge is-${tone}`}>
+                      <span className="tool-dot" aria-hidden="true" />
+                      {state === 'instalada' ? 'instalada · sesión no comprobable' : state}
+                    </span>
+                    <span className="tool-detail" title={t.detail}>{t.detail}</span>
+                    {(t.id === 'gh' || (t.installed && t.login && state !== 'ok')) && <span className="tool-actions">
+                      {t.id === 'gh' && <GithubConnect tool={t} onRefresh={onRefresh} />}
+                      {t.installed && t.login && state !== 'ok' && (
+                        <button
+                          className="co-btn"
+                          disabled={!onLogin}
+                          onClick={() => onLogin?.(t.login!)}
+                          title={onLogin ? `abre un terminal con «${t.login}»` : `abre un proyecto o ejecuta «${t.login}» en tu terminal`}
+                        >
+                          iniciar sesión
+                        </button>
+                      )}
+                    </span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          {visible?.some((t) => !t.installed) && (
+            <p className="co-aside tools-note">Instala las que faltan con su instalador habitual y vuelve a comprobar; la app las busca con el PATH de tu shell.</p>
+          )}
+        </div>
+        {!hidden && <CliUpdates className={block} onRefresh={onRefresh} last={autoUpdates ?? null} />}
+        {!hidden && <JevRouting className={block} />}
       </div>
     </section>
   );
@@ -111,7 +125,8 @@ export function CliNotice({ updates, onOpen, onClose }: { updates: CliUpdate[]; 
 }
 
 /** Actualización de las CLI de IA: ajuste automático y último resultado. */
-function CliUpdates({ onRefresh, last }: { onRefresh: () => void; last: CliUpdate[] | null }) {
+function CliUpdates({ className, onRefresh, last }: { className: string; onRefresh: () => void; last: CliUpdate[] | null }) {
+  const autoId = useId();
   const [auto, setAuto] = useState<boolean | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [checked, setChecked] = useState<CliUpdate[] | null>(null);
@@ -138,36 +153,38 @@ function CliUpdates({ onRefresh, last }: { onRefresh: () => void; last: CliUpdat
     toolsApi.autoUpdate(on).then(setAuto, (e) => { setAuto(!on); setSaveError(String(e)); });
   };
   return (
-    <section className="cli-updates" aria-label="Actualización de las CLI" aria-busy={updating}>
-      <div className="cli-updates-head">
-        <h2>Actualización de las CLI</h2>
+    <section className={`${className} cli-updates`} aria-label="Actualización de las CLI" aria-busy={updating}>
+      <div className="tools-head">
+        <h3>Actualización de las CLI</h3>
         <button className="co-link" onClick={update} disabled={updating} title="ejecuta la orden de actualización de cada CLI de IA instalada">
           {updating ? 'actualizando…' : 'buscar ahora'}
         </button>
       </div>
-      <label className="pub-check">
-        <input type="checkbox" checked={auto ?? false} disabled={auto === null} onChange={(e) => toggle(e.target.checked)} />
-        Actualizar automáticamente las CLI de IA
-      </label>
-      <p className="co-aside">Al abrir el IDE y cada 6 h se usa la orden de actualización de cada CLI. Si una está en uso, se espera a que quede libre.</p>
-      {updates && (
-        updates.length ? <ul className="cli-update-list" role="status">
-          {updates.map((u) => (
-            <li key={u.id}>
-              <span className={`tool-dot is-${u.outcome}`} aria-hidden="true" />
-              <span className="tool-name">{u.name}</span>
-              <span className={`cli-update-state is-${u.outcome}`}>{UPDATE_LABEL[u.outcome]}</span>
-              <span className="tool-detail" title={u.detail}>{u.outcome === 'current' ? u.from : u.detail}</span>
-            </li>
-          ))}
-        </ul> : <p className="muted" role="status">No hay CLI de IA instaladas que se puedan actualizar.</p>
-      )}
-      {(error || saveError) && <p role="alert" className="co-error">{error ?? saveError}</p>}
+      <div className="tools-body">
+        <div className="tools-option">
+          <input id={`${autoId}-auto`} type="checkbox" checked={auto ?? false} disabled={auto === null} aria-describedby={`${autoId}-help`} onChange={(e) => toggle(e.target.checked)} />
+          <label htmlFor={`${autoId}-auto`}>Actualizar automáticamente las CLI de IA</label>
+          <p id={`${autoId}-help`} className="tools-help">Al abrir el IDE y cada 6 h se usa la orden de actualización de cada CLI. Si una está en uso, se espera a que quede libre.</p>
+        </div>
+        {updates && (
+          updates.length ? <ul className="cli-update-list" role="status">
+            {updates.map((u) => (
+              <li key={u.id}>
+                <span className="tool-logo"><ProviderLogo engine={u.id} size={14} /></span>
+                <span className="tool-name">{u.name}</span>
+                <span className={`cli-update-state is-${u.outcome}`}>{UPDATE_LABEL[u.outcome]}</span>
+                <span className="tool-detail" title={u.detail}>{u.outcome === 'current' ? u.from : u.detail}</span>
+              </li>
+            ))}
+          </ul> : <p className="muted" role="status">No hay CLI de IA instaladas que se puedan actualizar.</p>
+        )}
+        {(error || saveError) && <p role="alert" className="co-error">{error ?? saveError}</p>}
+      </div>
     </section>
   );
 }
 
-function JevRouting() {
+function JevRouting({ className }: { className: string }) {
   const [status, setStatus] = useState<JevStatus | null>(null);
   const [policy, setPolicy] = useState<JevSettings['policy']>('balanced');
   const [timeout, setTimeout] = useState(3);
@@ -212,49 +229,61 @@ function JevRouting() {
   const enabled = mode === 'active' || mode === 'shadow';
 
   return (
-    <section className="jev-settings" aria-label="Enrutamiento de tareas">
-      <h2>Enrutamiento con Jev</h2>
-      {status && <p role="status">{mode === 'active' ? 'Activo' : mode === 'shadow' ? 'Solo observación' : 'Local'}{enabled && ` · ${status.settings.model}`}</p>}
-      {status && <form onSubmit={activate} className="task-form">
-        <div className="jev-options">
-          <label>Política
-            <select value={policy} disabled={busy} onChange={(e) => setPolicy(e.target.value as JevSettings['policy'])}>
-              <option value="economy">Económica</option>
-              <option value="balanced">Equilibrada</option>
-              <option value="quality">Calidad</option>
-            </select>
-          </label>
-          <label>Plazo de TypeSafe en segundos
-            <input type="number" min="1" max="10" required value={timeout || ''} disabled={busy} onChange={(e) => setTimeout(Number(e.target.value))} />
-          </label>
-        </div>
-        {policy === 'economy' && status.supported && <label>Modelo de Codex para tareas sencillas
-          <select value={lightModel} disabled={busy} onChange={(e) => setLightModel(e.target.value)}>
-            <option value="">Modelo habitual del coordinador</option>
-            {lightModel && !status.codexModels.includes(lightModel) && <option value={lightModel}>{lightModel} · sin confirmar</option>}
-            {status.codexModels.map((id) => <option key={id} value={id}>{id}</option>)}
-          </select>
-          {status.codexModels.length === 0 && <span className="muted">Abre el coordinador para cargar su catálogo.</span>}
-        </label>}
-        {status.supported ? <>
-          <details className="co-aside">
-            <summary>Configurar la credencial del sistema</summary>
-            <p>Guarda tu clave de TypeSafe como contraseña genérica en el llavero de inicio de sesión de macOS o en el Administrador de credenciales de Windows. Usa <code>{status.service}</code> como nombre y <code>{status.account}</code> como cuenta. Si macOS pide acceso, permite el acceso permanente para los turnos automáticos.</p>
-          </details>
-          <label className="jev-check"><input type="checkbox" checked={shadow} disabled={busy} onChange={(e) => setShadow(e.target.checked)} />Solo observar la recomendación y aplicar la política local</label>
-          <label className="jev-check">
-            <input type="checkbox" checked={consent} disabled={busy} onChange={(e) => setConsent(e.target.checked)} />
-            <span>Autorizo consultar el catálogo y enviar a api.typesafe.ai el riesgo, la prioridad, el tamaño aproximado y el estado del turno anterior de mis tareas automáticas, además de la política y las opciones de Codex disponibles.</span>
-          </label>
-        </> : <p className="muted">El almacén de credenciales de esta plataforma no está disponible para Jev.</p>}
-        <div className="jev-options">
-          {status.supported && <button className="co-btn" type="submit" disabled={busy || !consent}>{enabled ? 'Actualizar Jev' : 'Activar Jev'}</button>}
-          <button className="co-btn" type="button" disabled={busy || (!enabled && (timeout < 1 || timeout > 10))} onClick={() => void save('local')}>
-            {enabled ? 'Desactivar Jev' : 'Guardar política local'}
-          </button>
-        </div>
-      </form>}
-      {error && <p role="alert" className="co-error">{error}</p>}
+    <section className={`${className} jev-settings`} aria-label="Enrutamiento de tareas">
+      <div className="tools-head">
+        <h3>Enrutamiento con Jev</h3>
+        {status && <span role="status" className={`tool-badge ${enabled ? 'is-ok' : 'is-instalada'}`}>{mode === 'active' ? 'Activo' : mode === 'shadow' ? 'Solo observación' : 'Local'}{enabled && ` · ${status.settings.model}`}</span>}
+      </div>
+      <div className="tools-body">
+        {status && <form onSubmit={activate} className="jev-form">
+          <div className="jev-fields">
+            <label className="jev-field">
+              <span className="jev-label">Política</span>
+              <select value={policy} disabled={busy} onChange={(e) => setPolicy(e.target.value as JevSettings['policy'])}>
+                <option value="economy">Económica</option>
+                <option value="balanced">Equilibrada</option>
+                <option value="quality">Calidad</option>
+              </select>
+            </label>
+            <label className="jev-field">
+              <span className="jev-label">Plazo de TypeSafe en segundos</span>
+              <input type="number" min="1" max="10" required value={timeout || ''} disabled={busy} onChange={(e) => setTimeout(Number(e.target.value))} />
+            </label>
+            {policy === 'economy' && status.supported && <label className="jev-field is-wide">
+              <span className="jev-label">Modelo de Codex para tareas sencillas</span>
+              <select value={lightModel} disabled={busy} onChange={(e) => setLightModel(e.target.value)}>
+                <option value="">Modelo habitual del coordinador</option>
+                {lightModel && !status.codexModels.includes(lightModel) && <option value={lightModel}>{lightModel} · sin confirmar</option>}
+                {status.codexModels.map((id) => <option key={id} value={id}>{id}</option>)}
+              </select>
+              {status.codexModels.length === 0 && <span className="tools-help">Abre el coordinador para cargar su catálogo.</span>}
+            </label>}
+          </div>
+          {status.supported ? <>
+            <details className="co-aside jev-credential">
+              <summary>Configurar la credencial del sistema</summary>
+              <p>Guarda tu clave de TypeSafe como contraseña genérica en el llavero de inicio de sesión de macOS o en el Administrador de credenciales de Windows. Usa <code>{status.service}</code> como nombre y <code>{status.account}</code> como cuenta. Si macOS pide acceso, permite el acceso permanente para los turnos automáticos.</p>
+            </details>
+            <div className="jev-checks">
+              <label className="jev-check">
+                <input type="checkbox" checked={shadow} disabled={busy} onChange={(e) => setShadow(e.target.checked)} />
+                <span>Solo observar la recomendación y aplicar la política local</span>
+              </label>
+              <label className="jev-check">
+                <input type="checkbox" checked={consent} disabled={busy} onChange={(e) => setConsent(e.target.checked)} />
+                <span>Autorizo consultar el catálogo y enviar a api.typesafe.ai el riesgo, la prioridad, el tamaño aproximado y el estado del turno anterior de mis tareas automáticas, además de la política y las opciones de Codex disponibles.</span>
+              </label>
+            </div>
+          </> : <p className="muted">El almacén de credenciales de esta plataforma no está disponible para Jev.</p>}
+          <div className="jev-actions">
+            <button className="co-btn" type="button" disabled={busy || (!enabled && (timeout < 1 || timeout > 10))} onClick={() => void save('local')}>
+              {enabled ? 'Desactivar Jev' : 'Guardar política local'}
+            </button>
+            {status.supported && <button className="co-btn is-primary" type="submit" disabled={busy || !consent}>{enabled ? 'Actualizar Jev' : 'Activar Jev'}</button>}
+          </div>
+        </form>}
+        {error && <p role="alert" className="co-error">{error}</p>}
+      </div>
     </section>
   );
 }

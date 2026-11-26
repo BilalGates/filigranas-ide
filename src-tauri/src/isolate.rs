@@ -324,7 +324,7 @@ pub fn cleanup(session: &db::Session) -> CmdResult<()> {
 
 // ── comandos ────────────────────────────────────────────────────────────
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::git::{diff_texts_at, status_since, DiffTexts, Status};
 use crate::{err, AppState};
@@ -361,58 +361,67 @@ pub async fn session_diff_texts(app: AppHandle, id: i64, path: String, orig: Opt
 
 /// Integra el trabajo de la sesión en el checkout principal.
 #[tauri::command]
-pub fn session_integrate(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Vec<String>> {
-    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
-    let session = any_session(&state, id)?;
-    let conn = state.db.lock().map_err(err)?;
-    crate::work::git_idle(&conn, &session.project)?;
-    if crate::runs::session_active(&conn, id).map_err(err)? {
-        return Err("espera a que termine el turno antes de integrar la rama".into());
-    }
-    let (files, fp) = integrate(&session)?;
-    db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
-    drop(conn);
-    let _ = app.emit("project-changed", ());
-    Ok(files)
+pub async fn session_integrate(app: AppHandle, id: i64) -> CmdResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let session = any_session(&state, id)?;
+        let conn = state.db.lock().map_err(err)?;
+        crate::work::git_idle(&conn, &session.project)?;
+        if crate::runs::session_active(&conn, id).map_err(err)? {
+            return Err("espera a que termine el turno antes de integrar la rama".into());
+        }
+        let (files, fp) = integrate(&session)?;
+        db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
+        drop(conn);
+        let _ = app.emit("project-changed", ());
+        Ok(files)
+    }).await.map_err(err)?
 }
 
 /// Integra fusionando a tres bandas; lo que choca queda marcado.
 #[tauri::command]
-pub fn session_integrate_merging(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<Merged> {
-    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
-    let session = any_session(&state, id)?;
-    let conn = state.db.lock().map_err(err)?;
-    crate::work::git_idle(&conn, &session.project)?;
-    if crate::runs::session_active(&conn, id).map_err(err)? {
-        return Err("espera a que termine el turno antes de integrar la rama".into());
-    }
-    let (merged, fp) = integrate_merging(&session)?;
-    db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
-    drop(conn);
-    let _ = app.emit("project-changed", ());
-    Ok(merged)
+pub async fn session_integrate_merging(app: AppHandle, id: i64) -> CmdResult<Merged> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let session = any_session(&state, id)?;
+        let conn = state.db.lock().map_err(err)?;
+        crate::work::git_idle(&conn, &session.project)?;
+        if crate::runs::session_active(&conn, id).map_err(err)? {
+            return Err("espera a que termine el turno antes de integrar la rama".into());
+        }
+        let (merged, fp) = integrate_merging(&session)?;
+        db::set_session_integrated(&conn, id, Some(&fp)).map_err(err)?;
+        drop(conn);
+        let _ = app.emit("project-changed", ());
+        Ok(merged)
+    }).await.map_err(err)?
 }
 
 /// Borra rama y worktree ya integrados y cierra la sesión.
 #[tauri::command]
-pub fn session_cleanup(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
-    let session = any_session(&state, id)?;
-    if crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
-        return Err("espera a que termine el turno antes de limpiar la rama".into());
-    }
-    cleanup(&session)?;
-    state.claude.forget(id);
-    state.acp.close(id)?;
-    let conn = state.db.lock().map_err(err)?;
-    if session.integrated.is_none() {
-        db::set_session_integrated(&conn, id, Some("cleaned")).map_err(err)?;
-    }
-    db::close_session(&conn, id).map_err(err)?;
-    drop(conn);
-    let _ = app.emit("sessions-changed", serde_json::json!({ "project": session.project }));
-    let _ = app.emit("project-changed", ());
-    crate::tasks::changed(&app);
-    Ok(())
+pub async fn session_cleanup(app: AppHandle, id: i64) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let session = any_session(&state, id)?;
+        if crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+            return Err("espera a que termine el turno antes de limpiar la rama".into());
+        }
+        cleanup(&session)?;
+        state.claude.forget(id);
+        state.acp.close(id)?;
+        let conn = state.db.lock().map_err(err)?;
+        if session.integrated.is_none() {
+            db::set_session_integrated(&conn, id, Some("cleaned")).map_err(err)?;
+        }
+        db::close_session(&conn, id).map_err(err)?;
+        drop(conn);
+        let _ = app.emit("sessions-changed", serde_json::json!({ "project": session.project }));
+        let _ = app.emit("project-changed", ());
+        crate::tasks::changed(&app);
+        Ok(())
+    }).await.map_err(err)?
 }
 
 /// Carpeta de trabajo para Larry o para publicar: el proyecto, o el

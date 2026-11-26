@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use crate::{err, files, workspace::project_path, AppState, CmdResult};
 
@@ -290,16 +290,19 @@ pub async fn git_branches(app: tauri::AppHandle, project: String) -> CmdResult<V
 /// el error llega tal cual a la interfaz. `--no-guess` evita crear ramas a
 /// partir de una remota con el mismo nombre.
 #[tauri::command]
-pub fn git_switch(state: State<AppState>, project: String, branch: String) -> CmdResult<()> {
-    let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
-    let conn = state.db.lock().map_err(err)?;
-    let project = project_path(&conn, &project)?;
-    crate::work::idle(&conn, &project)?;
-    if let Some(work) = crate::work::current(&conn, &project)?.filter(|w| w.state != "finished") {
-        if branch != work.branch { return Err(format!("finaliza la sesión de trabajo antes de cambiar la rama {}", work.branch)); }
-    }
-    drop(conn);
-    switch(Path::new(&project), &branch)
+pub async fn git_switch(app: AppHandle, project: String, branch: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let conn = state.db.lock().map_err(err)?;
+        let project = project_path(&conn, &project)?;
+        crate::work::idle(&conn, &project)?;
+        if let Some(work) = crate::work::current(&conn, &project)?.filter(|w| w.state != "finished") {
+            if branch != work.branch { return Err(format!("finaliza la sesión de trabajo antes de cambiar la rama {}", work.branch)); }
+        }
+        drop(conn);
+        switch(Path::new(&project), &branch)
+    }).await.map_err(err)?
 }
 
 fn switch(repo: &Path, branch: &str) -> CmdResult<()> {

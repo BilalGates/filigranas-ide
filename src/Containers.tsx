@@ -11,6 +11,7 @@ const LABELS: Record<LocalService['state'], string> = {
   failed: 'Falló',
 };
 const EMPTY: ServiceForm = { id: null, name: '', command: '', port: null };
+const POLL_DELAY = 3000;
 
 export default function Containers({ project, onOpen }: Props) {
   const [services, setServices] = useState<LocalService[] | null>(null);
@@ -28,25 +29,25 @@ export default function Containers({ project, onOpen }: Props) {
   useEffect(() => {
     if (busy) return;
     let current = true;
-    let pending = false;
+    let timer: number | undefined;
     let pollingError = false;
-    const load = () => {
-      if (pending) return;
-      pending = true;
-      localServices.list(project, selected).then((next) => {
+    const load = async () => {
+      try {
+        const next = await localServices.list(project, selected);
         if (!current) return;
         setServices(next);
         if (pollingError) setError(null);
         pollingError = false;
-      }, (e) => {
+      } catch (e) {
         if (!current) return;
         pollingError = true;
         setError(String(e));
-      }).finally(() => { pending = false; });
+      } finally {
+        if (current) timer = window.setTimeout(load, POLL_DELAY);
+      }
     };
-    load();
-    const timer = window.setInterval(load, 1000);
-    return () => { current = false; window.clearInterval(timer); };
+    void load();
+    return () => { current = false; window.clearTimeout(timer); };
   }, [project, selected, busy, revision]);
 
   useEffect(() => {

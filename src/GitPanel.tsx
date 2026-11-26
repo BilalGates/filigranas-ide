@@ -5,6 +5,7 @@ import { git, gitOps, larry, type Change, type CommitDetail, type GitStatus, typ
 import ApprovalForm from './ApprovalForm';
 import Splitter, { SIZES } from './Splitter';
 import GitGraph, { GIT_ROW_HEIGHT, layoutGraph, parseRefs } from './GitGraph';
+import { queuedRefresh } from './queuedRefresh';
 import { beep, shortcut, useCommand } from './ui';
 
 const STATUS_COLOR: Record<string, string> = { A: 'var(--ok)', U: 'var(--ok)', D: 'var(--err)', '!': 'var(--err)' };
@@ -47,7 +48,7 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
   const [branches, setBranches] = useState<string[]>([]);
   const [stashes, setStashes] = useState<Stash[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const request = useRef(0);
+  const reload = useRef<(() => Promise<void>) | null>(null);
   const [op, setOp] = useState<string | null>(null);
   const [pushReview, setPushReview] = useState<{ review: Review; upstream: boolean } | null>(null);
   const [output, setOutput] = useState<{ text: string; ok: boolean; key: number } | null>(null);
@@ -62,22 +63,29 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
 
   const say = (text: string, ok = true) => setOutput({ text, ok, key: Date.now() });
 
-  const refresh = useCallback(() => {
-    const id = ++request.current;
-    Promise.all([git.status(project), git.log(project), git.branches(project), gitOps.stashList(project).catch(() => [] as Stash[])]).then(
+  const refresh = () => { void reload.current?.(); };
+
+  useEffect(() => {
+    const queue = queuedRefresh(async () => {
+      const reads = [git.status(project), git.log(project), git.branches(project), gitOps.stashList(project).catch(() => [] as Stash[])] as const;
+      try {
+        return await Promise.all(reads);
+      } catch (error) {
+        await Promise.allSettled(reads);
+        throw error;
+      }
+    },
       ([s, l, b, st]) => {
-        if (id !== request.current) return;
         setStatus(s);
         setLog(l);
         setBranches(b);
         setStashes(st);
         setError(null);
       },
-      (e) => id === request.current && setError(String(e)),
+      (e) => setError(String(e)),
     );
-  }, [project]);
 
-  useEffect(() => {
+    reload.current = queue.refresh;
     setStatus(null);
     setLog([]);
     setDraft(EMPTY);
@@ -85,19 +93,21 @@ export default function GitPanel({ project, selected, onDiff, onPublish, pending
     setOutput(null);
     setPushReview(null);
     setDetail(null);
-    refresh();
+    void queue.refresh();
     let timer: number | undefined;
     const unlisten = listen('project-changed', () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(refresh, 300);
+      timer = window.setTimeout(queue.refresh, 300);
     });
-    window.addEventListener('focus', refresh);
+    window.addEventListener('focus', queue.refresh);
     return () => {
+      reload.current = null;
+      queue.stop();
       window.clearTimeout(timer);
       unlisten.then((off) => off());
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', queue.refresh);
     };
-  }, [refresh]);
+  }, [project]);
 
   useEffect(() => {
     if (!chooseBranch || !status) return;

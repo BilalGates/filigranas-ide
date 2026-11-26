@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager};
 
 use crate::{err, paths, workspace::root_of, AppState, CmdResult};
 
@@ -21,45 +21,51 @@ pub struct Entry {
 
 /// Contenido de una carpeta dentro de la raíz: carpetas primero, sin `.git`.
 #[tauri::command]
-pub fn list_dir(state: State<AppState>, path: String) -> CmdResult<Vec<Entry>> {
-    let root = root_of(&*state.db.lock().map_err(err)?)?;
-    let dir = paths::inside(&root, Path::new(&path))?;
-    let mut entries: Vec<Entry> = std::fs::read_dir(&dir)
-        .map_err(err)?
-        .filter_map(Result::ok)
-        .filter(|e| e.file_name() != ".git")
-        .map(|e| {
-            let dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            Entry {
-                name: e.file_name().to_string_lossy().into_owned(),
-                path: paths::to_string(&e.path()),
-                dir,
-            }
-        })
-        .collect();
-    entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    Ok(entries)
+pub async fn list_dir(app: AppHandle, path: String) -> CmdResult<Vec<Entry>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let root = root_of(&*state.db.lock().map_err(err)?)?;
+        let dir = paths::inside(&root, Path::new(&path))?;
+        let mut entries: Vec<Entry> = std::fs::read_dir(&dir)
+            .map_err(err)?
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name() != ".git")
+            .map(|e| {
+                let dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                Entry {
+                    name: e.file_name().to_string_lossy().into_owned(),
+                    path: paths::to_string(&e.path()),
+                    dir,
+                }
+            })
+            .collect();
+        entries.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+        Ok(entries)
+    }).await.map_err(err)?
 }
 
 /// Guarda un archivo de texto existente dentro de la raíz. No crea archivos
 /// nuevos: eso llegará con acciones explícitas del árbol. Escribe primero en
 /// un temporal junto al archivo y lo renombra, para no dejarlo a medias.
 #[tauri::command]
-pub fn write_text(state: State<AppState>, path: String, content: String, session: Option<i64>, previous: Option<String>) -> CmdResult<()> {
-    let root = root_for(&state, session)?;
-    let file = paths::inside(&root, Path::new(&path))?;
-    let _save = SAVE_GATE.lock().map_err(err)?;
-    if let Some(previous) = previous {
-        write_file_checked(&file, &content, || {
-            let current = read_file(&file)?;
-            if current != previous && current != content {
-                return Err("El archivo cambió en disco. Conserva tu borrador antes de abrir la versión actual.".into());
-            }
-            Ok(())
-        })
-    } else {
-        write_file(&file, &content)
-    }
+pub async fn write_text(app: AppHandle, path: String, content: String, session: Option<i64>, previous: Option<String>) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let root = root_for(&state, session)?;
+        let file = paths::inside(&root, Path::new(&path))?;
+        let _save = SAVE_GATE.lock().map_err(err)?;
+        if let Some(previous) = previous {
+            write_file_checked(&file, &content, || {
+                let current = read_file(&file)?;
+                if current != previous && current != content {
+                    return Err("El archivo cambió en disco. Conserva tu borrador antes de abrir la versión actual.".into());
+                }
+                Ok(())
+            })
+        } else {
+            write_file(&file, &content)
+        }
+    }).await.map_err(err)?
 }
 
 /// Sustituye un archivo completo sin compartir temporales entre guardados.
@@ -97,8 +103,11 @@ pub(crate) fn write_file_checked(file: &Path, content: &str, check: impl FnOnce(
 
 /// Lee un archivo de texto dentro de la raíz. Rechaza binarios y archivos grandes.
 #[tauri::command]
-pub fn read_text(state: State<AppState>, path: String, session: Option<i64>) -> CmdResult<String> {
-    read_file(&paths::inside(&root_for(&state, session)?, Path::new(&path))?)
+pub async fn read_text(app: AppHandle, path: String, session: Option<i64>) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        read_file(&paths::inside(&root_for(&state, session)?, Path::new(&path))?)
+    }).await.map_err(err)?
 }
 
 /// Carpeta dentro de la que se puede leer o escribir: la de proyectos o, para

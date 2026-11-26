@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { browser, type BrowserBounds, type BrowserEntry } from './ipc';
 
-type Props = { visible: boolean; covered: boolean; target: { url: string } | null };
+type Props = {
+  visible: boolean;
+  covered: boolean;
+  target: { url: string; project?: string | null } | null;
+  project?: string | null;
+  projectName?: string | null;
+};
 type Action = 'back' | 'forward' | 'reload';
 type Library = 'bookmarks' | 'history';
+type ProjectBrowserState = { url: string; entries: string[]; index: number };
 
 function webAddress(address: string) {
   const value = address.trim();
@@ -22,11 +29,14 @@ function bounds(el: HTMLElement): BrowserBounds {
   return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 }
 
-export default function Browser({ visible, covered, target }: Props) {
+export default function Browser({ visible, covered, target, project = null, projectName = null }: Props) {
   const native = isTauri();
   const surface = useRef<HTMLDivElement>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const nav = useRef({ entries: [] as string[], index: -1 });
+  const byProject = useRef(new Map<string, ProjectBrowserState>());
+  const scopeKey = project ?? '__global__';
+  const currentScope = useRef(scopeKey);
   const consumedTarget = useRef<Props['target']>(null);
   const lastLocation = useRef('');
   const [url, setUrl] = useState('');
@@ -37,6 +47,14 @@ export default function Browser({ visible, covered, target }: Props) {
   const [history, setHistory] = useState<BrowserEntry[]>([]);
   const [library, setLibrary] = useState<Library | null>(null);
   const active = visible && !covered;
+
+  const persistCurrentScope = useCallback((nextUrl: string) => {
+    byProject.current.set(currentScope.current, {
+      url: nextUrl,
+      entries: [...nav.current.entries],
+      index: nav.current.index,
+    });
+  }, []);
 
   const refreshLibrary = useCallback(async () => {
     if (!native) return;
@@ -64,18 +82,59 @@ export default function Browser({ visible, covered, target }: Props) {
           await browser.open(next, rect);
           setUrl(next);
           lastLocation.current = next;
+          persistCurrentScope(next);
           await refreshLibrary();
         });
       } else {
         const entries = [...nav.current.entries.slice(0, nav.current.index + 1), next];
         nav.current = { entries, index: entries.length - 1 };
         setUrl(next);
+        persistCurrentScope(next);
         setRevision((r) => r + 1);
       }
     } catch {
       setError('Introduce una dirección HTTP o HTTPS válida.');
     }
-  }, [native, refreshLibrary, send]);
+  }, [native, persistCurrentScope, refreshLibrary, send]);
+
+  // Aísla la sesión de navegación por proyecto activo sin perder historial al cambiar.
+  useEffect(() => {
+    if (currentScope.current === scopeKey) return;
+    byProject.current.set(currentScope.current, {
+      url: lastLocation.current || url,
+      entries: [...nav.current.entries],
+      index: nav.current.index,
+    });
+    currentScope.current = scopeKey;
+    const restored = byProject.current.get(scopeKey) ?? { url: '', entries: [], index: -1 };
+    nav.current = { entries: [...restored.entries], index: restored.index };
+    setDraft(null);
+    setError(null);
+    setUrl(restored.url);
+    setRevision((r) => r + 1);
+    if (native) {
+      if (active && restored.url && surface.current) {
+        const rect = bounds(surface.current);
+        send(async () => {
+          await browser.open(restored.url, rect);
+          lastLocation.current = restored.url;
+        });
+      } else if (!restored.url) {
+        lastLocation.current = '';
+        send(() => browser.place(null));
+      }
+    }
+  }, [scopeKey, active, native, send, url]);
+
+  useEffect(() => {
+    if (active && native && url && url !== lastLocation.current && surface.current) {
+      const rect = bounds(surface.current);
+      send(async () => {
+        await browser.open(url, rect);
+        lastLocation.current = url;
+      });
+    }
+  }, [active, native, url, send]);
 
   useEffect(() => {
     if (active && target && target !== consumedTarget.current) {
@@ -114,6 +173,7 @@ export default function Browser({ visible, covered, target }: Props) {
         if (mounted && next && next !== 'about:blank' && next !== lastLocation.current) {
           lastLocation.current = next;
           setUrl(next);
+          persistCurrentScope(next);
           void refreshLibrary();
         }
       }, () => {});
@@ -182,6 +242,7 @@ export default function Browser({ visible, covered, target }: Props) {
         <button type="button" className={`co-btn${library === 'history' ? ' is-on' : ''}`}
           onClick={() => setLibrary((current) => current === 'history' ? null : 'history')}>Historial</button>
         <span className="grow" />
+        {projectName && <span className="muted" style={{ fontSize: 11.5 }} title={project ?? undefined}>{projectName}</span>}
         <button type="button" className="co-btn" disabled={!url || !native} onClick={() => void saveBookmark()}
           aria-label="Guardar marcador" title="Guardar marcador">☆</button>
       </div>

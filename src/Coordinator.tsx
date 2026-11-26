@@ -1,12 +1,12 @@
 import { useSharedPermissions } from './trama/pendingPermissions';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
-import { Composer, ConversationLog, ConversationObservation, EFFORT_LABEL, nearestEffort, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
-import ChipMenu from './ChipMenu';
-import ProviderLogo from './ProviderLogo';
+import { buildEffortOptions, Composer, ConversationLog, ConversationObservation, effortLabel, nearestEffort, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import ModelConfigMenu, { type ProviderSwitch } from './ModelConfigMenu';
 import type { ConversationWorkflow } from './trama/ConversationPlan';
-import { useReportActivity } from './ui';
+import { beep, shortcut, useReportActivity } from './ui';
+import { pmActivityKey } from './trama/workspaceContext';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
 import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
 import { Icon } from './trama/icons';
@@ -18,7 +18,7 @@ type Props = {
   project: string;
   hidden: boolean;
   switching?: boolean;
-  providerPicker?: ReactNode;
+  providerSwitch?: ProviderSwitch;
   onDiff: (c: Change) => void;
   workflow?: ConversationWorkflow;
   observation?: HTMLElement | null;
@@ -36,7 +36,7 @@ type Props = {
  * del hilo guardado; los turnos nuevos llegan como eventos y se pintan a
  * medida que avanzan. Las aprobaciones esperan aquí la decisión del usuario.
  */
-export default function Coordinator({ project, hidden, switching, providerPicker, onDiff, workflow, observation, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
+export default function Coordinator({ project, hidden, switching, providerSwitch, onDiff, workflow, observation, session, task, onClearTask, onActivity, onModel, onContext, onConversation }: Props) {
   const sessionId = session?.id ?? null;
   const directName = session?.name;
   const history = useChatHistory(project, sessionId);
@@ -50,7 +50,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
   const [submitted, setSubmitted] = useState(false);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [autoNotes, setAutoNotes] = useState<string[]>([]);
-  const permission = usePermissionMode(session?.id ?? null);
+  const permission = usePermissionMode(sessionId, sessionId == null ? project : null, sessionId == null ? `pm:${project}` : undefined);
   const [running, setRunning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(true);
@@ -121,7 +121,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       if (method === 'filigranas/autoApproved') {
         const p = params?.params ?? {};
         const what = params?.request === 'item/fileChange/requestApproval' ? 'cambio de archivos' : p.command ? `orden «${String(p.command).slice(0, 120)}»` : 'orden';
-        return setAutoNotes((n) => [...n.slice(-19), `Aprobado automáticamente (acceso total): ${what}`]);
+        return setAutoNotes((n) => [...n.slice(-19), `Aprobado automáticamente (full control): ${what}`]);
       }
       switch (method) {
         case 'thread/tokenUsage/updated':
@@ -203,7 +203,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
 
   const asks = useSharedPermissions(project, sessionId, directName ?? 'Codex', session?.worktree ?? project, ownedAsks);
   const state = approvals.length ? 'esperando permiso' : running ? 'en marcha' : error && !info ? 'fallida' : 'inactiva';
-  useReportActivity(session ? null : 'coach', state);
+  useReportActivity(session ? null : pmActivityKey(project), state);
   useEffect(() => onActivity?.(state), [onActivity, state]);
   const hasWork = history.items.length > 0 || submitted || items.some((item) => item.type === 'userMessage');
   useEffect(() => onConversation?.(hasWork), [hasWork, onConversation]);
@@ -221,6 +221,28 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       setEffort((current) => nearestEffort(current, efforts));
     }, (e) => setError(String(e)));
   };
+
+  const availableEfforts = ['auto', ...(info?.models?.find((m) => m.id === (info.pinnedModel ?? info.model))?.efforts ?? info?.efforts ?? ['medium'])];
+  const autoHint = automaticTask == null ? undefined : 'Jev o la política local eligen según la tarea';
+  const selectEffort = (value: string) => {
+    beep('tick');
+    if (automaticTask == null) setEffort(value);
+    else setTaskEffort({ id: automaticTask, value });
+  };
+  const modelDisplay = info?.pinnedModel
+    ? info.models?.find((m) => m.id === info.pinnedModel)?.label ?? info.pinnedModel
+    : info?.models?.length ? 'Automático' : (info?.model ?? 'Automático');
+  const modelOptions = info?.models?.length
+    ? [
+        { value: '', label: 'Automático', hint: info.model ? `Codex elige; ahora ${info.model}` : 'Codex elige el modelo' },
+        ...(info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel)
+          ? [{ value: info.pinnedModel, label: info.pinnedModel, hint: 'No disponible', disabled: true }] : []),
+        ...info.models.map((m) => ({
+          value: m.id,
+          label: m.label,
+        })),
+      ]
+    : [];
 
   return (
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
@@ -245,34 +267,48 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       </ConversationLog>
 
       <Composer
-        providerPicker={providerPicker}
         draftKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
-        context={session && <SessionContext project={project} worktree={session.worktree} branch={session.branch ?? null} base={session.base ?? null} />}
-        permission={session && <PermissionChip mode={permission.mode} onMode={permission.setMode} />}
+        context={<SessionContext project={project} worktree={session?.worktree ?? null} branch={session?.branch ?? null} base={session?.base ?? null} />}
+        permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
         disabled={!info || switching === true}
         running={!!running}
-        efforts={['auto', ...(info?.models?.find((m) => m.id === (info.pinnedModel ?? info.model))?.efforts ?? info?.efforts ?? ['medium'])]}
-        autoHint={automaticTask == null ? undefined : 'Jev o la política local eligen según la tarea'}
+        efforts={availableEfforts}
         effort={selectedEffort}
-        onEffort={(value) => automaticTask == null ? setEffort(value) : setTaskEffort({ id: automaticTask, value })}
+        onEffort={selectEffort}
         model={
-          <>
-            {info?.models?.length ? <ChipMenu label="Modelo Codex" heading="Modelo" value={info.pinnedModel ?? ''}
-              onChange={pin} disabled={!!running || !!switching}
-              display={info.pinnedModel ? info.models.find((m) => m.id === info.pinnedModel)?.label ?? info.pinnedModel : 'modelo automático'}
-              options={[
-                { value: '', label: 'Automático', hint: info.model ? `Codex elige; ahora ${info.model}` : 'Codex elige el modelo' },
-                ...(info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel)
-                  ? [{ value: info.pinnedModel, label: info.pinnedModel, hint: 'No disponible', disabled: true }] : []),
-                ...info.models.map((m) => ({ value: m.id, label: m.label, hint: m.efforts.length ? `Razonamiento: ${m.efforts.map((e) => EFFORT_LABEL[e] ?? e).join(', ')}` : undefined })),
-              ]} /> : <span className="chip is-static"><ProviderLogo engine="codex" />codex{info?.model ? ` · ${info.model}` : ''}</span>}
-            {opening && hasWork && <span className="co-connecting" role="status">Conectando…</span>}
-            {task && <button className="co-btn" onClick={onClearTask} title="desvincular los próximos mensajes" disabled={!!running}>#{task.id} {task.title} ×</button>}
-          </>
+          <ModelConfigMenu
+            persistKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
+            hidden={hidden}
+            switching={switching === true}
+            loadingModels={opening && !info}
+            engine="codex"
+            engineLabel="Codex"
+            provider={providerSwitch}
+            modelDisplay={modelDisplay}
+            model={modelOptions.length ? { value: info?.pinnedModel ?? '', options: modelOptions, disabled: !!running || !!switching, onChange: pin } : undefined}
+            reasoning={[{
+              id: 'effort',
+              heading: 'Razonamiento',
+              value: selectedEffort,
+              disabled: !info || switching === true,
+              options: buildEffortOptions(availableEfforts, autoHint),
+              onChange: selectEffort,
+            }]}
+            reasoningDisplay={effortLabel(selectedEffort)}
+            disabled={switching === true}
+            title={shortcut('Proveedor, modelo y razonamiento · ⌘M · ⌘⇧E')}
+          />
         }
+        topExtra={task && (
+          <button className="co-top-chip" onClick={onClearTask} title="Desvincular los próximos mensajes" disabled={!!running}>
+            <span>#{task.id} {task.title}</span>
+            <span className="co-top-x" aria-hidden="true">×</span>
+          </button>
+        )}
+        extra={opening && hasWork && <span className="co-connecting" role="status">Conectando…</span>}
         onSend={send}
         onInterrupt={() => coordinator.interrupt(project, sessionId).catch((e) => setError(String(e)))}
-        placeholder={`encargo para ${directName ?? 'Project manager'}`}
+        placeholder="/filigranas"
       />
     </section>
   );

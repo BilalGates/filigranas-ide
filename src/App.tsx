@@ -1,9 +1,8 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
-import ChipMenu from './ChipMenu';
-import ProviderLogo from './ProviderLogo';
+import type { ProviderSwitch } from './ModelConfigMenu';
 import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
@@ -28,7 +27,23 @@ import Splitter, { SIZES } from './Splitter';
 import GithubProfile from './GithubProfile';
 import Sharing, { type ShareTarget } from './Sharing';
 import AmbientField from './trama/AmbientField';
-import { DESTS, DestNav, loadDest, loadResume, saveDest, saveResume, type Dest } from './trama/nav';
+import { DestNav, loadResume, saveResume, TOOLS, type ToolId } from './trama/nav';
+import WorkspaceShell from './trama/WorkspaceShell';
+import {
+  closeTool,
+  createInitialShellState,
+  minimizeWorkspace,
+  onProjectSelected,
+  openTool,
+  persistShellState,
+  resetWorkspaceRatio,
+  resizeWorkspace,
+  resolveStartupShell,
+  restoreWorkspace,
+  toggleMaximizeTool,
+  toggleTool,
+  type ShellState,
+} from './trama/workspaceLayout';
 import Home from './trama/Home';
 import Flow from './trama/Flow';
 import Studio from './trama/Studio';
@@ -37,12 +52,24 @@ import Boundary from './trama/Boundary';
 import BrainView from './trama/BrainView';
 import Threads from './trama/Threads';
 import TitleSwitch from './trama/TitleSwitch';
+import SystemKpi from './trama/SystemKpi';
+import RecentSessions from './trama/RecentSessions';
 import EngineUsage, { type Engine } from './trama/EngineUsage';
 import JevUsage from './trama/JevUsage';
 import Attention from './trama/Attention';
 import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
 import { AgDot, sessionAgents } from './trama/kit';
+import {
+  computeMountedConversations,
+  deriveWorkspaceContext,
+  loadPersistedContext,
+  pmActivityKey,
+  resolveProjectEntry,
+  savePersistedContext,
+  selectionKey,
+  type ActiveSelection,
+} from './trama/workspaceContext';
 
 // Proyectos con project manager: solo los que lo piden, no todos.
 const PM_KEY = 'filigranas.pm';
@@ -60,11 +87,17 @@ type TerminalTab = { id: number; project: string; number: number; session?: numb
 export default function App() {
   useQuotaEvents();
   const [ws, setWs] = useState<Workspace | null>(null);
+  const [startupConfirmed, setStartupConfirmed] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [project, setProject] = useState<string | null>(null);
-  const currentProject = useRef(project);
-  currentProject.current = project;
+  // Fuente única de verdad: activeSelection → session.project → activeProject.
+  const [activeSelection, setActiveSelection] = useState<ActiveSelection>(null);
+  const [lastByProject, setLastByProject] = useState<Record<string, Exclude<ActiveSelection, null>>>({});
+  const [visitedKeys, setVisitedKeys] = useState<Set<string>>(() => new Set());
+  const [sessionsByProject, setSessionsByProject] = useState<Record<string, Session[]>>({});
+  const [pmClaudeByProject, setPmClaudeByProject] = useState<Record<string, Session | null>>({});
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const loadedProjectsRef = useRef<Set<string>>(new Set());
   const [file, setFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<DiffTarget | null>(null);
   // Sesión a la que pertenece el archivo abierto (su worktree), si alguna.
@@ -75,7 +108,6 @@ export default function App() {
   const [selectedTerm, setSelectedTerm] = useState<Record<string, number>>({});
   const nextTermId = useRef(1);
   const [termOpen, setTermOpen] = useState(false);
-  const [view, setView] = useState<'coach' | number>('coach');
   // Tarea que Flow debe seleccionar al abrirse (desde Inicio, Brain o la paleta).
   const [flowTask, setFlowTask] = useState<number | null>(null);
   // Etapa con la que se abre Entrega (Code Health, PR, commits, ramas sin integrar).
@@ -93,11 +125,7 @@ export default function App() {
   const [observationTarget, setObservationTarget] = useState<HTMLDivElement | null>(null);
   const [observationTabs, setObservationTabs] = useState<HTMLElement | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [agentSessions, setAgentSessions] = useState<Session[]>([]);
   const [flowFocus, setFlowFocus] = useState<{ project: string; task: number } | null>(null);
-  // Proyecto cuya lista de sesiones ya está cargada (mientras carga, vacía).
-  const [sessionsOf, setSessionsOf] = useState<string | null>(null);
-  const [pmChat, setPmChat] = useState<{ project: string; session: Session | null } | null>(null);
   const [switching, setSwitching] = useState<number | string | null>(null);
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
@@ -133,8 +161,11 @@ export default function App() {
   const [shareMode, setShareMode] = useState<ShareTarget | 'join' | null>(null);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
+  const [narrowSideOpen, setNarrowSideOpen] = useState(false);
   const [noRight, setNoRight] = useState(() => { try { return (localStorage.getItem('filigranas.disposicion') ?? 'chat') === 'chat'; } catch { return true; } });
-  const [dest, setDestState] = useState<Dest>(loadDest);
+  const [shell, setShell] = useState<ShellState>(() => createInitialShellState(false));
+  const shellHydrated = useRef(false);
+  const [browserMounted, setBrowserMounted] = useState(false);
   const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
   const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
   const [focusCi, setFocusCi] = useState<string | null>(null);
@@ -143,12 +174,98 @@ export default function App() {
   const [layout, setLayoutState] = useState<'chat' | 'split' | 'code'>(() => {
     try { const v = localStorage.getItem('filigranas.disposicion'); return v === 'split' || v === 'code' ? v : 'chat'; } catch { return 'chat'; }
   });
-  const setDest = useCallback((d: Dest) => { if (d !== 'entrega') { setEntregaScope(null); setEntregaStage(null); } if (d !== 'flow') setFlowTask(null); setDestState(d); saveDest(d); }, []);
+  const openToolInShell = useCallback((tool: ToolId) => {
+    if (tool !== 'entrega') { setEntregaScope(null); setEntregaStage(null); }
+    if (tool !== 'flow') setFlowTask(null);
+    setShell((s) => openTool(s, tool));
+  }, []);
+  const toggleToolInShell = useCallback((tool: ToolId) => {
+    setShell((s) => {
+      const next = toggleTool(s, tool);
+      if (next.activeTool !== 'entrega') { setEntregaScope(null); setEntregaStage(null); }
+      if (next.activeTool !== 'flow') setFlowTask(null);
+      return next;
+    });
+  }, []);
+  const closeActiveTool = useCallback(() => {
+    setEntregaScope(null);
+    setEntregaStage(null);
+    setFlowTask(null);
+    setShell((s) => closeTool(s));
+  }, []);
+  const ensureWorkspaceVisible = useCallback(() => {
+    setShell((s) => (s.mode === 'maximized' || s.mode === 'compact' ? restoreWorkspace(s) : s));
+  }, []);
+  useEffect(() => {
+    if (shell.activeTool === 'browser') setBrowserMounted(true);
+  }, [shell.activeTool]);
   const { activity, muted, light } = useUi();
-  const activeSession = agentSessions.find((session) => session.id === view && session.project === project);
-  const pmReady = !!project && pmChat?.project === project;
-  const pmSession = pmReady ? pmChat.session : null;
+  const validProjects = useMemo(
+    () => (ws ? ws.projects.filter((p) => !p.archived).map((p) => p.path) : []),
+    [ws],
+  );
+  const validProjectsKey = useMemo(() => JSON.stringify(validProjects), [validProjects]);
+  const projectNames = useMemo(
+    () => new Map((ws?.projects ?? []).map((p) => [p.path, p.name])),
+    [ws],
+  );
+  const allOpenSessions = useMemo(
+    () => Object.values(sessionsByProject).flat(),
+    [sessionsByProject],
+  );
+  const sessionsById = useMemo(
+    () => new Map(allOpenSessions.map((s) => [s.id, s])),
+    [allOpenSessions],
+  );
+  const derived = useMemo(
+    () =>
+      deriveWorkspaceContext({
+        selection: activeSelection,
+        validProjects,
+        sessionsById,
+        catalogLoaded,
+        projectNames,
+      }),
+    [activeSelection, validProjects, sessionsById, catalogLoaded, projectNames],
+  );
+  const project = derived.project;
+  const view = derived.view;
+  const activeSession = derived.activeSession;
+  const currentProject = useRef(project);
+  currentProject.current = project;
+  const agentSessions = useMemo(
+    () => (project ? sessionsByProject[project] ?? [] : []),
+    [project, sessionsByProject],
+  );
+  const pmReady = !!project && catalogLoaded;
+  const pmSession = project ? pmClaudeByProject[project] ?? null : null;
   const pmEngine = pmSession?.engine ?? 'codex';
+  const pmByProject = useMemo(() => {
+    const map: Record<string, { engine: string } | null> = {};
+    for (const p of validProjects) {
+      if (!pmProjects.has(p)) {
+        map[p] = null;
+      } else {
+        map[p] = { engine: pmClaudeByProject[p]?.engine === 'claude' ? 'Claude' : 'Codex' };
+      }
+    }
+    return map;
+  }, [validProjects, pmProjects, pmClaudeByProject]);
+  const mountedConversations = useMemo(
+    () =>
+      computeMountedConversations({
+        active: derived.selection,
+        visitedKeys,
+        sessionsByProject,
+        pmProjects,
+        validProjects,
+        activity,
+      }),
+    [derived.selection, visitedKeys, sessionsByProject, pmProjects, validProjects, activity],
+  );
+  useEffect(() => {
+    setNarrowSideOpen(false);
+  }, [shell.mode, shell.activeTool, view, project]);
   const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
   const quota = useProviderQuota(usageEngine, usageModel, true);
@@ -265,64 +382,166 @@ export default function App() {
     };
   }, [refresh]);
 
-  // Si el proyecto abierto desaparece o se archiva, cerrarlo.
-  useEffect(() => {
-    if (project && ws && !ws.projects.some((p) => p.path === project && !p.archived)) {
-      setProject(null);
-      setFile(null);
-    }
-  }, [ws, project]);
+  const markVisited = useCallback((sel: Exclude<ActiveSelection, null>) => {
+    const key = selectionKey(sel);
+    setVisitedKeys((cur) => {
+      if (cur.has(key)) return cur;
+      const next = new Set(cur);
+      next.add(key);
+      return next;
+    });
+  }, []);
 
-  // Sesiones de agentes del proyecto abierto.
+  // Arranque: recupera la última sesión válida y su proyecto derivado, o abre Workspace + Inicio.
   useEffect(() => {
-    let active = true;
-    setAgentSessions([]);
-    setSessionsOf(null);
-    if (project) {
-      chats.pm(project).then(
-        (session) => { if (active) setPmChat({ project, session }); },
-        (e) => { if (active) setError(String(e)); },
-      );
-      sessions.list(project).then(
-        (list) => {
-          if (!active) return;
-          setAgentSessions(list);
-          setSessionsOf(project);
-        },
-        (e) => { if (active) setError(String(e)); },
-      );
+    if (!startupConfirmed || !ws?.root || shellHydrated.current) return;
+    shellHydrated.current = true;
+    const validPaths = ws.projects.filter((p) => !p.archived).map((p) => p.path);
+    const persisted = loadPersistedContext(validPaths);
+    const startup = resolveStartupShell(validPaths);
+    setLastByProject(persisted.lastByProject);
+    const initialSelection: ActiveSelection =
+      persisted.active ?? (startup.project ? { kind: 'pm', project: startup.project } : null);
+    setActiveSelection(initialSelection);
+    if (initialSelection) {
+      markVisited(initialSelection);
+      setLastByProject((cur) => ({ ...cur, [initialSelection.project]: initialSelection }));
     }
-    return () => { active = false; };
-  }, [project]);
+    const nextShell = initialSelection
+      ? (startup.project === initialSelection.project ? startup.shell : onProjectSelected(startup.shell))
+      : createInitialShellState(false, null, startup.shell.workspaceRatio, startup.shell.lastToolMode);
+    setShell(nextShell);
+    if (nextShell.activeTool === 'browser') setBrowserMounted(true);
+    if (!initialSelection && persisted.missingProject) {
+      const label = persisted.missingProject.split(/[\\/]/).filter(Boolean).pop() ?? persisted.missingProject;
+      setError(`El proyecto guardado «${label}» ya no está disponible o fue archivado.`);
+    }
+  }, [startupConfirmed, ws, markVisited]);
 
-  // El coordinador también crea sesiones al delegar.
+  // Persiste contexto global (sesión activa + última sesión por proyecto) y layout del shell.
   useEffect(() => {
-    let active = true;
+    if (!shellHydrated.current || !ws?.root) return;
+    savePersistedContext(derived.selection, lastByProject, validProjects);
+    persistShellState(project, shell, validProjects);
+  }, [derived.selection, lastByProject, project, shell, validProjects, ws?.root]);
+
+  // Hidrata el catálogo global de sesiones y PMs en una sola consulta bulk (sin recargar al cambiar de conversación).
+  useEffect(() => {
+    if (!startupConfirmed || !ws?.root) return;
+    const paths: string[] = JSON.parse(validProjectsKey);
+    const missing = paths.filter((p) => !loadedProjectsRef.current.has(p));
+    if (!missing.length) {
+      setCatalogLoaded(true);
+      return;
+    }
+    let alive = true;
+    sessions.catalog(missing).then(
+      (cat) => {
+        if (!alive) return;
+        for (const p of missing) loadedProjectsRef.current.add(p);
+        setSessionsByProject((cur) => {
+          const next = { ...cur };
+          for (const p of missing) next[p] = [];
+          for (const s of cat.sessions) {
+            (next[s.project] ??= []).push(s);
+          }
+          return next;
+        });
+        setPmClaudeByProject((cur) => {
+          const next = { ...cur };
+          for (const p of missing) next[p] = cat.pmClaude[p] ?? null;
+          return next;
+        });
+        const discoveredPms = [
+          ...Object.keys(cat.pmClaude),
+          ...cat.pmCodexProjects,
+        ];
+        if (discoveredPms.length) {
+          setPmProjects((cur) => {
+            let changed = false;
+            const next = new Set(cur);
+            for (const p of discoveredPms) {
+              if (!next.has(p)) { next.add(p); changed = true; }
+            }
+            if (!changed) return cur;
+            try { localStorage.setItem(PM_KEY, JSON.stringify([...next])); } catch { /* */ }
+            return next;
+          });
+        }
+        setCatalogLoaded(true);
+      },
+      (e) => {
+        if (!alive) return;
+        setError(String(e));
+        setCatalogLoaded(true);
+      },
+    );
+    return () => { alive = false; };
+  }, [startupConfirmed, ws?.root, validProjectsKey]);
+
+  // Suscripción única global: actualiza solo el proyecto afectado sin recargar el catálogo completo.
+  useEffect(() => {
+    let alive = true;
     const unlisten = listen<{ project: string; focus?: number | null }>('sessions-changed', ({ payload }) => {
-      if (payload.project !== project) return;
-      sessions.list(payload.project).then(
+      const targetProject = payload.project;
+      sessions.list(targetProject).then(
         (list) => {
-          if (!active) return;
-          setAgentSessions(list);
-          // Un relevo lleva a la sesión que continúa la tarea.
-          if (payload.focus != null && list.some((s) => s.id === payload.focus)) setView(payload.focus);
+          if (!alive) return;
+          setSessionsByProject((cur) => ({ ...cur, [targetProject]: list }));
+          if (payload.focus != null && targetProject === currentProject.current && list.some((s) => s.id === payload.focus)) {
+            const nextSel: Exclude<ActiveSelection, null> = { kind: 'session', sessionId: payload.focus, project: targetProject };
+            setActiveSelection(nextSel);
+            setLastByProject((cur) => ({ ...cur, [targetProject]: nextSel }));
+            markVisited(nextSel);
+          }
         },
-        (e) => { if (active) setError(String(e)); },
+        (e) => { if (alive) setError(String(e)); },
       );
     });
     return () => {
-      active = false;
-      unlisten.then((off) => off());
+      alive = false;
+      void unlisten.then((off) => off());
     };
-  }, [project]);
+  }, [markVisited]);
 
-  const newSession = (engine = 'codex', task: number | null = null, skillRole: 'designer' | null = null) => {
+  // Gestión explícita cuando el proyecto o la sesión activa dejan de existir (sin reasignaciones silenciosas).
+  useEffect(() => {
+    if (!derived.staleReason) return;
+    if (derived.staleReason === 'project_missing') {
+      setActiveSelection(null);
+      setFile(null);
+      setDiff(null);
+      setFileSession(null);
+      setConflictFiles(null);
+      setObserved(null);
+      setCoachTask(null);
+      setEntregaScope(null);
+      setShell((s) => createInitialShellState(false, null, s.workspaceRatio, s.lastToolMode));
+      if (derived.staleNotice) setError(derived.staleNotice);
+    } else if (derived.staleReason === 'session_missing' || derived.staleReason === 'session_mismatch') {
+      setActiveSelection(derived.selection);
+      if (derived.selection) {
+        setLastByProject((cur) => ({ ...cur, [derived.selection!.project]: derived.selection! }));
+      }
+      if (derived.staleNotice) setError(derived.staleNotice);
+    }
+  }, [derived.staleReason, derived.staleNotice, derived.selection]);
+
+  const newSession = (engine?: string, task: number | null = null, skillRole: 'designer' | null = null) => {
     if (!project) return;
-    sessions.create(project, engine, task, skillRole).then(
+    const chosen = engine ?? (pmEngine === 'claude' ? 'claude' : 'codex');
+    sessions.create(project, chosen, task, skillRole).then(
       ({ notice, ...s }) => {
-        if (currentProject.current !== s.project) return;
-        setAgentSessions((list) => list.some((item) => item.id === s.id) ? list : [...list, s]);
-        setView(s.id);
+        setSessionsByProject((cur) => {
+          const list = cur[s.project] ?? [];
+          return { ...cur, [s.project]: list.some((item) => item.id === s.id) ? list : [...list, s] };
+        });
+        if (currentProject.current === s.project) {
+          const nextSel: Exclude<ActiveSelection, null> = { kind: 'session', sessionId: s.id, project: s.project };
+          setActiveSelection(nextSel);
+          setLastByProject((cur) => ({ ...cur, [s.project]: nextSel }));
+          markVisited(nextSel);
+        }
         if (notice) setError(notice);
       },
       (e) => setError(String(e)),
@@ -367,11 +586,18 @@ export default function App() {
   const pendingCount = pendingBranches?.project === project ? pendingBranches?.count ?? 0 : 0;
 
   const closeSession = (id: number) => {
-    const closing = agentSessions.find((s) => s.id === id);
+    const closing = sessionsById.get(id);
     sessions.close(id).then(
       () => {
-        setAgentSessions((list) => list.filter((s) => s.id !== id));
-        setView((v) => (v === id ? 'coach' : v));
+        if (closing) {
+          const fallback: Exclude<ActiveSelection, null> = { kind: 'pm', project: closing.project };
+          setActiveSelection((cur) => (cur?.kind === 'session' && cur.sessionId === id ? fallback : cur));
+          setLastByProject((cur) => (cur[closing.project]?.kind === 'session' && cur[closing.project].sessionId === id ? { ...cur, [closing.project]: fallback } : cur));
+          setSessionsByProject((cur) => ({
+            ...cur,
+            [closing.project]: (cur[closing.project] ?? []).filter((s) => s.id !== id),
+          }));
+        }
         if (closing?.worktree)
           setError(`La rama ${closing.branch} de ${closing.name} se conserva: está en Trabajo, en la sección Ramas.`);
       },
@@ -390,31 +616,22 @@ export default function App() {
     git.watch(project, watchedSession).catch((e) => setError(String(e)));
   }, [project, watchedSession]);
 
-  // Si la sesión abierta desaparece (cerrada o limpiada), volver al coordinador.
+  // Sus terminales de worktree tampoco sobreviven si su sesión fue cerrada o limpiada.
   useEffect(() => {
-    if (project && sessionsOf === project && typeof view === 'number' && !agentSessions.some((s) => s.id === view)) setView('coach');
-  }, [agentSessions, project, sessionsOf, view]);
-
-  // Sus terminales tampoco sobreviven: su carpeta puede haberse borrado.
-  useEffect(() => {
-    if (sessionsOf !== project) return;
+    if (!catalogLoaded) return;
     setTerms((current) => {
-      const kept = current.filter((t) => t.session == null || t.project !== project || agentSessions.some((s) => s.id === t.session));
+      const kept = current.filter((t) => t.session == null || sessionsById.has(t.session));
       return kept.length === current.length ? current : kept;
     });
-  }, [agentSessions, project, sessionsOf]);
-
-  // Sin project manager, abrir el proyecto lleva a su primera sesión.
-  useEffect(() => {
-    if (project && sessionsOf === project && view === 'coach' && !pmProjects.has(project) && agentSessions.length) setView(agentSessions[0].id);
-  }, [project, sessionsOf, view, pmProjects, agentSessions]);
+  }, [sessionsById, catalogLoaded]);
 
   const revealRight = (tab: RightTab) => {
     setRightView(tab);
     setNoRight(false);
+    ensureWorkspaceVisible();
   };
   const showRight = (tab: RightTab) => {
-    if (tab === rightView && !noRight) setNoRight(true);
+    if (tab === rightView && !noRight && shell.mode !== 'maximized' && shell.mode !== 'compact') setNoRight(true);
     else revealRight(tab);
   };
 
@@ -422,13 +639,13 @@ export default function App() {
   const openEntrega = (stage: EntregaStage | null, scope: Session | null = activeSession ?? null) => {
     setEntregaScope(scope?.id ?? null);
     setEntregaStage(stage);
-    setDest('entrega');
+    openToolInShell('entrega');
   };
   const openPending = () => openEntrega('integracion', null);
   const openTask = (path: string, task: number | null) => {
-    if (path !== project) selectProject(path);
+    if (path !== project) selectProject(path, { keepTool: true });
     setFlowTask(task);
-    setDest('flow');
+    openToolInShell('flow');
   };
   const openEditor = () => revealRight('editor');
   const showConflicts = (files: string[]) => {
@@ -453,8 +670,8 @@ export default function App() {
 
   // «Retomar»: último punto de trabajo real (proyecto y vista del Workspace).
   useEffect(() => {
-    if (project && sessionsOf === project && dest === 'workspace') saveResume({ project, view, dest, at: Date.now() });
-  }, [project, sessionsOf, view, dest]);
+    if (project && catalogLoaded) saveResume({ project, view, at: Date.now() });
+  }, [project, catalogLoaded, view]);
 
   const closeFile = () => {
     setFile(null);
@@ -465,43 +682,108 @@ export default function App() {
 
   const shareDialog = shareMode && <Sharing target={shareMode === 'join' ? null : shareMode} onClose={() => setShareMode(null)} />;
   if (!ws && !workspaceError) return <div className="app" />;
-  if (!ws?.root) return <><Onboarding onDone={(workspace) => { setWs(workspace); setWorkspaceError(null); }}
+  if (!startupConfirmed || !ws?.root) return <><Onboarding
+    initialRoot={ws?.root ?? null}
+    onDone={(workspace) => {
+      shellHydrated.current = false;
+      loadedProjectsRef.current = new Set();
+      setCatalogLoaded(false);
+      setWs(workspace);
+      setWorkspaceError(null);
+      setStartupConfirmed(true);
+    }}
     recoveryError={workspaceError} onRetry={refresh} onJoin={() => setShareMode('join')}
     github={toolList?.find((tool) => tool.id === 'gh')} onToolsRefresh={checkTools} />{shareDialog}</>;
 
   const current = ws.projects.find((p) => p.path === project);
-  const selectProject = (path: string | null) => {
+  const resetProjectTransientUi = () => {
     setChooseBranch(false);
     setDirty(false);
-    currentProject.current = path;
-    setProject(path);
     setCoachTask(null);
     closeFile();
     setConflictFiles(null);
     setObserved(null);
     beforeObservation.current = null;
+    setEntregaScope(null);
+    setFocusCi(null);
     setRightView((tab) => (tab === 'conflicts' || tab === 'observe' ? 'git' : tab));
-    setView('coach');
+  };
+
+  /**
+   * Cambia la sesión activa (fuente única de verdad). Deriva automáticamente
+   * el proyecto asociado, sincroniza las herramientas abiertas sin cerrarlas
+   * y conserva vivas las demás sesiones y procesos en segundo plano.
+   */
+  const selectSession = (next: ActiveSelection, opts?: { closeInicio?: boolean; ensureWorkspace?: boolean }) => {
+    if (!next) {
+      resetProjectTransientUi();
+      setActiveSelection(null);
+      setShell((s) => createInitialShellState(false, null, s.workspaceRatio, s.lastToolMode));
+      return;
+    }
+    const projectChanged = next.project !== currentProject.current;
+    if (projectChanged) resetProjectTransientUi();
+    setActiveSelection(next);
+    setLastByProject((cur) => ({ ...cur, [next.project]: next }));
+    markVisited(next);
+    if (opts?.closeInicio) {
+      setShell((s) => onProjectSelected(s));
+    } else if (opts?.ensureWorkspace) {
+      ensureWorkspaceVisible();
+    }
+  };
+
+  const selectView = (target: 'coach' | number, targetProject = current?.path ?? null, opts?: { closeInicio?: boolean; ensureWorkspace?: boolean }) => {
+    if (!targetProject) return;
+    selectSession(
+      target === 'coach'
+        ? { kind: 'pm', project: targetProject }
+        : { kind: 'session', sessionId: target, project: targetProject },
+      opts,
+    );
+  };
+
+  /**
+   * Selección de proyecto desde Inicio: recupera su última sesión válida si
+   * existe, o entra a su PM/flujo real sin iniciar agentes artificialmente;
+   * cierra Inicio y expande Workspace (salvo `keepTool` al abrir Flow/Entrega).
+   */
+  const selectProject = (path: string | null, opts?: { keepTool?: boolean }) => {
+    if (!path) {
+      selectSession(null);
+      return;
+    }
+    const entry = resolveProjectEntry({
+      project: path,
+      validProjects,
+      lastByProject,
+      projectSessions: sessionsByProject[path] ?? [],
+      hasPm: pmProjects.has(path),
+    });
+    selectSession(entry, { closeInicio: !opts?.keepTool });
   };
   const hasPm = !!current && pmProjects.has(current.path);
-  const workflow = current && dest === 'workspace' ? {
-    sessions: agentSessions.filter((agent) => agent.project === current.path),
+  const workflowFor = (targetProject: string) => ({
+    sessions: sessionsByProject[targetProject] ?? [],
     onOpenFlow: (task?: number) => {
-      setFlowFocus(task == null ? null : { project: current.path, task });
-      setDest('flow');
+      if (targetProject !== currentProject.current) selectProject(targetProject, { keepTool: true });
+      setFlowFocus(task == null ? null : { project: targetProject, task });
+      openToolInShell('flow');
     },
-    onSession: (id: number) => setView(id),
+    onSession: (id: number) => {
+      selectSession({ kind: 'session', sessionId: id, project: targetProject }, { ensureWorkspace: true });
+    },
     onObserve: (id: number) => {
+      if (targetProject !== currentProject.current) selectSession({ kind: 'session', sessionId: id, project: targetProject });
       if (rightView !== 'observe') beforeObservation.current = { tab: rightView, hidden: noRight };
       setObserved(id);
       revealRight('observe');
     },
-  } : undefined;
+  });
   const startPm = (path = current?.path) => {
     if (!path) return;
-    if (path !== project) selectProject(path);
     setPm(path, true);
-    setView('coach');
+    selectSession({ kind: 'pm', project: path }, { closeInicio: shell.activeTool === 'inicio' });
   };
   const changeEngine = (engine: ChatEngine) => {
     if (!current || switching !== null) return;
@@ -510,10 +792,15 @@ export default function App() {
     setSwitching(id ?? path);
     chats.switchEngine(path, id, engine).then(
       (session) => {
-        if (currentProject.current !== path) return;
         setReportedModel((model) => model?.key === (id ?? path) ? null : model);
-        if (id === null) setPmChat({ project: path, session });
-        else if (session) setAgentSessions((list) => list.map((item) => item.id === id ? session : item));
+        if (id === null) {
+          setPmClaudeByProject((cur) => ({ ...cur, [path]: session }));
+        } else if (session) {
+          setSessionsByProject((cur) => ({
+            ...cur,
+            [path]: (cur[path] ?? []).map((item) => (item.id === id ? session : item)),
+          }));
+        }
       },
       (e) => setError(String(e)),
     ).finally(() => setSwitching(null));
@@ -537,7 +824,7 @@ export default function App() {
   };
   const openBrowser = (url: string) => {
     setBrowserTarget({ url });
-    revealRight('browser');
+    openToolInShell('browser');
   };
   const editorOpen = !!(current && (diff || file));
   // Disposición del Workspace. Chat: conversación con la columna derecha
@@ -562,8 +849,8 @@ export default function App() {
     { id: 'cheat', label: 'atajos de teclado', keys: '⌘/', run: () => setOverlay('cheat') },
     { id: 'new', label: 'nueva sesión', keys: '⌘T', run: () => newSession() },
     { id: 'close', label: 'cerrar pestaña', keys: '⌘W', run: closeActive },
-    { id: 'pm', label: hasPm ? 'project manager' : 'sesión con project manager', keys: '⌘1', run: () => (hasPm ? setView('coach') : startPm()) },
-    ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => setView(s.id) })),
+    { id: 'pm', label: hasPm ? 'project manager' : 'sesión con project manager', keys: '⌘1', run: () => (hasPm ? selectView('coach') : startPm()) },
+    ...agentSessions.slice(0, 8).map((s, i) => ({ id: `s${s.id}`, label: `sesión ${s.name}`, keys: `⌘${i + 2}`, run: () => selectView(s.id) })),
     { id: 'editor', label: 'editor', keys: '⌘E', run: () => editorOpen && (rightView === 'editor' ? setRightView('git') : openEditor()) },
     { id: 'files', label: 'archivos', keys: '⌘P', run: () => showRight('files') },
     { id: 'term', label: termOpen ? 'ocultar terminal' : 'abrir terminal', keys: '⌘J', run: toggleTerminal },
@@ -579,8 +866,12 @@ export default function App() {
     ] : []),
     { id: 'git', label: 'git', keys: '⌘G', run: () => showRight('git') },
     { id: 'pr', label: 'pull request', run: () => openEntrega('pr') },
-    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => showRight('containers') },
-    { id: 'browser', label: 'navegador', run: () => showRight('browser') },
+    { id: 'containers', label: 'contenedores', keys: '⌘⇧O', run: () => current && toggleToolInShell('containers') },
+    { id: 'browser', label: 'browser', run: () => toggleToolInShell('browser') },
+    ...(shell.activeTool ? [
+      { id: 'tool-maximize', label: shell.mode === 'maximized' ? 'restaurar vista dividida' : 'maximizar herramienta', keys: '⌘⇧F', run: () => setShell((s) => toggleMaximizeTool(s)) },
+      { id: 'tool-close', label: 'cerrar herramienta activa', keys: '⌘⇧W', run: closeActiveTool },
+    ] : []),
     { id: 'commit', label: 'commit', keys: '⌘⇧C', run: () => emit('commit') },
     { id: 'commit-push', label: 'commit y push', keys: '⌘⇧P', run: () => emit('commit-push') },
     { id: 'larry', label: 'Larry · commits', keys: '⌘⇧G', run: () => openEntrega('commit') },
@@ -594,11 +885,18 @@ export default function App() {
     { id: 'mute', label: muted ? 'activar sonido' : 'silenciar', keys: '⌘⇧M', run: () => toggleMute() },
     { id: 'theme', label: 'cambiar tema', keys: '⌘⇧L', run: () => setLightTheme(!light) },
   ];
-  // Las órdenes del Workspace llevan a él; las globales no cambian de destino.
-  const GLOBAL = new Set(['palette', 'cheat', 'usage', 'mute', 'theme', 'send', 'stop', 'model', 'effort', 'allow', 'deny']);
+  const GLOBAL = new Set(['palette', 'cheat', 'usage', 'mute', 'theme', 'send', 'stop', 'model', 'effort', 'allow', 'deny', 'containers', 'browser', 'tasks', 'health', 'pending', 'pr', 'larry', 'tool-maximize', 'tool-close']);
   const commands: Command[] = [
-    ...DESTS.map((d) => ({ id: `dest-${d.id}`, label: d.label, keys: d.keys, run: () => setDest(d.id) })),
-    ...baseCommands.map((c) => GLOBAL.has(c.id) ? c : { ...c, run: () => { setDest('workspace'); c.run(); } }),
+    ...TOOLS.map((d) => ({
+      id: `tool-${d.id}`,
+      label: d.label,
+      keys: d.keys,
+      run: () => {
+        if (d.id === 'containers' && !current) return;
+        toggleToolInShell(d.id);
+      },
+    })),
+    ...baseCommands.map((c) => GLOBAL.has(c.id) ? c : { ...c, run: () => { ensureWorkspaceVisible(); c.run(); } }),
   ];
   // Atajos que resuelve la vista visible (conversación, editor).
   const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
@@ -629,19 +927,25 @@ export default function App() {
   const branchInfo = branch?.project === project ? branch : null;
   const centerTitle = !current ? null
     : view === 'coach' && hasPm
-      ? { name: 'Project manager', meta: pmEngine === 'claude' ? 'Claude Code' : 'Codex', tag: null, state: sessionState('coach') }
+      ? { name: 'Project manager', meta: pmEngine === 'claude' ? 'Claude Code' : 'Codex', tag: null, state: sessionState(pmActivityKey(current.path)) }
       : activeSession
-        ? { name: activeSession.name, meta: ENGINE_LABEL[activeSession.engine] ?? activeSession.engine, tag: null, state: sessionState(String(activeSession.id)) }
+        ? {
+            name: activeSession.title?.trim() || activeSession.name,
+            meta: ENGINE_LABEL[activeSession.engine] ?? activeSession.engine,
+            tag: activeSession.parentSession != null ? 'subsesión' : null,
+            state: sessionState(String(activeSession.id)) ?? (activeSession.status === 'trabajando' ? 'trabajando' : activeSession.status === 'esperando' ? 'permiso' : null),
+          }
         : { name: current.name, meta: 'Workspace', tag: null, state: null };
 
   const chatEngine = activeSession?.engine ?? (view === 'coach' && hasPm && pmReady ? pmEngine : null);
-  const providerPicker = (chatEngine === 'codex' || chatEngine === 'claude') && (
-    <ChipMenu className="co-provider" label="Proveedor de la conversación" heading="Proveedor"
-      title={centerTitle?.state ? 'Interrumpe el turno o espera a que termine para cambiar de proveedor' : 'Cambiar de proveedor'}
-      value={chatEngine} disabled={switching !== null || !!centerTitle?.state}
-      options={[{ value: 'codex', label: 'Codex', hint: 'OpenAI', icon: <ProviderLogo engine="codex" /> }, { value: 'claude', label: 'Claude Code', hint: 'Anthropic', icon: <ProviderLogo engine="claude" /> }]}
-      onChange={(value) => changeEngine(value as ChatEngine)} />
-  );
+  const providerSwitch: ProviderSwitch | undefined = (chatEngine === 'codex' || chatEngine === 'claude')
+    ? {
+        engine: chatEngine,
+        disabled: switching !== null || !!centerTitle?.state,
+        title: centerTitle?.state ? 'Interrumpe el turno o espera a que termine para cambiar de proveedor' : 'Cambiar de proveedor',
+        onChange: (value) => changeEngine(value),
+      }
+    : undefined;
   const row = (key: string, active: boolean, name: string, meta: string | null, state: string | null, onClick: () => void, onClose?: () => void, tag?: string) => (
     <div key={key} className={`srow${active ? ' is-on' : ''}`}>
       <button className="srow-main" onClick={onClick}>
@@ -661,11 +965,11 @@ export default function App() {
   const sessionList = current && (
     <div className="sessions" role="list">
       {hasPm &&
-        row('coach', view === 'coach', 'Project manager', null, sessionState('coach'), () => setView('coach'), () => {
+        row('coach', view === 'coach', 'Project manager', null, sessionState(pmActivityKey(current.path)), () => selectView('coach'), () => {
           setPm(current.path, false);
-          setView(agentSessions[0]?.id ?? 'coach');
+          selectView(agentSessions[0]?.id ?? 'coach');
         })}
-      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => setView(s.id), () => closeSession(s.id)))}
+      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => selectView(s.id), () => closeSession(s.id)))}
       <button className="project-new-session" onClick={() => newSession()}>
         <Icon name="plus" size={12} /> Nueva sesión
       </button>
@@ -681,19 +985,18 @@ export default function App() {
     : current?.path ?? null;
   const editorTab = current && editorPath ? { name: editorPath.split(/[\\/]/).pop() ?? '', path: editorPath, diff: !!diff } : null;
   const observing = agentSessions.find((session) => session.id === observed && session.project === current?.path);
-  const observedPanel = dest === 'workspace' && rightView === 'observe' && !noRight ? observing : undefined;
+  const observedPanel = shell.mode !== 'maximized' && shell.mode !== 'compact' && rightView === 'observe' && !noRight ? observing : undefined;
   const closeObservation = () => {
     setObserved(null);
     setNoRight(beforeObservation.current?.hidden ?? true);
     setRightView(beforeObservation.current?.tab ?? 'git');
     beforeObservation.current = null;
   };
-  const panelOpen = !noRight && (!!current || rightView === 'browser') && (rightView !== 'observe' || !!observing);
-  const browserOpen = panelOpen && rightView === 'browser';
-  // Cambios y Archivos viven en la cabecera del Workspace; Contenedores, en
-  // el menú izquierdo. El rail solo muestra paneles contextuales.
+  const panelOpen = !noRight && !!current && (rightView !== 'observe' || !!observing);
+  // Cambios y Archivos viven en la cabecera del Workspace; Browser y Contenedores
+  // viven como herramientas acoplables. El rail solo muestra paneles contextuales.
   const panelTabs = (Object.keys(RIGHT_PANELS) as RightTab[]).filter((tab) => {
-    if (tab === 'browser' || tab === 'git' || tab === 'files' || tab === 'containers') return false;
+    if (tab === 'git' || tab === 'files') return false;
     if (tab === 'observe') return !!observing;
     if (tab === 'editor') return !!editorTab;
     if (tab === 'conflicts') return !!current && !!conflictFiles;
@@ -715,11 +1018,30 @@ export default function App() {
       })}
     </div>
   );
-  const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null) : [];
-  const fieldDim = { inicio: 1, workspace: layout === 'code' ? 0.35 : 0.7, studio: 0.55, entrega: 0.7, flow: 0.9, brain: 0.85, ajustes: 0.6 }[dest];
+  const headerAgents = current ? sessionAgents(agentSessions, activity, hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null, current.path) : [];
+  const dimByTool: Record<ToolId, number> = { inicio: 1, flow: 0.9, studio: 0.55, entrega: 0.7, brain: 0.85, containers: 0.65, browser: 0.5, ajustes: 0.6 };
+  const fieldDim = shell.activeTool ? dimByTool[shell.activeTool] : (layout === 'code' ? 0.35 : 0.7);
   const waiting = Object.values(activity).filter((a) => a === 'permiso').length;
-  const destBadges: Partial<Record<Dest, number>> = { workspace: waiting };
-  const destLive: Partial<Record<Dest, boolean>> = { workspace: Object.values(activity).some((a) => a === 'trabajando') };
+  const workingCount = Object.values(activity).filter((a) => a === 'trabajando').length;
+  const navBadges: Partial<Record<ToolId, number>> = { flow: waiting };
+  const navLive: Partial<Record<ToolId, boolean>> = { flow: workingCount > 0 };
+  const activeCompactAgent = view === 'coach'
+    ? headerAgents.find((a) => a.id === 'pm') ?? null
+    : headerAgents.find((a) => a.session === view) ?? null;
+  const compactInfo = {
+    projectName: current?.name ?? null,
+    conversationName: centerTitle?.name ?? 'Workspace',
+    activeAgent: activeCompactAgent,
+    workingCount,
+    waitingCount: waiting,
+  };
+  const useMemoryInChat = (snippet: string) => {
+    ensureWorkspaceVisible();
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent('filigranas:insert-chat', { detail: snippet }));
+      focusConversation();
+    });
+  };
   const errorToast = (error || workspaceError) && (
     <button className="toast" onClick={() => { setError(null); setWorkspaceError(null); }} title="cerrar">
       <Icon name="warn" size={13} />
@@ -727,136 +1049,509 @@ export default function App() {
     </button>
   );
 
+  const activeToolNode = (() => {
+    switch (shell.activeTool) {
+      case 'inicio':
+        return (
+          <Boundary name="Inicio">
+            <Home active={true} ws={ws} project={project} agentSessions={agentSessions} sessionsByProject={sessionsByProject} pmByProject={pmByProject} resume={loadResume()} onWs={setWs} onError={setError}
+              pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
+              onCi={(path) => { if (path !== project) selectProject(path, { keepTool: true }); setEntregaScope(null); setFocusCi(path); openToolInShell('entrega'); }}
+              onFlow={(path) => { if (path !== project) selectProject(path, { keepTool: true }); openToolInShell('flow'); }}
+              onProject={(path) => selectProject(path)}
+              onSession={(path, v) => selectView(v, path, { closeInicio: true })}
+              onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path, { keepTool: true }); openEntrega('tarea', null); } }}
+              onResume={() => {
+                const r = loadResume();
+                if (!r || !validProjects.includes(r.project)) return;
+                const targetSessions = sessionsByProject[r.project] ?? [];
+                if (typeof r.view === 'number' && targetSessions.some((s) => s.id === r.view)) {
+                  selectSession({ kind: 'session', sessionId: r.view, project: r.project }, { closeInicio: true });
+                } else {
+                  selectProject(r.project);
+                }
+              }} />
+          </Boundary>
+        );
+      case 'flow':
+        return (
+          <Boundary name="Flow">
+            <Flow key={project ?? 'none'} project={project} projectName={current?.name ?? null} initialTask={flowFocus?.project === project ? flowFocus?.task : null} agentSessions={agentSessions}
+              pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
+              onOpenSession={(id) => { selectView(id, undefined, { ensureWorkspace: true }); requestAnimationFrame(focusConversation); }}
+              focusTask={flowTask}
+              onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); selectView('coach', project, { ensureWorkspace: true }); requestAnimationFrame(focusConversation); }}
+              onDirect={(engine, task) => { newSession(engine, task); ensureWorkspaceVisible(); }}
+              onStartPm={() => { if (project && !hasPm) startPm(project); else selectView('coach', project, { ensureWorkspace: true }); }} />
+          </Boundary>
+        );
+      case 'studio':
+        return (
+          <Boundary name="Studio">
+            <Studio key={project ?? 'none'} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+              view={studioView} onView={setStudioView} onNewSession={() => { newSession('claude', null, 'designer'); ensureWorkspaceVisible(); }}
+              canvas={current && <DesignCanvas key={current.path} project={current.path}
+                reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
+                archived={ws.projects.filter((item) => item.archived).length}
+                conversation={<button className="btn sm" onClick={() => { ensureWorkspaceVisible(); requestAnimationFrame(focusConversation); }}><Icon name="chat" size={13} /> Conversación</button>} />}
+              onOpenSession={(id) => { selectView(id, undefined, { ensureWorkspace: true }); requestAnimationFrame(focusConversation); }}
+              onBrowser={() => openToolInShell('browser')} />
+          </Boundary>
+        );
+      case 'entrega':
+        return (
+          <Boundary name="Entrega">
+            <Entrega key={`${project ?? 'none'}:${entregaStage ?? ''}:${entregaScope ?? ''}`} initialScope={entregaScope} initialStage={entregaStage} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+              onConflicts={(files) => showConflicts(files)} onBranchesChanged={countPending}
+              onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); openEditor(); }} />
+          </Boundary>
+        );
+      case 'brain':
+        return (
+          <Boundary name="Brain">
+            <BrainView key={project ?? 'none'} project={project} projects={ws.projects}
+              onOpenTask={(id, proj) => { const path = proj ?? project; if (path) openTask(path, id); }}
+              onUseInChat={current ? useMemoryInChat : undefined} />
+          </Boundary>
+        );
+      case 'containers':
+        return (
+          <Boundary name="Contenedores">
+            <div className="tv tr-root tool-containers">
+              {current ? (
+                <Containers key={current.path} project={current.path} onOpen={openBrowser} />
+              ) : (
+                <div className="welcome">
+                  <h1>Contenedores y servicios</h1>
+                  <p>Selecciona un proyecto en Inicio para administrar sus procesos locales.</p>
+                  <div className="welcome-actions">
+                    <button className="co-btn is-primary" onClick={() => openToolInShell('inicio')}>Abrir Inicio</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Boundary>
+        );
+      case 'ajustes':
+        return (
+          <Boundary name="Ajustes">
+            <Settings agentSessions={agentSessions} project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
+              onRefreshTools={checkTools} onLogin={current ? (command) => { ensureWorkspaceVisible(); openTerminal(current.path, true, command); } : null}
+              usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
+          </Boundary>
+        );
+      default:
+        return null;
+    }
+  })();
+
+  const browserLayer = (
+    <Browser
+      visible={shell.activeTool === 'browser'}
+      covered={!!overlay || usageOpen || !!engineOpen || githubOpen}
+      target={browserTarget}
+      project={project}
+      projectName={current?.name ?? null}
+    />
+  );
+
   return (
-    <div className={`app${panelOpen ? ' has-panel' : ''}${noSide ? ' no-side' : ''}${panelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${dest !== 'workspace' ? ' is-dest' : ''}${layout === 'code' && panelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && panelOpen ? ' is-wide' : ''}${dest === 'workspace' && browserOpen ? ' is-browser' : ''}`}>
+    <div className="app">
       <AmbientField dim={fieldDim} />
       <header className="titlebar" data-tauri-drag-region>
         <div className="tb-left" data-tauri-drag-region>
-          <TitleSwitch ws={ws} project={project} branch={branchInfo} onError={setError}
-            onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
+          <TitleSwitch
+            ws={ws}
+            selection={derived.selection}
+            project={project}
+            sessionsByProject={sessionsByProject}
+            pmProjects={pmProjects}
+            pmClaudeByProject={pmClaudeByProject}
+            activity={activity}
+            branch={branchInfo}
+            onError={setError}
+            onSelectSession={(next) => {
+              selectSession(next, { closeInicio: shell.activeTool === 'inicio' });
+            }}
             onBranched={() => { void emit('project-changed'); }}
-            onManage={() => { setLeftMode('projects'); setNoSide(false); setDest('workspace'); }}
-            onBranchTools={() => { setDest('workspace'); revealRight('git'); setChooseBranch(true); }} />
+            onManage={() => openToolInShell('inicio')}
+            onBranchTools={() => { ensureWorkspaceVisible(); revealRight('git'); setChooseBranch(true); }}
+          />
         </div>
-        <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
-          <Icon name="search" size={14} />
-          <span className="grow">Buscar o ejecutar…</span>
-          <kbd>{shortcut('⌘K')}</kbd>
-        </button>
+        <div className="tb-center">
+          <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
+            <Icon name="search" size={14} />
+            <span className="grow">Buscar o ejecutar…</span>
+            <kbd>{shortcut('⌘K')}</kbd>
+          </button>
+          {current && (
+            <button
+              className={`tb-btn tb-term${termOpen && shell.mode !== 'maximized' && shell.mode !== 'compact' ? ' is-on' : ''}`}
+              onClick={() => { ensureWorkspaceVisible(); toggleTerminal(); }}
+              aria-controls="project-terminal"
+              aria-expanded={termOpen && shell.mode !== 'maximized' && shell.mode !== 'compact'}
+              aria-label="Terminal"
+              title={shortcut('Terminal · ⌘J')}
+            >
+              <Icon name="terminal" size={15} />
+            </button>
+          )}
+        </div>
         <div className="tb-right" data-tauri-drag-region>
-          {current && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => setDest('flow')}>
+          {current && <button className="tb-agents tv" aria-label="Agentes de este proyecto" title="Agentes de este proyecto" onClick={() => toggleToolInShell('flow')}>
             {headerAgents.length === 0 && <><Icon name="agent" size={13} /><span>0</span></>}
             {headerAgents.slice(0, 5).map((agent) => <AgDot key={agent.id} a={agent} s={12} />)}
             {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
           </button>}
-          <Attention project={project} projectName={current?.name ?? null} sessions={agentSessions} activity={activity}
-            onSession={(id) => { setView(id); setDest('workspace'); }} onTask={(id) => { if (project) openTask(project, id); }}
-            onEntrega={(stage) => openEntrega(stage, null)} onHome={() => setDest('inicio')} />
+          <Attention
+            project={project}
+            projectName={current?.name ?? null}
+            projects={ws.projects}
+            sessions={agentSessions}
+            allSessions={allOpenSessions}
+            activity={activity}
+            onSession={(id, sessionProject) => selectView(id, sessionProject ?? project, { ensureWorkspace: true })}
+            onTask={(id) => { if (project) openTask(project, id); }}
+            onEntrega={(stage) => openEntrega(stage, null)}
+            onHome={() => openToolInShell('inicio')}
+          />
         </div>
       </header>
 
-      <DestNav dest={dest} onDest={setDest} badges={destBadges} live={destLive}
-        browser={{ open: dest === 'workspace' && browserOpen, run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('browser'); } else showRight('browser'); } }}
-        containers={current ? { open: dest === 'workspace' && panelOpen && rightView === 'containers', run: () => { if (dest !== 'workspace') { setDest('workspace'); revealRight('containers'); } else showRight('containers'); } } : undefined}
-        github={<GithubProfile tool={toolList?.find(tool => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
-          onOpenChange={open => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />} />
-      <Boundary name="Inicio">
-        <Home active={dest === 'inicio'} ws={ws} project={project} agentSessions={agentSessions} resume={loadResume()} onWs={setWs} onError={setError}
-          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
-          onCi={(path) => { if (path !== project) selectProject(path); setEntregaScope(null); setFocusCi(path); setDest('entrega'); }}
-          onFlow={(path) => { if (path !== project) selectProject(path); setDest('flow'); }}
-          onProject={(path) => { if (path !== project) selectProject(path); setDest('workspace'); }}
-          onSession={(path, v) => { if (path !== project) selectProject(path); setView(v); setDest('workspace'); }}
-          onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path); openEntrega('tarea', null); } }}
-          onResume={() => {
-            const r = loadResume();
-            if (!r || !ws.projects.some((p) => p.path === r.project && !p.archived)) return;
-            if (r.project !== project) selectProject(r.project);
-            if (typeof r.view !== 'number' || agentSessions.some((s) => s.id === r.view) || r.project !== project) setView(r.view);
-            setDest('workspace');
-          }} />
-      </Boundary>
-      {dest === 'flow' && (
-        <Boundary name="Flow">
-        <Flow key={project} project={project} projectName={current?.name ?? null} initialTask={flowFocus?.project === project ? flowFocus?.task : null} agentSessions={agentSessions}
-          pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
-          onOpenSession={(id) => { setView(id); setDest('workspace'); }}
-          focusTask={flowTask}
-          onAuto={(task) => { if (!project) return; setPm(project, true); setCoachTask(task); setView('coach'); setDest('workspace'); }}
-          onDirect={(engine, task) => { newSession(engine, task); setDest('workspace'); }}
-          onStartPm={() => { if (project && !hasPm) startPm(project); setView('coach'); setDest('workspace'); }} />
-        </Boundary>
-      )}
-      {dest === 'studio' && (
-        <Boundary name="Studio">
-        <Studio key={project} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
-          view={studioView} onView={setStudioView} onNewSession={() => newSession('claude', null, 'designer')}
-          canvas={current && <DesignCanvas key={current.path} project={current.path}
-            reference={sidebarReference(ws, current.path, agentSessions.filter((session) => session.project === current.path), hasPm, view)}
-            archived={ws.projects.filter((item) => item.archived).length}
-            conversation={<button className="btn sm" onClick={() => { setDest('workspace'); requestAnimationFrame(focusConversation); }}><Icon name="chat" size={13} /> Conversación</button>} />}
-          onOpenSession={(id) => { setView(id); setDest('workspace'); }}
-          onBrowser={() => { setDest('workspace'); revealRight('browser'); }} />
-        </Boundary>
-      )}
-      {dest === 'entrega' && (
-        <Boundary name="Entrega">
-        <Entrega key={`${project}:${entregaStage ?? ''}:${entregaScope ?? ''}`} initialScope={entregaScope} initialStage={entregaStage} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
-          onConflicts={(files) => { setDest('workspace'); showConflicts(files); }} onBranchesChanged={countPending}
-          onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); setDest('workspace'); openEditor(); }} />
-        </Boundary>
-      )}
-      {dest === 'brain' && (
-        <Boundary name="Brain">
-          <BrainView key={project} project={project} projects={ws.projects}
-            onOpenTask={(id, proj) => { const path = proj ?? project; if (path) openTask(path, id); }} />
-        </Boundary>
-      )}
-      {dest === 'ajustes' && (
-        <Boundary name="Ajustes">
-          <Settings agentSessions={agentSessions} project={project} projectName={current?.name ?? null} tools={toolList} checking={checkingTools} autoUpdates={cliLast}
-            onRefreshTools={checkTools} onLogin={current ? (command) => { setDest('workspace'); openTerminal(current.path, true, command); } : null}
-            usage={{ engine: usageEngine, label: usageLabel, model: usageModel, quota }} commands={commands} />
-        </Boundary>
-      )}
-      {leftMode === 'threads' && current ? (
-        <Threads projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} sessions={agentSessions}
-          onView={setView} onNew={(engine) => newSession(engine)} onStartPm={() => { startPm(current.path); setView('coach'); }}
-          onClose={closeSession} onProjects={() => setLeftMode('projects')}
-          footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
-      ) : (
-      <Sidebar
-        ws={ws}
-        project={project}
-        onProject={selectProject}
-        onUpdate={update}
-        onNewSession={() => newSession()}
-        onProjectManager={startPm}
-        onJoin={() => setShareMode('join')}
-        onShare={(target) => {
-          const worktree = target.path === project ? sessionWorktree : null;
-          setShareMode({ path: target.path, name: target.name, session: worktree?.id ?? null, worktree: worktree?.name });
-        }}
-        onProjectView={(path, tab) => {
-          if (path !== project) selectProject(path);
-          revealRight(tab);
-        }}
-        onProjectTerminal={(path) => {
-          if (path !== project) selectProject(path);
-          openTerminal(path);
-        }}
-        onError={setError}
-        sessions={sessionList}
-        status={<>
-          {muted && (
-            <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
-              <Icon name="mute" size={13} /> Silenciado
-            </button>
-          )}
-          {current && <button className="side-usage" onClick={() => setLeftMode('threads')}><Icon name="chat" size={13} /> Conversaciones</button>}
-        </>}
+      <DestNav
+        activeTool={shell.activeTool}
+        onTool={toggleToolInShell}
+        badges={navBadges}
+        live={navLive}
+        disabledTools={{ containers: !current }}
+        github={<GithubProfile tool={toolList?.find((tool) => tool.id === 'gh')} open={githubOpen} onRefresh={checkTools}
+          onOpenChange={(open) => { setGithubOpen(open); if (open) { setEngineOpen(null); setUsageOpen(false); } }} />}
       />
-      )}
+
+      <WorkspaceShell
+        state={shell}
+        compactInfo={compactInfo}
+        browserMounted={browserMounted}
+        onResize={(px, available) => setShell((s) => resizeWorkspace(s, px, available))}
+        onResetRatio={() => setShell((s) => resetWorkspaceRatio(s))}
+        onMinimizeWorkspace={() => setShell((s) => minimizeWorkspace(s))}
+        onRestoreWorkspace={() => setShell((s) => restoreWorkspace(s))}
+        onCloseTool={closeActiveTool}
+        tool={activeToolNode}
+        browserLayer={browserLayer}
+        workspace={(geometry) => {
+          const collapsedSide = noSide || geometry.collapseWorkspaceSidebar;
+          const showDrawer = collapsedSide && narrowSideOpen;
+          const wsPanelOpen = panelOpen && (!geometry.collapseWorkspaceSidebar || rightView === 'editor' || rightView === 'conflicts' || rightView === 'observe');
+          return (
+            <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${layout === 'code' && wsPanelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
+              {showDrawer && <div className="ws-drawer-backdrop" onClick={() => setNarrowSideOpen(false)} aria-hidden="true" />}
+              {leftMode === 'threads' && current ? (
+                <Threads project={current.path} projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} pmSessionId={pmSession?.id ?? null} sessions={agentSessions}
+                  onView={(next) => { selectView(next); setNarrowSideOpen(false); }} onNew={() => { newSession(); setNarrowSideOpen(false); }} onStartPm={() => { startPm(current.path); setNarrowSideOpen(false); }}
+                  onClose={closeSession} onProjects={() => setLeftMode('projects')}
+                  footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
+              ) : (
+                <Sidebar
+                  ws={ws}
+                  project={project}
+                  onProject={(path) => { selectProject(path); setNarrowSideOpen(false); }}
+                  onUpdate={update}
+                  onNewSession={() => { newSession(); setNarrowSideOpen(false); }}
+                  onProjectManager={(path) => { startPm(path); setNarrowSideOpen(false); }}
+                  onJoin={() => setShareMode('join')}
+                  onShare={(target) => {
+                    const worktree = target.path === project ? sessionWorktree : null;
+                    setShareMode({ path: target.path, name: target.name, session: worktree?.id ?? null, worktree: worktree?.name });
+                  }}
+                  onProjectView={(path, tab) => {
+                    if (tab === 'containers') {
+                      if (path !== project) selectProject(path, { keepTool: true });
+                      openToolInShell('containers');
+                      return;
+                    }
+                    if (path !== project) selectProject(path);
+                    revealRight(tab);
+                  }}
+                  onProjectTerminal={(path) => {
+                    if (path !== project) selectProject(path);
+                    openTerminal(path);
+                  }}
+                  onError={setError}
+                  sessions={sessionList}
+                  status={<>
+                    {muted && (
+                      <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
+                        <Icon name="mute" size={13} /> Silenciado
+                      </button>
+                    )}
+                    {current && <button className="side-usage" onClick={() => setLeftMode('threads')}><Icon name="chat" size={13} /> Conversaciones</button>}
+                  </>}
+                />
+              )}
+              {!collapsedSide && <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />}
+
+              <main className="panel center" ref={centerPanel} tabIndex={-1}>
+                {centerTitle && (
+                  <div className="center-head">
+                    {collapsedSide && current && (
+                      <button
+                        type="button"
+                        className={`tb-btn ws-side-toggle${showDrawer ? ' is-on' : ''}`}
+                        onClick={() => setNarrowSideOpen((v) => !v)}
+                        aria-label="Mostrar conversaciones"
+                        aria-expanded={showDrawer}
+                        title={shortcut('Conversaciones · ⌘B')}
+                      >
+                        <Icon name="sidebar" size={14} />
+                      </button>
+                    )}
+                    <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
+                    <span className="ch-name">{centerTitle.name}</span>
+                    {centerTitle.tag && <span className="tag">{centerTitle.tag}</span>}
+                    {!providerSwitch && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
+                    {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
+                    <span className="grow" />
+                    {current && !geometry.collapseWorkspaceSidebar && panelButtons}
+                    {!geometry.collapseWorkspaceSidebar && (
+                      <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
+                        { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
+                    )}
+                    {activeSession && (
+                      <button className="tb-btn" onClick={() => closeSession(activeSession.id)} aria-label="Cerrar sesión" title="cerrar sesión">
+                        <Icon name="close" size={11} />
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="main-view">
+                  {catalogLoaded && mountedConversations.pmProjects.map((pmPath) => {
+                    const isActivePm = derived.selection?.kind === 'pm' && derived.selection.project === pmPath;
+                    const pmSess = pmClaudeByProject[pmPath] ?? null;
+                    const wf = workflowFor(pmPath);
+                    return pmSess ? (
+                      <SessionView
+                        key={'coach-claude:' + pmPath}
+                        session={pmSess}
+                        project={pmPath}
+                        hidden={!isActivePm}
+                        switching={switching === pmPath}
+                        providerSwitch={isActivePm ? providerSwitch : undefined}
+                        onDiff={showDiff}
+                        onModel={reportModel}
+                        workflow={wf}
+                        manager={{ task: isActivePm ? coachTask : null, clearTask: () => setCoachTask(null) }}
+                      />
+                    ) : (
+                      <Coordinator
+                        key={'coach:' + pmPath}
+                        project={pmPath}
+                        onDiff={showDiff}
+                        hidden={!isActivePm}
+                        switching={switching === pmPath}
+                        providerSwitch={isActivePm ? providerSwitch : undefined}
+                        task={isActivePm ? coachTask : null}
+                        onClearTask={() => setCoachTask(null)}
+                        onModel={reportModel}
+                        workflow={wf}
+                      />
+                    );
+                  })}
+                  {mountedConversations.sessions.map((s) => {
+                    const isActiveSess =
+                      derived.selection?.kind === 'session' &&
+                      derived.selection.sessionId === s.id &&
+                      derived.selection.project === s.project;
+                    const projectPmId = pmClaudeByProject[s.project]?.id ?? null;
+                    return (
+                      <SessionView
+                        key={`${s.id}:${s.engine}`}
+                        session={s}
+                        switching={switching === s.id}
+                        providerSwitch={isActiveSess ? providerSwitch : undefined}
+                        project={s.project}
+                        hidden={!isActiveSess}
+                        observation={observedPanel?.id === s.id ? observationTarget : null}
+                        onDiff={showDiff}
+                        quotaNear={isActiveSess && quota.near}
+                        onOpenFile={(path) => {
+                          setFile(path);
+                          setFileSession(s.worktree ? s.id : null);
+                          setFileRoot(s.worktree);
+                          setDiff(null);
+                          openEditor();
+                        }}
+                        onConflicts={showConflicts}
+                        onStartWork={() => openEntrega('tarea', null)}
+                        onModel={reportModel}
+                        parentPermissionScope={s.parentSession != null ? (s.parentSession === projectPmId ? `pm:${s.project}` : String(s.parentSession)) : undefined}
+                      />
+                    );
+                  })}
+                  {current && !hasPm && view === 'coach' && (
+                    <div className="welcome">
+                      <h1>¿Qué hacemos?</h1>
+                      <p>Empieza una sesión en {current.name}.</p>
+                      <div className="welcome-actions">
+                        <button className="co-btn is-primary" onClick={() => newSession()}>Sesión normal</button>
+                        <button className="co-btn" onClick={() => startPm()}>
+                          Con project manager
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!current && (
+                    <RecentSessions
+                      projects={ws.projects}
+                      inicioOpen={shell.activeTool === 'inicio'}
+                      onOpenInicio={() => openToolInShell('inicio')}
+                      onOpenSession={(item) => {
+                        if (item.isPm) {
+                          setPm(item.project, true);
+                          selectSession({ kind: 'pm', project: item.project }, { closeInicio: true });
+                        } else if (item.sessionId != null) {
+                          if (item.closed) {
+                            sessions.reopen(item.sessionId).then(
+                              (reopened) => {
+                                setSessionsByProject((cur) => {
+                                  const list = cur[reopened.project] ?? [];
+                                  return { ...cur, [reopened.project]: list.some((s) => s.id === reopened.id) ? list : [...list, reopened] };
+                                });
+                                selectSession({ kind: 'session', sessionId: reopened.id, project: reopened.project }, { closeInicio: true });
+                              },
+                              () => { selectProject(item.project); },
+                            );
+                          } else {
+                            selectSession({ kind: 'session', sessionId: item.sessionId, project: item.project }, { closeInicio: true });
+                          }
+                        }
+                      }}
+                    />
+                  )}
+                </div>
+                <section id="project-terminal" className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
+                  <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
+                  <div className="terminal-head">
+                    <div className="terminal-tabs" role="tablist" aria-label="Terminales del proyecto">
+                      {projectTerms.map((tab) => (
+                        <div className={`terminal-tab${tab.id === activeTerm ? ' is-active' : ''}`} key={tab.id}>
+                          <button role="tab" aria-selected={tab.id === activeTerm} onClick={() => setSelectedTerm((s) => ({ ...s, [tab.project]: tab.id }))}>
+                            <Icon name="terminal" size={12} />
+                            {tab.label ?? `zsh ${tab.number}`}
+                          </button>
+                          <button className="terminal-close" aria-label={`Cerrar terminal ${tab.label ?? tab.number}`} title="cerrar terminal" onClick={() => closeTerminal(tab.id)}>
+                            <Icon name="close" size={8} />
+                          </button>
+                        </div>
+                      ))}
+                      <button className="terminal-new" aria-label="Nuevo terminal" title="nuevo terminal" onClick={() => current && openTerminal(current.path, true)}>
+                        <Icon name="plus" size={11} />
+                      </button>
+                    </div>
+                    <span className="grow" />
+                    <button className="tb-btn" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title={shortcut('ocultar · ⌘J')}>
+                      <Icon name="down" size={12} />
+                    </button>
+                  </div>
+                  {terms
+                    .filter((t) => ws.projects.some((w) => w.path === t.project))
+                    .map((t) => (
+                      <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
+                    ))}
+                </section>
+                {errorToast}
+                {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
+                  onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
+              </main>
+
+              {panelTabs.length > 0 && <nav className="rail" aria-label="Paneles y utilidades">
+                {panelTabs.map((id) => {
+                  const panel = RIGHT_PANELS[id];
+                  const label = id === 'editor' && editorTab ? `Editor · ${editorTab.name}` : panel.title;
+                  const keys = 'keys' in panel ? ` · ${panel.keys}` : '';
+                  const active = wsPanelOpen && rightView === id;
+                  return (
+                    <Fragment key={id}>
+                      <button className={`rail-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
+                        aria-label={label} aria-controls="workspace-right-panel" aria-expanded={active} title={shortcut(`${label}${keys}`)}>
+                        <Icon name={panel.icon} size={16} />
+                        {id === 'git' && dirty && <span className="dot is-dirty" />}
+                      </button>
+                    </Fragment>
+                  );
+                })}
+              </nav>}
+
+              {layout === 'code' && wsPanelOpen && rightView !== 'observe' && (
+                <div className="ws-back">
+                  {current && panelButtons}
+                  <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
+                    <Icon name="chat" size={13} /> Conversación
+                  </button>
+                </div>
+              )}
+              <Right tab={rightView} hidden={!wsPanelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
+                observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
+                root={ws.root} location={panelLocation}>
+                {current && conflictFiles && (
+                  <Conflicts
+                    project={current.path}
+                    files={conflictFiles}
+                    hidden={!wsPanelOpen || rightView !== 'conflicts'}
+                    onOpenFile={(path) => {
+                      setFile(path);
+                      setFileSession(null);
+                      setDiff(null);
+                      openEditor();
+                    }}
+                  />
+                )}
+                {wsPanelOpen && current && rightView === 'git' && (
+                  <GitPanel
+                    key={current.path}
+                    project={current.path}
+                    selected={diff?.session == null ? diff : null}
+                    onDiff={showDiff}
+                    chooseBranch={chooseBranch}
+                    onBranchPickerOpened={clearBranchPicker}
+                    onDirty={setDirty}
+                    pending={pendingCount}
+                    onPending={openPending}
+                    onPublish={() => openEntrega('pr', null)}
+                  />
+                )}
+                {wsPanelOpen && current && rightView === 'files' && (
+                  <FileTree
+                    root={current.path}
+                    selected={file}
+                    onOpen={(f) => {
+                      setFile(f);
+                      setFileSession(null);
+                      setDiff(null);
+                      openEditor();
+                    }}
+                  />
+                )}
+                {observedPanel && <section className="workspace-observation" aria-label={`Observando a ${observedPanel.name}`}>
+                  <WorkspaceChanges key={observedPanel.id} project={observedPanel.project} session={observedPanel.worktree ? observedPanel.id : null}
+                    conversation={<div ref={setObservationTarget} className="workspace-observation-log" />} tabsTarget={observationTabs}
+                    onDiff={showDiff} onEntrega={() => { setEntregaScope(observedPanel.worktree ? observedPanel.id : null); openToolInShell('entrega'); }} />
+                </section>}
+                {wsPanelOpen && current && rightView === 'editor' &&
+                  editorTab &&
+                  <>
+                    <WorkspaceChanges key={`${current.path}:${(diff ? diff.session : fileSession) ?? ''}`}
+                      project={current.path} session={(diff ? diff.session : fileSession) ?? null}
+                      onDiff={showDiff} onEntrega={() => { setEntregaScope((diff ? diff.session : fileSession) ?? null); openToolInShell('entrega'); }} />
+                    {diff ? <Diff project={current.path} change={diff} /> :
+                      <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />}
+                  </>}
+              </Right>
+            </div>
+          );
+        }}
+      />
+
       {shareDialog}
       {usageOpen && (
         <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Herramientas y Jev">
@@ -865,218 +1560,13 @@ export default function App() {
             <button className="icon" aria-label="Cerrar uso" onClick={() => { setUsageOpen(false); usageButton.current?.focus(); }}><Icon name="close" size={12} /></button>
           </header>
           <Tools tools={toolList} checking={checkingTools} hidden={false} onRefresh={checkTools} autoUpdates={cliLast}
-            onLogin={current ? (command) => { setUsageOpen(false); setDest('workspace'); openTerminal(current.path, true, command); } : null} />
+            onLogin={current ? (command) => { setUsageOpen(false); ensureWorkspaceVisible(); openTerminal(current.path, true, command); } : null} />
         </section>
       )}
-      <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />
 
-      <main className="panel center" ref={centerPanel} tabIndex={-1}>
-        {centerTitle && (
-          <div className="center-head">
-            <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
-            <span className="ch-name">{centerTitle.name}</span>
-            {centerTitle.tag && <span className="tag">{centerTitle.tag}</span>}
-            {!providerPicker && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
-            {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
-            <span className="grow" />
-            {current && panelButtons}
-            <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
-              { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
-            <button className={`tb-btn ws-term${termOpen ? ' is-on' : ''}`} onClick={toggleTerminal} aria-label="Terminal" aria-pressed={termOpen} title={shortcut('terminal · ⌘J')}><Icon name="terminal" size={15} /></button>
-            {activeSession && (
-              <button className="tb-btn" onClick={() => closeSession(activeSession.id)} aria-label="Cerrar sesión" title="cerrar sesión">
-                <Icon name="close" size={11} />
-              </button>
-            )}
-          </div>
-        )}
-        <div className="main-view">
-
-          {current && hasPm && pmReady && (pmSession
-            ? <SessionView key={'coach-claude:' + current.path} session={pmSession} project={current.path}
-                hidden={view !== 'coach'} switching={switching === project} providerPicker={view === 'coach' ? providerPicker : undefined} onDiff={showDiff} onModel={reportModel}
-                workflow={workflow} manager={{ task: coachTask, clearTask: () => setCoachTask(null) }} />
-            : <Coordinator key={'coach:' + current.path} project={current.path} onDiff={showDiff} hidden={view !== 'coach'}
-                switching={switching === project} providerPicker={view === 'coach' ? providerPicker : undefined}
-                task={coachTask} onClearTask={() => setCoachTask(null)} onModel={reportModel}
-                workflow={workflow} />
-          )}
-          {current &&
-            agentSessions.map((s) => (
-              <SessionView
-                key={`${s.id}:${s.engine}`}
-                session={s}
-                switching={switching === s.id}
-                providerPicker={view === s.id ? providerPicker : undefined}
-                project={current.path}
-                hidden={view !== s.id}
-                observation={observedPanel?.id === s.id ? observationTarget : null}
-                onDiff={showDiff}
-                quotaNear={view === s.id && quota.near}
-                onOpenFile={(path) => {
-                  setFile(path);
-                  setFileSession(s.worktree ? s.id : null);
-                  setFileRoot(s.worktree);
-                  setDiff(null);
-                  openEditor();
-                }}
-                onConflicts={showConflicts} onStartWork={() => openEntrega('tarea', null)}
-                onModel={reportModel}
-              />
-            ))}
-          {current && !hasPm && view === 'coach' && (
-            <div className="welcome">
-              <h1>¿Qué hacemos?</h1>
-              <p>Empieza una sesión en {current.name}.</p>
-              <div className="welcome-actions">
-                <button className="co-btn is-primary" onClick={() => newSession()}>Sesión normal</button>
-                <button className="co-btn" onClick={() => startPm()}>
-                  Con project manager
-                </button>
-              </div>
-            </div>
-          )}
-          {!current && (
-            <div className="welcome">
-              <h1>¿Qué hacemos hoy?</h1>
-              <p>Elige un proyecto a la izquierda.</p>
-            </div>
-          )}
-        </div>
-        <section id="project-terminal" className="terminal" aria-label="Terminal" hidden={!(current && termOpen)}>
-          <Splitter size={SIZES.term} axis="y" invert label="Altura del terminal" className="is-term" />
-          <div className="terminal-head">
-            <div className="terminal-tabs" role="tablist" aria-label="Terminales del proyecto">
-              {projectTerms.map((tab) => (
-                <div className={`terminal-tab${tab.id === activeTerm ? ' is-active' : ''}`} key={tab.id}>
-                  <button role="tab" aria-selected={tab.id === activeTerm} onClick={() => setSelectedTerm((s) => ({ ...s, [tab.project]: tab.id }))}>
-                    <Icon name="terminal" size={12} />
-                    {tab.label ?? `zsh ${tab.number}`}
-                  </button>
-                  <button className="terminal-close" aria-label={`Cerrar terminal ${tab.label ?? tab.number}`} title="cerrar terminal" onClick={() => closeTerminal(tab.id)}>
-                    <Icon name="close" size={8} />
-                  </button>
-                </div>
-              ))}
-              <button className="terminal-new" aria-label="Nuevo terminal" title="nuevo terminal" onClick={() => current && openTerminal(current.path, true)}>
-                <Icon name="plus" size={11} />
-              </button>
-            </div>
-            <span className="grow" />
-            <button className="tb-btn" onClick={() => setTermOpen(false)} aria-label="Ocultar el terminal" title={shortcut('ocultar · ⌘J')}>
-              <Icon name="down" size={12} />
-            </button>
-          </div>
-          {terms
-            .filter((t) => ws.projects.some((w) => w.path === t.project))
-            .map((t) => (
-              <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
-            ))}
-        </section>
-        {errorToast}
-        {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
-          onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
-      </main>
-
-      {panelTabs.length > 0 && <nav className="rail" aria-label="Paneles y utilidades">
-        {panelTabs.map((id) => {
-          const panel = RIGHT_PANELS[id];
-          const label = id === 'editor' && editorTab ? `Editor · ${editorTab.name}` : panel.title;
-          const keys = 'keys' in panel ? ` · ${panel.keys}` : '';
-          const active = panelOpen && rightView === id;
-          return (
-            <Fragment key={id}>
-              <button className={`rail-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
-                aria-label={label} aria-controls="workspace-right-panel" aria-expanded={active} title={shortcut(`${label}${keys}`)}>
-                <Icon name={panel.icon} size={16} />
-                {id === 'git' && dirty && <span className="dot is-dirty" />}
-              </button>
-            </Fragment>
-          );
-        })}
-      </nav>}
-
-      {layout === 'code' && panelOpen && rightView !== 'observe' && dest === 'workspace' && (
-        <div className="ws-back">
-          {current && panelButtons}
-          <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
-            <Icon name="chat" size={13} /> Conversación
-          </button>
-        </div>
-      )}
-      <Right tab={rightView} hidden={!panelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
-        observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
-        root={ws.root} location={panelLocation}>
-        <Browser visible={panelOpen && rightView === 'browser'} covered={!!overlay || usageOpen || !!engineOpen || githubOpen || dest !== 'workspace'} target={browserTarget} />
-        {current && conflictFiles && (
-          <Conflicts
-            project={current.path}
-            files={conflictFiles}
-            hidden={!panelOpen || rightView !== 'conflicts'}
-            onOpenFile={(path) => {
-              setFile(path);
-              setFileSession(null);
-              setDiff(null);
-              openEditor();
-            }}
-          />
-        )}
-        {panelOpen && current && rightView === 'git' && (
-          <GitPanel
-            key={current.path}
-            project={current.path}
-            selected={diff?.session == null ? diff : null}
-            onDiff={showDiff}
-            chooseBranch={chooseBranch}
-            onBranchPickerOpened={clearBranchPicker}
-            onDirty={setDirty}
-            pending={pendingCount}
-            onPending={openPending}
-            onPublish={() => openEntrega('pr', null)}
-          />
-        )}
-        {panelOpen && current && rightView === 'files' && (
-          <FileTree
-            root={current.path}
-            selected={file}
-            onOpen={(f) => {
-              setFile(f);
-              setFileSession(null);
-              setDiff(null);
-              openEditor();
-            }}
-          />
-        )}
-        {panelOpen && current && rightView === 'containers' && <Containers key={current.path} project={current.path} onOpen={openBrowser} />}
-        {observedPanel && <section className="workspace-observation" aria-label={`Observando a ${observedPanel.name}`}>
-          <WorkspaceChanges key={observedPanel.id} project={observedPanel.project} session={observedPanel.worktree ? observedPanel.id : null}
-            conversation={<div ref={setObservationTarget} className="workspace-observation-log" />} tabsTarget={observationTabs}
-            onDiff={showDiff} onEntrega={() => { setEntregaScope(observedPanel.worktree ? observedPanel.id : null); setDest('entrega'); }} />
-        </section>}
-        {panelOpen && current && rightView === 'editor' &&
-          editorTab &&
-          <>
-            {dest === 'workspace' && <WorkspaceChanges key={`${current.path}:${(diff ? diff.session : fileSession) ?? ''}`}
-              project={current.path} session={(diff ? diff.session : fileSession) ?? null}
-              onDiff={showDiff} onEntrega={() => { setEntregaScope((diff ? diff.session : fileSession) ?? null); setDest('entrega'); }} />}
-            {diff ? <Diff project={current.path} change={diff} /> :
-              <Editor path={file ?? ''} root={(fileSession != null ? fileRoot : null) ?? current.path} session={fileSession} onError={setError} />}
-          </>}
-      </Right>
-      <footer className="statusbar" aria-label="Estado del proyecto">
+      <footer className="statusbar" aria-label="Estado del sistema y uso">
         <div className="status-project">
-          {current && <>
-            <button className="status-action status-live" onClick={() => setDest(waiting > 0 ? 'inicio' : 'flow')} title="Actividad de los agentes">
-              <Icon name="agent" size={13} />
-              <span>{Object.values(activity).filter((a) => a === 'trabajando').length} trabajando</span>
-              <span className={waiting > 0 ? 'amb' : undefined}>· {waiting} en espera</span>
-            </button>
-            <button className={`status-action status-terminal${termOpen ? ' is-on' : ''}`}
-              onClick={() => { if (dest === 'workspace' || !termOpen) toggleTerminal(); setDest('workspace'); }}
-              aria-controls="project-terminal" aria-expanded={dest === 'workspace' && termOpen} aria-label="Terminal" title={shortcut('Terminal · ⌘J')}>
-              <Icon name="terminal" size={13} />
-            </button>
-          </>}
+          <SystemKpi />
           {sessionWorktree?.branch && <span className="status-session-branch" title={`Rama de sesión · ${sessionWorktree.branch} ← ${sessionWorktree.base ?? '—'}`}>
             <Icon name="branch" size={12} /><span>{sessionWorktree.branch}</span>
           </span>}
@@ -1084,9 +1574,9 @@ export default function App() {
         <div ref={statusMeters} className="status-meters">
           <EngineUsage project={project} projectName={current?.name ?? null} sessions={agentSessions} pmEngine={pmEngine === 'claude' ? 'claude' : 'codex'} hasPm={hasPm}
             open={engineOpen === 'jev' ? null : engineOpen} onOpen={(engine) => { setEngineOpen(engine); if (engine) { setGithubOpen(false); setUsageOpen(false); } }}
-            onSession={(v) => { setView(v); setDest('workspace'); }} onSettings={() => setDest('ajustes')} />
+            onSession={(v) => selectView(v, undefined, { ensureWorkspace: true })} onSettings={() => openToolInShell('ajustes')} />
           <JevUsage open={engineOpen === 'jev'} buttonRef={usageButton} onOpen={(o) => { setEngineOpen(o ? 'jev' : null); if (o) { setGithubOpen(false); setUsageOpen(false); } }}
-            onSettings={() => setDest('ajustes')} onTools={() => { setGithubOpen(false); setUsageOpen(true); }} />
+            onSettings={() => openToolInShell('ajustes')} onTools={() => { setGithubOpen(false); setUsageOpen(true); }} />
         </div>
       </footer>
       {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}

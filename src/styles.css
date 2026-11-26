@@ -5,7 +5,8 @@
    paneles redondeados que flotan sobre él: la sesión en el centro y el
    proyecto a la derecha. Toque propio: blaugrana contenido, azul para
    lo que indica y grana para lo que actúa.
-   SF Pro en la interfaz; Iosevka solo en el código, los diffs y el terminal. */
+   Libre Caslon Condensed en títulos; Bricolage Grotesque en la interfaz;
+   JetBrains Mono en Trama e Iosevka en el editor y el terminal. */
 
 @font-face {
   font-family: Iosevka;
@@ -40,7 +41,8 @@
 
 :root {
   color-scheme: dark;
-  --ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', 'Segoe UI Variable', 'Segoe UI', Inter, system-ui, sans-serif;
+  --serif: 'Libre Caslon Condensed', Georgia, 'Times New Roman', serif;
+  --ui: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
   --mono: Iosevka, 'SF Mono', Menlo, Consolas, monospace;
 
   /* marco, paneles y superficies elevadas */
@@ -128,8 +130,9 @@ body,
 body {
   font-family: var(--ui);
   font-size: 13px;
-  line-height: 1.45;
-  letter-spacing: -0.003em;
+  line-height: 1.48;
+  letter-spacing: -0.005em;
+  font-optical-sizing: auto;
   color: var(--tx);
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -438,7 +441,8 @@ html:not([data-browser])[data-platform='other'] .titlebar {
   transition: width 260ms var(--ease);
   container: right-panel / inline-size;
 }
-.app.is-wide .right {
+.app.is-wide .right,
+.ws-inner.is-wide .right {
   width: min(max(var(--git-w, 360px), min(760px, 50vw)), var(--right-width-limit));
 }
 html[data-resizing] .right {
@@ -1487,7 +1491,7 @@ button.co-file:hover {
 .co-model {
   flex: none;
 }
-.co-compose-opts:has(.co-provider) {
+.co-compose-opts:has(.mcm) {
   flex-wrap: wrap;
 }
 .co-attach {
@@ -3079,51 +3083,130 @@ html.is-light .git-log-body {
 
 /* ── bienvenida ─────────────────────────────────────────── */
 
+.onboarding-shell {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: var(--frame);
+}
+html[data-native][data-platform='mac'] .onboarding-shell {
+  background: rgb(6 7 9 / 0.8);
+}
+html[data-backdrop][data-platform='win'] .onboarding-shell {
+  background: rgb(6 7 9 / 0.74);
+}
+html.is-light .onboarding-shell {
+  background: var(--frame);
+}
 .onboarding {
+  position: relative;
+  z-index: 1;
   height: 100%;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 56px 24px 24px;
 }
 .onboarding-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  width: min(460px, 100%);
+  gap: 18px;
+  width: min(480px, 100%);
+  padding: 28px 28px 24px;
+  border-radius: 10px;
+  background: rgb(16 17 21 / 0.84);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.45), inset 0 0 0 1px var(--line-2);
+  backdrop-filter: blur(18px);
+}
+html.is-light .onboarding-card {
+  background: var(--panel);
+  box-shadow: 0 20px 56px rgb(0 0 0 / 0.12), inset 0 0 0 1px var(--line-2);
+}
+.onboarding-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .onboarding-card h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  color: var(--tx);
 }
 .onboarding-card p {
   margin: 0;
+  color: var(--tx2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.onboarding-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.onboarding-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   color: var(--tx3);
+}
+.onboarding-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.onboarding-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+  color: var(--tx4);
+  font-size: 11.5px;
+}
+.onboarding-sep::before,
+.onboarding-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.onboarding-join {
+  height: 36px;
+  justify-content: center;
+  border-radius: var(--r-l);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.onboarding-join:hover:not(:disabled) {
+  background: var(--hover);
 }
 .field {
   display: flex;
   align-items: center;
   gap: 8px;
   height: 40px;
-  padding: 0 12px;
+  padding: 0 8px 0 12px;
   border-radius: var(--r-l);
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .field input {
   flex: 1;
+  min-width: 0;
   border: 0;
   outline: none;
   background: none;
   font-family: var(--mono);
+  font-size: 12.5px;
   color: var(--tx);
 }
 .prompt {
   color: var(--tx4);
 }
 .primary {
-  height: 34px;
+  height: 36px;
 }
 .error {
   color: var(--err);

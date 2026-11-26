@@ -222,6 +222,8 @@ mockIPC(
       }
       case 'get_workspace':
         return workspace();
+      case 'system_metrics':
+        return { cpuPercent: 18.4, ramUsedBytes: 11.4 * 1024 ** 3, ramTotalBytes: 16 * 1024 ** 3, ramPercent: 71.2 };
       case 'home_summary':
         return (a.paths as string[]).map((path) => ({
           path,
@@ -230,6 +232,33 @@ mockIPC(
           work: mockWorks.get(path) ?? null,
           branch: mockBranches.get(path) ?? 'main',
           dates: ['2026-11-19T22:14:00+01:00', '2026-11-19T21:45:00+01:00', '2026-11-18T17:40:00+01:00'],
+        }));
+      case 'recent_sessions':
+        return mockSessions.map((s, i) => ({
+          project: s.project,
+          sessionId: s.id,
+          isPm: false,
+          name: s.name,
+          engine: s.engine,
+          branch: s.branch,
+          task: s.task,
+          closed: false,
+          paused: !!s.paused,
+          running: false,
+          lastOutcome: 'completed',
+          lastActiveMs: Date.now() - (i + 1) * 15 * 60_000,
+        }));
+      case 'home_activity':
+        return mockSessions.map((s, i) => ({
+          id: `run:${s.id}`,
+          kind: 'run_completed',
+          phase: 'history',
+          project: s.project,
+          title: `${s.name} terminó su turno`,
+          detail: s.task ?? s.engine,
+          timestampMs: Date.now() - (i + 1) * 15 * 60_000,
+          sessionId: s.id,
+          taskId: null,
         }));
       case 'default_root':
         return ROOT;
@@ -425,6 +454,19 @@ mockIPC(
         mockManagers.set(a.project, manager);
         return manager;
       }
+      case 'session_catalog': {
+        const set = new Set<string>(Array.isArray(a.paths) ? a.paths : []);
+        const pmClaude: Record<string, any> = {};
+        for (const [project, manager] of mockManagers.entries()) {
+          if (!set.size || set.has(project)) pmClaude[project] = manager;
+        }
+        const pmCodexProjects = [...set].filter((p) => !mockManagers.has(p) && rel(p) === 'bitacola');
+        return {
+          sessions: mockSessions.filter((x) => !set.size || set.has(x.project)),
+          pmClaude,
+          pmCodexProjects,
+        };
+      }
       case 'session_list':
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
@@ -450,6 +492,7 @@ mockIPC(
         };
         mockSessions.push(created);
         mockWorks.get(a.project)?.agents.push({ sessionId: id, name, paths: ['.'], running: false, closed: false, isolated: !!created.worktree });
+        void emit('sessions-changed', { project: a.project });
         void emit('tasks-changed');
         return { ...created, notice: created.worktree ? null : 'Comparte la rama y el checkout de la sesión de trabajo.' };
       }
@@ -521,9 +564,12 @@ mockIPC(
         return null;
       case 'session_set_option':
         return [{ id: 'model', name: 'Model', category: 'model', currentValue: a.value, options: [{ value: 'opencode/big-pickle', name: 'Big Pickle (gratis)' }, { value: 'openai/gpt-5', name: 'GPT-5' }] }];
-      case 'session_close':
-        mockSessions.splice(mockSessions.findIndex((x) => x.id === a.id), 1);
+      case 'session_close': {
+        const idx = mockSessions.findIndex((x) => x.id === a.id);
+        const closed = idx >= 0 ? mockSessions.splice(idx, 1)[0] : null;
+        if (closed) void emit('sessions-changed', { project: closed.project });
         return null;
+      }
       case 'coordinator_open':
         return {
           threadId: a.session == null ? 'hilo-demo' : `hilo-demo-${a.session}`,

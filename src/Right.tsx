@@ -6,8 +6,6 @@ import { shortcut } from './ui';
 export const RIGHT_PANELS = {
   git: { title: 'Cambios', icon: 'changes', keys: '⌘G' },
   files: { title: 'Archivos', icon: 'folder', keys: '⌘P' },
-  browser: { title: 'Navegador', icon: 'globe' },
-  containers: { title: 'Contenedores', icon: 'box', keys: '⌘⇧O' },
   conflicts: { title: 'Conflictos', icon: 'warn' },
   observe: { title: 'Observación', icon: 'eye' },
   editor: { title: 'Editor', icon: 'file', keys: '⌘E' },
@@ -15,7 +13,7 @@ export const RIGHT_PANELS = {
 
 export type RightTab = keyof typeof RIGHT_PANELS;
 
-export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'browser', 'containers', 'conflicts', 'observe']);
+export const WIDE_RIGHT_PANELS = new Set<RightTab>(['editor', 'conflicts', 'observe']);
 
 type Props = {
   tab: RightTab;
@@ -31,7 +29,7 @@ type Props = {
 };
 
 // Paneles que trabajan sobre una carpeta: su cabecera es la ruta, no un título.
-const PATH_PANELS = new Set<RightTab>(['git', 'files', 'containers', 'conflicts', 'editor']);
+const PATH_PANELS = new Set<RightTab>(['git', 'files', 'conflicts', 'editor']);
 
 /** Ruta desde la carpeta de repositorios: «repositorios/grupo/proyecto/src/a.ts». */
 export function fromRoot(root: string, path: string) {

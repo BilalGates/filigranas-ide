@@ -23,6 +23,10 @@ pub fn start(app: &AppHandle, root: &Path) -> notify::Result<()> {
         }
     })?;
     watcher.watch(root, RecursiveMode::NonRecursive)?;
+    // Los repositorios pueden estar dentro de carpetas de categoría.
+    for dir in crate::workspace::category_dirs(root) {
+        let _ = watcher.watch(&dir, RecursiveMode::NonRecursive);
+    }
 
     let state = app.state::<AppState>();
     // Sustituir el observador anterior lo detiene.

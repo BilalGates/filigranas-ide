@@ -4,7 +4,7 @@ import { invoke, type Channel } from '@tauri-apps/api/core';
 // accede al sistema de archivos ni ejecuta comandos por su cuenta.
 
 export type Group = { id: number; name: string };
-export type Project = { name: string; path: string; groupId: number | null; archived: boolean };
+export type Project = { name: string; path: string; folder?: string | null; groupId: number | null; archived: boolean };
 export type Workspace = { root: string | null; groups: Group[]; projects: Project[] };
 export type Entry = { name: string; path: string; dir: boolean };
 
@@ -20,6 +20,7 @@ export const api = {
   moveProject: (path: string, groupId: number | null) => invoke<Workspace>('move_project', { path, groupId }),
   setArchived: (path: string, archived: boolean) => invoke<Workspace>('set_archived', { path, archived }),
   revealProject: (path: string) => invoke<void>('reveal_project', { path }),
+  openWorktree: (path: string, editor: boolean) => invoke<void>('open_worktree', { path, editor }),
   listDir: (path: string) => invoke<Entry[]>('list_dir', { path }),
   // `session`: archivo del worktree de una sesión aislada.
   readText: (path: string, session: number | null = null) => invoke<string>('read_text', { path, session }),

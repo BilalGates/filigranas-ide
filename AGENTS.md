@@ -8,6 +8,6 @@
 
 ## Commits del repositorio
 
-- Cuando el usuario pida crear commits, delega en GitHub Copilot CLI la revisión del diff, la agrupación, la redacción y la creación de los commits locales. Indícale la rama y las rutas autorizadas. Dale acceso de lectura y permiso para preparar esas rutas y crear commits locales, con los hooks activos. Si Copilot no está disponible, comunica el bloqueo.
-- Copilot separa los cambios independientes por tipo y unidad funcional (`feat`, `fix`, `refactor`, `docs`, `test`, `build` o `chore`) siguiendo la [referencia de Larry](src-tauri/resources/skills/github-flow/references/larry.md). Mantén juntos los cambios inseparables y omite siempre `Co-authored-by`.
+- Cuando el usuario pida crear commits, el propio agente revisa el diff, agrupa los cambios, redacta los mensajes y crea los commits locales, con los hooks activos. No depende de ninguna herramienta externa como GitHub Copilot. Si se está en la rama principal, crea antes una rama.
+- Separa los cambios independientes por tipo y unidad funcional (`feat`, `fix`, `refactor`, `docs`, `test`, `build` o `chore`) siguiendo la [referencia de Larry](src-tauri/resources/skills/github-flow/references/larry.md). Mantén juntos los cambios inseparables y omite siempre `Co-authored-by`.
 - Comprueba después los commits nuevos, las rutas de cada uno y el estado del árbol de trabajo. Publicar requiere autorización aparte.

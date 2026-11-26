@@ -17,17 +17,6 @@ pub fn inside(root: &Path, path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// Como `inside`, pero además exige que sea un hijo directo de la raíz.
-pub fn direct_child(root: &Path, path: &Path) -> Result<PathBuf, String> {
-    let root_c = canonical(root).map_err(|e| format!("carpeta raíz no válida: {e}"))?;
-    let path = inside(&root_c, path)?;
-    if path.parent() == Some(root_c.as_path()) {
-        Ok(path)
-    } else {
-        Err("no es un proyecto de la carpeta raíz".into())
-    }
-}
-
 pub fn to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -37,15 +26,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_parent_traversal_and_nested_projects() {
+    fn rejects_parent_traversal() {
         let dir = std::env::temp_dir().join(format!("filigranas-paths-{}", uuid::Uuid::new_v4()));
         let root = dir.join("projects");
         let child = root.join("repo");
         std::fs::create_dir_all(child.join("nested")).unwrap();
         std::fs::write(dir.join("outside.txt"), "outside").unwrap();
         assert!(inside(&root, &root.join("../outside.txt")).is_err());
-        assert!(direct_child(&root, &child).is_ok());
-        assert!(direct_child(&root, &child.join("nested")).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

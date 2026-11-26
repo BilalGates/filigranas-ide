@@ -2,7 +2,9 @@ import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { coordinator, type Change, type CItem, type ChatAttachment, type CoordinatorEvent, type Decision, type Opened } from './ipc';
-import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import { Composer, ConversationLog, ConversationObservation, EFFORT_LABEL, nearestEffort, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import ChipMenu from './ChipMenu';
+import ProviderLogo from './ProviderLogo';
 import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { useReportActivity } from './ui';
 import { contextRemaining, reportCodex, reportQuotaLimit } from './usageStore';
@@ -216,7 +218,7 @@ export default function Coordinator({ project, hidden, switching, providerPicker
       onContext?.(null);
       const efforts = info?.models?.find((m) => m.id === (value || info.model))?.efforts ?? info?.efforts ?? ['medium'];
       setInfo((old) => old && { ...old, pinnedModel: value || null, efforts });
-      if (!efforts.includes(effort)) setEffort(efforts.includes('medium') ? 'medium' : (efforts[0] ?? 'medium'));
+      setEffort((current) => nearestEffort(current, efforts));
     }, (e) => setError(String(e)));
   };
 
@@ -249,17 +251,21 @@ export default function Coordinator({ project, hidden, switching, providerPicker
         permission={session && <PermissionChip mode={permission.mode} onMode={permission.setMode} />}
         disabled={!info || switching === true}
         running={!!running}
-        efforts={automaticTask == null ? info?.efforts ?? ['medium'] : ['auto', ...(info?.efforts ?? ['medium'])]}
+        efforts={['auto', ...(info?.models?.find((m) => m.id === (info.pinnedModel ?? info.model))?.efforts ?? info?.efforts ?? ['medium'])]}
+        autoHint={automaticTask == null ? undefined : 'Jev o la política local eligen según la tarea'}
         effort={selectedEffort}
         onEffort={(value) => automaticTask == null ? setEffort(value) : setTaskEffort({ id: automaticTask, value })}
         model={
           <>
-            {info?.models?.length ? <select className="chip-select" aria-label="Fijar modelo Codex" value={info.pinnedModel ?? ''}
-              onChange={(e) => pin(e.target.value)} disabled={!!running || switching}>
-              <option value="">{info.model ?? 'modelo de la sesión'}</option>
-              {info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel) && <option value={info.pinnedModel}>{info.pinnedModel} · no disponible</option>}
-              {info.models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-            </select> : <span className="chip is-static">codex{info?.model ? ` · ${info.model}` : ''}</span>}
+            {info?.models?.length ? <ChipMenu label="Modelo Codex" heading="Modelo" value={info.pinnedModel ?? ''}
+              onChange={pin} disabled={!!running || !!switching}
+              display={info.pinnedModel ? info.models.find((m) => m.id === info.pinnedModel)?.label ?? info.pinnedModel : 'modelo automático'}
+              options={[
+                { value: '', label: 'Automático', hint: info.model ? `Codex elige; ahora ${info.model}` : 'Codex elige el modelo' },
+                ...(info.pinnedModel && !info.models.some((m) => m.id === info.pinnedModel)
+                  ? [{ value: info.pinnedModel, label: info.pinnedModel, hint: 'No disponible', disabled: true }] : []),
+                ...info.models.map((m) => ({ value: m.id, label: m.label, hint: m.efforts.length ? `Razonamiento: ${m.efforts.map((e) => EFFORT_LABEL[e] ?? e).join(', ')}` : undefined })),
+              ]} /> : <span className="chip is-static"><ProviderLogo engine="codex" />codex{info?.model ? ` · ${info.model}` : ''}</span>}
             {opening && hasWork && <span className="co-connecting" role="status">Conectando…</span>}
             {task && <button className="co-btn" onClick={onClearTask} title="desvincular los próximos mensajes" disabled={!!running}>#{task.id} {task.title} ×</button>}
           </>

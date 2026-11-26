@@ -6,6 +6,8 @@ import type { ConversationWorkflow } from './trama/ConversationPlan';
 import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
 import { useReportActivity } from './ui';
 import Coordinator from './Coordinator';
+import ChipMenu from './ChipMenu';
+import ProviderLogo from './ProviderLogo';
 import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
 import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
 import { Icon } from './trama/icons';
@@ -569,18 +571,20 @@ export default function Session({ session, project, hidden, switching, providerP
           </button>
         )}
         {contextLow && <span className="usage-limit" title="Contexto restante de esta sesión">{percentLabel(context)} de contexto</span>}
-        {mayHandoff && <select
-          className="co-profile"
-          aria-label="Relevar la tarea a otro motor"
+        {mayHandoff && <ChipMenu
+          className="is-down"
+          label="Relevar la tarea a otro motor"
+          heading="Relevar a"
           value=""
+          display="relevar a…"
           disabled={busy}
-          onChange={(e) => handoff(e.target.value)}
           title="pasa la tarea a otro motor en la misma rama"
-        >
-          <option value="">relevar a…</option>
-          {session.engine !== 'codex' && <option value="codex">Codex</option>}
-          {session.engine !== 'claude' && <option value="claude">Claude Code</option>}
-        </select>}
+          options={[
+            ...(session.engine !== 'codex' ? [{ value: 'codex', label: 'Codex', hint: 'Sigue en la misma rama y carpeta' }] : []),
+            ...(session.engine !== 'claude' ? [{ value: 'claude', label: 'Claude Code', hint: 'Sigue en la misma rama y carpeta' }] : []),
+          ]}
+          onChange={handoff}
+        />}
       </div>
       {paused && (
         <div className="co-paused" role="status">
@@ -663,43 +667,45 @@ export default function Session({ session, project, hidden, switching, providerP
         draftKey={manager ? `pm:${project}` : `session:${session.id}`}
         disabled={switching === true}
         running={running}
-        efforts={isClaude ? CLAUDE_EFFORTS : []}
+        efforts={isClaude ? ['auto', ...CLAUDE_EFFORTS] : []}
+        autoHint="Claude Code usa su nivel por defecto"
         effort={effort}
         onEffort={setEffort}
         model={
           <>
-            {isClaude && claudeModels.length ? <select className="chip-select" aria-label="Fijar modelo Claude" value={pinned ?? ''} disabled={running || switching}
-              onChange={(e) => {
-                const value = e.target.value;
+            {isClaude && claudeModels.length ? <ChipMenu label="Modelo Claude" heading="Modelo" value={pinned ?? ''} disabled={running || !!switching}
+              display={pinned ? claudeModels.find((item) => item.id === pinned)?.label ?? pinned : 'modelo automático'}
+              options={[
+                { value: '', label: 'Automático', hint: model ? `Claude Code elige; ahora ${model}` : 'Claude Code elige el modelo' },
+                ...(pinned && !claudeModels.some((item) => item.id === pinned) ? [{ value: pinned, label: pinned, hint: 'No disponible', disabled: true }] : []),
+                ...claudeModels.map((item) => ({ value: item.id, label: item.label })),
+              ]}
+              onChange={(value) => {
                 sessions.setOption(session.id, 'model', value).then(() => { setPinned(value || null); setContext(null); claudeContext.current = null; }, (error) => setError(String(error)));
-              }}>
-              <option value="">{model ?? 'modelo de la sesión'}</option>
-              {pinned && !claudeModels.some((item) => item.id === pinned) && <option value={pinned}>{pinned} · no disponible</option>}
-              {claudeModels.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select> : <span>
+              }} /> : providerPicker ? <span className="chip is-static">{model ?? 'modelo automático'}</span>
+              : <span className="chip is-static"><ProviderLogo engine={session.engine} />
               {engine}
               {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
             </span>}
             {manager?.task && <button className="co-btn" onClick={manager.clearTask} title="desvincular los próximos mensajes" disabled={running}>
               #{manager.task.id} {manager.task.title} ×
             </button>}
-            {acpOptions.map((o) => (
-              <select
-                key={o.id}
-                className="chip-select"
-                aria-label={o.category === 'model' ? 'Modelo' : 'Razonamiento'}
-                title={o.category === 'model' ? 'modelo' : 'nivel de razonamiento'}
-                value={o.currentValue}
-                disabled={running}
-                onChange={(e) => setOption(o.id, e.target.value)}
-              >
-                {o.options.map((x) => (
-                  <option key={x.value} value={x.value}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
-            ))}
+            {acpOptions.map((o) => {
+              const isModel = o.category === 'model';
+              const current = o.options.find((x) => x.value === o.currentValue)?.name ?? o.currentValue;
+              return (
+                <ChipMenu
+                  key={o.id}
+                  label={isModel ? 'Modelo' : 'Razonamiento'}
+                  heading={isModel ? 'Modelo' : 'Razonamiento'}
+                  value={o.currentValue}
+                  disabled={running}
+                  display={isModel ? current : `razonamiento ${current}`}
+                  options={o.options.map((x) => ({ value: x.value, label: x.name }))}
+                  onChange={(value) => setOption(o.id, value)}
+                />
+              );
+            })}
           </>
         }
         onSend={send}

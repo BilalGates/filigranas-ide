@@ -35,6 +35,7 @@ mod services;
 mod sharing;
 mod system_curl;
 mod skills;
+mod sysmon;
 mod tasks;
 mod tools;
 mod tracker;
@@ -67,6 +68,7 @@ pub(crate) struct AppState {
     pub approvals: approval::Approvals,
     /// Nivel de permisos elegido para cada sesión (pedir, automático o total).
     pub permissions: autoapprove::Modes,
+    pub sysmon: sysmon::Monitor,
     pub jev_gate: Mutex<()>,
     pub chat_gate: Mutex<()>,
     // Se libera después de destruir los recursos del perfil.
@@ -148,6 +150,7 @@ pub fn run() {
                 publication: Default::default(),
                 approvals: Default::default(),
                 permissions: Default::default(),
+                sysmon: Default::default(),
                 jev_gate: Default::default(),
                 chat_gate: Default::default(),
             });
@@ -213,6 +216,8 @@ pub fn run() {
             git_ops::git_commit_detail,
             workspace::get_workspace,
             home::home_summary,
+            home::recent_sessions,
+            home::home_activity,
             workspace::default_root,
             workspace::set_root,
             workspace::create_group,
@@ -326,6 +331,7 @@ pub fn run() {
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,
+            sysmon::system_metrics,
             window::window_backdrop,
         ]))
         .build(tauri::generate_context!())

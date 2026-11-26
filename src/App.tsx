@@ -18,6 +18,7 @@ import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
 import Tools, { CliNotice } from './Tools';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
+import { queuedRefresh } from './queuedRefresh';
 import { Cheatsheet, Palette, type Command } from './Palette';
 import { emit, setLightTheme, shortcut, toggleMute, useUi } from './ui';
 import Conflicts from './Conflicts';
@@ -155,26 +156,23 @@ export default function App() {
 
   useEffect(() => {
     if (!project) return;
-    let request = 0;
     let timer: number | undefined;
-    const refresh = () => {
-      const id = ++request;
-      const fallback = { ahead: 0, behind: 0, upstream: null };
-      void git.status(project).then(async ({ branch, ahead, behind, upstream }) => ({
+    const fallback = { ahead: 0, behind: 0, upstream: null };
+    const { refresh, stop } = queuedRefresh(
+      () => git.status(project).then(async ({ branch, ahead, behind, upstream }) => ({
         label: branch ?? await git.head(project), ahead, behind, upstream,
-      }), async () => ({ label: await git.head(project), ...fallback })).then(
-        (status) => { if (id === request) setBranch({ project, ...status }); },
-        () => { if (id === request) setBranch({ project, label: 'Rama no disponible', ...fallback }); },
-      );
-    };
-    refresh();
+      }), async () => ({ label: await git.head(project), ...fallback })),
+      (status) => setBranch({ project, ...status }),
+      () => setBranch({ project, label: 'Rama no disponible', ...fallback }),
+    );
+    void refresh();
     const unlisten = listen('project-changed', () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(refresh, 250);
     });
     window.addEventListener('focus', refresh);
     return () => {
-      request++;
+      stop();
       window.clearTimeout(timer);
       void unlisten.then((off) => off());
       window.removeEventListener('focus', refresh);

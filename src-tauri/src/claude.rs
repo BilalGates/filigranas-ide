@@ -144,11 +144,121 @@ fn forward(msg: &Value) -> bool {
     }
 }
 
-fn system_prompt(name: &str, rules: &str) -> String {
-    format!(
-        "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
+fn system_prompt(name: &str, rules: &str, is_subsession: bool) -> String {
+    if is_subsession {
+        format!(
+            "Eres «{name}», una subsesión delegada dentro de Filigranas IDE. Ejecuta el encargo directamente sin delegar ni crear otras subsesiones y entrega un resultado claro, verificado y completo para la sesión padre. \
 Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
-    )
+        )
+    } else {
+        format!(
+            "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
+Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. \
+Si necesitas delegar una subtarea o trabajar en paralelo, crea una subsesión visible de Filigranas con las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) en lugar de usar subagentes internos de Claude Code; las subsesiones aparecen en «Conversaciones» bajo esta sesión, pueden durar lo que necesiten y devuelven su resultado mediante `esperar_sesion`. \
+Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
+        )
+    }
+}
+
+/// Emite `sessions-changed` cuando cambia el estado observable de una subsesión.
+pub(crate) fn notify_subsession(app: &AppHandle, id: i64) {
+    let state = app.state::<AppState>();
+    let project = state.db.lock().ok()
+        .and_then(|conn| db::session(&conn, id).ok().flatten())
+        .filter(|s| s.parent_session.is_some())
+        .map(|s| s.project);
+    if let Some(project) = project {
+        let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
+    }
+}
+
+fn send_mcp_response(input: &Mutex<ChildStdin>, request_id: &str, mcp_response: Value) {
+    let _ = write_line(
+        input,
+        &json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": { "mcp_response": mcp_response },
+            }
+        }),
+    );
+}
+
+fn handle_mcp_message(
+    handle: &AppHandle,
+    session_id: i64,
+    request_id: String,
+    request: &Value,
+    input: &Arc<Mutex<ChildStdin>>,
+    alive: &Arc<AtomicBool>,
+) {
+    if request["server_name"].as_str() != Some("filigranas") {
+        let _ = write_line(
+            input,
+            &json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request_id, "error": "servidor MCP desconocido" } }),
+        );
+        return;
+    }
+    let message = &request["message"];
+    let method = message["method"].as_str().unwrap_or("");
+    let rpc_id = message.get("id").cloned();
+    match method {
+        "initialize" => {
+            let version = message.pointer("/params/protocolVersion").and_then(Value::as_str).unwrap_or("2024-11-05");
+            send_mcp_response(input, &request_id, json!({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": {
+                    "protocolVersion": version,
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "filigranas", "version": env!("CARGO_PKG_VERSION") },
+                }
+            }));
+        }
+        "notifications/initialized" | "notifications/cancelled" => {
+            send_mcp_response(input, &request_id, json!({}));
+        }
+        "tools/list" => {
+            send_mcp_response(input, &request_id, json!({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": { "tools": crate::delegate::claude_mcp_tools() },
+            }));
+        }
+        "tools/call" => {
+            let tool = message.pointer("/params/name").and_then(Value::as_str).unwrap_or("").to_string();
+            let args = message.pointer("/params/arguments").cloned().unwrap_or_else(|| json!({}));
+            let (handle, input, alive) = (handle.clone(), input.clone(), alive.clone());
+            std::thread::spawn(move || {
+                let (text, is_error) = match crate::delegate::handle_claude(&handle, session_id, &tool, &args) {
+                    Ok(text) => (text, false),
+                    Err(error) => (error, true),
+                };
+                if alive.load(Ordering::SeqCst) {
+                    send_mcp_response(&input, &request_id, json!({
+                        "jsonrpc": "2.0",
+                        "id": rpc_id,
+                        "result": {
+                            "content": [{ "type": "text", "text": text }],
+                            "isError": is_error,
+                        }
+                    }));
+                }
+            });
+        }
+        _ if rpc_id.is_some() => {
+            send_mcp_response(input, &request_id, json!({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": { "code": -32601, "message": format!("método MCP no soportado: {method}") },
+            }));
+        }
+        _ => {
+            send_mcp_response(input, &request_id, json!({}));
+        }
+    }
 }
 
 impl Claude {
@@ -198,17 +308,25 @@ impl Claude {
         procs.remove(&session.id); // termina el anterior (Drop)
 
         let rules = crate::skills::RULES;
+        let is_subsession = session.parent_session.is_some();
+        let can_delegate = !is_subsession;
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
             let role = policy.split("## Cómo delegas").next().unwrap_or(policy);
-            format!("{role}Coordina el trabajo y comprueba los resultados. Puedes usar los subagentes de Claude Code si están disponibles. Deja los commits, la publicación y la integración a las acciones del IDE y del usuario.\n\n{rules}")
+            format!(
+                "{role}Coordina el trabajo y comprueba los resultados. Cuando necesites delegar o paralelizar trabajo, crea subsesiones visibles de Filigranas usando las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`); nunca uses subagentes internos de Claude Code. Las subsesiones aparecen en el panel «Conversaciones» bajo esta sesión, comparten la carpeta y la rama actuales y pueden durar lo que necesiten: recoge sus resultados con `esperar_sesion` (repite la espera si siguen en marcha). Deja los commits, la publicación y la integración a las acciones del IDE y del usuario.\n\n{rules}"
+            )
         } else {
-            system_prompt(&session.name, rules)
+            system_prompt(&session.name, rules, is_subsession)
         };
         let mut cmd = Command::new(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
+            .args(["--disallowedTools", "Agent,Task"])
             .args(["--append-system-prompt", &prompt]);
+        if can_delegate {
+            cmd.args(["--mcp-config", r#"{"mcpServers":{"filigranas":{"type":"sdk","name":"filigranas"}}}"#]);
+        }
         if transcript(&session.provider_session).is_some() {
             cmd.args(["--resume", &session.provider_session]);
         } else {
@@ -278,11 +396,28 @@ impl Claude {
                 }
                 if msg["type"] == json!("control_request") {
                     let request_id = msg["request_id"].as_str().unwrap_or("").to_string();
-                    if msg.pointer("/request/subtype") != Some(&json!("can_use_tool")) {
+                    let subtype = msg.pointer("/request/subtype").and_then(Value::as_str);
+                    if subtype == Some("mcp_message") && can_delegate {
+                        handle_mcp_message(&handle, id, request_id, &msg["request"], &input, &flag);
+                        continue;
+                    }
+                    if subtype != Some("can_use_tool") {
                         let _ = write_line(
                             &input,
                             &json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request_id, "error": "Filigranas no admite esta petición" } }),
                         );
+                        continue;
+                    }
+                    let tool_name = msg.pointer("/request/tool_name").and_then(Value::as_str).unwrap_or("");
+                    if can_delegate && tool_name.starts_with("mcp__filigranas__") {
+                        let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
+                            "request_id": request_id, "response": permission(&msg["request"], "accept") } }));
+                        runs::on_active(&handle, id, |conn, run| runs::phase(conn, run, "running"));
+                        continue;
+                    }
+                    if matches!(tool_name, "Agent" | "Task") {
+                        let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
+                            "request_id": request_id, "response": { "behavior": "deny", "message": "En Filigranas no se usan subagentes internos de Claude Code; usa mcp__filigranas__delegar para crear una subsesión visible." } } }));
                         continue;
                     }
                     // Nivel de permisos de la sesión: Filigranas puede aprobar por su cuenta.
@@ -300,6 +435,10 @@ impl Claude {
                     if !flag.load(Ordering::SeqCst) || PermissionRequest::register(&mut requests, id, &mut msg, &flag).is_none() {
                         continue;
                     }
+                    drop(requests);
+                    if is_subsession {
+                        notify_subsession(&handle, id);
+                    }
                 }
                 if msg["type"] == json!("rate_limit_event") && msg.pointer("/rate_limit_info/status") == Some(&json!("rejected")) {
                     let window = msg.pointer("/rate_limit_info/rateLimitType").and_then(Value::as_str).unwrap_or("del plan");
@@ -307,6 +446,9 @@ impl Claude {
                 }
                 if msg["type"] == json!("result") {
                     handle.state::<AppState>().tracker.finished(id, msg["result"].as_str());
+                    if is_subsession {
+                        notify_subsession(&handle, id);
+                    }
                     if msg["is_error"] == json!(true) {
                         if let Some(reason) = crate::handoff::quota_reason(&msg.to_string()) {
                             crate::handoff::pause(&handle, id, &reason);
@@ -326,12 +468,20 @@ impl Claude {
             }
             if unexpected_exit {
                 handle.state::<AppState>().tracker.exited(id);
+                if is_subsession {
+                    notify_subsession(&handle, id);
+                }
                 let _ = handle.emit("session", Event { id, msg: json!({ "type": "exit" }) });
             }
         });
 
         // El modo host necesita el saludo de control antes del primer mensaje.
-        write_line(&stdin, &json!({ "type": "control_request", "request_id": uuid::Uuid::new_v4().to_string(), "request": { "subtype": "initialize" } }))?;
+        let init_request = if can_delegate {
+            json!({ "subtype": "initialize", "sdkMcpServers": ["filigranas"] })
+        } else {
+            json!({ "subtype": "initialize" })
+        };
+        write_line(&stdin, &json!({ "type": "control_request", "request_id": uuid::Uuid::new_v4().to_string(), "request": init_request }))?;
         let input = Input { stdin, run };
         procs.insert(session.id, Proc { child, input: input.clone(), effort: effort.map(str::to_string), pinned_model, alive });
         Ok(input)
@@ -344,11 +494,127 @@ pub(crate) fn open_session(state: &AppState, id: i64) -> CmdResult<db::Session> 
 
 // ── comandos ────────────────────────────────────────────────────────────
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCatalog {
+    pub sessions: Vec<db::Session>,
+    pub pm_claude: HashMap<String, db::Session>,
+    pub pm_codex_projects: Vec<String>,
+}
+
+/// Catálogo global de sesiones abiertas de todos los proyectos en una única lectura.
+#[tauri::command]
+pub async fn session_catalog(app: AppHandle, paths: Vec<String>) -> CmdResult<SessionCatalog> {
+    if paths.len() > 128 {
+        return Err("máximo de 128 proyectos por consulta".into());
+    }
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        let mut allowed = Vec::new();
+        for path in &paths {
+            if let Ok(canonical) = project_path(&conn, path) {
+                if canonical == *path {
+                    allowed.push(canonical);
+                }
+            }
+        }
+        let mut list = db::sessions_in(&conn, &allowed).map_err(err)?;
+        for s in &mut list {
+            s.status = crate::delegate::session_status(state, &conn, s);
+        }
+        let mut pm_claude = HashMap::new();
+        for mut pm in db::pm_claude_sessions_in(&conn, &allowed).map_err(err)? {
+            pm.status = crate::delegate::session_status(state, &conn, &pm);
+            pm_claude.insert(pm.project.clone(), pm);
+        }
+        let pm_codex_projects = db::pm_codex_projects_in(&conn, &allowed).map_err(err)?;
+        Ok(SessionCatalog { sessions: list, pm_claude, pm_codex_projects })
+    }).await
+}
+
 #[tauri::command]
 pub fn session_list(state: State<AppState>, project: String) -> CmdResult<Vec<db::Session>> {
     let conn = state.db.lock().map_err(err)?;
     let path = project_path(&conn, &project)?;
-    db::sessions(&conn, &path).map_err(err)
+    let mut list = db::sessions(&conn, &path).map_err(err)?;
+    for s in &mut list {
+        s.status = crate::delegate::session_status(&state, &conn, s);
+    }
+    Ok(list)
+}
+
+/// Crea una subsesión hija de `parent_id` compartiendo su carpeta, rama y permisos.
+#[tauri::command]
+pub async fn session_create_subsession(
+    app: AppHandle,
+    parent_id: i64,
+    engine: String,
+    title: Option<String>,
+    skill_role: Option<crate::skills::Role>,
+) -> CmdResult<db::Session> {
+    tauri::async_runtime::spawn_blocking(move || {
+        create_subsession(&app, parent_id, &engine, title.as_deref(), skill_role)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// Crea una subsesión visible en «Conversaciones» bajo la sesión padre.
+pub fn create_subsession(
+    app: &AppHandle,
+    parent_id: i64,
+    engine: &str,
+    title: Option<&str>,
+    skill_role: Option<crate::skills::Role>,
+) -> CmdResult<db::Session> {
+    let state = app.state::<AppState>();
+    let parent = open_session(&state, parent_id)?;
+    if parent.parent_session.is_some() {
+        return Err("una subsesión no puede crear otras subsesiones".into());
+    }
+    let provider = match engine {
+        "claude" => uuid::Uuid::new_v4().to_string(),
+        "codex" => String::new(),
+        e if crate::acp::ENGINES.contains(&e) => String::new(),
+        _ => return Err(format!("motor desconocido: {engine}")),
+    };
+    let names = numbered();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let title = title.map(str::trim).filter(|t| !t.is_empty());
+    let session = {
+        let mut conn = state.db.lock().map_err(err)?;
+        let tx = conn.transaction().map_err(err)?;
+        let s = db::create_session(&tx, &parent.project, engine, &provider, &names).map_err(err)?;
+        db::set_session_parent(&tx, s.id, parent.id, title).map_err(err)?;
+        if let Some(role) = skill_role {
+            crate::skills::assign_session(&tx, s.id, role)?;
+        }
+        // Comparte carpeta y rama de la sesión padre sin crear un worktree nuevo.
+        if let (Some(wt), Some(br)) = (&parent.worktree, &parent.branch) {
+            db::set_session_worktree(
+                &tx,
+                s.id,
+                wt,
+                br,
+                parent.base.as_deref().unwrap_or("main"),
+                parent.base_commit.as_deref().unwrap_or(""),
+            )
+            .map_err(err)?;
+        } else if let Some(br) = &parent.branch {
+            tx.execute(
+                "UPDATE sessions SET branch = ?2, base = ?3, base_commit = ?4 WHERE id = ?1",
+                rusqlite::params![s.id, br, parent.base, parent.base_commit],
+            )
+            .map_err(err)?;
+        }
+        let saved = db::session(&tx, s.id).map_err(err)?.ok_or("la subsesión no se guardó")?;
+        tx.commit().map_err(err)?;
+        saved
+    };
+    state.permissions.inherit(parent.id, session.id);
+    let _ = app.emit("sessions-changed", json!({ "project": parent.project, "focus": null }));
+    tasks::changed(app);
+    Ok(session)
 }
 
 /// Sesión recién creada y, si procede, un aviso para el usuario.
@@ -543,6 +809,9 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         let input = state.claude.proc(app, &session, effort.as_deref())?;
         *input.run.lock().map_err(err)? = Some(run);
         state.tracker.started(id);
+        if session.parent_session.is_some() {
+            notify_subsession(app, id);
+        }
         let content = if images.is_empty() { json!(input_text) } else {
             images.insert(0, json!({ "type": "text", "text": input_text }));
             json!(images)
@@ -552,6 +821,9 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         if sent.is_err() {
             *input.run.lock().map_err(err)? = None;
             state.tracker.exited(id);
+            if session.parent_session.is_some() {
+                notify_subsession(app, id);
+            }
         }
         sent
     })();
@@ -604,6 +876,7 @@ pub fn session_respond(app: AppHandle, state: State<AppState>, request_id: Strin
     drop(procs);
     if state.claude.pending_for(claimed.session) == 0 {
         runs::on_active(&app, claimed.session, |conn, run| runs::phase(conn, run, "running"));
+        notify_subsession(&app, claimed.session);
     }
     Ok(())
 }

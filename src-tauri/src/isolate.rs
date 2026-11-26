@@ -306,6 +306,9 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
 
 /// Borra worktree y rama, solo si todo lo que contienen ya está integrado.
 pub fn cleanup(session: &db::Session) -> CmdResult<()> {
+    if session.parent_session.is_some() {
+        return Err("la subsesión comparte la carpeta de su sesión padre; limpia la rama desde la sesión padre".into());
+    }
     let (wt, _, patch) = session_patch(session)?;
     match &session.integrated {
         Some(fp) if *fp == fingerprint(&patch) => {}
@@ -489,6 +492,9 @@ mod tests {
             handoff_from: None,
             paused: None,
             skill_role: crate::skills::Role::default(),
+            parent_session: None,
+            title: None,
+            status: None,
         }
     }
 

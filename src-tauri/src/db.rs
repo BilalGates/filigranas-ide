@@ -94,6 +94,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         ("options", "TEXT"),
         ("other_options", "TEXT"),
         ("other_effort", "TEXT"),
+        // Subsesiones delegadas por otra sesión (padre y título corto).
+        ("parent_session", "INTEGER"),
+        ("title", "TEXT"),
     ] {
         if !has_in("sessions", col)? {
             conn.execute_batch(&format!("ALTER TABLE sessions ADD COLUMN {col} {ty}"))?;
@@ -155,6 +158,13 @@ pub struct Session {
     /// Motivo de pausa (cuota o manual); `None` si no está pausada.
     pub paused: Option<String>,
     pub skill_role: crate::skills::Role,
+    /// Sesión padre si esta conversación es una subsesión delegada.
+    pub parent_session: Option<i64>,
+    /// Título breve de la subsesión (si se proporcionó al delegar).
+    pub title: Option<String>,
+    /// Estado observable en tiempo real (solo relleno en `session_list`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl Session {
@@ -164,7 +174,7 @@ impl Session {
     }
 }
 
-const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused, skill_role";
+const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused, skill_role, parent_session, title";
 
 fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -183,7 +193,15 @@ fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         handoff_from: r.get(12)?,
         paused: r.get(13)?,
         skill_role: crate::skills::Role::from_key(r.get::<_, Option<String>>(14)?.as_deref()),
+        parent_session: r.get(15)?,
+        title: r.get(16)?,
+        status: None,
     })
+}
+
+pub fn set_session_parent(conn: &Connection, id: i64, parent_id: i64, title: Option<&str>) -> rusqlite::Result<()> {
+    conn.execute("UPDATE sessions SET parent_session = ?2, title = ?3 WHERE id = ?1", params![id, parent_id, title])?;
+    Ok(())
 }
 
 /// Guarda el primer encargo de la sesión (los siguientes no lo cambian).
@@ -233,6 +251,56 @@ pub fn set_session_integrated(conn: &Connection, id: i64, fingerprint: Option<&s
 pub fn sessions(conn: &Connection, project: &str) -> rusqlite::Result<Vec<Session>> {
     let mut stmt = conn.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE project = ?1 AND closed = 0 AND id NOT IN (SELECT session_id FROM project_manager_claude) ORDER BY id"))?;
     let rows = stmt.query_map([project], session_row)?;
+    rows.collect()
+}
+
+/// Sesiones abiertas de varios proyectos en una sola lectura.
+pub fn sessions_in(conn: &Connection, projects: &[String]) -> rusqlite::Result<Vec<Session>> {
+    if projects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let scope = serde_json::to_string(projects).unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SESSION_COLS} FROM sessions
+         WHERE project IN (SELECT value FROM json_each(?1)) AND closed = 0
+           AND id NOT IN (SELECT session_id FROM project_manager_claude)
+         ORDER BY project, id"
+    ))?;
+    let rows = stmt.query_map([scope], session_row)?;
+    rows.collect()
+}
+
+/// Sesiones activas del Project manager en Claude para los proyectos indicados.
+pub fn pm_claude_sessions_in(conn: &Connection, projects: &[String]) -> rusqlite::Result<Vec<Session>> {
+    if projects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let scope = serde_json::to_string(projects).unwrap_or_else(|_| "[]".into());
+    let cols = SESSION_COLS.split(", ").map(|c| format!("s.{c}")).collect::<Vec<_>>().join(", ");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {cols} FROM sessions s
+         JOIN project_manager_claude pm ON pm.session_id = s.id
+         WHERE pm.active = 1 AND s.closed = 0
+           AND pm.project IN (SELECT value FROM json_each(?1))
+         ORDER BY pm.project"
+    ))?;
+    let rows = stmt.query_map([scope], session_row)?;
+    rows.collect()
+}
+
+/// Proyectos que ya tienen hilo guardado del Project manager en Codex.
+pub fn pm_codex_projects_in(conn: &Connection, projects: &[String]) -> rusqlite::Result<Vec<String>> {
+    if projects.is_empty() {
+        return Ok(Vec::new());
+    }
+    let scope = serde_json::to_string(projects).unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare(
+        "SELECT path FROM projects
+         WHERE coordinator_thread IS NOT NULL AND coordinator_thread != ''
+           AND path IN (SELECT value FROM json_each(?1))
+         ORDER BY path",
+    )?;
+    let rows = stmt.query_map([scope], |r| r.get(0))?;
     rows.collect()
 }
 
@@ -327,7 +395,7 @@ pub fn orphans(conn: &Connection, project: &str) -> rusqlite::Result<Vec<Session
     let cols = SESSION_COLS.split(", ").map(|c| format!("s.{c}")).collect::<Vec<_>>().join(", ");
     let mut stmt = conn.prepare(&format!(
         "SELECT {cols} FROM sessions s
-         WHERE s.project = ?1 AND s.closed = 1 AND s.worktree IS NOT NULL
+         WHERE s.project = ?1 AND s.closed = 1 AND s.worktree IS NOT NULL AND s.parent_session IS NULL
            AND NOT EXISTS (SELECT 1 FROM sessions o WHERE o.worktree = s.worktree AND (o.closed = 0 OR o.id > s.id))
          ORDER BY s.id"
     ))?;
@@ -447,5 +515,34 @@ mod tests {
         assert_ne!(back.name, to.name);
         assert!(orphans(&conn, "/r/p").unwrap().is_empty());
         assert_eq!(session(&conn, to.id).unwrap().unwrap().paused.as_deref(), Some("cuota"));
+    }
+
+    #[test]
+    fn bulk_catalog_queries_scope_to_requested_projects() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let names = ["xavi", "iniesta"];
+        let s1 = create_session(&conn, "/r/a", "claude", "u1", &names).unwrap();
+        let s2 = create_session(&conn, "/r/b", "codex", "u2", &names).unwrap();
+        let s3 = create_session(&conn, "/r/c", "claude", "u3", &names).unwrap();
+        let pm_a = create_pm_session(&conn, "/r/a", "claude", "pm-u1").unwrap();
+        set_coordinator_thread(&conn, "/r/b", Some("thread-b"), 0).unwrap();
+        set_coordinator_thread(&conn, "/r/c", Some("thread-c"), 0).unwrap();
+
+        let paths = vec!["/r/a".to_string(), "/r/b".to_string()];
+        let listed = sessions_in(&conn, &paths).unwrap();
+        let ids: Vec<i64> = listed.iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![s1.id, s2.id]);
+        assert!(!ids.contains(&s3.id));
+
+        let pm_claude = pm_claude_sessions_in(&conn, &paths).unwrap();
+        assert_eq!(pm_claude.len(), 1);
+        assert_eq!(pm_claude.get("/r/a").map(|s| s.id), Some(pm_a.id));
+
+        let pm_codex = pm_codex_projects_in(&conn, &paths).unwrap();
+        assert_eq!(pm_codex, vec!["/r/b".to_string()]);
+
+        assert!(sessions_in(&conn, &[]).unwrap().is_empty());
+        assert!(pm_claude_sessions_in(&conn, &[]).unwrap().is_empty());
+        assert!(pm_codex_projects_in(&conn, &[]).unwrap().is_empty());
     }
 }

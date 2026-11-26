@@ -75,6 +75,7 @@ struct Shared {
     default_model: Option<String>,
     low_text_models: Vec<String>,
     sessions: HashMap<String, i64>,
+    projects: HashMap<String, String>,
     quota: runs::Quota,
     usage_baseline: HashMap<String, (String, runs::Usage)>,
 }
@@ -281,8 +282,14 @@ impl Codex {
                     if let Some(id) = sh.sessions.get(&thread) {
                         let state = handle.state::<AppState>();
                         match method.as_str() {
-                            "turn/started" => state.tracker.started(*id),
-                            "turn/completed" => state.tracker.finished(*id, None),
+                            "turn/started" => {
+                                state.tracker.started(*id);
+                                crate::claude::notify_subsession(&handle, *id);
+                            }
+                            "turn/completed" => {
+                                state.tracker.finished(*id, None);
+                                crate::claude::notify_subsession(&handle, *id);
+                            }
                             "item/agentMessage/delta" => {
                                 if let Some(delta) = params["delta"].as_str() {
                                     state.tracker.chunk(*id, delta);
@@ -334,11 +341,18 @@ impl Codex {
                         let _ = rpc.respond_error(id, "Filigranas no admite esta petición todavía");
                         return;
                     }
-                    // En acceso total Filigranas aprueba por su cuenta. En automático no:
+                    // En full control Filigranas aprueba por su cuenta. En automático no:
                     // con el sandbox de Codex estas peticiones ya son salidas de la carpeta.
                     let thread = params["threadId"].as_str().unwrap_or("").to_string();
-                    let full = sh.sessions.get(&thread).is_some_and(|sid|
-                        handle.state::<AppState>().permissions.get(*sid) == crate::autoapprove::Mode::Full);
+                    let permissions = &handle.state::<AppState>().permissions;
+                    let mode = if let Some(sid) = sh.sessions.get(&thread) {
+                        permissions.get(*sid)
+                    } else if let Some(project) = sh.projects.get(&thread) {
+                        permissions.get_project(project)
+                    } else {
+                        crate::autoapprove::Mode::Ask
+                    };
+                    let full = mode == crate::autoapprove::Mode::Full;
                     if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
                         Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
                     } else {
@@ -432,7 +446,7 @@ impl Codex {
                         rpc.request("thread/inject_items", json!({ "threadId": id, "items": [retire_persona()] }), SHORT)?;
                         db::set_coordinator_thread(&*state.db.lock().map_err(err)?, path, Some(id), crate::delegate::TOOLS_VERSION).map_err(err)?;
                     }
-                    self.remember(id, &res, session.map(|s| s.id))?;
+                    self.remember(id, &res, session.map(|s| s.id), path)?;
                     return Ok((rpc, id.clone(), Some(res)));
                 }
                 Err(e) => {
@@ -462,15 +476,17 @@ impl Codex {
             db::set_coordinator_thread(&conn, path, Some(&id), crate::delegate::TOOLS_VERSION).map_err(err)?;
         }
         drop(conn);
-        self.remember(&id, &res, session.map(|s| s.id))?;
+        self.remember(&id, &res, session.map(|s| s.id), path)?;
         Ok((rpc, id, Some(res)))
     }
 
-    fn remember(&self, id: &str, reply: &Value, session: Option<i64>) -> CmdResult<()> {
+    fn remember(&self, id: &str, reply: &Value, session: Option<i64>, project: &str) -> CmdResult<()> {
         let mut sh = self.shared.lock().map_err(err)?;
         sh.loaded.insert(id.into());
         if let Some(session) = session {
             sh.sessions.insert(id.into(), session);
+        } else {
+            sh.projects.insert(id.into(), project.into());
         }
         if let Some(model) = reply["model"].as_str() {
             sh.models.insert(id.into(), model.into());
@@ -720,10 +736,22 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
         params["model"] = json!(model);
     }
     // El servidor puede haber aceptado el turno aunque no llegue su respuesta.
+    if let Some(s) = direct {
+        state.tracker.started(s.id);
+        if s.parent_session.is_some() {
+            crate::claude::notify_subsession(app, s.id);
+        }
+    }
     message.retain_files();
     rpc.request("turn/start", params, LONG).map(|_| ()).map_err(|error| {
         match failed_start_outcome(&error, rpc.alive()) {
             Some(outcome) => {
+                if let Some(s) = direct {
+                    state.tracker.exited(s.id);
+                    if s.parent_session.is_some() {
+                        crate::claude::notify_subsession(app, s.id);
+                    }
+                }
                 runs::record(app, |conn| runs::finish(conn, run, outcome).map_err(err));
                 error
             }

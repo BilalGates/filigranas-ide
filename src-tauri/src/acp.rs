@@ -294,6 +294,7 @@ impl Acp {
         });
         crate::runs::record(app, |conn| crate::runs::usage(conn, run, crate::runs::Usage { model, ..Default::default() }).map_err(err));
         state.tracker.started(id);
+        crate::claude::notify_subsession(app, id);
         std::thread::spawn(move || {
             let tracker = &handle.state::<AppState>().tracker;
             let msg = match rpc.request("session/prompt", json!({ "sessionId": sid, "prompt": [{ "type": "text", "text": text }] }), TURN) {
@@ -305,11 +306,13 @@ impl Acp {
                     };
                     crate::runs::record(&handle, |conn| crate::runs::finish(conn, run, outcome).map_err(err));
                     tracker.finished(id, None);
+                    crate::claude::notify_subsession(&handle, id);
                     json!({ "type": "turn_end", "stopReason": res["stopReason"] })
                 }
                 Err(e) => {
                     let message = explain(&engine, e);
                     tracker.finished(id, Some(&format!("error: {message}")));
+                    crate::claude::notify_subsession(&handle, id);
                     let quota = crate::handoff::quota_reason(&message);
                     let outcome = if quota.is_some() { "paused_quota" } else if !rpc.alive() { "interrupted" } else { "failed" };
                     crate::runs::record(&handle, |conn| crate::runs::finish(conn, run, outcome).map_err(err));

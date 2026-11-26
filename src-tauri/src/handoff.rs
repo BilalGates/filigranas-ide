@@ -195,6 +195,9 @@ mod tests {
             handoff_from: None,
             paused: Some("cuota agotada: usage limit".into()),
             skill_role: crate::skills::Role::default(),
+            parent_session: None,
+            title: None,
+            status: None,
         };
         let text = relevo(&from, "claude code", " src/a.ts | 3 ++-\n", "1234567 test de la cola\n", "Falta el caso deshabilitado.");
         for part in ["«xavi» (claude code)", "Valida la política", "ide/xavi-3 (parte de main)", "src/a.ts | 3", "1234567 test", "Falta el caso", "cuota agotada", "git status"] {

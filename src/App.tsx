@@ -25,7 +25,6 @@ import Containers from './Containers';
 import Browser from './Browser';
 import Splitter, { SIZES } from './Splitter';
 import GithubProfile from './GithubProfile';
-import Sharing, { type ShareTarget } from './Sharing';
 import AmbientField from './trama/AmbientField';
 import { DestNav, loadResume, saveResume, TOOLS, type ToolId } from './trama/nav';
 import WorkspaceShell from './trama/WorkspaceShell';
@@ -158,7 +157,6 @@ export default function App() {
   const [chooseBranch, setChooseBranch] = useState(false);
   const clearBranchPicker = useCallback(() => setChooseBranch(false), []);
 
-  const [shareMode, setShareMode] = useState<ShareTarget | 'join' | null>(null);
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
   const [narrowSideOpen, setNarrowSideOpen] = useState(false);
@@ -680,9 +678,8 @@ export default function App() {
     setRightView((v) => (v === 'editor' ? 'git' : v));
   };
 
-  const shareDialog = shareMode && <Sharing target={shareMode === 'join' ? null : shareMode} onClose={() => setShareMode(null)} />;
   if (!ws && !workspaceError) return <div className="app" />;
-  if (!startupConfirmed || !ws?.root) return <><Onboarding
+  if (!startupConfirmed || !ws?.root) return <Onboarding
     initialRoot={ws?.root ?? null}
     onDone={(workspace) => {
       shellHydrated.current = false;
@@ -692,8 +689,8 @@ export default function App() {
       setWorkspaceError(null);
       setStartupConfirmed(true);
     }}
-    recoveryError={workspaceError} onRetry={refresh} onJoin={() => setShareMode('join')}
-    github={toolList?.find((tool) => tool.id === 'gh')} onToolsRefresh={checkTools} />{shareDialog}</>;
+    recoveryError={workspaceError} onRetry={refresh}
+    github={toolList?.find((tool) => tool.id === 'gh')} onToolsRefresh={checkTools} />;
 
   const current = ws.projects.find((p) => p.path === project);
   const resetProjectTransientUi = () => {
@@ -902,7 +899,7 @@ export default function App() {
   const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
   const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`', Comma: ',' };
   keys.current = (e) => {
-    if (shareMode || e.defaultPrevented || (e.target instanceof Element && e.target.closest('.tr-modal'))) return;
+    if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('.tr-modal'))) return;
     if (!(e.metaKey || e.ctrlKey)) {
       if (e.ctrlKey && e.code === 'Backquote') toggleTerminal();
       return;
@@ -1259,11 +1256,6 @@ export default function App() {
                   onUpdate={update}
                   onNewSession={() => { newSession(); setNarrowSideOpen(false); }}
                   onProjectManager={(path) => { startPm(path); setNarrowSideOpen(false); }}
-                  onJoin={() => setShareMode('join')}
-                  onShare={(target) => {
-                    const worktree = target.path === project ? sessionWorktree : null;
-                    setShareMode({ path: target.path, name: target.name, session: worktree?.id ?? null, worktree: worktree?.name });
-                  }}
                   onProjectView={(path, tab) => {
                     if (tab === 'containers') {
                       if (path !== project) selectProject(path, { keepTool: true });
@@ -1552,7 +1544,6 @@ export default function App() {
         }}
       />
 
-      {shareDialog}
       {usageOpen && (
         <section ref={usagePopup} id="usage-popup" className="usage-popup" role="region" aria-label="Herramientas y Jev">
           <header>

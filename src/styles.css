@@ -646,8 +646,7 @@ html[data-resizing] .right {
   margin-top: 4px;
 }
 .side-project-actions {
-  display: grid;
-  grid-template-columns: minmax(0, max-content) max-content;
+  display: flex;
   padding-left: clamp(0px, calc(var(--side-w, 232px) - 185px), 15px);
 }
 .side-project-actions button {
@@ -3158,30 +3157,6 @@ html.is-light .onboarding-card {
   flex-direction: column;
   gap: 10px;
 }
-.onboarding-sep {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 2px 0;
-  color: var(--tx4);
-  font-size: 11.5px;
-}
-.onboarding-sep::before,
-.onboarding-sep::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
-.onboarding-join {
-  height: 36px;
-  justify-content: center;
-  border-radius: var(--r-l);
-  box-shadow: inset 0 0 0 1px var(--line-2);
-}
-.onboarding-join:hover:not(:disabled) {
-  background: var(--hover);
-}
 .field {
   display: flex;
   align-items: center;
@@ -3293,65 +3268,6 @@ html.is-light .onboarding-card {
   flex: none;
   color: var(--tx3);
 }
-
-.share-dialog {
-  width: min(460px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--tx);
-  font: inherit;
-}
-
-.share-dialog::backdrop { background: #070911a6; }
-.share-dialog.is-viewer { width: min(1100px, calc(100vw - 32px)); }
-.share-dialog > header, .share-files-head {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--line);
-}
-.share-dialog h2 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
-.share-close { margin-left: auto; flex-shrink: 0; }
-.share-form { display: grid; gap: 12px; padding: 16px; }
-.share-form p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
-.share-form label { display: grid; gap: 6px; }
-.share-form input, .share-form select { width: 100%; min-width: 0; padding: 8px; }
-.share-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.share-error { padding: 0 16px; }
-.share-message { padding: 12px 16px; }
-.share-files {
-  display: grid;
-  grid-template-columns: minmax(140px, 26%) minmax(0, 1fr);
-  height: min(65vh, 680px);
-}
-.share-files > aside, .share-files > section { min-width: 0; overflow: auto; }
-.share-files > aside { border-right: 1px solid var(--line); }
-.share-files-head { justify-content: space-between; gap: 4px; }
-.share-files-head, .share-file-path { position: sticky; top: 0; background: var(--panel); }
-.share-file-path { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.share-files pre { margin: 0; padding: 12px 14px; font-family: var(--mono); line-height: 1.5; tab-size: 4; }
-
-.share-editor {
-  display: block;
-  width: 100%;
-  min-height: 45vh;
-  padding: 12px 14px;
-  border: 0;
-  resize: vertical;
-  background: var(--panel);
-  color: var(--tx);
-  font: inherit;
-  font-family: var(--mono);
-  line-height: 1.5;
-  tab-size: 4;
-}
-.share-file-conflict { padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.share-file-conflict pre { max-height: 220px; overflow: auto; }
 
 .github-connect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .github-connect p { flex-basis: 100%; margin: 0; }

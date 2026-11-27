@@ -55,7 +55,7 @@ Se guarda en `localStorage` bajo `filigranas.shell.v1`:
 - Preferencias por proyecto (`projects[path]: { activeTool, mode, lastToolMode, workspaceRatio }`).
 
 Regla de arranque:
-- En cada arranque se muestra primero la pantalla de entrada (`Onboarding`) para confirmar o escoger mediante selector de carpetas la carpeta general de proyectos (pre-rellenada con la última raíz guardada o la predeterminada), o bien **Unirse a una sesión compartida** de Filigranas.
+- En cada arranque se muestra primero la pantalla de entrada (`Onboarding`) para confirmar o escoger mediante selector de carpetas la carpeta general de proyectos (pre-rellenada con la última raíz guardada o la predeterminada).
 - Al confirmar la carpeta raíz, si `lastProject` no existe en ella o está archivado, se descartan las rutas inválidas y Filigranas arranca en `Workspace + Inicio`.
 - Si `lastProject` es válido dentro de la carpeta elegida, se recupera su estado guardado con acceso inmediato a Inicio desde la barra lateral o el selector superior.
 

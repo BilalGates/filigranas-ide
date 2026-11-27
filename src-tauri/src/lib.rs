@@ -32,7 +32,6 @@ mod pty;
 mod rpc;
 mod runs;
 mod services;
-mod sharing;
 mod system_curl;
 mod skills;
 mod sysmon;
@@ -58,7 +57,6 @@ pub(crate) struct AppState {
     pub project_watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub ptys: pty::Ptys,
     pub services: services::ServiceProcesses,
-    pub sharing: sharing::Sharing,
     pub github_login: github_login::GithubLogin,
     pub codex: codex::Codex,
     pub claude: claude::Claude,
@@ -141,7 +139,6 @@ pub fn run() {
                 project_watcher: Mutex::new(None),
                 ptys: Default::default(),
                 services: Default::default(),
-                sharing: Default::default(),
                 github_login: Default::default(),
                 codex: Default::default(),
                 claude: Default::default(),
@@ -237,16 +234,6 @@ pub fn run() {
             browser::browser_bookmark,
             browser::browser_bookmark_remove,
             browser::browser_history_clear,
-            sharing::share_start,
-            sharing::share_current,
-            sharing::share_stop,
-            sharing::share_access,
-            sharing::share_join,
-            sharing::share_status,
-            sharing::share_list,
-            sharing::share_read,
-            sharing::share_write,
-            sharing::share_leave,
             files::list_dir,
             files::read_text,
             files::write_text,

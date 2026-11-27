@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -58,8 +58,6 @@ const mockSessions: any[] = [
   { id: 900, project: '/Users/demo/repositorios/calaix', engine: 'claude', name: 'diseño', providerSession: 'm', effort: null, worktree: '/tmp/wt/diseno', branch: 'ide/diseno', base: 'main', baseCommit: '84ab176', integrated: null, task: null, handoffFrom: null, paused: null },
 ];
 const mockManagers = new Map<string, any>();
-let mockShare: (HostedShare & { project: string }) | null = null;
-let mockShareGuest = false;
 let mockGithub: GithubLoginStatus | null = null;
 let sessionAnswer: ((decision: string) => void) | null = null;
 let pendingApproval: ((decision: string) => void) | null = null;
@@ -293,46 +291,6 @@ mockIPC(
       }
       case 'open_worktree':
       case 'reveal_project':
-        return null;
-      case 'share_start':
-        mockShare = { project: a.project, name: rel(a.project), editable: a.editable,
-          invitation: 'filigranas-demo', expiresAt: Date.now() + 900_000 };
-        return mockShare;
-      case 'share_current':
-        return mockShare;
-      case 'share_access':
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        mockShare = { ...mockShare, editable: a.editable };
-        return mockShare;
-      case 'share_stop':
-        mockShare = null;
-        return null;
-      case 'share_join':
-        if (mockShareGuest || !mockShare || a.code !== mockShare.invitation) return fail('invitación no válida');
-        mockShareGuest = true;
-        return { name: mockShare.name, editable: mockShare.editable };
-      case 'share_status':
-        return { online: !!mockShare, closed: !mockShare, editable: mockShare?.editable ?? false };
-      case 'share_list':
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        return listDir(a.path ? `${mockShare.project}/${a.path}` : mockShare.project)
-          .map((entry) => ({ ...entry, path: entry.path.slice(mockShare!.project.length + 1) }));
-      case 'share_read': {
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        const text = files[`${rel(mockShare.project)}/${a.path}`] ?? fail('archivo no compartido');
-        return a.revision === text ? null : { text, revision: text };
-      }
-      case 'share_write': {
-        if (!mockShare?.editable) return fail('el proyecto es de solo lectura');
-        const file = `${rel(mockShare.project)}/${a.path}`;
-        if (files[file] !== a.previous && files[file] !== a.content) return fail('El archivo cambió en el equipo anfitrión.');
-        files[file] = a.content;
-        void emit('project-changed');
-        return null;
-      }
-      case 'share_leave':
-        mockShareGuest = false;
-        mockShare = null;
         return null;
       case 'github_login_start':
         mockGithub = { state: 'waiting', code: 'DEMO-1234' };

@@ -11,8 +11,6 @@ type Props = {
   onProject: (path: string | null) => void;
   onUpdate: (p: Promise<Workspace>) => void;
   onNewSession: () => void;
-  onJoin: () => void;
-  onShare: (project: Project) => void;
   onProjectManager: (path: string) => void;
   onProjectView: (path: string, tab: 'files' | 'git' | 'containers') => void;
   onProjectTerminal: (path: string) => void;
@@ -32,7 +30,7 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
-export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession, onJoin, onShare, onProjectManager, onProjectView, onProjectTerminal, onError, sessions, status }: Props) {
+export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession, onProjectManager, onProjectView, onProjectTerminal, onError, sessions, status }: Props) {
   const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [menu, setMenu] = useState<string | null>(null);
@@ -137,7 +135,6 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
                     onProjectView(p.path, tab);
                   }}
                   onTerminal={() => onProjectTerminal(p.path)}
-                  onShare={() => onShare(p)}
                   onManager={() => {
                     setExpanded((cur) => new Set(cur).add(p.path));
                     onProjectManager(p.path);
@@ -165,9 +162,6 @@ export default function Sidebar({ ws, project, onProject, onUpdate, onNewSession
               <button onClick={() => setNewProject(true)}>
                 <Icon name="plus" size={14} />
                 <span>Nuevo proyecto</span>
-              </button>
-              <button onClick={onJoin} aria-label="Unirse a un proyecto" title="Unirse a un proyecto">
-                Unirse
               </button>
             </div>
           )}
@@ -213,11 +207,10 @@ function ProjectRow(props: {
   onError: (message: string) => void;
   onView: (tab: 'files' | 'git' | 'containers') => void;
   onTerminal: () => void;
-  onShare: () => void;
   onManager: () => void;
   children?: React.ReactNode;
 }) {
-  const { p, ws, open, expanded, onExpand, menuOpen, onMenu, onSelect, onUpdate, onError, onView, onTerminal, onShare, onManager, children } = props;
+  const { p, ws, open, expanded, onExpand, menuOpen, onMenu, onSelect, onUpdate, onError, onView, onTerminal, onManager, children } = props;
   const [creating, setCreating] = useState(false);
   const [point, setPoint] = useState({ x: 0, y: 0 });
   const ref = useRef<HTMLDivElement>(null);
@@ -301,7 +294,6 @@ function ProjectRow(props: {
             items[(next + items.length) % items.length]?.focus();
           }}>
           <button role="menuitem" className="menu-item" onClick={() => run(onSelect)}>Abrir proyecto</button>
-          <button role="menuitem" className="menu-item" onClick={() => run(onShare)}>Compartir proyecto</button>
           <button role="menuitem" className="menu-item" onClick={() => run(onManager)}>Abrir Project manager</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('files'))}>Ver archivos</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('git'))}>Ver cambios</button>

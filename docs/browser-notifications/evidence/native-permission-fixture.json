@@ -1,0 +1,14 @@
+{
+  "value": {
+    "fixture": true,
+    "pinned": true,
+    "survivesHistoryClear": true,
+    "navigation": [
+      [
+        4242,
+        "/private/tmp/filigranas-browser-acceptance/repos/dos"
+      ]
+    ]
+  },
+  "errors": []
+}

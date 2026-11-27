@@ -1,0 +1,19 @@
+{
+  "value": {
+    "waitMs": 10547,
+    "status": {
+      "exists": true,
+      "url": "http://localhost:3000/slow",
+      "title": "Browser \u00b7 /two",
+      "loading": true,
+      "loaded": false,
+      "error": "La p\u00e1gina no ha confirmado la carga tras 30 segundos. Puedes esperar, reintentar o abrirla en el navegador del sistema.",
+      "canGoBack": false,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    },
+    "visible": "La p\u00e1gina no ha confirmado la carga tras 30 segundos. Puedes esperar, reintentar o abrirla en el navegador del sistema.Reintentar"
+  },
+  "errors": []
+}

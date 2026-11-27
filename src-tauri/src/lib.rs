@@ -117,6 +117,7 @@ fn lock_profile(dir: &std::path::Path) -> std::io::Result<std::fs::File> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(browser::Browsers::default())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -228,7 +229,8 @@ pub fn run() {
             browser::browser_open,
             browser::browser_place,
             browser::browser_action,
-            browser::browser_location,
+            browser::browser_status,
+            browser::browser_external,
             browser::browser_history,
             browser::browser_bookmarks,
             browser::browser_bookmark,

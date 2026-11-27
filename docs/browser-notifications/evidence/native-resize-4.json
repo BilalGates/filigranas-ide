@@ -1,0 +1,31 @@
+{
+  "value": {
+    "window": {
+      "width": 1440,
+      "height": 900
+    },
+    "status": {
+      "exists": true,
+      "url": "http://localhost:3000/two",
+      "title": "Browser \u00b7 /two",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": false,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    },
+    "rect": {
+      "x": 544,
+      "y": 134.234375,
+      "width": 887,
+      "height": 732.765625,
+      "top": 134.234375,
+      "right": 1431,
+      "bottom": 867,
+      "left": 544
+    }
+  },
+  "errors": []
+}

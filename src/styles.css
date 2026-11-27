@@ -2620,7 +2620,8 @@ html.is-light .git-log-body {
 
 /* Navegador y servicios locales */
 .panel-body.is-browser { overflow: hidden; }
-.panel-body > .browser-panel {
+.browser-panel[hidden] { display: none; }
+.browser-panel {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -3281,3 +3282,8 @@ html.is-light .onboarding-card {
   left: auto;
   animation-name: pop;
 }
+
+.browser-bar, .browser-tools, .browser-problem { flex-shrink: 0; }
+.browser-problem { display: flex; align-items: center; gap: 8px; padding: 7px 9px; font-size: 11px; color: var(--err); border-bottom: 1px solid var(--line); }
+.browser-problem > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.browser-loading { font-size: 10.5px; color: var(--tx3); }

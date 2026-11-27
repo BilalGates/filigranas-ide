@@ -1,3 +1,4 @@
+import { pushAgentCompletion } from './trama/notifications';
 import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -303,6 +304,7 @@ export default function Session({ session, project, hidden, switching, providerS
           setPending((p) => [...p, claudeAsk(msg)]);
           break;
         case 'result': {
+          if (!msg.is_error && (!msg.subtype || msg.subtype === 'success')) pushAgentCompletion(project, session.id, session.title || session.name);
           for (const [id, metrics] of Object.entries(msg.modelUsage ?? {})) {
             const size = (metrics as { contextWindow?: number })?.contextWindow;
             if (typeof size === 'number' && size > 0) claudeWindows.current[id] = size;
@@ -397,6 +399,7 @@ export default function Session({ session, project, hidden, switching, providerS
           break;
         }
         case 'turn_end':
+          if (msg.stopReason === 'end_turn') pushAgentCompletion(project, session.id, session.title || session.name);
           refreshChanges();
           setRunning(false);
           current.current = null;

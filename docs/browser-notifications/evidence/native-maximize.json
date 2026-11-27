@@ -1,0 +1,65 @@
+{
+  "value": [
+    {
+      "mode": "tool-pane is-maximized",
+      "status": {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 1374,
+        "height": 733
+      }
+    },
+    {
+      "mode": "tool-pane is-split has-ws-min",
+      "status": {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      }
+    },
+    {
+      "mode": "tool-pane is-maximized",
+      "status": {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 1374,
+        "height": 733
+      }
+    },
+    {
+      "mode": "tool-pane is-split has-ws-min",
+      "status": {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      }
+    }
+  ],
+  "errors": []
+}

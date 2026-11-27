@@ -1,0 +1,460 @@
+{
+  "value": {
+    "navigation": [
+      {
+        "exists": true,
+        "url": "http://localhost:3000/one",
+        "title": "Browser · /one",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      },
+      {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": true,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      },
+      {
+        "exists": true,
+        "url": "http://localhost:3000/one",
+        "title": "Browser · /one",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": true,
+        "width": 887,
+        "height": 733
+      },
+      {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": true,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      },
+      {
+        "exists": true,
+        "url": "http://localhost:3000/two",
+        "title": "Browser · /two",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": true,
+        "canGoForward": false,
+        "width": 887,
+        "height": 733
+      },
+      {
+        "exists": true,
+        "url": "http://localhost:3000/other",
+        "title": "Browser · /other",
+        "loading": false,
+        "loaded": true,
+        "error": null,
+        "canGoBack": false,
+        "canGoForward": false,
+        "width": 1322,
+        "height": 733
+      }
+    ],
+    "geometry": [
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 911,
+          "height": 733
+        },
+        "rect": {
+          "x": 520,
+          "y": 134.234375,
+          "width": 911,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 520
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 935,
+          "height": 733
+        },
+        "rect": {
+          "x": 496,
+          "y": 134.234375,
+          "width": 935,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 496
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 911,
+          "height": 733
+        },
+        "rect": {
+          "x": 520,
+          "y": 134.234375,
+          "width": 911,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 520
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 477,
+          "height": 733
+        },
+        "rect": {
+          "x": 954,
+          "y": 134.234375,
+          "width": 477,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 954
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 1026,
+          "height": 733
+        },
+        "rect": {
+          "x": 405,
+          "y": 134.234375,
+          "width": 1026,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 405
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 887,
+          "height": 733
+        },
+        "rect": {
+          "x": 544,
+          "y": 134.234375,
+          "width": 887,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 544
+        }
+      },
+      {
+        "status": {
+          "exists": true,
+          "url": "http://localhost:3000/two",
+          "title": "Browser · /two",
+          "loading": false,
+          "loaded": true,
+          "error": null,
+          "canGoBack": true,
+          "canGoForward": false,
+          "width": 1322,
+          "height": 733
+        },
+        "rect": {
+          "x": 109,
+          "y": 134.234375,
+          "width": 1322,
+          "height": 732.765625,
+          "top": 134.234375,
+          "right": 1431,
+          "bottom": 867,
+          "left": 109
+        }
+      }
+    ],
+    "compactControls": [
+      {
+        "aria": "Rama del proyecto: main",
+        "title": "Cambiar de rama"
+      },
+      {
+        "aria": null,
+        "title": "Buscar proyecto, sesión u orden · ⌘K"
+      },
+      {
+        "aria": "Terminal",
+        "title": "Terminal · ⌘J"
+      },
+      {
+        "aria": "Agentes de este proyecto",
+        "title": "Agentes de este proyecto"
+      },
+      {
+        "aria": "Notificaciones y atención",
+        "title": "Notificaciones"
+      },
+      {
+        "aria": "Inicio (⌘⇧1)",
+        "title": ""
+      },
+      {
+        "aria": "Flow (⌘⇧2)",
+        "title": ""
+      },
+      {
+        "aria": "Studio (⌘⇧3)",
+        "title": ""
+      },
+      {
+        "aria": "Entrega (⌘⇧4)",
+        "title": ""
+      },
+      {
+        "aria": "Brain (⌘⇧5)",
+        "title": ""
+      },
+      {
+        "aria": "Contenedores (⌘⇧6)",
+        "title": ""
+      },
+      {
+        "aria": "Browser (⌘⇧7)",
+        "title": ""
+      },
+      {
+        "aria": "Ajustes (⌘,)",
+        "title": ""
+      },
+      {
+        "aria": "GitHub · @BilalGates",
+        "title": "GitHub · @BilalGates"
+      },
+      {
+        "aria": "Abrir explorador de proyectos y conversaciones",
+        "title": "Proyectos y conversaciones"
+      },
+      {
+        "aria": "Recuperar Workspace · uno · En reposo",
+        "title": "Restaurar Workspace (uno)"
+      },
+      {
+        "aria": "Nueva sesión en el proyecto activo",
+        "title": "Nueva sesión · ⌘T"
+      },
+      {
+        "aria": "Desplegar dos",
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": "/private/tmp/filigranas-browser-acceptance/repos/dos"
+      },
+      {
+        "aria": "Nueva sesión en dos",
+        "title": "Nueva sesión en dos"
+      },
+      {
+        "aria": "Opciones de dos",
+        "title": "Opciones de dos"
+      },
+      {
+        "aria": "Plegar uno",
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": "/private/tmp/filigranas-browser-acceptance/repos/uno"
+      },
+      {
+        "aria": "Nueva sesión en uno",
+        "title": "Nueva sesión en uno"
+      },
+      {
+        "aria": "Opciones de uno",
+        "title": "Opciones de uno"
+      },
+      {
+        "aria": null,
+        "title": "Empezar Project manager en uno"
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": "Unirse a un proyecto compartido"
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": "Mostrar explorador de proyectos y conversaciones",
+        "title": "Explorador · ⌘B"
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": "Atrás",
+        "title": "Atrás"
+      },
+      {
+        "aria": "Adelante",
+        "title": "Adelante"
+      },
+      {
+        "aria": "Recargar",
+        "title": "Recargar"
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": null,
+        "title": ""
+      },
+      {
+        "aria": "Abrir en el navegador del sistema",
+        "title": "Abrir en el navegador del sistema"
+      },
+      {
+        "aria": "Guardar marcador",
+        "title": "Guardar marcador"
+      },
+      {
+        "aria": "Uso de Claude",
+        "title": "Claude · cuota desconocida"
+      },
+      {
+        "aria": "Uso de Codex",
+        "title": "Codex · 86 % restante"
+      },
+      {
+        "aria": "Jev local · 0 de 100 intentos hoy · 0 tokens",
+        "title": "Jev: intentos de las últimas 24 horas"
+      }
+    ],
+    "restored": {
+      "exists": true,
+      "url": "http://localhost:3000/two",
+      "title": "Browser · /two",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 1322,
+      "height": 733
+    },
+    "reopened": {
+      "exists": true,
+      "url": "http://localhost:3000/two",
+      "title": "Browser · /two",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 1322,
+      "height": 733
+    },
+    "failure": {
+      "exists": true,
+      "url": "http://127.0.0.1:39999/",
+      "title": "Browser · /two",
+      "loading": false,
+      "loaded": false,
+      "error": "WKWebView detuvo la navegación sin confirmar la carga. Comprueba la conexión y la dirección; también puede tratarse de un fallo TLS o una página incompatible. El motor no proporciona el diagnóstico concreto a través de Tauri.",
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 1322,
+      "height": 733
+    },
+    "failureVisible": "WKWebView detuvo la navegación sin confirmar la carga. Comprueba la conexión y la dirección; también puede tratarse de un fallo TLS o una página incompatible. El motor no proporciona el diagnóstico concreto a través de Tauri.Reintentar"
+  },
+  "errors": []
+}

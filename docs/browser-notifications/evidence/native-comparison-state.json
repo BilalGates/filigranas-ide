@@ -1,0 +1,28 @@
+{
+  "value": {
+    "status": {
+      "exists": true,
+      "url": "https://www.google.com/",
+      "title": "Google",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    },
+    "header": "Sin sesi\u00f3n activa",
+    "surface": {
+      "x": 544,
+      "y": 134.234375,
+      "width": 887,
+      "height": 732.765625,
+      "top": 134.234375,
+      "right": 1431,
+      "bottom": 867,
+      "left": 544
+    }
+  },
+  "errors": []
+}

@@ -1,0 +1,18 @@
+{
+  "value": {
+    "status": {
+      "exists": true,
+      "url": "http://localhost:3000/slow",
+      "title": "Browser \u00b7 /two",
+      "loading": true,
+      "loaded": false,
+      "error": null,
+      "canGoBack": false,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    },
+    "indicator": "Cargando\u2026"
+  },
+  "errors": []
+}

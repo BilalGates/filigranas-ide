@@ -85,17 +85,88 @@ export const browser = {
 };
 
 // Git (solo lectura). `project` es la ruta del proyecto; `path`, relativa a él.
-export type Change = { path: string; orig: string | null; status: string; adds: number | null; dels: number | null };
+export type Change = {
+  path: string;
+  orig: string | null;
+  status: string;
+  staged?: string | null;
+  unstaged?: string | null;
+  adds: number | null;
+  dels: number | null;
+};
 export type GitStatus = { branch: string | null; head: string | null; headSha?: string | null; upstream: string | null; ahead: number; behind: number; changes: Change[] };
 export type LogRow = { hash: string; parents: string[]; refs: string; subject: string; author: string; date: string };
 export type DiffTexts = { old: string; new: string };
+export type BranchAgentRef = { sessionId: number; name: string; engine: string; worktree: string | null; active: boolean };
+export type BranchEntry = {
+  name: string;
+  refName: string;
+  local: boolean;
+  remote: boolean;
+  remoteName: string | null;
+  remoteRef: string | null;
+  upstream: string | null;
+  published: boolean;
+  active: boolean;
+  isDefault: boolean;
+  ahead: number;
+  behind: number;
+  diverged: boolean;
+  headOid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  committedAt: string;
+  mergedIntoDefault: boolean;
+  worktreePath: string | null;
+  agents: BranchAgentRef[];
+};
+export type BranchInventory = {
+  activeBranch: string | null;
+  headSha: string | null;
+  defaultBranch: string;
+  defaultRef: string;
+  hasRemote: boolean;
+  repository: string | null;
+  branches: BranchEntry[];
+};
+export type CompareResult = {
+  baseRef: string;
+  headRef: string;
+  mergeBase: string | null;
+  ahead: number;
+  behind: number;
+  files: Change[];
+};
+export type DiffMode = 'worktree' | 'unstaged' | 'staged' | 'range' | 'commit' | 'blob';
 
 export const git = {
   head: (project: string) => invoke<string>('git_head', { project }),
   status: (project: string) => invoke<GitStatus>('git_status', { project }),
   log: (project: string) => invoke<LogRow[]>('git_log', { project }),
+  branchLog: (project: string, refName: string | null = null, limit = 80) =>
+    invoke<LogRow[]>('git_branch_log', { project, refName, limit }),
   diffTexts: (project: string, path: string, orig: string | null) => invoke<DiffTexts>('git_diff_texts', { project, path, orig }),
+  diffRef: (
+    project: string,
+    mode: DiffMode,
+    path: string,
+    opts?: { orig?: string | null; baseRef?: string | null; headRef?: string | null; commit?: string | null; session?: number | null },
+  ) =>
+    invoke<DiffTexts>('git_diff_ref', {
+      project,
+      mode,
+      path,
+      orig: opts?.orig ?? null,
+      baseRef: opts?.baseRef ?? null,
+      headRef: opts?.headRef ?? null,
+      commit: opts?.commit ?? null,
+      session: opts?.session ?? null,
+    }),
   branches: (project: string) => invoke<string[]>('git_branches', { project }),
+  branchInventory: (project: string) => invoke<BranchInventory>('git_branch_inventory', { project }),
+  compareBranch: (project: string, headRef: string, baseRef: string | null = null) =>
+    invoke<CompareResult>('git_compare_branch', { project, headRef, baseRef }),
   switch: (project: string, branch: string) => invoke<void>('git_switch', { project, branch }),
   watch: (path: string | null, session: number | null) => invoke<void>('watch_project', { path, session }),
 };
@@ -108,6 +179,16 @@ export const gitOps = {
   pull: (project: string) => invoke<string>('git_pull', { project }),
   reviewPush: (project: string, setUpstream: boolean) => invoke<Review>('git_review_push', { project, setUpstream }),
   push: (project: string, setUpstream: boolean, proof: Proof) => invoke<string>('git_push', { project, setUpstream, proof }),
+  reviewPushBranch: (project: string, branch: string, setUpstream: boolean) =>
+    invoke<Review>('git_review_push_branch', { project, branch, setUpstream }),
+  pushBranch: (project: string, branch: string, setUpstream: boolean, proof: Proof) =>
+    invoke<string>('git_push_branch', { project, branch, setUpstream, proof }),
+  stage: (project: string, paths: string[], session: number | null = null) =>
+    invoke<string>('git_stage', { project, session, paths }),
+  unstage: (project: string, paths: string[], session: number | null = null) =>
+    invoke<string>('git_unstage', { project, session, paths }),
+  commitStaged: (project: string, message: string, session: number | null = null) =>
+    invoke<string>('git_commit_staged', { project, session, message }),
   stash: (project: string, message: string | null) => invoke<string>('git_stash', { project, message }),
   stashPop: (project: string) => invoke<string>('git_stash_pop', { project }),
   stashList: (project: string) => invoke<Stash[]>('git_stash_list', { project }),
@@ -351,8 +432,11 @@ export type LarryOutcome = { created: string[]; stopped: string | null };
 
 export const larry = {
   propose: (project: string, session: number | null) => invoke<LarryPlan>('larry_propose', { project, session }),
+  proposeSelected: (project: string, session: number | null, paths: string[] | null, instruction: string | null = null) =>
+    invoke<LarryPlan>('larry_propose_selected', { project, session, paths, instruction }),
   groups: (project: string, session: number | null) => invoke<LarryPlan>('larry_groups', { project, session }),
-  commit: (project: string, session: number | null, commits: LarryCommit[]) => invoke<LarryOutcome>('larry_commit', { project, session, commits }),
+  commit: (project: string, session: number | null, commits: LarryCommit[], partial = false) =>
+    invoke<LarryOutcome>('larry_commit', { project, session, commits, partial }),
 };
 
 // Publicar la rama y abrir la PR (gh). Siempre por acción explícita.
@@ -402,6 +486,187 @@ export const pr = {
     invoke<PrInfo>('pr_merge', { path, session, edit: mergeEdit(pull, method), proof }),
   open: (url: string) => invoke<void>('open_pr_url', { url }),
   status: (path: string, session: number | null, number: number) => invoke<PrInfo>('pr_status', { path, session, number }),
+};
+
+// Gestión completa de Pull Requests, revisiones, checks y logs (sin acoplamiento a HEAD).
+export type CheckRunItem = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  workflow: string | null;
+  url: string | null;
+  jobId: number | null;
+  runId: number | null;
+};
+export type PullSummary = {
+  number: number;
+  title: string;
+  url: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED' | string;
+  isDraft: boolean;
+  branch: string;
+  base: string;
+  headOid: string;
+  author: string;
+  updatedAt: string;
+  mergedAt: string | null;
+  mergeCommitOid: string | null;
+  reviewDecision: string | null;
+  mergeState: string;
+  checksPassed: number;
+  checksFailed: number;
+  checksPending: number;
+  checksState: 'success' | 'pending' | 'failure' | 'unknown' | string;
+};
+export type RepoPulls = {
+  repository: string | null;
+  authenticated: boolean;
+  error: string | null;
+  fetchedAt: number;
+  pulls: PullSummary[];
+};
+export type PullFile = { path: string; additions: number; deletions: number };
+export type PullCommit = { oid: string; shortOid: string; headline: string; author: string; committedAt: string };
+export type PullComment = { id: string; author: string; body: string; createdAt: string; kind: 'comment' | 'review' | string; state: string | null };
+export type ReviewThreadComment = { id: string; databaseId: number | null; author: string; body: string; createdAt: string };
+export type ReviewThread = { id: string; path: string; line: number | null; isResolved: boolean; isOutdated: boolean; comments: ReviewThreadComment[] };
+export type MergeSettings = {
+  allowMerge: boolean;
+  allowSquash: boolean;
+  allowRebase: boolean;
+  deleteBranchOnMerge: boolean;
+  defaultBranch: string;
+  canPush: boolean;
+};
+export type PullDetail = {
+  repository: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  branch: string;
+  base: string;
+  headOid: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  mergedAt: string | null;
+  mergeCommitOid: string | null;
+  mergeable: string;
+  mergeState: string;
+  reviewDecision: string | null;
+  requestedReviewers: string[];
+  checks: CheckRunItem[];
+  checksPassed: number;
+  checksFailed: number;
+  checksPending: number;
+  checksState: string;
+  files: PullFile[];
+  commits: PullCommit[];
+  comments: PullComment[];
+  reviewThreads: ReviewThread[];
+  mergeSettings: MergeSettings;
+  triggersRelease: boolean;
+  localAhead: number;
+  localBehind: number;
+  localExists: boolean;
+};
+export type CheckLog = { content: string; truncated: boolean; untrusted: boolean };
+
+export const githubPr = {
+  listRepo: (project: string) => invoke<RepoPulls>('pr_list_repo', { project }),
+  detail: (project: string, number: number) => invoke<PullDetail>('pr_detail', { project, number }),
+  reviewCreateForBranch: (project: string, branch: string, base: string, title: string, body: string, draft: boolean) =>
+    invoke<Review>('pr_review_create_for_branch', { project, branch, base, title, body, draft }),
+  createForBranch: (project: string, branch: string, base: string, title: string, body: string, draft: boolean, proof: Proof) =>
+    invoke<string>('pr_create_for_branch', { project, branch, base, title, body, draft, proof }),
+  update: (project: string, number: number, title: string | null, body: string | null) =>
+    invoke<void>('pr_update', { project, number, title, body }),
+  setDraft: (project: string, number: number, draft: boolean) => invoke<void>('pr_set_draft', { project, number, draft }),
+  comment: (project: string, number: number, body: string) => invoke<void>('pr_comment', { project, number, body }),
+  replyThread: (project: string, number: number, commentId: number, body: string) =>
+    invoke<void>('pr_reply_thread', { project, number, commentId, body }),
+  requestReviewers: (project: string, number: number, reviewers: string[]) =>
+    invoke<void>('pr_request_reviewers', { project, number, reviewers }),
+  setState: (project: string, number: number, action: 'close' | 'reopen') =>
+    invoke<void>('pr_set_state', { project, number, action }),
+  rerunChecks: (project: string, runId: number, failedOnly = true) =>
+    invoke<string>('pr_rerun_checks', { project, runId, failedOnly }),
+  checkLog: (project: string, jobId: number | null, runId: number | null) =>
+    invoke<CheckLog>('pr_check_log', { project, jobId, runId }),
+  reviewMerge: (project: string, number: number, method: 'merge' | 'squash' | 'rebase') =>
+    invoke<Review>('pr_review_merge_number', { project, number, method }),
+  merge: (project: string, number: number, method: 'merge' | 'squash' | 'rebase', proof: Proof) =>
+    invoke<Record<string, unknown>>('pr_merge_number', { project, number, method, proof }),
+};
+
+// Política de automatización (F3) y limpieza post-merge segura (F4).
+export type AutomationPolicy = {
+  mode: 'manual' | 'assisted' | 'auto';
+  allowAutoDiagnose: boolean;
+  allowAutoFix: boolean;
+  allowAutoCommit: boolean;
+  allowAutoPush: boolean;
+  allowAutoCleanup: boolean;
+  maxRetries: number;
+  requireExplicitMerge: boolean;
+};
+export type AutofixAttempt = {
+  id: number;
+  prNumber: number;
+  headSha: string;
+  failureSignature: string;
+  attemptNo: number;
+  status: string;
+  pmSessionId: number | null;
+  summary: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+export type DeliveryArchive = {
+  id: number;
+  prNumber: number | null;
+  branch: string;
+  base: string;
+  headOid: string;
+  mergeCommitOid: string | null;
+  cleanedAt: number;
+  notes: string | null;
+};
+export type AutomationStatus = {
+  policy: AutomationPolicy;
+  pmDelegationReady: boolean;
+  pmBlockedReason: string | null;
+  attempts: AutofixAttempt[];
+  archives: DeliveryArchive[];
+};
+export type CleanupCheck = { ok: boolean; code: string; label: string; detail: string };
+export type CleanupPreview = {
+  canExecute: boolean;
+  prNumber: number;
+  prState: string;
+  branch: string;
+  base: string;
+  headOid: string;
+  mergeCommitOid: string | null;
+  remoteBranchExists: boolean;
+  localBranchExists: boolean;
+  worktreePath: string | null;
+  checks: CleanupCheck[];
+  plannedSteps: string[];
+};
+export type CleanupOutcome = { executedSteps: string[]; warnings: string[]; archivedId: number };
+
+export const deliveryAuto = {
+  status: (project: string) => invoke<AutomationStatus>('delivery_auto_status', { project }),
+  savePolicy: (project: string, policy: AutomationPolicy) => invoke<AutomationPolicy>('delivery_policy_save', { project, policy }),
+  requestAutofix: (project: string, prNumber: number, headSha: string, failedChecks: string[], reviewState: string | null) =>
+    invoke<string>('delivery_request_autofix', { project, prNumber, headSha, failedChecks, reviewState }),
+  cancelAutofix: (project: string, attemptId: number) => invoke<void>('delivery_cancel_autofix', { project, attemptId }),
+  cleanupPreview: (project: string, prNumber: number) => invoke<CleanupPreview>('delivery_cleanup_preview', { project, prNumber }),
+  cleanupExecute: (project: string, prNumber: number) => invoke<CleanupOutcome>('delivery_cleanup_execute', { project, prNumber }),
 };
 
 // Herramientas externas que usa el IDE.

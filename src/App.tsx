@@ -1,3 +1,4 @@
+import { useAppUpdates } from './appUpdates';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
@@ -83,6 +84,7 @@ const loadPm = (): Set<string> => {
 type TerminalTab = { id: number; project: string; number: number; session?: number; label?: string; initial?: string };
 
 export default function App() {
+  useAppUpdates();
   useQuotaEvents();
   const [ws, setWs] = useState<Workspace | null>(null);
   const [startupConfirmed, setStartupConfirmed] = useState(false);

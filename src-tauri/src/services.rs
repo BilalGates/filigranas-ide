@@ -174,6 +174,14 @@ pub struct ServiceProcesses {
 }
 
 impl ServiceProcesses {
+    pub fn has_running(&self) -> CmdResult<bool> {
+        let projects = self.projects.lock().map_err(err)?;
+        for process in projects.values().flat_map(HashMap::values) {
+            if process.lock().map_err(err)?.child.is_some() { return Ok(true); }
+        }
+        Ok(false)
+    }
+
     pub fn shutdown(&self) {
         if let Ok(projects) = self.projects.lock() {
             for process in projects.values().flat_map(HashMap::values) {
@@ -279,6 +287,8 @@ pub enum ServiceAction { Start, Stop, Restart, Remove }
 #[tauri::command]
 pub async fn service_action(app: AppHandle, project: String, id: String, action: ServiceAction) -> CmdResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _update = crate::updates::PROCESS_GATE.lock().map_err(err)?;
+        if crate::updates::INSTALLING.load(std::sync::atomic::Ordering::SeqCst) { return Err("instalando actualización".into()); }
         let state = app.state::<AppState>();
         let conn = state.db.lock().map_err(err)?;
         let project = project_path(&conn, &project)?;

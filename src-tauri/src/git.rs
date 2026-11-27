@@ -22,6 +22,7 @@ pub(crate) fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
 }
 
 pub(crate) fn git_output(repo: &Path, args: &[&str]) -> CmdResult<std::process::Output> {
+    let _execution = crate::updates::Execution::enter()?;
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
@@ -42,7 +43,7 @@ fn repo(state: &AppState, project: &str) -> CmdResult<PathBuf> {
 
 /// Ruta relativa al repositorio tal como la da `git status`. Rechaza rutas
 /// absolutas y `..` para que nunca se salga del proyecto.
-fn relative(path: &str) -> CmdResult<&str> {
+pub(crate) fn relative(path: &str) -> CmdResult<&str> {
     let ok = !path.is_empty() && Path::new(path).components().all(|c| matches!(c, Component::Normal(_)));
     if ok {
         Ok(path)
@@ -51,16 +52,34 @@ fn relative(path: &str) -> CmdResult<&str> {
     }
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+pub(crate) fn valid_ref(reference: &str) -> CmdResult<&str> {
+    let r = reference.trim();
+    if r.is_empty()
+        || r.starts_with('-')
+        || r.contains("..")
+        || r.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+    {
+        return Err(format!("referencia Git no válida: {reference}"));
+    }
+    Ok(r)
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Change {
-    path: String,
+    pub path: String,
     /// Ruta anterior en un renombrado.
-    orig: Option<String>,
+    pub orig: Option<String>,
     /// M, A, D, R, U (sin seguimiento) o ! (conflicto).
-    status: char,
-    adds: Option<u32>,
-    dels: Option<u32>,
+    pub status: char,
+    /// Estado en el índice (staged), si existe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staged: Option<char>,
+    /// Estado en el árbol de trabajo (unstaged), si existe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unstaged: Option<char>,
+    pub adds: Option<u32>,
+    pub dels: Option<u32>,
 }
 
 #[derive(Serialize, Debug, Default)]

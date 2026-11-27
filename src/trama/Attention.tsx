@@ -170,7 +170,13 @@ export default function Attention({
     setOpen(false);
     if (target === 'session' && action.session != null && action.project) onSession(action.session, action.project);
     else if (target === 'tools') onTools();
-    else if (target === 'settings') onSettings();
+    else if (target === 'settings') {
+      if (action.settingsSection) {
+        try { localStorage.setItem('filigranas.ajustes', action.settingsSection); } catch { /* almacenamiento no disponible */ }
+        window.dispatchEvent(new CustomEvent('settings-section', { detail: action.settingsSection }));
+      }
+      onSettings();
+    }
     else if (target === 'entrega') onEntrega('tarea');
     else onHome();
   };

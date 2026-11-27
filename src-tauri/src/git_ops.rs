@@ -314,4 +314,26 @@ mod tests {
         assert!(commit_detail(p, "HEAD; rm").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    #[test]
+    fn stage_unstage_and_commit_staged_work_with_explicit_paths() {
+        let dir = fixture();
+        std::fs::write(dir.join("a.txt"), "mod\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "nuevo\n").unwrap();
+        stage_paths(&dir, &["a.txt".into()]).unwrap();
+        let cached = String::from_utf8(crate::git::git(&dir, &["diff", "--cached", "--name-only"]).unwrap()).unwrap();
+        assert_eq!(cached.trim(), "a.txt");
+        unstage_paths(&dir, &["a.txt".into()]).unwrap();
+        let cached = String::from_utf8(crate::git::git(&dir, &["diff", "--cached", "--name-only"]).unwrap()).unwrap();
+        assert!(cached.trim().is_empty());
+
+        stage_paths(&dir, &["b.txt".into()]).unwrap();
+        let oid = commit_staged_in(&dir, "feat: añade b").unwrap();
+        assert_eq!(oid.len(), 40);
+        // a.txt sigue sin commitear.
+        let rest = String::from_utf8(crate::git::git(&dir, &["status", "--porcelain"]).unwrap()).unwrap();
+        assert!(rest.contains("a.txt"));
+        assert!(!rest.contains("b.txt"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

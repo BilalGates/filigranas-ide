@@ -43,6 +43,7 @@ mod git_ops;
 mod window;
 mod workspace;
 mod work;
+mod updates;
 
 use std::sync::Mutex;
 
@@ -96,6 +97,10 @@ fn main_webview_only(
             request.resolver.reject("vista sin acceso a los comandos del IDE");
             return true;
         }
+        if updates::INSTALLING.load(std::sync::atomic::Ordering::SeqCst) {
+            request.resolver.reject("instalando actualización");
+            return true;
+        }
         handler(request)
     }
 }
@@ -117,6 +122,9 @@ fn lock_profile(dir: &std::path::Path) -> std::io::Result<std::fs::File> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::Updates::default())
+        .manage(updates::UpdateOperation::default())
         .manage(browser::Browsers::default())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
@@ -164,6 +172,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(main_webview_only(tauri::generate_handler![
+            updates::update_status,
+            updates::update_check,
+            updates::update_download,
+            updates::update_blockers,
+            updates::update_install,
             brain::brain_search,
             brain::brain_entry,
             brain_graph::brain_graph,

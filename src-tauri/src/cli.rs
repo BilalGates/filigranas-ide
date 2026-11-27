@@ -73,6 +73,8 @@ impl UpdateGate {
     pub(crate) fn take(id: &'static str) -> Option<Self> {
         // Sin `then_some`: crearía la marca aunque ya hubiera otra, y al
         // soltarla, con el cerrojo aún tomado, se bloquearía y borraría la ajena.
+        let _install = crate::updates::PROCESS_GATE.lock().ok()?;
+        if crate::updates::INSTALLING.load(std::sync::atomic::Ordering::SeqCst) { return None; }
         let fresh = updating().0.lock().ok()?.insert(id);
         if fresh { Some(Self(id)) } else { None }
     }
@@ -86,6 +88,10 @@ impl Drop for UpdateGate {
         }
         done.notify_all();
     }
+}
+
+pub(crate) fn updates_running() -> bool {
+    updating().0.lock().map(|s| !s.is_empty()).unwrap_or(true)
 }
 
 #[cfg(test)]

@@ -191,6 +191,7 @@ impl Codex {
     /// Si vence `limit`, interrumpe el turno y devuelve un error.
     #[allow(clippy::too_many_arguments)]
     pub fn run_structured(&self, app: &AppHandle, cwd: &str, instructions: &str, prompt: &str, schema: Value, effort: &str, limit: Duration) -> CmdResult<String> {
+        let _execution = crate::updates::Execution::enter()?;
         let rpc = self.rpc(app)?;
         let res = rpc.request(
             "thread/start",
@@ -530,6 +531,7 @@ struct ModelOption {
 #[tauri::command]
 pub async fn coordinator_open(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Opened> {
     tauri::async_runtime::spawn_blocking(move || {
+        let _execution = crate::updates::Execution::enter()?;
         let state = app.state::<AppState>();
         let path = project_path(&*state.db.lock().map_err(err)?, &project)?;
         let _gate = state.chat_gate.lock().map_err(err)?;

@@ -17,6 +17,7 @@ use crate::{err, AppState, CmdResult};
 type Exec<'a> = dyn Fn(&str, &[&str]) -> CmdResult<String> + 'a;
 
 pub fn run(repo: &Path, program: &str, args: &[&str]) -> CmdResult<String> {
+    let _execution = crate::updates::Execution::enter()?;
     let mut cmd = Command::new(crate::cli::program(program));
     cmd.args(args).current_dir(repo).env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1");
     if let Some(path) = login_path() { cmd.env("PATH", path); }

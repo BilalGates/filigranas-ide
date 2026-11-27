@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
+import AppUpdates from '../appUpdates';
 import UsagePanel from '../Usage';
 import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type RuleStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
 import { setLightTheme, shortcut, useUi } from '../ui';
@@ -11,8 +12,8 @@ import { Root } from './kit';
 // Ajustes de Trama v2 con configuración real: cada opción indica dónde está
 // definida (global, proyecto o sesión). Lo que no existe en el núcleo no se
 // presenta como un control: se explica dónde se gestiona.
-type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'apariencia' | 'atajos';
-const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['atajos', 'grid', 'Atajos']];
+type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'apariencia' | 'actualizaciones' | 'atajos';
+const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['actualizaciones', 'download', 'Actualizaciones'], ['atajos', 'grid', 'Atajos']];
 const sc = (k: 'g' | 'p' | 's') => <span className={`scope ${k}`}>{{ g: 'global', p: 'proyecto', s: 'sesión' }[k]}</span>;
 
 export default function Settings({ agentSessions, project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
@@ -20,6 +21,11 @@ export default function Settings({ agentSessions, project, projectName, tools, c
   onRefreshTools: () => void; onLogin: ((command: string) => void) | null; usage: Parameters<typeof UsagePanel>[0]; commands: { id: string; label: string; keys?: string }[];
 }) {
   const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'skills'; } catch { return 'skills'; } });
+  useEffect(() => {
+    const open = () => setSec('actualizaciones');
+    window.addEventListener('settings-section', open);
+    return () => window.removeEventListener('settings-section', open);
+  }, []);
   const [projectSkills, setProjectSkills] = useState(false);
   const pick = (s: Section) => { setSec(s); try { localStorage.setItem('filigranas.ajustes', s); } catch { /* */ } };
   return (
@@ -54,6 +60,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
           {sec === 'presupuestos' && <Budget usage={usage} />}
           {sec === 'agentes' && <Agents key={project} project={project} projectName={projectName} agentSessions={agentSessions} />}
           {sec === 'apariencia' && <Look />}
+          {sec === 'actualizaciones' && <AppUpdates />}
           {sec === 'atajos' && <>
             <h2 className="vt">Atajos de teclado</h2>
             <p className="lead">Todo se puede hacer con el teclado. ⌘K abre la paleta con todas las órdenes.</p>

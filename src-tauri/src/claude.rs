@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -319,7 +319,7 @@ impl Claude {
         } else {
             system_prompt(&session.name, rules, is_subsession)
         };
-        let mut cmd = Command::new(crate::cli::program("claude"));
+        let mut cmd = crate::cli::command(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
             .args(["--disallowedTools", "Agent,Task"])
@@ -342,11 +342,6 @@ impl Claude {
         cmd.current_dir(session.cwd()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
         let mut child = cmd.spawn().map_err(|e| format!("no se pudo arrancar claude ({e}); comprueba que Claude Code está instalado"))?;
         let stdout = child.stdout.take().ok_or("sin salida de claude")?;
@@ -1029,7 +1024,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let uuid = uuid::Uuid::new_v4().to_string();
         let run = |resume: bool, text: &str, decision: &str| -> Vec<Value> {
-            let mut cmd = Command::new("claude");
+            let mut cmd = crate::cli::command("claude");
             cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--effort", "low"])
                 .args([if resume { "--resume" } else { "--session-id" }, &uuid])
                 .current_dir(&dir)

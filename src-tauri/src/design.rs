@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::PathBuf, process::{Command, Stdio}};
+use std::{io::Cursor, path::PathBuf, process::Stdio};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -349,7 +349,7 @@ fn capture(url: &Url, width: u32, height: u32) -> CmdResult<Vec<u8>> {
     let binary = chrome().ok_or("Chrome no está disponible. Puedes importar un PNG")?;
     check_preview(url)?;
     let root = Scratch::create("filigranas-preview")?;
-    let mut command = Command::new(binary);
+    let mut command = crate::cli::command(binary);
     command.current_dir(&root.0).args(["--headless","--no-first-run","--disable-extensions",
         "--disable-sync","--disable-background-networking","--no-proxy-server","--force-device-scale-factor=1",
         "--user-data-dir=profile","--screenshot=preview.png"])
@@ -427,7 +427,7 @@ fn generate_with_claude(scratch: &Scratch, prompt: &str) -> CmdResult<String> {
     let path = scratch.0.join("prompt.txt");
     std::fs::write(&path, prompt).map_err(err)?;
     let input = std::fs::File::open(path).map_err(err)?;
-    let mut command = Command::new(crate::cli::program("claude"));
+    let mut command = crate::cli::command(crate::cli::program("claude"));
     command.current_dir(&scratch.0).args([
         "--print", "--output-format", "json", "--no-session-persistence",
         "--tools", "", "--setting-sources", "", "--strict-mcp-config",

@@ -1,4 +1,4 @@
-use std::{path::{Component, Path}, process::Command};
+use std::path::{Component, Path};
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -292,7 +292,7 @@ fn git_evidence(cwd: &Path) -> CmdResult<Evidence> {
     // No external diff/textconv drivers. Only the diagnostic header escapes
     // the process; added lines may contain secrets.
     let head = crate::pr::value(cwd, &["rev-parse", "--verify", "HEAD"]).ok();
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::cli::command("git");
     cmd.current_dir(cwd).args(["--no-optional-locks", "-c", "color.ui=never", "-c", "core.quotepath=off",
         "diff", "--no-ext-diff", "--no-textconv", "--check"]);
     if head.is_some() { cmd.arg("HEAD"); } else { cmd.arg("--cached"); }
@@ -357,7 +357,7 @@ fn run_check(cwd: &Path, check: LocalCheck) -> CmdResult<Evidence> {
         }
     };
     let command = |args: &[&str]| {
-        let mut cmd = Command::new(crate::cli::program(program));
+        let mut cmd = crate::cli::command(crate::cli::program(program));
         cmd.current_dir(cwd).args(args).env("CI", "true");
         if let Some(path) = crate::cli::login_path() { cmd.env("PATH", path); }
         cmd

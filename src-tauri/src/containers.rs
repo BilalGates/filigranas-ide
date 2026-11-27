@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -271,15 +271,10 @@ fn failure(stderr: &str) -> (String, String) {
 }
 
 fn run_docker_raw(args: &[&str]) -> Result<std::process::Output, (String, String)> {
-    let mut cmd = Command::new(program("docker"));
+    let mut cmd = crate::cli::command(program("docker"));
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(path) = login_path() {
         cmd.env("PATH", path);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     cmd.output().map_err(|_| {
         (

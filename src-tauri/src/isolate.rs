@@ -1,7 +1,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::git::git;
 use crate::{db, CmdResult};
@@ -69,7 +69,7 @@ pub fn discard_unregistered(project: &Path, checkout: &Isolation) -> CmdResult<(
 }
 
 fn git_stdin(repo: &Path, args: &[&str], input: &[u8]) -> CmdResult<String> {
-    let mut child = Command::new("git")
+    let mut child = crate::cli::command("git")
         .arg("-C")
         .arg(repo)
         .args(args)
@@ -256,7 +256,7 @@ pub fn integrate_merging(session: &db::Session) -> CmdResult<(Merged, String)> {
                 }
                 let base_file = tmp.join("base");
                 std::fs::write(&base_file, base_text.unwrap_or_default()).map_err(|e| e.to_string())?;
-                let merged = Command::new("git")
+                let merged = crate::cli::command("git")
                     .args(["merge-file", "-p", "-L", "proyecto", "-L", "base", "-L"])
                     .arg(session.branch.as_deref().unwrap_or("sesión"))
                     .arg(&ours)

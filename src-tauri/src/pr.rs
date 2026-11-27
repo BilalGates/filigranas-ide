@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,8 +17,7 @@ use crate::{err, AppState, CmdResult};
 type Exec<'a> = dyn Fn(&str, &[&str]) -> CmdResult<String> + 'a;
 
 pub fn run(repo: &Path, program: &str, args: &[&str]) -> CmdResult<String> {
-    let _execution = crate::updates::Execution::enter()?;
-    let mut cmd = Command::new(crate::cli::program(program));
+    let mut cmd = crate::cli::command(crate::cli::program(program));
     cmd.args(args).current_dir(repo).env("GIT_TERMINAL_PROMPT", "0").env("GH_PROMPT_DISABLED", "1");
     if let Some(path) = login_path() { cmd.env("PATH", path); }
     cmd.env_remove("GH_DEBUG").env_remove("GIT_CURL_VERBOSE");
@@ -664,11 +663,11 @@ pub fn open_pr_url(url: String) -> CmdResult<()> {
 
 pub(crate) fn open_browser(url: &str) -> CmdResult<()> {
     #[cfg(target_os = "macos")]
-    let status = Command::new("open").arg(url).status();
+    let status = crate::cli::command("open").arg(url).status();
     #[cfg(windows)]
-    let status = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).status();
+    let status = crate::cli::command("rundll32").args(["url.dll,FileProtocolHandler", url]).status();
     #[cfg(not(any(target_os = "macos", windows)))]
-    let status = Command::new("xdg-open").arg(url).status();
+    let status = crate::cli::command("xdg-open").arg(url).status();
     if status.map_err(err)?.success() { Ok(()) } else { Err("no se pudo abrir el navegador".into()) }
 }
 

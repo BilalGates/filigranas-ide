@@ -26,11 +26,6 @@ pub fn capture(
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
     let stderr = if stderr_limit == 0 { Stdio::null() } else { Stdio::piped() };
     let mut child = command.stdin(stdin).stderr(stderr).stdout(Stdio::piped())
         .spawn().map_err(|_| "no se pudo arrancar la herramienta")?;
@@ -58,9 +53,9 @@ pub fn capture(
     if complete.is_err() {
         // A descendant can still hold a pipe open after the parent exits.
         #[cfg(unix)]
-        let _ = Command::new("/bin/kill").args(["-KILL", "--", &format!("-{}", child.id())]).output();
+        let _ = crate::cli::command("/bin/kill").args(["-KILL", "--", &format!("-{}", child.id())]).output();
         #[cfg(windows)]
-        let _ = Command::new("taskkill").args(["/F", "/T", "/PID", &child.id().to_string()]).output();
+        let _ = crate::cli::command("taskkill").args(["/F", "/T", "/PID", &child.id().to_string()]).output();
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -89,7 +84,7 @@ mod tests {
 
     #[test]
     fn capture_keeps_json_separate_from_diagnostics() {
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = crate::cli::command("/bin/sh");
         cmd.args(["-c", "printf '{}'; printf 'diagnóstico' >&2"]);
         let (out, stderr) = capture(cmd, Stdio::null(), 3, 32, 32).unwrap();
         assert!(out.success && !out.truncated);
@@ -99,7 +94,7 @@ mod tests {
 
     #[test]
     fn capture_times_out_when_a_descendant_keeps_the_pipe_open() {
-        let mut cmd = Command::new("/bin/sh");
+        let mut cmd = crate::cli::command("/bin/sh");
         cmd.args(["-c", "/bin/sleep 30 &"]);
         assert!(matches!(capture(cmd, Stdio::null(), 1, 32, 32), Err(TIMEOUT)));
     }

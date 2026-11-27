@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     io::Read,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -85,16 +85,14 @@ impl Process {
 
 fn kill_tree(id: u32) {
     #[cfg(unix)]
-    let _ = Command::new("/bin/kill")
+    let _ = crate::cli::command("/bin/kill")
         .args(["-KILL", "--", &format!("-{id}")])
         .stderr(Stdio::null())
         .status();
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let _ = Command::new("taskkill")
+        let _ = crate::cli::command("taskkill")
             .args(["/F", "/T", "/PID", &id.to_string()])
-            .creation_flags(0x0800_0000)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
@@ -117,18 +115,17 @@ fn start(project: &str, service: &Service) -> CmdResult<ProcessRef> {
     #[cfg(unix)]
     let mut command = {
         use std::os::unix::process::CommandExt;
-        let mut command = Command::new("/bin/sh");
+        let mut command = crate::cli::command("/bin/sh");
         command.args(["-c", &service.command]).process_group(0);
         command
     };
     #[cfg(windows)]
     let mut command = {
         use std::os::windows::process::CommandExt;
-        let mut command = Command::new("cmd.exe");
+        let mut command = crate::cli::command("cmd.exe");
         command
             .args(["/D", "/S", "/C"])
-            .raw_arg(format!("\"{}\"", service.command))
-            .creation_flags(0x0800_0000);
+            .raw_arg(format!("\"{}\"", service.command));
         command
     };
     if let Some(path) = crate::cli::login_path() {

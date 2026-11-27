@@ -8,9 +8,46 @@ export type Project = { name: string; path: string; folder?: string | null; grou
 export type Workspace = { root: string | null; groups: Group[]; projects: Project[] };
 export type Entry = { name: string; path: string; dir: boolean };
 
+export type SystemMetrics = {
+  cpuPercent: number;
+  ramUsedBytes: number;
+  ramTotalBytes: number;
+  ramPercent: number;
+};
+
+export type RecentSession = {
+  project: string;
+  sessionId: number | null;
+  isPm: boolean;
+  name: string;
+  engine: string;
+  branch: string | null;
+  task: string | null;
+  closed: boolean;
+  paused?: boolean;
+  running?: boolean;
+  lastOutcome?: string | null;
+  lastActiveMs: number;
+};
+
+export type HomeActivityItem = {
+  id: string;
+  kind: 'task_done' | 'task_failed' | 'run_completed' | 'run_failed' | 'review' | 'delivery';
+  phase: 'live' | 'pending' | 'history';
+  project: string;
+  title: string;
+  detail: string | null;
+  timestampMs: number;
+  sessionId: number | null;
+  taskId: number | null;
+};
+
 export const api = {
   workspace: () => invoke<Workspace>('get_workspace'),
+  systemMetrics: () => invoke<SystemMetrics>('system_metrics'),
   homeSummary: (paths: string[], focus: string | null) => invoke<HomeSummary[]>('home_summary', { paths, focus }),
+  recentSessions: (paths: string[], limit = 24) => invoke<RecentSession[]>('recent_sessions', { paths, limit }),
+  homeActivity: (paths: string[], limit = 18) => invoke<HomeActivityItem[]>('home_activity', { paths, limit }),
   defaultRoot: () => invoke<string>('default_root'),
   setRoot: (path: string) => invoke<Workspace>('set_root', { path }),
   createProject: (name: string) => invoke<Workspace>('create_project', { name }),
@@ -26,23 +63,6 @@ export const api = {
   readText: (path: string, session: number | null = null) => invoke<string>('read_text', { path, session }),
   writeText: (path: string, content: string, session: number | null = null, previous: string | null = null) =>
     invoke<void>('write_text', { path, content, session, previous }),
-};
-
-export type GuestShare = { name: string; editable: boolean };
-export type HostedShare = GuestShare & { invitation: string; expiresAt: number };
-type SharedFile = { text: string; revision: string };
-export const sharing = {
-  start: (project: string, session: number | null, relay: string, key: string, editable: boolean) =>
-    invoke<HostedShare>('share_start', { project, session, relay, key, editable }),
-  current: () => invoke<HostedShare | null>('share_current'),
-  stop: () => invoke<void>('share_stop'),
-  access: (editable: boolean) => invoke<HostedShare>('share_access', { editable }),
-  join: (code: string) => invoke<GuestShare>('share_join', { code }),
-  status: () => invoke<{ online: boolean; closed: boolean; editable: boolean }>('share_status'),
-  list: (path: string) => invoke<Entry[]>('share_list', { path }),
-  read: (path: string, revision: string | null) => invoke<SharedFile | null>('share_read', { path, revision }),
-  write: (path: string, previous: string, content: string) => invoke<void>('share_write', { path, previous, content }),
-  leave: () => invoke<void>('share_leave'),
 };
 
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
@@ -170,6 +190,10 @@ export type Session = {
   handoffFrom: number | null;
   paused: string | null;
   skillRole?: SkillRole;
+  // Subsesión delegada por otra conversación.
+  parentSession?: number | null;
+  title?: string | null;
+  status?: 'trabajando' | 'esperando' | 'terminada' | 'en_espera' | null;
 };
 type CreatedSession = Session & { notice: string | null };
 /** Archivo a comparar: del proyecto, o de una sesión aislada. */
@@ -187,11 +211,21 @@ export const chats = {
     invoke<Session | null>('chat_switch', { project, session, engine }),
 };
 
+export type SessionCatalog = {
+  sessions: Session[];
+  pmClaude: Record<string, Session>;
+  pmCodexProjects: string[];
+};
+
 export const sessions = {
-  /** Nivel de permisos: pedir, automático (dentro de la carpeta) o acceso total. */
-  permissionMode: (id: number, mode: 'ask' | 'auto' | 'full') => invoke<string>('session_permission_mode', { id, mode }),
+  /** Nivel de permisos: con autorización, auto (dentro de la carpeta) o full control. */
+  permissionMode: (id: number | null, mode: 'ask' | 'auto' | 'full', project: string | null = null) =>
+    invoke<string>('session_permission_mode', { id, project, mode }),
+  catalog: (paths: string[]) => invoke<SessionCatalog>('session_catalog', { paths }),
   list: (project: string) => invoke<Session[]>('session_list', { project }),
   create: (project: string, engine: string, task: number | null = null, skillRole: SkillRole | null = null) => invoke<CreatedSession>('session_create', { project, engine, task, skillRole }),
+  createSubsession: (parentId: number, engine: string, title: string | null = null, skillRole: SkillRole | null = null) =>
+    invoke<Session>('session_create_subsession', { parentId, engine, title, skillRole }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
   send: (id: number, text: string, effort: string | null, task: number | null, attachments: ChatAttachment[], expectedEngine: string) => invoke<void>('session_send', { id, text, effort, task, attachments, expectedEngine }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),

@@ -10,7 +10,6 @@ export const SIZES = {
   observe: { name: '--observe-w', def: 590, min: 300, max: 900 },
   term: { name: '--term-h', def: 240, min: 120, max: 720 },
   log: { name: '--log-h', def: 280, min: 96, max: 900 },
-  compose: { name: '--compose-h', def: 46, min: 44, max: 420 },
 } satisfies Record<string, Size>;
 
 const KEY = 'filigranas.layout';

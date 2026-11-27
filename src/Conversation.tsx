@@ -7,8 +7,6 @@ import { useDelegatedPermissions } from './trama/pendingPermissions';
 import { StDot } from './trama/kit';
 import { Icon } from './trama/icons';
 import { readArchitecture } from './trama/conversationContent';
-import Splitter, { SIZES } from './Splitter';
-import ChipMenu from './ChipMenu';
 import { beep, shortcut } from './ui';
 import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from './chatAttachments';
 
@@ -20,7 +18,8 @@ import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from '
 const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
-export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
+export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', minimal: 'mínimo', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
+const EFFORT_SHORT: Record<string, string> = { auto: 'Auto', minimal: 'Mín', low: 'Bajo', medium: 'Medio', high: 'Alto', xhigh: 'Muy alto', max: 'Máx' };
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const EFFORT_ORDER = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -41,6 +40,19 @@ const EFFORT_HINT: Record<string, string> = {
   xhigh: 'Para problemas difíciles; tarda más',
   max: 'El máximo que admite el modelo',
 };
+
+export function effortLabel(effort: string) {
+  return EFFORT_SHORT[effort] ?? capitalize(EFFORT_LABEL[effort] ?? effort);
+}
+
+export function buildEffortOptions(efforts: string[], autoHint?: string) {
+  return efforts.map((e) => ({
+    value: e,
+    label: capitalize(EFFORT_LABEL[e] ?? e),
+    shortLabel: EFFORT_SHORT[e] ?? capitalize(EFFORT_LABEL[e] ?? e),
+    hint: e === 'auto' ? autoHint ?? EFFORT_HINT.auto : EFFORT_HINT[e],
+  }));
+}
 const CONTEXT_MARKER = '\n\n[Filigranas IDE: historial del proveedor anterior]\n';
 
 export function useChatHistory(project: string, session: number | null | undefined) {
@@ -58,8 +70,6 @@ export function useChatHistory(project: string, session: number | null | undefin
   return { items, error };
 }
 
-export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', update: 'M' };
-
 /** Petición de permiso ya traducida, con la decisión a la que llama. */
 export type Ask = {
   key: string;
@@ -73,6 +83,64 @@ export type Ask = {
   decide: (d: Decision) => void;
 };
 
+function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return fallbackCopy(text);
+}
+
+function fallbackCopy(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      resolve();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+function CopyButton({ text, label = 'Copiar', compact }: { text: string; label?: string; compact?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
+  const onCopy = () => {
+    if (!text) return;
+    copyToClipboard(text).then(() => {
+      setCopied(true);
+      if (timer.current != null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1800);
+    }, () => {});
+  };
+  return (
+    <button
+      type="button"
+      className={`co-copy${compact ? ' is-compact' : ''}${copied ? ' is-done' : ''}`}
+      aria-label={copied ? 'Copiado' : label}
+      title={copied ? 'Copiado' : label}
+      onClick={onCopy}
+    >
+      {copied ? (
+        <Icon name="check" size={12} />
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+          <path d="M10.5 5.5V3.8A1.3 1.3 0 0 0 9.2 2.5H3.8A1.3 1.3 0 0 0 2.5 3.8v5.4a1.3 1.3 0 0 0 1.3 1.3h1.7" />
+        </svg>
+      )}
+      {!compact && <span>{copied ? 'Copiado' : 'Copiar'}</span>}
+    </button>
+  );
+}
+
 function inlineProse(text: string) {
   return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).map((part, i) => {
     if (i % 2 === 0) return part;
@@ -85,9 +153,19 @@ function Prose({ text, onOpenFlow }: { text: string; onOpenFlow?: () => void }) 
   return text.split(/^```/m).map((part, i) => {
     if (i % 2 === 0) return part.trim() && <p key={i} className="co-text">{inlineProse(part.trim())}</p>;
     const firstLine = part.indexOf('\n');
+    const lang = firstLine >= 0 ? part.slice(0, firstLine).trim() : '';
     const body = (firstLine < 0 ? part : part.slice(firstLine + 1)).trimEnd();
-    const architecture = firstLine >= 0 && part.slice(0, firstLine).trim() === 'mermaid' ? readArchitecture(body) : null;
-    return architecture ? <ConversationArchitecture key={i} data={architecture} onOpen={onOpenFlow} /> : <pre key={i} className="co-code">{body}</pre>;
+    const architecture = lang === 'mermaid' ? readArchitecture(body) : null;
+    if (architecture) return <ConversationArchitecture key={i} data={architecture} onOpen={onOpenFlow} />;
+    return (
+      <div key={i} className="co-code-wrap">
+        <div className="co-code-bar">
+          <span className="co-code-lang">{lang || 'bloque'}</span>
+          <CopyButton text={body} label="Copiar bloque" />
+        </div>
+        <pre className="co-code">{body}</pre>
+      </div>
+    );
   });
 }
 
@@ -223,6 +301,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
           <div className="co-by">tú</div>
           <Prose text={text} />
           {attachments.length > 0 && <MessageAttachments items={attachments} />}
+          {text.trim() && <div className="co-msg-tools"><CopyButton text={text.trim()} label="Copiar mensaje" compact /></div>}
         </div>
       );
     }
@@ -236,7 +315,10 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
       );
       return (
         <div className="co-msg is-agent">
-          <div className="co-by">{it.by ?? agent}</div>
+          <div className="co-by-row">
+            <span className="co-by">{it.by ?? agent}</span>
+            {it.text?.trim() && <CopyButton text={it.text.trim()} label="Copiar respuesta" compact />}
+          </div>
           <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} />
         </div>
       );
@@ -367,17 +449,19 @@ function MessageAttachments({ items }: { items: ShownAttachment[] }) {
 type ComposerProps = {
   disabled: boolean;
   running: boolean;
-  efforts: string[];
-  effort: string;
-  onEffort: (e: string) => void;
-  /** Qué decide «automático» en este contexto (proveedor o enrutamiento de la tarea). */
-  autoHint?: string;
-  providerPicker?: ReactNode;
-  /** Modelo de la sesión (texto o selector), junto al esfuerzo. */
+  /** Esfuerzos disponibles para el atajo ⌘⇧E. */
+  efforts?: string[];
+  effort?: string;
+  onEffort?: (e: string) => void;
+  /** Selector unificado de proveedor, modelo y razonamiento. */
   model?: ReactNode;
+  /** Chips de contexto en la fila superior junto a «+» y los adjuntos (p. ej. tarea vinculada). */
+  topExtra?: ReactNode;
+  /** Indicadores auxiliares en la barra inferior (estado de conexión…). */
+  extra?: ReactNode;
   /** Fila sobre la caja: dónde trabaja la sesión (carpeta, rama, motor). */
   context?: ReactNode;
-  /** Chip de permisos de la sesión, a la derecha de las opciones. */
+  /** Chip de modo de trabajo (permisos), junto al selector del modelo. */
   permission?: ReactNode;
   onSend: (text: string, attachments: ChatAttachment[]) => Promise<unknown>;
   onInterrupt: () => void;
@@ -414,9 +498,30 @@ function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
   });
 }
 
-/** Caja de mensaje con esfuerzo, ⌘↩ para enviar e Interrumpir en marcha. */
-export function Composer({ disabled, running, efforts, effort, onEffort, autoHint, providerPicker, model, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
+/** Caja de mensaje con selector unificado, modo de trabajo, ↩ para enviar y ⌘. para interrumpir. */
+export function Composer({ disabled, running, efforts = [], effort = '', onEffort, model, topExtra, extra, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
+  const fitArea = () => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = '0px';
+    const next = Math.min(el.scrollHeight, 220);
+    el.style.height = `${Math.max(next, 28)}px`;
+    el.style.overflowY = el.scrollHeight > 220 ? 'auto' : 'hidden';
+  };
+  useLayoutEffect(() => {
+    fitArea();
+    const el = area.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fitArea();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [draftKey]);
   const busy = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const attachRoot = useRef<HTMLDivElement>(null);
@@ -519,6 +624,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
       setAttachMenu(false);
       setAttachmentError(null);
       el.value = '';
+      fitArea();
       drafts.delete(draftKey);
       setQueue([...queueRef.current, { id: ++queueSeq, text, attachments }]);
       updateAttachments([]);
@@ -530,6 +636,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
     setAttachMenu(false);
     setAttachmentError(null);
     el.value = '';
+    fitArea();
     drafts.delete(draftKey);
     beep('send');
     dispatch(text, attachments)
@@ -538,6 +645,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
         if (text && !drafts.has(draftKey)) {
           drafts.set(draftKey, text);
           el.value = text;
+          fitArea();
         }
       })
       .finally(() => {
@@ -579,7 +687,7 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
     if (e.code === 'Period' && running) {
       e.preventDefault();
       onInterrupt();
-    } else if (e.code === 'KeyE' && e.shiftKey && efforts.length && !disabled) {
+    } else if (e.code === 'KeyE' && e.shiftKey && efforts.length && onEffort && !disabled) {
       e.preventDefault();
       onEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]);
       beep('tick');
@@ -594,9 +702,23 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
   };
   useEffect(() => {
     const on = (e: KeyboardEvent) => keys.current(e);
+    const onInsert = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      const el = area.current;
+      if (!text || !el || !shown(root.current)) return;
+      const next = el.value.trim() ? `${el.value.trimEnd()}\n\n${text}` : text;
+      el.value = next;
+      drafts.set(draftKey, next);
+      fitArea();
+      el.focus();
+    };
     window.addEventListener('keydown', on);
-    return () => window.removeEventListener('keydown', on);
-  }, []);
+    window.addEventListener('filigranas:insert-chat', onInsert);
+    return () => {
+      window.removeEventListener('keydown', on);
+      window.removeEventListener('filigranas:insert-chat', onInsert);
+    };
+  }, [draftKey]);
 
   return (
     <>
@@ -621,7 +743,61 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
           )}
         </ul>
       )}
-      <Splitter size={SIZES.compose} axis="y" invert label="Altura del mensaje" className="is-compose" />
+      <div className="co-compose-top">
+        <div className="co-attach" ref={attachRoot} onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setAttachMenu(false);
+            e.currentTarget.querySelector('button')?.focus();
+          }
+        }}>
+          <input type="file" hidden multiple ref={fileInput} aria-label="Archivos adjuntos"
+            onChange={(e) => {
+              addFiles(Array.from(e.currentTarget.files ?? []));
+              e.currentTarget.value = '';
+              area.current?.focus();
+            }} />
+          <button className={`co-attach-plus${attachMenu ? ' is-open' : ''}`} type="button" title="Adjuntar imágenes, archivos o enlaces" aria-label="Adjuntar"
+            aria-expanded={attachMenu} aria-controls={attachMenu ? menuId : undefined}
+            disabled={disabled || submitting} onClick={() => setAttachMenu((open) => !open)}>
+            <Icon name="plus" size={13} />
+          </button>
+          {attachMenu && <div className="menu co-attach-menu" id={menuId}>
+            <button className="menu-item" type="button" onClick={() => { fileInput.current?.click(); setAttachMenu(false); }}>Adjuntar imágenes o archivos</button>
+            <button className="menu-item" type="button" onClick={() => { setAttachMenu(false); setLink(''); }}>Añadir enlace</button>
+          </div>}
+        </div>
+        {attachments.length > 0 && (
+          <ul className="co-attachments" aria-label="Adjuntos del mensaje">
+            {attachments.map((item, index) => {
+              const name = item.kind === 'file' ? item.file.name : item.url;
+              const thumb = item.kind === 'file' ? previewOf(item.file) : undefined;
+              return (
+                <li key={index} className={thumb ? 'has-thumb' : undefined}>
+                  {thumb ? <img src={thumb} alt="" /> : item.kind === 'file' ? <FileGlyph /> : <Icon name="link" size={12} />}
+                  <span title={name}>{name}</span>
+                  <button type="button" className="icon" disabled={submitting}
+                    aria-label={`Quitar ${name}`} onClick={() => {
+                      updateAttachments(attachments.filter((_, i) => i !== index));
+                      setAttachmentError(null);
+                    }}>×</button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {topExtra}
+      </div>
+      {link !== null && (
+        <form className="co-attach-link" onSubmit={(e) => { e.preventDefault(); addLink(); }}>
+          <input aria-label="Dirección del enlace" placeholder="https://…" type="text" inputMode="url"
+            value={link} autoFocus disabled={submitting} onChange={(e) => setLink(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setLink(null); setAttachmentError(null); area.current?.focus(); } }} />
+          <button className="co-btn" type="submit" disabled={submitting || !link.trim()}>Añadir</button>
+          <button className="icon" type="button" aria-label="Cancelar enlace"
+            onClick={() => { setLink(null); setAttachmentError(null); area.current?.focus(); }}>×</button>
+        </form>
+      )}
+      {attachmentError && <p className="co-attachment-error" role="alert">{attachmentError}</p>}
       <textarea
         ref={area}
         defaultValue={drafts.get(draftKey) ?? ''}
@@ -629,10 +805,11 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
           const value = e.currentTarget.value;
           if (value) drafts.set(draftKey, value);
           else drafts.delete(draftKey);
+          fitArea();
         }}
         aria-label="Mensaje"
         placeholder={running ? 'trabajando… lo que envíes quedará en cola' : placeholder}
-        rows={2}
+        rows={1}
         disabled={disabled}
         onPaste={(e) => {
           const files = Array.from(e.clipboardData.files);
@@ -648,78 +825,11 @@ export function Composer({ disabled, running, efforts, effort, onEffort, autoHin
           }
         }}
       />
-      {attachments.length > 0 && (
-        <ul className="co-attachments" aria-label="Adjuntos del mensaje">
-          {attachments.map((item, index) => {
-            const name = item.kind === 'file' ? item.file.name : item.url;
-            const thumb = item.kind === 'file' ? previewOf(item.file) : undefined;
-            return (
-              <li key={index} className={thumb ? 'has-thumb' : undefined}>
-                {thumb ? <img src={thumb} alt="" /> : item.kind === 'file' && <FileGlyph />}
-                <span title={name}>{name}</span>
-                <button type="button" className="icon" disabled={submitting}
-                  aria-label={`Quitar ${name}`} onClick={() => {
-                    updateAttachments(attachments.filter((_, i) => i !== index));
-                    setAttachmentError(null);
-                  }}>×</button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {link !== null && (
-        <form className="co-attach-link" onSubmit={(e) => { e.preventDefault(); addLink(); }}>
-          <input aria-label="Dirección del enlace" placeholder="https://…" type="text" inputMode="url"
-            value={link} autoFocus disabled={submitting} onChange={(e) => setLink(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape') { setLink(null); setAttachmentError(null); area.current?.focus(); } }} />
-          <button className="co-btn" type="submit" disabled={submitting || !link.trim()}>Añadir</button>
-          <button className="icon" type="button" aria-label="Cancelar enlace"
-            onClick={() => { setLink(null); setAttachmentError(null); area.current?.focus(); }}>×</button>
-        </form>
-      )}
-      {attachmentError && <p className="co-attachment-error" role="alert">{attachmentError}</p>}
       <div className="co-compose-bar">
         <div className="co-compose-opts">
-          <div className="co-attach" ref={attachRoot} onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setAttachMenu(false);
-              e.currentTarget.querySelector('button')?.focus();
-            }
-          }}>
-            <input type="file" hidden multiple ref={fileInput} aria-label="Archivos adjuntos"
-              onChange={(e) => {
-                addFiles(Array.from(e.currentTarget.files ?? []));
-                e.currentTarget.value = '';
-                area.current?.focus();
-              }} />
-            <button className="chip co-attach-button" type="button" title="Adjuntar archivos o enlaces" aria-label="Adjuntar"
-              aria-expanded={attachMenu} aria-controls={attachMenu ? menuId : undefined}
-              disabled={disabled || submitting} onClick={() => setAttachMenu((open) => !open)}>
-              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                <path d="m5.6 8.4 4-4a1.45 1.45 0 0 1 2.05 2.05l-5 5a2.55 2.55 0 0 1-3.6-3.6l5.2-5.2a3.35 3.35 0 0 1 4.74 4.74l-5.1 5.1" strokeLinecap="round" />
-              </svg>
-            </button>
-            {attachMenu && <div className="menu co-attach-menu" id={menuId}>
-              <button className="menu-item" type="button" onClick={() => { fileInput.current?.click(); setAttachMenu(false); }}>Adjuntar archivos</button>
-              <button className="menu-item" type="button" onClick={() => { setAttachMenu(false); setLink(''); }}>Añadir enlace</button>
-            </div>}
-          </div>
-          {providerPicker}
           {model && <span className="co-model">{model}</span>}
-          {efforts.length > 0 && (
-            <ChipMenu
-              className="co-effort"
-              label="Razonamiento"
-              heading="Razonamiento"
-              title={shortcut('razonamiento · ⌘⇧E')}
-              disabled={disabled}
-              value={effort}
-              display={effort === 'auto' ? 'razonamiento automático' : `razonamiento ${EFFORT_LABEL[effort] ?? effort}`}
-              options={efforts.map((e) => ({ value: e, label: capitalize(EFFORT_LABEL[e] ?? e), hint: e === 'auto' ? autoHint ?? EFFORT_HINT.auto : EFFORT_HINT[e] }))}
-              onChange={(e) => { beep('tick'); onEffort(e); }}
-            />
-          )}
           {permission}
+          {extra}
         </div>
         {running && (
           <button className="send is-queue" aria-label="Poner en cola" title={shortcut('poner en cola · ↩')} onClick={send} disabled={disabled}>

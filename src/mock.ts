@@ -3,7 +3,7 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, HostedShare, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, LocalService, Project, WorkSession, Workspace } from './ipc';
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -58,8 +58,6 @@ const mockSessions: any[] = [
   { id: 900, project: '/Users/demo/repositorios/calaix', engine: 'claude', name: 'diseño', providerSession: 'm', effort: null, worktree: '/tmp/wt/diseno', branch: 'ide/diseno', base: 'main', baseCommit: '84ab176', integrated: null, task: null, handoffFrom: null, paused: null },
 ];
 const mockManagers = new Map<string, any>();
-let mockShare: (HostedShare & { project: string }) | null = null;
-let mockShareGuest = false;
 let mockGithub: GithubLoginStatus | null = null;
 let sessionAnswer: ((decision: string) => void) | null = null;
 let pendingApproval: ((decision: string) => void) | null = null;
@@ -222,6 +220,8 @@ mockIPC(
       }
       case 'get_workspace':
         return workspace();
+      case 'system_metrics':
+        return { cpuPercent: 18.4, ramUsedBytes: 11.4 * 1024 ** 3, ramTotalBytes: 16 * 1024 ** 3, ramPercent: 71.2 };
       case 'home_summary':
         return (a.paths as string[]).map((path) => ({
           path,
@@ -230,6 +230,33 @@ mockIPC(
           work: mockWorks.get(path) ?? null,
           branch: mockBranches.get(path) ?? 'main',
           dates: ['2026-11-19T22:14:00+01:00', '2026-11-19T21:45:00+01:00', '2026-11-18T17:40:00+01:00'],
+        }));
+      case 'recent_sessions':
+        return mockSessions.map((s, i) => ({
+          project: s.project,
+          sessionId: s.id,
+          isPm: false,
+          name: s.name,
+          engine: s.engine,
+          branch: s.branch,
+          task: s.task,
+          closed: false,
+          paused: !!s.paused,
+          running: false,
+          lastOutcome: 'completed',
+          lastActiveMs: Date.now() - (i + 1) * 15 * 60_000,
+        }));
+      case 'home_activity':
+        return mockSessions.map((s, i) => ({
+          id: `run:${s.id}`,
+          kind: 'run_completed',
+          phase: 'history',
+          project: s.project,
+          title: `${s.name} terminó su turno`,
+          detail: s.task ?? s.engine,
+          timestampMs: Date.now() - (i + 1) * 15 * 60_000,
+          sessionId: s.id,
+          taskId: null,
         }));
       case 'default_root':
         return ROOT;
@@ -264,46 +291,6 @@ mockIPC(
       }
       case 'open_worktree':
       case 'reveal_project':
-        return null;
-      case 'share_start':
-        mockShare = { project: a.project, name: rel(a.project), editable: a.editable,
-          invitation: 'filigranas-demo', expiresAt: Date.now() + 900_000 };
-        return mockShare;
-      case 'share_current':
-        return mockShare;
-      case 'share_access':
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        mockShare = { ...mockShare, editable: a.editable };
-        return mockShare;
-      case 'share_stop':
-        mockShare = null;
-        return null;
-      case 'share_join':
-        if (mockShareGuest || !mockShare || a.code !== mockShare.invitation) return fail('invitación no válida');
-        mockShareGuest = true;
-        return { name: mockShare.name, editable: mockShare.editable };
-      case 'share_status':
-        return { online: !!mockShare, closed: !mockShare, editable: mockShare?.editable ?? false };
-      case 'share_list':
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        return listDir(a.path ? `${mockShare.project}/${a.path}` : mockShare.project)
-          .map((entry) => ({ ...entry, path: entry.path.slice(mockShare!.project.length + 1) }));
-      case 'share_read': {
-        if (!mockShare) return fail('la sesión compartida ha terminado');
-        const text = files[`${rel(mockShare.project)}/${a.path}`] ?? fail('archivo no compartido');
-        return a.revision === text ? null : { text, revision: text };
-      }
-      case 'share_write': {
-        if (!mockShare?.editable) return fail('el proyecto es de solo lectura');
-        const file = `${rel(mockShare.project)}/${a.path}`;
-        if (files[file] !== a.previous && files[file] !== a.content) return fail('El archivo cambió en el equipo anfitrión.');
-        files[file] = a.content;
-        void emit('project-changed');
-        return null;
-      }
-      case 'share_leave':
-        mockShareGuest = false;
-        mockShare = null;
         return null;
       case 'github_login_start':
         mockGithub = { state: 'waiting', code: 'DEMO-1234' };
@@ -425,6 +412,19 @@ mockIPC(
         mockManagers.set(a.project, manager);
         return manager;
       }
+      case 'session_catalog': {
+        const set = new Set<string>(Array.isArray(a.paths) ? a.paths : []);
+        const pmClaude: Record<string, any> = {};
+        for (const [project, manager] of mockManagers.entries()) {
+          if (!set.size || set.has(project)) pmClaude[project] = manager;
+        }
+        const pmCodexProjects = [...set].filter((p) => !mockManagers.has(p) && rel(p) === 'bitacola');
+        return {
+          sessions: mockSessions.filter((x) => !set.size || set.has(x.project)),
+          pmClaude,
+          pmCodexProjects,
+        };
+      }
       case 'session_list':
         return mockSessions.filter((x) => x.project === a.project);
       case 'session_create': {
@@ -450,6 +450,7 @@ mockIPC(
         };
         mockSessions.push(created);
         mockWorks.get(a.project)?.agents.push({ sessionId: id, name, paths: ['.'], running: false, closed: false, isolated: !!created.worktree });
+        void emit('sessions-changed', { project: a.project });
         void emit('tasks-changed');
         return { ...created, notice: created.worktree ? null : 'Comparte la rama y el checkout de la sesión de trabajo.' };
       }
@@ -521,9 +522,12 @@ mockIPC(
         return null;
       case 'session_set_option':
         return [{ id: 'model', name: 'Model', category: 'model', currentValue: a.value, options: [{ value: 'opencode/big-pickle', name: 'Big Pickle (gratis)' }, { value: 'openai/gpt-5', name: 'GPT-5' }] }];
-      case 'session_close':
-        mockSessions.splice(mockSessions.findIndex((x) => x.id === a.id), 1);
+      case 'session_close': {
+        const idx = mockSessions.findIndex((x) => x.id === a.id);
+        const closed = idx >= 0 ? mockSessions.splice(idx, 1)[0] : null;
+        if (closed) void emit('sessions-changed', { project: closed.project });
         return null;
+      }
       case 'coordinator_open':
         return {
           threadId: a.session == null ? 'hilo-demo' : `hilo-demo-${a.session}`,

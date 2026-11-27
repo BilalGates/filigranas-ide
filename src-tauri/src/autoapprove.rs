@@ -46,12 +46,38 @@ pub enum Kind {
     Other,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Scope {
+    Session(i64),
+    Project(String),
+}
+
 #[derive(Default)]
-pub struct Modes(Mutex<HashMap<i64, Mode>>);
+pub struct Modes(Mutex<HashMap<Scope, Mode>>);
 
 impl Modes {
     pub fn get(&self, session: i64) -> Mode {
-        self.0.lock().ok().and_then(|m| m.get(&session).copied()).unwrap_or_default()
+        self.0.lock().ok().and_then(|m| m.get(&Scope::Session(session)).copied()).unwrap_or_default()
+    }
+
+    pub fn get_project(&self, project: &str) -> Mode {
+        self.0.lock().ok().and_then(|m| m.get(&Scope::Project(project.to_owned())).copied()).unwrap_or_default()
+    }
+
+    /// Hereda el nivel de permisos de una sesión padre en una subsesión hija.
+    pub fn inherit(&self, parent: i64, child: i64) {
+        let mode = self.get(parent);
+        let _ = self.set(Scope::Session(child), mode);
+    }
+
+    fn set(&self, scope: Scope, mode: Mode) -> CmdResult<()> {
+        let mut modes = self.0.lock().map_err(err)?;
+        if mode == Mode::Ask {
+            modes.remove(&scope);
+        } else {
+            modes.insert(scope, mode);
+        }
+        Ok(())
     }
 }
 
@@ -123,10 +149,17 @@ pub fn acp_request(tool_call: &Value) -> (Kind, Vec<String>) {
 }
 
 #[tauri::command]
-pub fn session_permission_mode(state: State<AppState>, id: i64, mode: String) -> CmdResult<String> {
+pub fn session_permission_mode(state: State<AppState>, id: Option<i64>, project: Option<String>, mode: String) -> CmdResult<String> {
     let parsed = Mode::parse(&mode).ok_or("nivel de permisos no válido")?;
-    let mut modes = state.permissions.0.lock().map_err(err)?;
-    if parsed == Mode::Ask { modes.remove(&id); } else { modes.insert(id, parsed); }
+    let scope = match (id, project) {
+        (Some(id), _) => Scope::Session(id),
+        (None, Some(project)) => {
+            let path = crate::workspace::project_path(&*state.db.lock().map_err(err)?, &project)?;
+            Scope::Project(path)
+        }
+        (None, None) => return Err("falta la sesión o el proyecto".into()),
+    };
+    state.permissions.set(scope, parsed)?;
     Ok(mode)
 }
 
@@ -176,5 +209,20 @@ mod tests {
         assert_eq!(claude_request(&json!({ "tool_name": "Bash", "input": { "command": "ls" } })).0, Kind::Other);
         assert_eq!(acp_request(&json!({ "kind": "edit" })).0, Kind::Other);
         assert_eq!(acp_request(&json!({ "kind": "read", "locations": [{ "path": "x" }] })), (Kind::Read, vec!["x".to_string()]));
+    }
+
+    #[test]
+    fn project_and_session_scopes_are_independent() {
+        let modes = Modes::default();
+        assert_eq!(modes.get(1), Mode::Ask);
+        assert_eq!(modes.get_project("/repo"), Mode::Ask);
+        modes.set(Scope::Project("/repo".into()), Mode::Full).unwrap();
+        modes.set(Scope::Session(1), Mode::Auto).unwrap();
+        assert_eq!(modes.get_project("/repo"), Mode::Full);
+        assert_eq!(modes.get_project("/other"), Mode::Ask);
+        assert_eq!(modes.get(1), Mode::Auto);
+        modes.set(Scope::Project("/repo".into()), Mode::Ask).unwrap();
+        assert_eq!(modes.get_project("/repo"), Mode::Ask);
+        assert_eq!(modes.get(1), Mode::Auto);
     }
 }

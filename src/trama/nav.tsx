@@ -2,54 +2,49 @@ import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { shortcut } from '../ui';
 import { Icon } from './icons';
+import { TOOLS, type ToolId } from './workspaceLayout';
 
-export type Dest = 'inicio' | 'workspace' | 'flow' | 'studio' | 'entrega' | 'brain' | 'ajustes';
-export const DESTS: { id: Dest; label: string; icon: string; keys: string }[] = [
-  { id: 'inicio', label: 'Inicio', icon: 'home', keys: '⌘⇧1' },
-  { id: 'workspace', label: 'Workspace', icon: 'workspace', keys: '⌘⇧2' },
-  { id: 'flow', label: 'Flow', icon: 'flow', keys: '⌘⇧3' },
-  { id: 'studio', label: 'Studio', icon: 'studio', keys: '⌘⇧4' },
-  { id: 'entrega', label: 'Entrega', icon: 'review', keys: '⌘⇧5' },
-  { id: 'brain', label: 'Brain', icon: 'brain', keys: '⌘⇧6' },
-  { id: 'ajustes', label: 'Ajustes', icon: 'settings', keys: '⌘,' },
-];
-
-const KEY = 'filigranas.destino';
-export function loadDest(): Dest {
-  try {
-    const v = localStorage.getItem(KEY) as Dest | null;
-    return v && DESTS.some((d) => d.id === v) ? v : 'inicio';
-  } catch {
-    return 'inicio';
-  }
-}
-export function saveDest(d: Dest) {
-  try { localStorage.setItem(KEY, d); } catch { /* sin almacenamiento */ }
-}
+export { TOOLS, type ToolId };
 
 /** Último punto de trabajo, para «Retomar». Solo guarda lo que existe. */
-export type Resume = { project: string; view: 'coach' | number; dest: Dest; at: number };
+export type Resume = { project: string; view: 'coach' | number; at: number };
 const RESUME = 'filigranas.retomar';
 export function loadResume(): Resume | null {
   try {
-    const r = JSON.parse(localStorage.getItem(RESUME) ?? 'null') as (Omit<Resume, 'view'> & { view: Resume['view'] | 'work' }) | null;
-    // La vista Trabajo ya no existe: un resumen guardado con ella vuelve al PM.
-    return r && { ...r, view: r.view === 'work' ? 'coach' : r.view };
-  } catch { return null; }
+    const r = JSON.parse(localStorage.getItem(RESUME) ?? 'null') as
+      | (Omit<Resume, 'view'> & { view: Resume['view'] | 'work' })
+      | null;
+    if (!r || typeof r.project !== 'string') return null;
+    return { project: r.project, view: r.view === 'work' ? 'coach' : r.view, at: r.at ?? 0 };
+  } catch {
+    return null;
+  }
 }
 export function saveResume(r: Resume) {
-  try { localStorage.setItem(RESUME, JSON.stringify(r)); } catch { /* sin almacenamiento */ }
+  try {
+    localStorage.setItem(RESUME, JSON.stringify(r));
+  } catch {
+    /* sin almacenamiento */
+  }
 }
 
-/** Columna de destinos. `badges`: recuento real de lo que necesita atención. */
-export function DestNav({ dest, onDest, badges, live, browser, containers, github }: {
-  dest: Dest;
-  onDest: (d: Dest) => void;
-  badges: Partial<Record<Dest, number>>;
-  live: Partial<Record<Dest, boolean>>;
-  browser?: { open: boolean; run: () => void };
-  /** Panel de contenedores del proyecto abierto. */
-  containers?: { open: boolean; run: () => void };
+/**
+ * Barra lateral de herramientas acoplables (sin icono de Workspace: Workspace
+ * es la superficie permanente de Filigranas).
+ */
+export function DestNav({
+  activeTool,
+  onTool,
+  badges,
+  live,
+  disabledTools,
+  github,
+}: {
+  activeTool: ToolId | null;
+  onTool: (tool: ToolId) => void;
+  badges: Partial<Record<ToolId, number>>;
+  live: Partial<Record<ToolId, boolean>>;
+  disabledTools?: Partial<Record<ToolId, boolean>>;
   github?: ReactNode;
 }) {
   const [tip, setTip] = useState<{ label: string; keys: string; x: number; y: number } | null>(null);
@@ -57,33 +52,51 @@ export function DestNav({ dest, onDest, badges, live, browser, containers, githu
     const r = e.currentTarget.getBoundingClientRect();
     setTip({ label, keys, x: r.right + 10, y: r.top + r.height / 2 - 13 });
   };
-  const button = (d: (typeof DESTS)[number]) => (
-    <button key={d.id} className="tr-nb" aria-current={dest === d.id ? 'page' : undefined} aria-label={`${d.label} (${shortcut(d.keys)})`}
-      onClick={() => onDest(d.id)} onMouseEnter={(e) => show(e, d.label, d.keys)} onMouseLeave={() => setTip(null)}
-      onFocus={(e) => show(e, d.label, d.keys)} onBlur={() => setTip(null)}>
-      <Icon name={d.icon} size={19} />
-      {!!badges[d.id] && <span className="cnt" aria-label={`${badges[d.id]} pendientes`}>{badges[d.id]}</span>}
-      {live[d.id] && !badges[d.id] && <span className="live" aria-hidden="true" />}
-    </button>
-  );
+  const button = (d: (typeof TOOLS)[number]) => {
+    const active = activeTool === d.id;
+    const disabled = !!disabledTools?.[d.id];
+    return (
+      <button
+        key={d.id}
+        type="button"
+        className={`tr-nb${active ? ' is-active' : ''}`}
+        aria-pressed={active}
+        aria-label={d.keys ? `${d.label} (${shortcut(d.keys)})` : d.label}
+        disabled={disabled}
+        onClick={() => onTool(d.id)}
+        onMouseEnter={(e) => show(e, d.label, d.keys)}
+        onMouseLeave={() => setTip(null)}
+        onFocus={(e) => show(e, d.label, d.keys)}
+        onBlur={() => setTip(null)}
+      >
+        <Icon name={d.icon} size={19} />
+        {!!badges[d.id] && (
+          <span className="cnt" aria-label={`${badges[d.id]} pendientes`}>
+            {badges[d.id]}
+          </span>
+        )}
+        {live[d.id] && !badges[d.id] && <span className="live" aria-hidden="true" />}
+      </button>
+    );
+  };
+  const primary = TOOLS.filter((t) => !t.footer);
+  const footer = TOOLS.filter((t) => t.footer);
   return (
-    <nav className="tr-nav" aria-label="Destinos">
-      {DESTS.slice(0, -1).map(button)}
-      {browser && <>
-        <span className="tr-nsep" aria-hidden="true" />
-        <button className="tr-nb" aria-pressed={browser.open} aria-label="Navegador" onClick={browser.run}
-          onMouseEnter={(e) => show(e, 'Navegador', '')} onMouseLeave={() => setTip(null)} onFocus={(e) => show(e, 'Navegador', '')} onBlur={() => setTip(null)}>
-          <Icon name="globe" size={19} />
-        </button>
-      </>}
-      {containers && <button className="tr-nb" aria-pressed={containers.open} aria-label="Contenedores" onClick={containers.run}
-        onMouseEnter={(e) => show(e, 'Contenedores', '⌘⇧O')} onMouseLeave={() => setTip(null)} onFocus={(e) => show(e, 'Contenedores', '⌘⇧O')} onBlur={() => setTip(null)}>
-        <Icon name="box" size={19} />
-      </button>}
+    <nav className="tr-nav" aria-label="Herramientas">
+      {primary.slice(0, 5).map(button)}
+      <span className="tr-nsep" aria-hidden="true" />
+      {primary.slice(5).map(button)}
       <span className="sp" />
-      {button(DESTS[DESTS.length - 1])}
+      {footer.map(button)}
       {github && <div className="tr-gh">{github}</div>}
-      {tip && createPortal(<div className="tr-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">{tip.label}{tip.keys && <kbd>{shortcut(tip.keys)}</kbd>}</div>, document.body)}
+      {tip &&
+        createPortal(
+          <div className="tr-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">
+            {tip.label}
+            {tip.keys && <kbd>{shortcut(tip.keys)}</kbd>}
+          </div>,
+          document.body,
+        )}
     </nav>
   );
 }

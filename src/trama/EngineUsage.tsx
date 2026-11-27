@@ -3,6 +3,7 @@ import { tasks as taskApi, type Session, type TaskRun } from '../ipc';
 import { useUi } from '../ui';
 import { percentLabel, useProviderQuota, type QuotaWindow } from '../usageStore';
 import { Icon } from './icons';
+import { pmActivityKey } from './workspaceContext';
 
 // Uso por motor en la barra de estado: un botón para Claude y otro para Codex.
 // Cada uno muestra su cuota restante, las sesiones abiertas y trabajando, y
@@ -43,8 +44,9 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
   const trigger = useRef<HTMLButtonElement>(null);
   const mine = sessions.filter((s) => s.engine === engine);
   const working = mine.filter((s) => activity[String(s.id)] === 'trabajando');
-  const pmWorking = pm && activity.coach === 'trabajando';
-  const waiting = mine.filter((s) => activity[String(s.id)] === 'permiso').length + (pm && activity.coach === 'permiso' ? 1 : 0);
+  const pmState = project ? activity[pmActivityKey(project)] : activity.coach;
+  const pmWorking = pm && pmState === 'trabajando';
+  const waiting = mine.filter((s) => activity[String(s.id)] === 'permiso').length + (pm && pmState === 'permiso' ? 1 : 0);
   const live = working.length + (pmWorking ? 1 : 0);
   useEffect(() => {
     if (!open) return;
@@ -77,7 +79,7 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
             <p className="eng-big"><b>{mine.length + (pm ? 1 : 0)}</b> {mine.length + (pm ? 1 : 0) === 1 ? 'sesión abierta' : 'sesiones abiertas'} · <b>{live}</b> trabajando{waiting ? <> · <span className="amb">{waiting} {waiting === 1 ? 'espera' : 'esperan'} permiso</span></> : null}</p>
             {(pm || mine.length > 0) && (
               <ul className="eng-list">
-                {pm && <li><button onClick={() => { onSession('coach'); onClose(); }}><span className={`dot${pmWorking ? ' is-trabajando' : activity.coach === 'permiso' ? ' is-permiso' : ''}`} />Project manager<span className="grow" /><span className="eng-note">{pmWorking ? 'trabajando' : activity.coach === 'permiso' ? 'espera permiso' : 'en espera'}</span></button></li>}
+                {pm && <li><button onClick={() => { onSession('coach'); onClose(); }}><span className={`dot${pmWorking ? ' is-trabajando' : pmState === 'permiso' ? ' is-permiso' : ''}`} />Project manager<span className="grow" /><span className="eng-note">{pmWorking ? 'trabajando' : pmState === 'permiso' ? 'espera permiso' : 'en espera'}</span></button></li>}
                 {mine.map((s) => { const st = activity[String(s.id)]; return (
                   <li key={s.id}><button onClick={() => { onSession(s.id); onClose(); }}><span className={`dot${st === 'trabajando' ? ' is-trabajando' : st === 'permiso' ? ' is-permiso' : ''}`} />{s.name}<span className="grow" /><span className="eng-note">{st === 'trabajando' ? 'trabajando' : st === 'permiso' ? 'espera permiso' : s.branch ?? 'en espera'}</span></button></li>); })}
               </ul>

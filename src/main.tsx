@@ -18,8 +18,18 @@ restoreLayout();
 
 async function start() {
   // Monaco y xterm miden el ancho de los caracteres al crearse. Los lienzos de
-  // Trama dibujan texto con JetBrains Mono y necesitan la fuente ya cargada.
-  await Promise.all(['12px Iosevka', '12px "JetBrains Mono"', '500 12px "JetBrains Mono"'].map((font) => document.fonts.load(font)));
+  // Trama dibujan texto con JetBrains Mono, Bricolage Grotesque y Libre Caslon Condensed.
+  await Promise.all([
+    '12px Iosevka',
+    '12px "JetBrains Mono"',
+    '500 12px "JetBrains Mono"',
+    '400 13px "Bricolage Grotesque"',
+    '500 13px "Bricolage Grotesque"',
+    '600 13px "Bricolage Grotesque"',
+    '400 24px "Libre Caslon Condensed"',
+    '500 20px "Libre Caslon Condensed"',
+    'italic 400 14px "Libre Caslon Condensed"',
+  ].map((font) => document.fonts.load(font)));
   // En el navegador (sin Tauri) se usa el núcleo simulado.
   const native = isTauri();
   if (native) html.dataset.native = 'true';

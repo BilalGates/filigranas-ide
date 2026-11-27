@@ -1,13 +1,14 @@
 import { useSharedPermissions } from './trama/pendingPermissions';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { sessions, type AcpOption, type Change, type CItem, type ChatAttachment, type Decision, type DiffTarget, type Session as SessionInfo, type SessionEvent } from './ipc';
 import type { ConversationWorkflow } from './trama/ConversationPlan';
-import { Composer, ConversationLog, ConversationObservation, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
-import { useReportActivity } from './ui';
+import { buildEffortOptions, Composer, ConversationLog, ConversationObservation, effortLabel, useChatHistory, withAttachmentNames, type Ask } from './Conversation';
+import { beep, shortcut, useReportActivity } from './ui';
+import { pmActivityKey } from './trama/workspaceContext';
 import Coordinator from './Coordinator';
 import ChipMenu from './ChipMenu';
-import ProviderLogo from './ProviderLogo';
+import ModelConfigMenu, { type ProviderSwitch, type ReasoningGroup } from './ModelConfigMenu';
 import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
 import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
 import { Icon } from './trama/icons';
@@ -35,6 +36,11 @@ function claudeTool(id: string, name: string, input: any): CItem {
     return { id, type: 'fileChange', status: 'inProgress', changes: [{ path: input?.file_path ?? input?.notebook_path ?? '', kind: { type: 'update' } }] };
   if (name === 'TodoWrite')
     return { id, type: 'plan', text: (input?.todos ?? []).map((t: any) => `${t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '›' : '·'} ${t.content}`).join('\n') };
+  if (name.startsWith('mcp__filigranas__')) {
+    const short = name.slice('mcp__filigranas__'.length);
+    const detail = input?.titulo ?? input?.sesion ?? brief(input);
+    return { id, type: 'mcpToolCall', tool: detail ? `${short} · ${detail}` : short, status: 'inProgress' };
+  }
   return { id, type: 'mcpToolCall', tool: `${name} ${brief(input)}`.trim(), status: 'inProgress' };
 }
 
@@ -149,7 +155,7 @@ type Props = {
   project: string;
   hidden: boolean;
   switching?: boolean;
-  providerPicker?: ReactNode;
+  providerSwitch?: ProviderSwitch;
   onDiff: (c: DiffTarget) => void;
   quotaNear?: boolean;
   onOpenFile?: (path: string) => void;
@@ -160,20 +166,22 @@ type Props = {
   manager?: { task: { id: number; title: string } | null; clearTask: () => void };
   /** Abre Trabajo para empezar la sesión de trabajo que exigen las sesiones directas. */
   onStartWork?: () => void;
+  /** Ámbito de permisos de la sesión padre para heredar el modo en subsesiones. */
+  parentPermissionScope?: string;
 };
 
 // Error del backend cuando no hay sesión de trabajo activa (src-tauri/src/work.rs).
 const NEEDS_WORK = /inicia una sesión de trabajo/i;
 
 /** Conversación con una sesión de agente ejecutor del proyecto. */
-export default function Session({ session, project, hidden, switching, providerPicker, onDiff, quotaNear, onOpenFile, onConflicts, onModel, workflow, observation, manager, onStartWork }: Props) {
+export default function Session({ session, project, hidden, switching, providerSwitch, onDiff, quotaNear, onOpenFile, onConflicts, onModel, workflow, observation, manager, onStartWork, parentPermissionScope }: Props) {
   const isManager = manager !== undefined;
   const isClaude = session.engine === 'claude';
   const isCodex = session.engine === 'codex';
   const history = useChatHistory(project, isClaude ? (manager ? null : session.id) : undefined);
   const [items, setItems] = useState<CItem[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
-  const [providerRunning, setRunning] = useState(false);
+  const [providerRunning, setRunning] = useState(session.status === 'trabajando');
   const [directState, setDirectState] = useState('inactiva');
   const [codexHasWork, setCodexHasWork] = useState(false);
   const running = isCodex ? ['en marcha', 'esperando permiso'].includes(directState) : providerRunning;
@@ -184,6 +192,7 @@ export default function Session({ session, project, hidden, switching, providerP
   const claudeWindows = useRef<Record<string, number>>({});
 
   const [claudeModels, setClaudeModels] = useState<{ id: string; label: string }[]>([]);
+  const [loadingClaudeModels, setLoadingClaudeModels] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [effort, setEffort] = useState(session.effort ?? 'medium');
@@ -194,16 +203,22 @@ export default function Session({ session, project, hidden, switching, providerP
   const replaying = useRef(false);
 
   // Rama aislada: cambios frente al commit de partida e integración.
-  const isolated = !!session.worktree;
+  // Una subsesión comparte la carpeta del padre y no integra por su cuenta.
+  const isolated = !!session.worktree && session.parentSession == null;
   const [changes, setChanges] = useState<Change[]>([]);
   const [showChanges, setShowChanges] = useState(false);
   const [integrated, setIntegrated] = useState(!!session.integrated);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoNotes, setAutoNotes] = useState<string[]>([]);
-  const permission = usePermissionMode(manager ? null : session.id);
+  const permission = usePermissionMode(session.id, null, manager ? `pm:${project}` : undefined, parentPermissionScope);
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
+  useEffect(() => {
+    if (isCodex) return;
+    if (session.status === 'trabajando') setRunning(true);
+    else if (session.status === 'terminada') setRunning(false);
+  }, [isCodex, session.status]);
   useEffect(() => {
     if (isCodex && directState === 'en marcha') setPaused(null);
   }, [directState, isCodex]);
@@ -437,10 +452,16 @@ export default function Session({ session, project, hidden, switching, providerP
 
   useEffect(() => {
     if (!isClaude || hidden) return;
+    let active = true;
+    setLoadingClaudeModels(true);
     sessions.claudeOptions(session.id).then(({ models, pinnedModel }) => {
+      if (!active) return;
       if (models.length) setClaudeModels(models);
       setPinned(pinnedModel);
-    }, () => {}); // El envío sigue mostrando errores del proveedor.
+    }, () => {}).finally(() => {
+      if (active) setLoadingClaudeModels(false);
+    }); // El envío sigue mostrando errores del proveedor.
+    return () => { active = false; };
   }, [hidden, isClaude, session.id]);
 
   const send = (text: string, attachments: ChatAttachment[]) => {
@@ -554,7 +575,7 @@ export default function Session({ session, project, hidden, switching, providerP
   const ownedAsks: Ask[] = pending.map((p) => ({ ...p, key: p.requestId, decide: (d) => decide(p, d) }));
   const asks = useSharedPermissions(project, manager || isCodex ? null : session.id, session.name, session.worktree ?? project, ownedAsks);
   const state = isCodex ? directState : pending.length ? 'esperando permiso' : running ? 'en marcha' : paused ? 'en pausa' : starting ? 'arrancando' : 'inactiva';
-  useReportActivity(manager ? 'coach' : String(session.id), state);
+  useReportActivity(manager ? pmActivityKey(project) : String(session.id), state);
   const engine = ENGINE_LABEL[session.engine] ?? session.engine;
   const contextLow = context !== null && context <= LOW_REMAINING;
   const quotaBlocked = !!paused?.startsWith('cuota agotada:');
@@ -642,7 +663,7 @@ export default function Session({ session, project, hidden, switching, providerP
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}
-        <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerPicker={providerPicker} onDiff={openDiff} observation={observation} onActivity={setDirectState} onModel={onModel}
+        <Coordinator project={project} session={session} hidden={hidden} switching={switching} providerSwitch={providerSwitch} onDiff={openDiff} observation={observation} onActivity={setDirectState} onModel={onModel}
           onContext={setContext} onConversation={setCodexHasWork} />
       </> : <>
       {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
@@ -653,6 +674,7 @@ export default function Session({ session, project, hidden, switching, providerP
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
         {notice && <div className="co-notice">{notice}</div>}
         {autoNotes.map((note, i) => <div key={i} className="co-auto"><Icon name="check" size={12} />{note}</div>)}
+        {permission.error && <div className="co-error">{permission.error}</div>}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
             <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
@@ -660,58 +682,93 @@ export default function Session({ session, project, hidden, switching, providerP
           </div>
         ) : <div className="co-error">{error}</div>)}
       </ConversationLog>
-      <Composer
-        providerPicker={providerPicker}
-        context={!manager && <SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} />}
-        permission={!manager && <PermissionChip mode={permission.mode} onMode={permission.setMode} />}
-        draftKey={manager ? `pm:${project}` : `session:${session.id}`}
-        disabled={switching === true}
-        running={running}
-        efforts={isClaude ? ['auto', ...CLAUDE_EFFORTS] : []}
-        autoHint="Claude Code usa su nivel por defecto"
-        effort={effort}
-        onEffort={setEffort}
-        model={
-          <>
-            {isClaude && claudeModels.length ? <ChipMenu label="Modelo Claude" heading="Modelo" value={pinned ?? ''} disabled={running || !!switching}
-              display={pinned ? claudeModels.find((item) => item.id === pinned)?.label ?? pinned : 'modelo automático'}
-              options={[
+      {(() => {
+        const engineTitle = isClaude ? 'Claude Code' : engine;
+        const claudeEfforts = isClaude ? ['auto', ...CLAUDE_EFFORTS] : [];
+        const acpReasoning = acpOptions.filter((o) => o.category !== 'model');
+        const modelDisplay = isClaude
+          ? (pinned ? claudeModels.find((item) => item.id === pinned)?.label ?? pinned : (claudeModels.length ? 'Automático' : (model ?? 'Automático')))
+          : (modelOption ? (modelOption.options.find((x) => x.value === modelOption.currentValue)?.name ?? modelOption.currentValue) : (model ?? ''));
+        const modelConfig = isClaude && claudeModels.length
+          ? {
+              value: pinned ?? '',
+              disabled: running || !!switching,
+              options: [
                 { value: '', label: 'Automático', hint: model ? `Claude Code elige; ahora ${model}` : 'Claude Code elige el modelo' },
                 ...(pinned && !claudeModels.some((item) => item.id === pinned) ? [{ value: pinned, label: pinned, hint: 'No disponible', disabled: true }] : []),
                 ...claudeModels.map((item) => ({ value: item.id, label: item.label })),
-              ]}
-              onChange={(value) => {
-                sessions.setOption(session.id, 'model', value).then(() => { setPinned(value || null); setContext(null); claudeContext.current = null; }, (error) => setError(String(error)));
-              }} /> : providerPicker ? <span className="chip is-static">{model ?? 'modelo automático'}</span>
-              : <span className="chip is-static"><ProviderLogo engine={session.engine} />
-              {engine}
-              {model && !acpOptions.some((o) => o.category === 'model') ? ` · ${model}` : ''}
-            </span>}
-            {manager?.task && <button className="co-btn" onClick={manager.clearTask} title="desvincular los próximos mensajes" disabled={running}>
-              #{manager.task.id} {manager.task.title} ×
-            </button>}
-            {acpOptions.map((o) => {
-              const isModel = o.category === 'model';
-              const current = o.options.find((x) => x.value === o.currentValue)?.name ?? o.currentValue;
-              return (
-                <ChipMenu
-                  key={o.id}
-                  label={isModel ? 'Modelo' : 'Razonamiento'}
-                  heading={isModel ? 'Modelo' : 'Razonamiento'}
-                  value={o.currentValue}
-                  disabled={running}
-                  display={isModel ? current : `razonamiento ${current}`}
-                  options={o.options.map((x) => ({ value: x.value, label: x.name }))}
-                  onChange={(value) => setOption(o.id, value)}
-                />
-              );
-            })}
-          </>
-        }
-        onSend={send}
-        onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
-        placeholder={`encargo para ${session.name}`}
-      />
+              ],
+              onChange: (value: string) => {
+                sessions.setOption(session.id, 'model', value).then(() => { setPinned(value || null); setContext(null); claudeContext.current = null; }, (err) => setError(String(err)));
+              },
+            }
+          : modelOption
+            ? {
+                value: modelOption.currentValue,
+                disabled: running,
+                options: modelOption.options.map((x) => ({ value: x.value, label: x.name })),
+                onChange: (value: string) => setOption(modelOption.id, value),
+              }
+            : undefined;
+        const reasoningGroups: ReasoningGroup[] = isClaude
+          ? [{
+              id: 'effort',
+              heading: 'Razonamiento',
+              value: effort,
+              disabled: switching === true,
+              options: buildEffortOptions(claudeEfforts, 'Claude Code usa su nivel por defecto'),
+              onChange: (value) => { beep('tick'); setEffort(value); },
+            }]
+          : acpReasoning.map((o) => ({
+              id: o.id,
+              heading: o.name || 'Razonamiento',
+              value: o.currentValue,
+              disabled: running,
+              options: o.options.map((x) => ({ value: x.value, label: x.name })),
+              onChange: (value) => setOption(o.id, value),
+            }));
+        const reasoningDisplay = isClaude
+          ? effortLabel(effort)
+          : acpReasoning.map((o) => o.options.find((x) => x.value === o.currentValue)?.name ?? o.currentValue).filter(Boolean).join(' · ') || undefined;
+        return (
+          <Composer
+            context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} />}
+            permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
+            draftKey={manager ? `pm:${project}` : `session:${session.id}`}
+            disabled={switching === true}
+            running={running}
+            efforts={claudeEfforts}
+            effort={effort}
+            onEffort={setEffort}
+            model={
+              <ModelConfigMenu
+                persistKey={manager ? `pm:${project}` : `session:${session.id}`}
+                hidden={hidden}
+                switching={switching === true}
+                loadingModels={isClaude && loadingClaudeModels && !claudeModels.length}
+                engine={session.engine}
+                engineLabel={engineTitle}
+                provider={providerSwitch}
+                modelDisplay={modelDisplay}
+                model={modelConfig}
+                reasoning={reasoningGroups}
+                reasoningDisplay={reasoningDisplay}
+                disabled={switching === true}
+                title={shortcut(isClaude ? 'Proveedor, modelo y razonamiento · ⌘M · ⌘⇧E' : 'Modelo y razonamiento · ⌘M')}
+              />
+            }
+            topExtra={manager?.task && (
+              <button className="co-top-chip" onClick={manager.clearTask} title="Desvincular los próximos mensajes" disabled={running}>
+                <span>#{manager.task.id} {manager.task.title}</span>
+                <span className="co-top-x" aria-hidden="true">×</span>
+              </button>
+            )}
+            onSend={send}
+            onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
+            placeholder="/filigranas"
+          />
+        );
+      })()}
       </>}
     </section>
   );

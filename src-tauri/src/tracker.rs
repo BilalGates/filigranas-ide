@@ -35,9 +35,11 @@ impl Tracker {
 
     pub fn started(&self, id: i64) {
         self.update(id, |t| {
-            t.running = true;
-            t.exited = false;
-            t.current.clear();
+            if !t.running {
+                t.running = true;
+                t.exited = false;
+                t.current.clear();
+            }
         });
     }
 

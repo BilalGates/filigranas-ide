@@ -71,7 +71,7 @@ function relsOf(m: Mem, links: BrainLink[]) {
 }
 const relLabel = (type: BrainLinkKind, inv: boolean) => inv && type === 'sustituye' ? 'Sustituida por' : inv && type === 'depende' ? 'La necesitan' : inv && type === 'refina' ? 'Refinada por' : RELT[type][0];
 
-export default function BrainView({ project, projects, onOpenTask }: { project: string | null; projects: Project[]; onOpenTask: (id: number, project: string | null) => void }) {
+export default function BrainView({ project, projects, onOpenTask, onUseInChat }: { project: string | null; projects: Project[]; onOpenTask: (id: number, project: string | null) => void; onUseInChat?: (snippet: string) => void }) {
   const [savedLens, setLensState] = useState<Lens>(() => { try { const v = localStorage.getItem('filigranas.brain.lente') as Lens | null; return v && ['map', 'focus', 'index', 'ctx'].includes(v) ? v : 'map'; } catch { return 'map'; } });
   const setLens = (l: Lens) => { setLensState(l); try { localStorage.setItem('filigranas.brain.lente', l); } catch { /* */ } };
   const [p, setScope] = useState<string | null>(project);
@@ -256,7 +256,7 @@ export default function BrainView({ project, projects, onOpenTask }: { project: 
         <aside className="insp" id="binsp" aria-label="Ficha del recuerdo">
           {m?.inferred && m.project ? <InferenceInspector key={m.id} memory={m.inferred} project={m.project}
             onChanged={load} onDecided={(id) => { pick(id); void load(); }} /> : m ? <Insp key={`${m.id}:${revision}`} m={m} mems={mems} links={links} project={linkProject} scopeAll={p == null} lens={lens}
-            onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(draft) => setEditing({ draft, project: m.project })} onChanged={load} onForgot={() => { setSel(null); void load(); }} />
+            onSel={pick} onFocus={openFocus} onTask={onOpenTask} onEdit={(draft) => setEditing({ draft, project: m.project })} onChanged={load} onForgot={() => { setSel(null); void load(); }} onUseInChat={onUseInChat} />
             : selectedNode && graph ? <div className="sec">
                 <span className="lab">{brainNetworkLabel(selectedNode.kind)}</span><h3>{selectedNode.title}</h3>
                 {selectedNode.body && <p className="mut2">{selectedNode.body}</p>}
@@ -587,9 +587,9 @@ function InferenceInspector({ memory, project, onChanged, onDecided }: {
   </>;
 }
 
-function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask, onEdit, onChanged, onForgot }: {
+function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask, onEdit, onChanged, onForgot, onUseInChat }: {
   m: Mem; mems: Mem[]; links: BrainLink[]; project: string | null; scopeAll: boolean; lens: Lens;
-  onSel: (id: number) => void; onFocus: (id: number) => void; onTask: (id: number, project: string | null) => void; onEdit: (d: BrainDraft) => void; onChanged: () => void; onForgot: () => void;
+  onSel: (id: number) => void; onFocus: (id: number) => void; onTask: (id: number, project: string | null) => void; onEdit: (d: BrainDraft) => void; onChanged: () => void; onForgot: () => void; onUseInChat?: (snippet: string) => void;
 }) {
   const [full, setFull] = useState<BrainEntry | null>(null);
   const [target, setTarget] = useState<number | ''>('');
@@ -615,6 +615,11 @@ function Insp({ m, mems, links, project, scopeAll, lens, onSel, onFocus, onTask,
         <div className="row" style={{ marginBottom: 8 }}><i className="kd" style={{ ['--c' as string]: c, background: c }} /><span className="lab">{KIND[m.k][0]}</span><span className="grow" /><span className="chip">aprobado por ti</span></div>
         <p className={`statement in brain-memory-statement${m.status === 'sustituido' ? ' strike' : ''}`}>{m.x}</p>
         <div className="row wrap" style={{ marginTop: 10 }}>
+          {onUseInChat && (
+            <button className="btn sm" onClick={() => onUseInChat(`[Brain · ${KIND[m.k][2]} #${m.id}] ${m.x}${m.why && m.why !== m.x ? `\n${m.why}` : ''}`)}>
+              <Icon name="chat" size={12} /> Usar en chat
+            </button>
+          )}
           <button className="btn sm" disabled={!full} onClick={() => full && onEdit(full)}><Icon name="edit" size={12} /> Corregir</button>
           {lens !== 'focus' && <button className="btn sm" onClick={() => onFocus(m.id)}><Icon name="focus" size={12} /> Foco</button>}
           <span className="grow" />

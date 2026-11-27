@@ -32,9 +32,9 @@ mod pty;
 mod rpc;
 mod runs;
 mod services;
-mod sharing;
 mod system_curl;
 mod skills;
+mod sysmon;
 mod tasks;
 mod tools;
 mod tracker;
@@ -57,7 +57,6 @@ pub(crate) struct AppState {
     pub project_watcher: Mutex<Option<notify::RecommendedWatcher>>,
     pub ptys: pty::Ptys,
     pub services: services::ServiceProcesses,
-    pub sharing: sharing::Sharing,
     pub github_login: github_login::GithubLogin,
     pub codex: codex::Codex,
     pub claude: claude::Claude,
@@ -67,6 +66,7 @@ pub(crate) struct AppState {
     pub approvals: approval::Approvals,
     /// Nivel de permisos elegido para cada sesión (pedir, automático o total).
     pub permissions: autoapprove::Modes,
+    pub sysmon: sysmon::Monitor,
     pub jev_gate: Mutex<()>,
     pub chat_gate: Mutex<()>,
     // Se libera después de destruir los recursos del perfil.
@@ -139,7 +139,6 @@ pub fn run() {
                 project_watcher: Mutex::new(None),
                 ptys: Default::default(),
                 services: Default::default(),
-                sharing: Default::default(),
                 github_login: Default::default(),
                 codex: Default::default(),
                 claude: Default::default(),
@@ -148,6 +147,7 @@ pub fn run() {
                 publication: Default::default(),
                 approvals: Default::default(),
                 permissions: Default::default(),
+                sysmon: Default::default(),
                 jev_gate: Default::default(),
                 chat_gate: Default::default(),
             });
@@ -213,6 +213,8 @@ pub fn run() {
             git_ops::git_commit_detail,
             workspace::get_workspace,
             home::home_summary,
+            home::recent_sessions,
+            home::home_activity,
             workspace::default_root,
             workspace::set_root,
             workspace::create_group,
@@ -232,16 +234,6 @@ pub fn run() {
             browser::browser_bookmark,
             browser::browser_bookmark_remove,
             browser::browser_history_clear,
-            sharing::share_start,
-            sharing::share_current,
-            sharing::share_stop,
-            sharing::share_access,
-            sharing::share_join,
-            sharing::share_status,
-            sharing::share_list,
-            sharing::share_read,
-            sharing::share_write,
-            sharing::share_leave,
             files::list_dir,
             files::read_text,
             files::write_text,
@@ -276,8 +268,10 @@ pub fn run() {
             chat::chat_pm,
             chat::chat_history,
             chat::chat_switch,
+            claude::session_catalog,
             claude::session_list,
             claude::session_create,
+            claude::session_create_subsession,
             claude::session_history,
             claude::session_send,
             claude::session_interrupt,
@@ -324,6 +318,7 @@ pub fn run() {
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,
+            sysmon::system_metrics,
             window::window_backdrop,
         ]))
         .build(tauri::generate_context!())

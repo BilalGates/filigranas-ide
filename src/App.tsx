@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
@@ -82,6 +82,27 @@ const loadPm = (): Set<string> => {
 
 // `session`: terminal en el worktree de una sesión aislada (su nombre como etiqueta).
 type TerminalTab = { id: number; project: string; number: number; session?: number; label?: string; initial?: string };
+
+// Acciones de la cabecera del Workspace: paneles, disposición y vuelta desde Código.
+const WS_ACTIONS = '.ws-panels, .ws-layout, .ws-back';
+
+/** El ratón no deja el foco en ellas: Chromium pintaba el anillo con la siguiente tecla. */
+function noMouseFocus(e: ReactMouseEvent) {
+  e.preventDefault();
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused.closest(WS_ACTIONS)) focused.blur();
+}
+
+/** Si el cambio de disposición oculta el botón con el foco, el teclado pasa a su equivalente visible. */
+function followFocus() {
+  const from = document.activeElement;
+  if (!from?.closest(WS_ACTIONS)) return;
+  const shown = (el: Element) => el.isConnected && getComputedStyle(el).visibility !== 'hidden';
+  requestAnimationFrame(() => {
+    if (shown(from)) return;
+    [...document.querySelectorAll<HTMLElement>('.ws-back .tr-btn, .ws-layout [aria-pressed="true"]')].find(shown)?.focus();
+  });
+}
 
 export default function App() {
   useQuotaEvents();
@@ -608,6 +629,7 @@ export default function App() {
     ensureWorkspaceVisible();
   };
   const showRight = (tab: RightTab) => {
+    followFocus();
     if (tab === rightView && !noRight && shell.mode !== 'maximized' && shell.mode !== 'compact') setNoRight(true);
     else revealRight(tab);
   };
@@ -807,6 +829,7 @@ export default function App() {
   // libre. Dividida: conversación + editor ancho. Código: el editor ocupa
   // el centro (la conversación y los terminales siguen montados).
   const setLayout = (next: 'chat' | 'split' | 'code') => {
+    followFocus();
     setLayoutState(next);
     try { localStorage.setItem('filigranas.disposicion', next); } catch { /* sin almacenamiento */ }
     // Conversación: el chat ocupa el centro sin panel lateral, como en Trama.
@@ -1009,7 +1032,7 @@ export default function App() {
   });
   // Cambios y Archivos: en la cabecera del Workspace y, en Código, junto a «Conversación».
   const panelButtons = (
-    <div className="ws-panels tr-seg" role="group" aria-label="Paneles del proyecto">
+    <div className="ws-panels tr-seg" role="group" aria-label="Paneles del proyecto" onMouseDown={noMouseFocus}>
       {(['git', 'files'] as const).map((id) => {
         const panel = RIGHT_PANELS[id];
         const active = panelOpen && rightView === id;
@@ -1358,7 +1381,7 @@ export default function App() {
                     <span className="grow" />
                     {current && !geometry.collapseWorkspaceSidebar && panelButtons}
                     {current && !geometry.collapseWorkspaceSidebar && (
-                      <div className="ws-layout"><Seg label="Disposición" value={visibleDisposition(layout, wsPanelOpen, rightView === 'observe')} onChange={setLayout} items={[
+                      <div className="ws-layout" onMouseDown={noMouseFocus}><Seg label="Disposición" value={visibleDisposition(layout, wsPanelOpen, rightView === 'observe')} onChange={setLayout} items={[
                         { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
                     )}
                     {activeSession && (
@@ -1507,7 +1530,7 @@ export default function App() {
                 observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
                 root={ws.root} location={panelLocation}
                 actions={codeView && (
-                  <div className="ws-back">
+                  <div className="ws-back" onMouseDown={noMouseFocus}>
                     {current && panelButtons}
                     <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
                       <Icon name="chat" size={13} /> Conversación

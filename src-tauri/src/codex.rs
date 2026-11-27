@@ -43,16 +43,21 @@ fn retire_persona() -> Value {
     })
 }
 
-/// Parámetros comunes de `thread/start` y `thread/resume`: el proyecto como
-/// carpeta de trabajo, escritura dentro de él y aprobación para el resto
-/// (decisión del usuario del 2026-11-16).
+/// Parámetros comunes de `thread/start` y `thread/resume`.
+/// El Project Manager (`direct == false`) opera SIEMPRE en sandbox `read-only`
+/// y jamás puede ejecutar comandos ni modificar archivos: todo trabajo técnico
+/// debe delegarse mediante herramientas dinámicas.
 fn thread_params(cwd: &str, direct: bool, rules: &str) -> Value {
     json!({
         "cwd": cwd,
-        "sandbox": "workspace-write",
+        "sandbox": if direct { "workspace-write" } else { "read-only" },
         "approvalPolicy": "on-request",
         "developerInstructions": instructions(direct, rules),
     })
+}
+
+fn is_pm_codex_thread(sessions: &HashMap<String, i64>, projects: &HashMap<String, String>, thread: &str) -> bool {
+    !sessions.contains_key(thread) && projects.contains_key(thread)
 }
 
 struct Server {
@@ -342,23 +347,33 @@ impl Codex {
                         let _ = rpc.respond_error(id, "Filigranas no admite esta petición todavía");
                         return;
                     }
-                    // En full control Filigranas aprueba por su cuenta. En automático no:
-                    // con el sandbox de Codex estas peticiones ya son salidas de la carpeta.
+                    // Garantía arquitectónica: el Project Manager en Codex NUNCA ejecuta
+                    // comandos ni modifica archivos; toda solicitud de ejecución/edición se rechaza.
                     let thread = params["threadId"].as_str().unwrap_or("").to_string();
-                    let permissions = &handle.state::<AppState>().permissions;
-                    let mode = if let Some(sid) = sh.sessions.get(&thread) {
-                        permissions.get(*sid)
-                    } else if let Some(project) = sh.projects.get(&thread) {
-                        permissions.get_project(project)
+                    if is_pm_codex_thread(&sh.sessions, &sh.projects, &thread) {
+                        let _ = rpc.respond(id.clone(), json!({ "decision": "decline" }));
+                        Event {
+                            method: "filigranas/pmExecutionBlocked".into(),
+                            params: json!({ "threadId": thread, "request": method }),
+                            request_id: None,
+                        }
                     } else {
-                        crate::autoapprove::Mode::Ask
-                    };
-                    let full = mode == crate::autoapprove::Mode::Full;
-                    if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
-                        Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
-                    } else {
-                        sh.approvals.insert(id.to_string());
-                        Event { method, params, request_id: Some(id) }
+                        // En full control Filigranas aprueba por su cuenta en sesiones ejecutoras.
+                        let permissions = &handle.state::<AppState>().permissions;
+                        let mode = if let Some(sid) = sh.sessions.get(&thread) {
+                            permissions.get(*sid)
+                        } else if let Some(project) = sh.projects.get(&thread) {
+                            permissions.get_project(project)
+                        } else {
+                            crate::autoapprove::Mode::Ask
+                        };
+                        let full = mode == crate::autoapprove::Mode::Full;
+                        if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
+                            Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
+                        } else {
+                            sh.approvals.insert(id.to_string());
+                            Event { method, params, request_id: Some(id) }
+                        }
                     }
                 }
                 Incoming::Closed => {
@@ -916,14 +931,30 @@ mod tests {
 
     #[test]
     fn thread_params_ask_before_leaving_the_project() {
-        let p = thread_params("/r/p", false, crate::skills::RULES);
-        assert_eq!((p["cwd"].as_str(), p["sandbox"].as_str(), p["approvalPolicy"].as_str()), (Some("/r/p"), Some("workspace-write"), Some("on-request")));
-        let text = p["developerInstructions"].as_str().unwrap();
+        let pm = thread_params("/r/p", false, crate::skills::RULES);
+        assert_eq!(
+            (pm["cwd"].as_str(), pm["sandbox"].as_str(), pm["approvalPolicy"].as_str()),
+            (Some("/r/p"), Some("read-only"), Some("on-request"))
+        );
+        let exec = thread_params("/r/p", true, crate::skills::RULES);
+        assert_eq!(
+            (exec["cwd"].as_str(), exec["sandbox"].as_str(), exec["approvalPolicy"].as_str()),
+            (Some("/r/p"), Some("workspace-write"), Some("on-request"))
+        );
+        let text = pm["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE"));
         assert!(text.contains("Project manager"));
+        assert!(text.contains("NUNCA ejecutas trabajo técnico directamente"));
         let switch = retire_persona();
         assert_eq!((switch["role"].as_str(), switch["content"][0]["type"].as_str()), (Some("developer"), Some("input_text")));
         assert!(switch["content"][0]["text"].as_str().unwrap().contains("Project manager"));
+
+        let mut sessions = HashMap::new();
+        sessions.insert("exec-t".into(), 1);
+        let mut projects = HashMap::new();
+        projects.insert("pm-t".into(), "/r/p".into());
+        assert!(is_pm_codex_thread(&sessions, &projects, "pm-t"));
+        assert!(!is_pm_codex_thread(&sessions, &projects, "exec-t"));
     }
 
     /// Contra Codex real: necesita sesión iniciada y gasta un turno corto.

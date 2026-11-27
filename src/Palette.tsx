@@ -1,15 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { shortcut } from './ui';
 
-export type Command = { id: string; label: string; keys?: string; run: () => void; group?: string };
+export type Command = {
+  id: string;
+  label: string;
+  keys?: string;
+  run: () => void;
+  group?: string;
+  subtitle?: string;
+  keywords?: string;
+  state?: 'trabajando' | 'permiso' | null;
+};
 
-/** Paleta de órdenes (⌘K): se filtra escribiendo y se maneja con flechas y ↩. */
+/** Búsqueda global (⌘K): proyectos, sesiones y órdenes con navegación por teclado. */
 export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const list = useRef<HTMLDivElement>(null);
-  const query = q.trim().toLowerCase();
-  const hits = commands.filter((c) => !query || c.label.toLowerCase().includes(query) || c.group?.includes(query));
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = commands.filter((c) => {
+    if (!terms.length) return true;
+    const hay = `${c.label} ${c.subtitle ?? ''} ${c.group ?? ''} ${c.keywords ?? ''}`.toLowerCase();
+    return terms.every((t) => hay.includes(t));
+  });
   const at = Math.min(sel, Math.max(0, hits.length - 1));
 
   useEffect(() => {
@@ -23,11 +36,11 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
 
   return (
     <div className="veil" onMouseDown={onClose}>
-      <div className="pal" role="dialog" aria-label="Órdenes" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="pal" role="dialog" aria-label="Buscar proyecto, sesión u orden" onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
-          aria-label="Buscar orden"
-          placeholder="orden, sesión o vista"
+          aria-label="Buscar proyecto, sesión u orden"
+          placeholder="Buscar proyecto, sesión u orden…"
           value={q}
           spellCheck={false}
           onChange={(e) => {
@@ -51,13 +64,30 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
           }}
         />
         <div className="pal-list" ref={list} role="listbox">
-          {hits.map((c, i) => (
-            <button key={c.id} role="option" aria-selected={i === at} className={`pal-item${i === at ? ' is-sel' : ''}`} onMouseEnter={() => setSel(i)} onClick={() => run(c)}>
-              <span className="grow">{c.label}</span>
-              {c.keys && <span className="kbd">{shortcut(c.keys)}</span>}
-            </button>
-          ))}
-          {hits.length === 0 && <div className="pal-empty">nada coincide</div>}
+          {hits.map((c, i) => {
+            const prevGroup = i > 0 ? hits[i - 1].group : undefined;
+            const showGroup = c.group && c.group !== prevGroup;
+            return (
+              <Fragment key={c.id}>
+                {showGroup && <div className="pal-group">{c.group}</div>}
+                <button
+                  role="option"
+                  aria-selected={i === at}
+                  className={`pal-item${i === at ? ' is-sel' : ''}`}
+                  onMouseEnter={() => setSel(i)}
+                  onClick={() => run(c)}
+                >
+                  {c.state && <span className={`dot is-${c.state}`} aria-hidden="true" />}
+                  <span className="pal-main">
+                    <span className="pal-label">{c.label}</span>
+                    {c.subtitle && <span className="pal-sub">{c.subtitle}</span>}
+                  </span>
+                  {c.keys && <span className="kbd">{shortcut(c.keys)}</span>}
+                </button>
+              </Fragment>
+            );
+          })}
+          {hits.length === 0 && <div className="pal-empty">Nada coincide</div>}
         </div>
       </div>
     </div>

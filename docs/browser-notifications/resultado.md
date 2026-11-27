@@ -56,7 +56,7 @@ Todas las pruebas de navegación de esta tabla usan el motor nativo, sin mock de
 | Permiso fijado y navegación a la sesión/proyecto propietario | [Fixture del componente real en WKWebView](evidence/native-permission-fixture.json), incluso después de 70 eventos y limpieza del historial |
 | Posicionamiento y presentación comparables | [Antes](evidence/before-notifications.png), [después](evidence/after-notifications.png), [expandida](evidence/after-notifications-comparison-expanded.png): misma ventana de 1440×900, estado global, Google y los mismos dos eventos |
 
-Los permisos y eventos de notificaciones se alimentaron con fixtures explícitas; no se concedió autorización a ningún proveedor ni se ejecutó un turno autenticado para producirlas. La navegación HTTP y la carga de Google/Example Domain sí fueron reales. No se instrumentó la consola de las páginas externas; el controlador recoge errores de la interfaz principal y comprueba estados del motor y mensajes visibles. No se atribuyeron a sitios externos los errores de preparación del controlador o de HMR.
+Los permisos y eventos de notificaciones se alimentaron con fixtures explícitas; no se concedió autorización a ningún proveedor ni se ejecutó un turno autenticado para producirlas. La navegación HTTP y la carga de Google/Example Domain sí fueron reales. No se instrumentó la consola de las páginas externas; el controlador recoge errores de la interfaz principal y comprueba estados del motor y mensajes visibles. Durante la edición por HMR, React avisó de un cambio en la longitud del array de dependencias de un efecto; se reinició el proceso nativo antes de la validación final. No se atribuyeron a sitios externos los errores de preparación del controlador o de HMR.
 
 Comprobaciones finales ejecutadas:
 
@@ -78,7 +78,7 @@ Los resúmenes de comandos quedan en [checks.json](evidence/checks.json). Ambien
 - Ocultar/cerrar el panel y alternar proyectos conserva el documento y la pila atrás/adelante durante el proceso. Tras salir completamente de la aplicación se recupera **la última URL**, no se serializan la pila privada de WKWebView, cookies de incógnito, formularios ni scroll.
 - Los diagnósticos de notificaciones se conservan completos dentro del historial existente, limitado a 60 grupos y a la vida del proceso. No se añadió persistencia nueva para ese historial.
 - Falta ejecutar el flujo con permisos y finalizaciones de proveedores autenticados y validar Windows/WebView2. Las fixtures nativas comprueban presentación y destinos, no sustituyen esos recorridos.
-- No hay push ni merge. La instalación habitual no se ha reemplazado. La copia inicial de caché arrastró inadvertidamente un `.app` antiguo; se retiró del worktree a la papelera, sin ejecutarlo ni instalarlo. Las ejecuciones de aceptación utilizaron exclusivamente `target/debug/filigranas`.
+- Este agente no ejecutó push ni merge. En la comprobación final, `git ls-remote` confirmó que la referencia remota de esta rama está en `d5042df`, la instantánea previa. El reflog registra `update by push` a las 13:16:55; no se ha determinado su autoría. Los commits propios de implementación, pruebas e informe permanecen por delante de ese SHA remoto. [Comprobación de entrega](evidence/git-delivery.json). La instalación habitual no se ha reemplazado. La copia inicial de caché arrastró inadvertidamente un `.app` antiguo; se retiró del worktree a la papelera, sin ejecutarlo ni instalarlo. Las ejecuciones de aceptación utilizaron exclusivamente `target/debug/filigranas`.
 
 ## ARCHIVOS Y COMMITS
 

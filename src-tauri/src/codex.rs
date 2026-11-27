@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -261,15 +261,10 @@ impl Codex {
             let _ = old.child.kill();
             let _ = old.child.wait();
         }
-        let mut cmd = Command::new(program("codex"));
+        let mut cmd = crate::cli::command(program("codex"));
         cmd.arg("app-server").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
         let mut child = cmd.spawn().map_err(|e| format!("no se pudo arrancar codex ({e}); comprueba que Codex CLI está instalado"))?;
         let (stdout, stdin) = (child.stdout.take().ok_or("sin salida de codex")?, child.stdin.take().ok_or("sin entrada de codex")?);
@@ -962,7 +957,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_codex_turn() {
-        let mut child = Command::new("codex")
+        let mut child = crate::cli::command("codex")
             .arg("app-server")
             .env("PATH", login_path().unwrap_or_default())
             .stdin(Stdio::piped())

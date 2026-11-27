@@ -4,7 +4,6 @@
 //! imprime, para que la interfaz lo muestre tal cual.
 
 use std::path::Path;
-use std::process::Command;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -17,7 +16,7 @@ fn run(project: &str, args: &[&str]) -> Result<String, String> {
     if !Path::new(project).join(".git").exists() {
         return Err(format!("{project} no es un repositorio git"));
     }
-    let out = Command::new("git")
+    let out = crate::cli::command("git")
         .arg("-C")
         .arg(project)
         .args(args)
@@ -408,7 +407,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("filigranas-git-ops-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.to_str().unwrap();
-        assert!(Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&dir).status().unwrap().success());
+        assert!(crate::cli::command("git").args(["init", "-q", "-b", "main"]).current_dir(&dir).status().unwrap().success());
         // Sin conversión de finales de línea: el resultado no depende de la configuración global (Windows).
         for args in [vec!["config", "user.email", "t@t"], vec!["config", "user.name", "t"], vec!["config", "core.autocrlf", "false"]] {
             run(p, &args).unwrap();

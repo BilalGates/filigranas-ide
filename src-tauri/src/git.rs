@@ -1,5 +1,4 @@
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
@@ -22,18 +21,12 @@ pub(crate) fn git(repo: &Path, args: &[&str]) -> CmdResult<Vec<u8>> {
 }
 
 pub(crate) fn git_output(repo: &Path, args: &[&str]) -> CmdResult<std::process::Output> {
-    let _execution = crate::updates::Execution::enter()?;
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::cli::command("git");
     cmd.arg("-C")
         .arg(repo)
         .args(["--no-optional-locks", "-c", "core.quotepath=off", "-c", "color.ui=never"])
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
     cmd.output().map_err(|e| format!("no se pudo ejecutar git: {e}"))
 }
 

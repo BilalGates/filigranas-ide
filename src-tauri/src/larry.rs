@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -62,7 +62,7 @@ fn parse_script(out: &str) -> CmdResult<Vec<ScriptGroup>> {
 }
 
 fn run_script(repo: &Path) -> CmdResult<String> {
-    let mut cmd = Command::new(crate::cli::program("node"));
+    let mut cmd = crate::cli::command(crate::cli::program("node"));
     cmd.args(["--input-type=module", "-", "--json"]).current_dir(repo).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if let Some(path) = login_path() {
         cmd.env("PATH", path);
@@ -273,7 +273,7 @@ pub struct Outcome {
 }
 
 fn git_env(repo: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::cli::command("git");
     cmd.arg("-C").arg(repo).args(args).env("GIT_TERMINAL_PROMPT", "0");
     // Los hooks (husky, lint-staged…) necesitan el PATH del usuario.
     if let Some(path) = login_path() {

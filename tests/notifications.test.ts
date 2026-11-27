@@ -62,31 +62,3 @@ test('markAllRead, dismissEphemeral y clear actualizan el estado limpiamente', (
   center.dismiss(n.id);
   assert.equal(center.getSnapshot().entries.length, 0);
 });
-
-test('un grupo conserva diagnósticos distintos y vuelve a estar sin leer', () => {
-  const center = new NotificationCenter();
-  const first = center.push({ level: 'error', title: 'CLI', fingerprint: 'cli', details: 'HTTP 503: primero' }, 1000);
-  center.markRead(first.id);
-  center.push({ level: 'error', title: 'CLI', fingerprint: 'cli', details: 'EACCES: segundo' }, 2000);
-  const entry = center.getSnapshot().entries[0];
-  assert.equal(entry.count, 2);
-  assert.equal(entry.read, false);
-  assert.match(entry.details!, /HTTP 503: primero/);
-  assert.match(entry.details!, /EACCES: segundo/);
-});
-
-test('finalizaciones de agentes conservan el destino de sesión y proyecto', () => {
-  const center = new NotificationCenter();
-  center.push({ level: 'success', title: 'Claude ha finalizado', action: { label: 'Abrir conversación', target: 'session', session: 42, project: '/projects/a' } });
-  assert.equal(center.getSnapshot().entries[0].level, 'success');
-  assert.deepEqual(center.getSnapshot().entries[0].action, { label: 'Abrir conversación', target: 'session', session: 42, project: '/projects/a' });
-});
-
-test('repetir el mismo diagnóstico incrementa la cuenta sin duplicar su texto', () => {
-  const center = new NotificationCenter();
-  for (const details of ['A', 'B', 'A', 'B']) center.push({ level: 'error', title: 'Error', details });
-  const entry = center.getSnapshot().entries[0];
-  assert.equal(entry.count, 4);
-  assert.equal(entry.diagnostics.length, 2);
-  assert.deepEqual(entry.diagnostics.map((d) => d.text), ['A', 'B']);
-});

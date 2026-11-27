@@ -11,7 +11,6 @@ type Props = {
 };
 type Action = 'back' | 'forward' | 'reload';
 type Library = 'bookmarks' | 'history';
-type ProjectBrowserState = { url: string; entries: string[]; index: number };
 
 function webAddress(address: string) {
   const value = address.trim();
@@ -33,153 +32,149 @@ export default function Browser({ visible, covered, target, project = null, proj
   const native = isTauri();
   const surface = useRef<HTMLDivElement>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const nav = useRef({ entries: [] as string[], index: -1 });
-  const byProject = useRef(new Map<string, ProjectBrowserState>());
-  const scopeKey = project ?? '__global__';
-  const currentScope = useRef(scopeKey);
+  const currentScope = useRef(project);
+  currentScope.current = project;
   const consumedTarget = useRef<Props['target']>(null);
-  const lastLocation = useRef('');
   const [url, setUrl] = useState('');
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
+  const [layoutError, setLayoutError] = useState<string | null>(null);
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof browser.status>> | null>(null);
   const [bookmarks, setBookmarks] = useState<BrowserEntry[]>([]);
   const [history, setHistory] = useState<BrowserEntry[]>([]);
   const [library, setLibrary] = useState<Library | null>(null);
   const active = visible && !covered;
 
-  const persistCurrentScope = useCallback((nextUrl: string) => {
-    byProject.current.set(currentScope.current, {
-      url: nextUrl,
-      entries: [...nav.current.entries],
-      index: nav.current.index,
-    });
-  }, []);
-
   const refreshLibrary = useCallback(async () => {
     if (!native) return;
-    try {
-      const [savedBookmarks, visitedPages] = await Promise.all([browser.bookmarks(), browser.history()]);
-      setBookmarks(savedBookmarks);
-      setHistory(visitedPages);
-    } catch (e) {
-      setError(String(e));
-    }
+    const [savedBookmarks, visitedPages] = await Promise.all([browser.bookmarks(), browser.history()]);
+    setBookmarks(savedBookmarks);
+    setHistory(visitedPages);
   }, [native]);
 
   const send = useCallback((operation: () => Promise<void>) => {
-    queue.current = queue.current.then(operation).catch((e) => setError(String(e)));
+    const scope = currentScope.current;
+    queue.current = queue.current.then(operation).catch((e) => {
+      if (currentScope.current === scope) setError(String(e));
+    });
   }, []);
 
   const open = useCallback((address: string) => {
-    try {
-      const next = webAddress(address);
-      setError(null);
-      setDraft(null);
-      if (native && surface.current) {
-        const rect = bounds(surface.current);
-        send(async () => {
-          await browser.open(next, rect);
-          setUrl(next);
-          lastLocation.current = next;
-          persistCurrentScope(next);
-          await refreshLibrary();
-        });
-      } else {
-        const entries = [...nav.current.entries.slice(0, nav.current.index + 1), next];
-        nav.current = { entries, index: entries.length - 1 };
-        setUrl(next);
-        persistCurrentScope(next);
-        setRevision((r) => r + 1);
-      }
-    } catch {
-      setError('Introduce una dirección HTTP o HTTPS válida.');
+    let next: string;
+    try { next = webAddress(address); }
+    catch { setError('Introduce una dirección HTTP o HTTPS válida.'); return; }
+    if (!native) {
+      setUrl(next);
+      setError('La navegación integrada requiere la aplicación Tauri. El modo web no puede garantizar la carga de páginas externas mediante iframe.');
+      return;
     }
-  }, [native, persistCurrentScope, refreshLibrary, send]);
-
-  // Aísla la sesión de navegación por proyecto activo sin perder historial al cambiar.
-  useEffect(() => {
-    if (currentScope.current === scopeKey) return;
-    byProject.current.set(currentScope.current, {
-      url: lastLocation.current || url,
-      entries: [...nav.current.entries],
-      index: nav.current.index,
-    });
-    currentScope.current = scopeKey;
-    const restored = byProject.current.get(scopeKey) ?? { url: '', entries: [], index: -1 };
-    nav.current = { entries: [...restored.entries], index: restored.index };
-    setDraft(null);
+    if (!surface.current) return;
+    const rect = bounds(surface.current);
     setError(null);
-    setUrl(restored.url);
-    setRevision((r) => r + 1);
-    if (native) {
-      if (active && restored.url && surface.current) {
-        const rect = bounds(surface.current);
-        send(async () => {
-          await browser.open(restored.url, rect);
-          lastLocation.current = restored.url;
-        });
-      } else if (!restored.url) {
-        lastLocation.current = '';
-        send(() => browser.place(null));
-      }
-    }
-  }, [scopeKey, active, native, send, url]);
+    setDraft(null);
+    setUrl(next);
+    setStatus(null);
+    send(async () => { await browser.open(next, rect, project); });
+  }, [native, project, send]);
+
+  useEffect(() => { setUrl(''); }, [project]);
+
+  // Read actual engine state. A project switch selects its existing WebView;
+  // only a session recovered after process restart needs a new navigation.
+  useEffect(() => {
+    setDraft(null); setError(null); setLayoutError(null); setStatus(null);
+    if (!native || !active) return;
+    let alive = true;
+    let polling = false;
+    let previousUrl = '';
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const next = await browser.status(project);
+        if (!alive) return;
+        setStatus(next);
+        setUrl(next.url);
+        if (next.loaded && next.url !== previousUrl) {
+          previousUrl = next.url;
+          await refreshLibrary();
+        }
+        if (!next.exists && next.url && surface.current) {
+          const rect = bounds(surface.current);
+          send(() => browser.open(next.url, rect, project));
+        }
+      } catch (e) { if (alive) setError(String(e)); }
+      finally { polling = false; }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 500);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, [active, native, project, refreshLibrary, send]);
 
   useEffect(() => {
-    if (active && native && url && url !== lastLocation.current && surface.current) {
-      const rect = bounds(surface.current);
-      send(async () => {
-        await browser.open(url, rect);
-        lastLocation.current = url;
-      });
-    }
-  }, [active, native, url, send]);
-
-  useEffect(() => {
-    if (active && target && target !== consumedTarget.current) {
+    if (active && target && target !== consumedTarget.current && (!target.project || target.project === project)) {
       consumedTarget.current = target;
       open(target.url);
     }
-  }, [active, target, open]);
+  }, [active, target, open, project]);
 
   useEffect(() => {
-    if (active) void refreshLibrary();
+    if (active) void refreshLibrary().catch((e) => setError(String(e)));
   }, [active, refreshLibrary]);
 
   useEffect(() => {
     const el = surface.current;
     if (!native || !el || !active) return;
-    const place = () => {
+    let frame = 0;
+    let alive = true;
+    let pending: BrowserBounds | null | undefined;
+    let placing = false;
+    let last = '';
+    const flush = () => {
+      if (placing || pending === undefined) return;
+      placing = true;
+      send(async () => {
+        try {
+          while (pending !== undefined) {
+            const rect = pending; pending = undefined;
+            await browser.place(rect, project);
+          }
+        } finally { placing = false; }
+      });
+    };
+    const measure = () => {
+      frame = 0;
+      if (!alive) return;
       const rect = bounds(el);
-      if (rect.width > 0 && rect.height > 0) send(() => browser.place(rect));
+      if (rect.width < 64 || rect.height < 64) {
+        pending = null;
+        setLayoutError('Browser no dispone de altura o anchura suficiente. Amplía el panel o vuelve a abrirlo.');
+      } else {
+        setLayoutError(null);
+        const key = JSON.stringify(rect);
+        if (last === key) return;
+        last = key; pending = rect;
+      }
+      flush();
     };
-    const observer = new ResizeObserver(place);
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const observer = new ResizeObserver(schedule);
     observer.observe(el);
-    window.addEventListener('resize', place);
-    place();
+    const mutations = new MutationObserver(schedule);
+    for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      mutations.observe(ancestor, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+    }
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
+    schedule();
     return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', place);
-      send(() => browser.place(null));
+      alive = false; cancelAnimationFrame(frame);
+      observer.disconnect(); mutations.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      pending = null; flush();
     };
-  }, [active, native, send]);
-
-  useEffect(() => {
-    if (!active || !native) return;
-    let mounted = true;
-    const timer = window.setInterval(() => {
-      void browser.location().then((next) => {
-        if (mounted && next && next !== 'about:blank' && next !== lastLocation.current) {
-          lastLocation.current = next;
-          setUrl(next);
-          persistCurrentScope(next);
-          void refreshLibrary();
-        }
-      }, () => {});
-    }, 700);
-    return () => { mounted = false; window.clearInterval(timer); };
-  }, [active, native, refreshLibrary]);
+  }, [active, native, project, send]);
 
   const saveBookmark = async () => {
     if (!url || !native) return;
@@ -212,24 +207,22 @@ export default function Browser({ visible, covered, target, project = null, proj
   };
 
   const act = (action: Action) => {
-    setDraft(null);
-    if (native) {
-      send(() => browser.action(action));
-    } else {
-      const { entries, index } = nav.current;
-      const next = index + (action === 'back' ? -1 : action === 'forward' ? 1 : 0);
-      if (!entries[next]) return;
-      nav.current.index = next;
-      setUrl(entries[next]);
-      setRevision((r) => r + 1);
-    }
+    setDraft(null); setError(null);
+    if (native) send(() => browser.action(action, project));
+  };
+  const problem = layoutError ?? error ?? status?.error;
+  const external = async () => {
+    try {
+      if (native) await browser.external(url);
+      else window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) { setError(String(e)); }
   };
 
   return (
     <section className="browser-panel" hidden={!visible} aria-label="Navegador integrado">
       <form className="browser-bar" onSubmit={(e) => { e.preventDefault(); if ((draft ?? url).trim()) open(draft ?? url); }}>
-        <button type="button" className="icon" disabled={!url} aria-label="Atrás" title="Atrás" onClick={() => act('back')}>‹</button>
-        <button type="button" className="icon" disabled={!url} aria-label="Adelante" title="Adelante" onClick={() => act('forward')}>›</button>
+        <button type="button" className="icon" disabled={!url || status?.canGoBack === false || !native} aria-label="Atrás" title="Atrás" onClick={() => act('back')}>‹</button>
+        <button type="button" className="icon" disabled={!url || status?.canGoForward === false || !native} aria-label="Adelante" title="Adelante" onClick={() => act('forward')}>›</button>
         <button type="button" className="icon" disabled={!url} aria-label="Recargar" title="Recargar" onClick={() => act('reload')}>↻</button>
         <input aria-label="Dirección web" placeholder="Dirección web o localhost:3000" value={draft ?? url}
           spellCheck={false} autoCapitalize="off" onChange={(e) => setDraft(e.target.value)}
@@ -242,6 +235,9 @@ export default function Browser({ visible, covered, target, project = null, proj
         <button type="button" className={`co-btn${library === 'history' ? ' is-on' : ''}`}
           onClick={() => setLibrary((current) => current === 'history' ? null : 'history')}>Historial</button>
         <span className="grow" />
+        {status?.loading && <span className="browser-loading" role="status">Cargando…</span>}
+        <button type="button" className="co-btn" disabled={!url} onClick={() => void external()}
+          aria-label="Abrir en el navegador del sistema" title="Abrir en el navegador del sistema">↗</button>
         {projectName && <span className="muted" style={{ fontSize: 11.5 }} title={project ?? undefined}>{projectName}</span>}
         <button type="button" className="co-btn" disabled={!url || !native} onClick={() => void saveBookmark()}
           aria-label="Guardar marcador" title="Guardar marcador">☆</button>
@@ -268,10 +264,13 @@ export default function Browser({ visible, covered, target, project = null, proj
           </div>
         </div>
       )}
-      {error && <p className="co-error" role="alert">{error}</p>}
+      {problem && <div className="browser-problem" role="alert">
+        <span>{problem}</span>
+        {url && <button type="button" className="co-btn" onClick={() => open(url)}>Reintentar</button>}
+      </div>}
       <div className="browser-surface" ref={surface}>
         {!url && <p className="muted">Introduce una dirección para abrir una página.</p>}
-        {!native && url && <iframe key={revision} title="Página web" src={url} sandbox="allow-forms allow-scripts" />}
+        {!native && url && <p className="muted">Abre esta dirección en Filigranas o en el navegador del sistema.</p>}
       </div>
     </section>
   );

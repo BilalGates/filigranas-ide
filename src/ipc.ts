@@ -84,11 +84,16 @@ export const sharing = {
 
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
 export type BrowserEntry = { url: string; title: string; timestamp: number };
+export type BrowserStatus = {
+  exists: boolean; url: string; title: string; loading: boolean; loaded: boolean; error: string | null;
+  canGoBack: boolean | null; canGoForward: boolean | null; width: number | null; height: number | null;
+};
 export const browser = {
-  open: (url: string, bounds: BrowserBounds) => invoke<void>('browser_open', { url, bounds }),
-  place: (bounds: BrowserBounds | null) => invoke<void>('browser_place', { bounds }),
-  action: (action: 'back' | 'forward' | 'reload') => invoke<void>('browser_action', { action }),
-  location: () => invoke<string | null>('browser_location'),
+  open: (url: string, bounds: BrowserBounds, project: string | null) => invoke<void>('browser_open', { url, bounds, project }),
+  place: (bounds: BrowserBounds | null, project: string | null) => invoke<void>('browser_place', { bounds, project }),
+  action: (action: 'back' | 'forward' | 'reload', project: string | null) => invoke<void>('browser_action', { action, project }),
+  status: (project: string | null) => invoke<BrowserStatus>('browser_status', { project }),
+  external: (url: string) => invoke<void>('browser_external', { url }),
   history: () => invoke<BrowserEntry[]>('browser_history'),
   bookmarks: () => invoke<BrowserEntry[]>('browser_bookmarks'),
   bookmark: (url: string, title: string) => invoke<void>('browser_bookmark', { url, title }),

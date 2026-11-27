@@ -311,7 +311,7 @@ fn read_home_activity(conn: &Connection, paths: &[String], limit: usize) -> CmdR
             phase: if outcome == "quota" { "pending".into() } else { "history".into() },
             project,
             title,
-            detail: ttitle.or_else(|| Some(provider)),
+            detail: ttitle.or(Some(provider)),
             timestamp_ms: ended_ms,
             session_id,
             task_id,

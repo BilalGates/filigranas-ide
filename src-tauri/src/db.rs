@@ -524,7 +524,12 @@ mod tests {
         let s1 = create_session(&conn, "/r/a", "claude", "u1", &names).unwrap();
         let s2 = create_session(&conn, "/r/b", "codex", "u2", &names).unwrap();
         let s3 = create_session(&conn, "/r/c", "claude", "u3", &names).unwrap();
-        let pm_a = create_pm_session(&conn, "/r/a", "claude", "pm-u1").unwrap();
+        let pm_a = create_session(&conn, "/r/a", "claude", "pm-u1", &["Project manager"]).unwrap();
+        conn.execute(
+            "INSERT INTO project_manager_claude (project, session_id, active) VALUES (?1, ?2, 1)",
+            params!["/r/a", pm_a.id],
+        )
+        .unwrap();
         set_coordinator_thread(&conn, "/r/b", Some("thread-b"), 0).unwrap();
         set_coordinator_thread(&conn, "/r/c", Some("thread-c"), 0).unwrap();
 
@@ -533,10 +538,12 @@ mod tests {
         let ids: Vec<i64> = listed.iter().map(|s| s.id).collect();
         assert_eq!(ids, vec![s1.id, s2.id]);
         assert!(!ids.contains(&s3.id));
+        assert!(!ids.contains(&pm_a.id));
 
         let pm_claude = pm_claude_sessions_in(&conn, &paths).unwrap();
         assert_eq!(pm_claude.len(), 1);
-        assert_eq!(pm_claude.get("/r/a").map(|s| s.id), Some(pm_a.id));
+        assert_eq!(pm_claude[0].project, "/r/a");
+        assert_eq!(pm_claude[0].id, pm_a.id);
 
         let pm_codex = pm_codex_projects_in(&conn, &paths).unwrap();
         assert_eq!(pm_codex, vec!["/r/b".to_string()]);

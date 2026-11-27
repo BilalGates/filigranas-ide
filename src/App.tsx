@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
+import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import type { ProviderSwitch } from './ModelConfigMenu';
 import Sidebar from './Sidebar';
@@ -26,7 +26,7 @@ import Browser from './Browser';
 import Splitter, { SIZES } from './Splitter';
 import GithubProfile from './GithubProfile';
 import AmbientField from './trama/AmbientField';
-import { DestNav, loadResume, saveResume, TOOLS, type ToolId } from './trama/nav';
+import { DestNav, saveResume, TOOLS, type ToolId } from './trama/nav';
 import WorkspaceShell from './trama/WorkspaceShell';
 import {
   closeTool,
@@ -238,17 +238,6 @@ export default function App() {
   const pmReady = !!project && catalogLoaded;
   const pmSession = project ? pmClaudeByProject[project] ?? null : null;
   const pmEngine = pmSession?.engine ?? 'codex';
-  const pmByProject = useMemo(() => {
-    const map: Record<string, { engine: string } | null> = {};
-    for (const p of validProjects) {
-      if (!pmProjects.has(p)) {
-        map[p] = null;
-      } else {
-        map[p] = { engine: pmClaudeByProject[p]?.engine === 'claude' ? 'Claude' : 'Codex' };
-      }
-    }
-    return map;
-  }, [validProjects, pmProjects, pmClaudeByProject]);
   const mountedConversations = useMemo(
     () =>
       computeMountedConversations({
@@ -590,7 +579,10 @@ export default function App() {
         if (closing) {
           const fallback: Exclude<ActiveSelection, null> = { kind: 'pm', project: closing.project };
           setActiveSelection((cur) => (cur?.kind === 'session' && cur.sessionId === id ? fallback : cur));
-          setLastByProject((cur) => (cur[closing.project]?.kind === 'session' && cur[closing.project].sessionId === id ? { ...cur, [closing.project]: fallback } : cur));
+          setLastByProject((cur) => {
+            const prev = cur[closing.project];
+            return prev?.kind === 'session' && prev.sessionId === id ? { ...cur, [closing.project]: fallback } : cur;
+          });
           setSessionsByProject((cur) => ({
             ...cur,
             [closing.project]: (cur[closing.project] ?? []).filter((s) => s.id !== id),
@@ -1046,28 +1038,39 @@ export default function App() {
     </button>
   );
 
+  const openRecentSession = (item: RecentSession) => {
+    if (item.isPm) {
+      setPm(item.project, true);
+      selectSession({ kind: 'pm', project: item.project }, { closeInicio: true });
+    } else if (item.sessionId != null) {
+      if (item.closed) {
+        sessions.reopen(item.sessionId).then(
+          (reopened) => {
+            setSessionsByProject((cur) => {
+              const list = cur[reopened.project] ?? [];
+              return { ...cur, [reopened.project]: list.some((s) => s.id === reopened.id) ? list : [...list, reopened] };
+            });
+            selectSession({ kind: 'session', sessionId: reopened.id, project: reopened.project }, { closeInicio: true });
+          },
+          () => { selectProject(item.project); },
+        );
+      } else {
+        selectSession({ kind: 'session', sessionId: item.sessionId, project: item.project }, { closeInicio: true });
+      }
+    }
+  };
+
   const activeToolNode = (() => {
     switch (shell.activeTool) {
       case 'inicio':
         return (
           <Boundary name="Inicio">
-            <Home active={true} ws={ws} project={project} agentSessions={agentSessions} sessionsByProject={sessionsByProject} pmByProject={pmByProject} resume={loadResume()} onWs={setWs} onError={setError}
-              pm={hasPm ? { engine: pmEngine === 'claude' ? 'Claude' : 'Codex' } : null}
+            <Home active={true} ws={ws} project={project} agentSessions={agentSessions} onWs={setWs} onError={setError}
               onCi={(path) => { if (path !== project) selectProject(path, { keepTool: true }); setEntregaScope(null); setFocusCi(path); openToolInShell('entrega'); }}
-              onFlow={(path) => { if (path !== project) selectProject(path, { keepTool: true }); openToolInShell('flow'); }}
               onProject={(path) => selectProject(path)}
               onSession={(path, v) => selectView(v, path, { closeInicio: true })}
-              onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path, { keepTool: true }); openEntrega('tarea', null); } }}
-              onResume={() => {
-                const r = loadResume();
-                if (!r || !validProjects.includes(r.project)) return;
-                const targetSessions = sessionsByProject[r.project] ?? [];
-                if (typeof r.view === 'number' && targetSessions.some((s) => s.id === r.view)) {
-                  selectSession({ kind: 'session', sessionId: r.view, project: r.project }, { closeInicio: true });
-                } else {
-                  selectProject(r.project);
-                }
-              }} />
+              onOpenRecentSession={openRecentSession}
+              onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path, { keepTool: true }); openEntrega('tarea', null); } }} />
           </Boundary>
         );
       case 'flow':
@@ -1397,27 +1400,7 @@ export default function App() {
                       projects={ws.projects}
                       inicioOpen={shell.activeTool === 'inicio'}
                       onOpenInicio={() => openToolInShell('inicio')}
-                      onOpenSession={(item) => {
-                        if (item.isPm) {
-                          setPm(item.project, true);
-                          selectSession({ kind: 'pm', project: item.project }, { closeInicio: true });
-                        } else if (item.sessionId != null) {
-                          if (item.closed) {
-                            sessions.reopen(item.sessionId).then(
-                              (reopened) => {
-                                setSessionsByProject((cur) => {
-                                  const list = cur[reopened.project] ?? [];
-                                  return { ...cur, [reopened.project]: list.some((s) => s.id === reopened.id) ? list : [...list, reopened] };
-                                });
-                                selectSession({ kind: 'session', sessionId: reopened.id, project: reopened.project }, { closeInicio: true });
-                              },
-                              () => { selectProject(item.project); },
-                            );
-                          } else {
-                            selectSession({ kind: 'session', sessionId: item.sessionId, project: item.project }, { closeInicio: true });
-                          }
-                        }
-                      }}
+                      onOpenSession={openRecentSession}
                     />
                   )}
                 </div>

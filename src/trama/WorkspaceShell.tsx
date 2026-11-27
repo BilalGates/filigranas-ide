@@ -22,6 +22,10 @@ type Props = {
   compactInfo: CompactWorkspaceInfo;
   browserMounted: boolean;
   workspace: (geometry: LayoutGeometry) => ReactNode;
+  compactExplorer?: ReactNode;
+  compactExplorerOpen?: boolean;
+  onToggleCompactExplorer?: () => void;
+  onCloseCompactExplorer?: () => void;
   tool: ReactNode;
   browserLayer: ReactNode;
   onResize: (targetPx: number, availableWidth: number) => void;
@@ -34,11 +38,15 @@ type Props = {
 function WorkspaceCompactRail({
   info,
   autoCompacted,
+  explorerOpen,
+  onToggleExplorer,
   onRestore,
   onCloseTool,
 }: {
   info: CompactWorkspaceInfo;
   autoCompacted: boolean;
+  explorerOpen: boolean;
+  onToggleExplorer?: () => void;
   onRestore: () => void;
   onCloseTool: () => void;
 }) {
@@ -54,6 +62,18 @@ function WorkspaceCompactRail({
 
   return (
     <aside className="ws-compact" aria-label="Workspace minimizado">
+      {onToggleExplorer && (
+        <button
+          type="button"
+          className={`ws-compact-nav-btn${explorerOpen ? ' is-on' : ''}`}
+          onClick={onToggleExplorer}
+          aria-label={explorerOpen ? 'Cerrar explorador de proyectos y conversaciones' : 'Abrir explorador de proyectos y conversaciones'}
+          aria-expanded={explorerOpen}
+          title="Proyectos y conversaciones"
+        >
+          <Icon name="sidebar" size={15} />
+        </button>
+      )}
       <button
         type="button"
         className="ws-compact-btn"
@@ -105,6 +125,10 @@ export default function WorkspaceShell({
   compactInfo,
   browserMounted,
   workspace,
+  compactExplorer,
+  compactExplorerOpen = false,
+  onToggleCompactExplorer,
+  onCloseCompactExplorer,
   tool,
   browserLayer,
   onResize,
@@ -147,6 +171,15 @@ export default function WorkspaceShell({
     lastWorkspaceWidth.current = geometry.workspaceWidthPx;
   }
 
+  useEffect(() => {
+    if (!compactExplorerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseCompactExplorer?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [compactExplorerOpen, onCloseCompactExplorer]);
+
   const activeTool: ToolId | null = state.activeTool;
   const toolSpec = activeTool ? TOOL_MAP[activeTool] : null;
   const keepToolPaneMounted = Boolean(toolSpec || browserMounted);
@@ -168,9 +201,20 @@ export default function WorkspaceShell({
         <WorkspaceCompactRail
           info={compactInfo}
           autoCompacted={geometry.autoCompacted}
+          explorerOpen={compactExplorerOpen}
+          onToggleExplorer={compactExplorer ? onToggleCompactExplorer : undefined}
           onRestore={onRestoreWorkspace}
           onCloseTool={onCloseTool}
         />
+      )}
+
+      {geometry.effectiveMode === 'compact' && compactExplorerOpen && compactExplorer && (
+        <>
+          <div className="ws-compact-backdrop" onClick={onCloseCompactExplorer} aria-hidden="true" />
+          <div className="ws-compact-drawer" role="region" aria-label="Explorador en Workspace compacto">
+            {compactExplorer}
+          </div>
+        </>
       )}
 
       <div

@@ -11,7 +11,7 @@ export type SessionRef = {
   name: string;
   title?: string | null;
   engine: string;
-  status?: 'trabajando' | 'esperando' | 'terminada' | null;
+  status?: 'trabajando' | 'esperando' | 'en_espera' | 'terminada' | null;
   parentSession?: number | null;
 };
 

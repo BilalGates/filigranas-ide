@@ -270,7 +270,7 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
 
       <Composer
         draftKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
-        context={<SessionContext project={project} worktree={session?.worktree ?? null} branch={session?.branch ?? null} base={session?.base ?? null} />}
+        context={<SessionContext project={project} worktree={session?.worktree ?? null} branch={session?.branch ?? null} base={session?.base ?? null} hidden={hidden} />}
         permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
         disabled={!info || switching === true}
         running={!!running}

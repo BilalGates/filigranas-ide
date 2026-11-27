@@ -16,9 +16,8 @@ import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
 import Tools from './Tools';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
-import { queuedRefresh } from './queuedRefresh';
 import { Cheatsheet, Palette, type Command } from './Palette';
-import { emit, setLightTheme, shortcut, toggleMute, useUi } from './ui';
+import { emit, setLightTheme, shortcut, toggleMute, useCommand, useUi } from './ui';
 import Conflicts from './Conflicts';
 import Containers from './Containers';
 import Browser from './Browser';
@@ -153,7 +152,6 @@ export default function App() {
       }
       return next;
     });
-  const [branch, setBranch] = useState<{ project: string; label: string; ahead: number; behind: number; upstream: string | null } | null>(null);
   const [chooseBranch, setChooseBranch] = useState(false);
   const clearBranchPicker = useCallback(() => setChooseBranch(false), []);
 
@@ -194,6 +192,12 @@ export default function App() {
   const ensureWorkspaceVisible = useCallback(() => {
     setShell((s) => (s.mode === 'maximized' || s.mode === 'compact' ? restoreWorkspace(s) : s));
   }, []);
+  useCommand('branch-tools', useCallback(() => {
+    setRightView('git');
+    setNoRight(false);
+    ensureWorkspaceVisible();
+    setChooseBranch(true);
+  }, [ensureWorkspaceVisible]));
   useEffect(() => {
     if (shell.activeTool === 'browser') setBrowserMounted(true);
   }, [shell.activeTool]);
@@ -260,32 +264,6 @@ export default function App() {
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
   const quota = useProviderQuota(usageEngine, usageModel, true);
   const sessionWorktree = activeSession?.worktree ? activeSession : null;
-
-  useEffect(() => {
-    if (!project) return;
-    let timer: number | undefined;
-    const fallback = { ahead: 0, behind: 0, upstream: null };
-    const { refresh, stop } = queuedRefresh(
-      () => git.status(project).then(async ({ branch, ahead, behind, upstream }) => ({
-        label: branch ?? await git.head(project), ahead, behind, upstream,
-      }), async () => ({ label: await git.head(project), ...fallback })),
-      (status) => setBranch({ project, ...status }),
-      () => setBranch({ project, label: 'Rama no disponible', ...fallback }),
-    );
-    void refresh();
-    const unlisten = listen('project-changed', () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(refresh, 250);
-    });
-    window.addEventListener('focus', refresh);
-    return () => {
-      stop();
-      window.clearTimeout(timer);
-      void unlisten.then((off) => off());
-      window.removeEventListener('focus', refresh);
-    };
-  }, [project]);
-
 
   useEffect(() => {
     if (!usageOpen) return;
@@ -980,7 +958,6 @@ export default function App() {
   const usageLabel = usageEngine === 'codex' ? 'Codex'
     : usageEngine === 'claude' ? 'Claude Code'
     : usageEngine ? (ENGINE_LABEL[usageEngine] ?? usageEngine) : null;
-  const branchInfo = branch?.project === project ? branch : null;
   const centerTitle = !current ? null
     : view === 'coach' && hasPm
       ? { name: 'Project manager', meta: pmEngine === 'claude' ? 'Claude Code' : 'Codex', tag: null, state: sessionState(pmActivityKey(current.path)) }
@@ -1273,10 +1250,6 @@ export default function App() {
             project={project}
             sessionsByProject={sessionsByProject}
             activity={activity}
-            branch={branchInfo}
-            onError={setError}
-            onBranched={() => { void emit('project-changed'); }}
-            onBranchTools={() => { ensureWorkspaceVisible(); revealRight('git'); setChooseBranch(true); }}
           />
         </div>
         <div className="tb-center">

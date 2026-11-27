@@ -735,7 +735,7 @@ export default function Session({ session, project, hidden, switching, providerS
           : acpReasoning.map((o) => o.options.find((x) => x.value === o.currentValue)?.name ?? o.currentValue).filter(Boolean).join(' · ') || undefined;
         return (
           <Composer
-            context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} />}
+            context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} hidden={hidden} />}
             permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
             draftKey={manager ? `pm:${project}` : `session:${session.id}`}
             disabled={switching === true}

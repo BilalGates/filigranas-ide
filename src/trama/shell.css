@@ -790,6 +790,14 @@ html:root { --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
 .ws-inner > .center .center-head { height: 48px; padding: 0 14px; gap: 11px; border-bottom: 0; }
 .ws-inner > .center .ch-name { font-size: 14px; font-weight: 600; }
 .ws-inner > .center .ch-meta { color: var(--tx2); }
+/* Centro estrecho: cede el texto y las acciones nunca se recortan. */
+.ws-inner > .center .center-head > :is(.ch-name, .ch-meta, .ch-state) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 360px) {
+  .ws-inner > .center .center-head { gap: 6px; padding: 0 8px; }
+}
+@container (max-width: 240px) {
+  .ws-inner > .center .center-head { flex-wrap: wrap; height: auto; min-height: 48px; }
+}
 .co-log { padding: 18px 0 28px; font-size: 13.5px; scrollbar-gutter: stable both-edges; }
 .co-log-inner { display: flex; flex-direction: column; flex: 1 0 auto; gap: 14px; width: min(100%, 760px); padding-inline: 22px; margin: 0 auto; }
 /* Sin panel, la columna comparte eje con el compositor. El relleno se calcula

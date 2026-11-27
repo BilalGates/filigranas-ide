@@ -1244,7 +1244,6 @@ html.is-light .app > .titlebar { background: transparent; }
 .workspace-observation-log .co-msg { gap: 0; line-height: 1.55; }
 .workspace-observation-log .co-msg .co-text { margin-bottom: 6px; line-height: 1.55; }
 .workspace-observation-log .co-acts { margin-top: -6px; margin-bottom: 6px; }
-.app .right.is-observing { width: min(var(--observe-w, 590px), var(--right-width-limit)); }
 /* Durante la observación, como en el HTML, el riel cede su ancho a la conversación:
    la pestaña de la observación la cierra y los atajos de panel siguen activos. */
 .app:has(> .right.is-observing:not([hidden])) > .rail { display: none; }

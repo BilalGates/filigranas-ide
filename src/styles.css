@@ -441,8 +441,7 @@ html:not([data-browser])[data-platform='other'] .titlebar {
   transition: width 260ms var(--ease);
   container: right-panel / inline-size;
 }
-.app.is-wide .right,
-.ws-inner.is-wide .right {
+.app.is-wide .right {
   width: min(max(var(--git-w, 360px), min(760px, 50vw)), var(--right-width-limit));
 }
 html[data-resizing] .right {

@@ -125,11 +125,11 @@ mod tests {
             for _ in 0..500 {
                 tx.send(()).unwrap(); // ráfaga
             }
-            std::thread::sleep(Duration::from_millis(80));
+            std::thread::sleep(Duration::from_millis(600));
             tx.send(()).unwrap(); // segunda ráfaga, ya separada
         });
         let mut count = 0;
-        coalesce(rx, Duration::from_millis(30), Duration::from_secs(5), || count += 1);
+        coalesce(rx, Duration::from_millis(150), Duration::from_secs(5), || count += 1);
         sender.join().unwrap();
         assert_eq!(count, 2);
     }

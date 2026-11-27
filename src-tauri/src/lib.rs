@@ -318,6 +318,8 @@ pub fn run() {
             containers::containers_list,
             containers::container_link,
             containers::container_unlink,
+            containers::container_action,
+            containers::container_logs,
             sysmon::system_metrics,
             window::window_backdrop,
         ]))

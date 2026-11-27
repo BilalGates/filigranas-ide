@@ -799,6 +799,34 @@ mockIPC(
         }
         return null;
       }
+      case 'containers_list':
+        return {
+          status: 'ok',
+          message: null,
+          engine: 'Docker 27.3.1 · Compose 2.29.7',
+          composeFiles: ['compose.yaml'],
+          compose: [
+            { id: 'aaaaaaaaaaaa', name: 'filigranas-db-1', image: 'pgvector/pgvector:pg16', state: 'running', health: 'healthy', ports: ['127.0.0.1:5433→5432/tcp'], service: 'db' },
+            { id: 'bbbbbbbbbbbb', name: 'filigranas-redis-1', image: 'redis:7-alpine', state: 'exited', health: null, ports: ['6379→6379/tcp'], service: 'redis' },
+          ],
+          linked: [],
+          unlinked: [
+            { id: 'cccccccccccc', name: 'mailpit-local', image: 'axllent/mailpit:latest', state: 'running', health: null, ports: ['8025→8025/tcp'], service: null },
+          ],
+          images: [
+            { id: '111122223333', repository: 'pgvector/pgvector', tag: 'pg16', size: '418MB', createdSince: '3 weeks ago' },
+            { id: '444455556666', repository: 'redis', tag: '7-alpine', size: '41.2MB', createdSince: '1 month ago' },
+          ],
+          stats: {
+            aaaaaaaaaaaa: { cpuPercent: '0.84%', memUsage: '62.4MiB / 7.65GiB', memPercent: '0.80%' },
+          },
+        };
+      case 'container_link':
+      case 'container_unlink':
+      case 'container_action':
+        return null;
+      case 'container_logs':
+        return '2026-11-27T07:45:01.000Z database system is ready to accept connections\n2026-11-27T07:48:12.140Z checkpoint complete: wrote 12 buffers';
       case 'plugin:dialog|open':
         return ROOT;
       default:

@@ -536,6 +536,47 @@ export const localServices = {
   action: (project: string, id: string, action: ServiceAction) => invoke<void>('service_action', { project, id, action }),
 };
 
+export type DockerContainer = {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  health: string | null;
+  ports: string[];
+  service: string | null;
+};
+export type DockerImage = {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  createdSince: string;
+};
+export type ContainerStats = {
+  cpuPercent: string;
+  memUsage: string;
+  memPercent: string;
+};
+export type DockerView = {
+  status: 'ok' | 'absent' | 'stopped' | 'denied' | 'error' | string;
+  message: string | null;
+  engine: string | null;
+  composeFiles: string[];
+  compose: DockerContainer[];
+  linked: DockerContainer[];
+  unlinked: DockerContainer[];
+  images: DockerImage[];
+  stats: Record<string, ContainerStats>;
+};
+export type ContainerAction = 'start' | 'stop' | 'restart';
+export const dockerContainers = {
+  list: (project: string) => invoke<DockerView>('containers_list', { project }),
+  link: (project: string, id: string, name: string) => invoke<void>('container_link', { project, id, name }),
+  unlink: (id: string) => invoke<void>('container_unlink', { id }),
+  action: (project: string, id: string, action: ContainerAction) => invoke<void>('container_action', { project, id, action }),
+  logs: (project: string, id: string, tail?: number) => invoke<string>('container_logs', { project, id, tail: tail ?? null }),
+};
+
 // Sesiones de trabajo compartidas, independientes de los chats de proveedor.
 export type WorkAgent = { sessionId: number; name: string; paths: string[]; running: boolean; closed: boolean; isolated: boolean };
 export type WorkSession = { id: number; objective: string; branch: string; baseCommit: string | null; state: 'active' | 'review' | 'finished'; tests: string | null; evidence: string | null; reviewedHead: string | null; prUrl: string | null; agents: WorkAgent[] };

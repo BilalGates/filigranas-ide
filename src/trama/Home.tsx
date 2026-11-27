@@ -64,6 +64,7 @@ export default function Home({
   ws,
   project,
   agentSessions,
+  sessionsByProject,
   onWs,
   onProject,
   onSession,
@@ -76,6 +77,7 @@ export default function Home({
   ws: Workspace;
   project: string | null;
   agentSessions: Session[];
+  sessionsByProject?: Record<string, Session[]>;
   onWs: (ws: Workspace) => void;
   onProject: (path: string) => void;
   onSession: (path: string, view: 'coach' | number) => void;
@@ -196,13 +198,13 @@ export default function Home({
   }, [active]);
 
   const continueSessions = useMemo(
-    () => rankContinueSessions(recentSessions, projects, activity, project, 16),
-    [recentSessions, projects, activity, project],
+    () => rankContinueSessions(recentSessions, projects, activity, project, 16, sessionsByProject),
+    [recentSessions, projects, activity, project, sessionsByProject],
   );
 
   const attentionItems = useMemo(
-    () => buildAttentionItems({ projects, snaps, agentSessions, liveActivity: activity, currentProject: project }),
-    [projects, snaps, agentSessions, activity, project],
+    () => buildAttentionItems({ projects, snaps, agentSessions, sessionsByProject, liveActivity: activity, currentProject: project }),
+    [projects, snaps, agentSessions, sessionsByProject, activity, project],
   );
 
   const activityFeed = useMemo(
@@ -237,13 +239,14 @@ export default function Home({
         groups: ws.groups,
         snaps,
         recentSessions,
+        sessionsByProject,
         liveActivity: activity,
         currentProject: project,
         query,
         sortBy,
         grouped: grouped && ws.groups.length > 0,
       }),
-    [projects, ws.groups, snaps, recentSessions, activity, project, query, sortBy, grouped],
+    [projects, ws.groups, snaps, recentSessions, sessionsByProject, activity, project, query, sortBy, grouped],
   );
 
   const matchedProjectCount = useMemo(
@@ -325,7 +328,7 @@ export default function Home({
                 )}
                 {liveRunningCount > 0 && (
                   <span className="chip sky">
-                    {liveRunningCount} {liveRunningCount === 1 ? 'en ejecución' : 'en ejecución'}
+                    {liveRunningCount} en ejecución
                   </span>
                 )}
               </div>

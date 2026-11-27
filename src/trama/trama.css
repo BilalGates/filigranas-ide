@@ -76,7 +76,21 @@
   --r-m: 7px;
   --r-l: 11px;
   --r-xl: 14px;
-  --pop: inset 0 0 0 1px var(--line-2), 0 24px 60px -16px rgb(0 0 0 / 0.85);
+  /* sistema unificado de desplegables, menús y popovers */
+  --menu-bg: rgba(11, 12, 15, 0.92);
+  --menu-bg-solid: #111318;
+  --menu-blur: blur(18px) saturate(1.15);
+  --menu-border: rgba(255, 255, 255, 0.09);
+  --menu-border-strong: rgba(255, 255, 255, 0.15);
+  --menu-radius: 7px;
+  --menu-item-radius: 5px;
+  --menu-shadow: 0 18px 42px -14px rgba(0, 0, 0, 0.78), 0 2px 8px rgba(0, 0, 0, 0.42);
+  --menu-hover: rgba(255, 255, 255, 0.065);
+  --menu-active: rgba(157, 182, 255, 0.12);
+  --menu-active-border: rgba(157, 182, 255, 0.28);
+  --menu-sep: rgba(255, 255, 255, 0.07);
+  --menu-input-bg: rgba(255, 255, 255, 0.04);
+  --pop: inset 0 0 0 1px var(--menu-border), var(--menu-shadow);
   --bg: var(--panel);
 }
 html.is-light {
@@ -85,6 +99,18 @@ html.is-light {
   --glass2: rgb(244 245 247 / 0.96);
   --glass3: rgb(255 255 255 / 0.98);
   --line3: rgb(0 0 0 / 0.18);
+  --menu-bg: rgba(250, 251, 253, 0.94);
+  --menu-bg-solid: #fafbfd;
+  --menu-blur: blur(18px) saturate(1.1);
+  --menu-border: rgba(15, 18, 26, 0.11);
+  --menu-border-strong: rgba(15, 18, 26, 0.18);
+  --menu-shadow: 0 16px 38px -12px rgba(10, 14, 24, 0.18), 0 2px 8px rgba(10, 14, 24, 0.08);
+  --menu-hover: rgba(15, 18, 26, 0.055);
+  --menu-active: rgba(43, 95, 217, 0.1);
+  --menu-active-border: rgba(43, 95, 217, 0.28);
+  --menu-sep: rgba(15, 18, 26, 0.08);
+  --menu-input-bg: rgba(15, 18, 26, 0.04);
+  --pop: inset 0 0 0 1px var(--menu-border), var(--menu-shadow);
   --sky: #2b5fd9;
   --skyhi: #2b5fd9;
   --amber: #b86a00;
@@ -242,14 +268,78 @@ html[data-motion='reducido'] .ws-pane {
   background: var(--skyhi);
 }
 
-/* Columna compacta de Workspace minimizado (recuperable en un clic) */
+/* Columna compacta de Workspace minimizado (recuperable en un clic + acceso al explorador) */
 .ws-compact {
   flex: none;
   width: 52px;
   padding: 0;
   border-right: 1px solid var(--line);
   display: flex;
+  flex-direction: column;
   min-height: 0;
+  position: relative;
+  z-index: 26;
+}
+.ws-compact-nav-btn {
+  flex: none;
+  height: 44px;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--tx3);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  transition: background 140ms var(--ease), color 140ms var(--ease);
+}
+.ws-compact-nav-btn:hover,
+.ws-compact-nav-btn:focus-visible,
+.ws-compact-nav-btn.is-on {
+  outline: none;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--tx);
+}
+.ws-compact-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 24;
+  background: rgb(6 7 9 / 0.45);
+  backdrop-filter: blur(2px);
+}
+.ws-compact-drawer {
+  position: absolute;
+  inset-block: 0;
+  left: 52px;
+  z-index: 26;
+  width: min(272px, calc(100% - 64px));
+  display: flex;
+  background: rgba(11, 12, 15, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-right: 1px solid var(--line-2);
+  border-top-right-radius: 9px;
+  border-bottom-right-radius: 9px;
+  box-shadow: 20px 0 48px -16px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+}
+.ws-compact-drawer > .sidebar.explorer-side {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  display: flex;
+}
+.ws-compact-drawer > .sidebar.explorer-side .threads {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: none;
+  border-right: 0;
+}
+html.is-light .ws-compact-drawer {
+  background: color-mix(in srgb, var(--raised) 95%, transparent);
 }
 .ws-compact-btn {
   flex: 1;
@@ -617,7 +707,6 @@ html[data-motion='reducido'] .dot.is-permiso { box-shadow: 0 0 0 2px rgb(255 178
 /* restyling de piezas existentes con el lenguaje Trama */
 .panel { border-radius: var(--r-l); box-shadow: inset 0 0 0 1px var(--line); }
 .co-btn.is-primary, .btn.is-primary { background: linear-gradient(180deg, #fff, #dfe3ea); color: #0b0c10; }
-.toast { border-radius: 11px; background: var(--glass3); box-shadow: var(--pop); }
 .rail-btn.is-on { background: rgb(255 255 255 / 0.07); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--tx); }
 .srow.is-on { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 0 0 1px var(--line-2); }
 .tb-pill { border-radius: 8px; background: rgb(255 255 255 / 0.045); }

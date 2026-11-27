@@ -1,9 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
+import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import type { ProviderSwitch } from './ModelConfigMenu';
-import Sidebar from './Sidebar';
 import Editor from './Editor';
 import Diff from './Diff';
 import GitPanel, { Icon } from './GitPanel';
@@ -15,7 +14,7 @@ import SessionView, { ENGINE_LABEL } from './Session';
 import DesignCanvas from './DesignCanvas';
 import WorkspaceChanges from './trama/WorkspaceChanges';
 import { sidebarReference } from './designCanvasModel';
-import Tools, { CliNotice } from './Tools';
+import Tools from './Tools';
 import { useProviderQuota, useQuotaEvents } from './usageStore';
 import { queuedRefresh } from './queuedRefresh';
 import { Cheatsheet, Palette, type Command } from './Palette';
@@ -49,13 +48,14 @@ import Studio from './trama/Studio';
 import Entrega, { type EntregaStage } from './trama/Entrega';
 import Boundary from './trama/Boundary';
 import BrainView from './trama/BrainView';
-import Threads from './trama/Threads';
+import Explorer from './trama/Explorer';
 import TitleSwitch from './trama/TitleSwitch';
 import SystemKpi from './trama/SystemKpi';
 import RecentSessions from './trama/RecentSessions';
 import EngineUsage, { type Engine } from './trama/EngineUsage';
 import JevUsage from './trama/JevUsage';
 import Attention from './trama/Attention';
+import { pushCliUpdatesNotification, pushOperationalError } from './trama/notifications';
 import Settings from './trama/Settings';
 import { Seg } from './trama/ui';
 import { AgDot, sessionAgents } from './trama/kit';
@@ -88,7 +88,9 @@ export default function App() {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [startupConfirmed, setStartupConfirmed] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const setError = useCallback((message: string | null) => {
+    if (message) pushOperationalError(message);
+  }, []);
   // Fuente única de verdad: activeSelection → session.project → activeProject.
   const [activeSelection, setActiveSelection] = useState<ActiveSelection>(null);
   const [lastByProject, setLastByProject] = useState<Record<string, Exclude<ActiveSelection, null>>>({});
@@ -129,9 +131,7 @@ export default function App() {
   const [githubOpen, setGithubOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [engineOpen, setEngineOpen] = useState<Engine | 'jev' | null>(null);
-  // Aviso de las CLI de IA actualizadas (o que fallaron) en segundo plano.
-  const [cliNotice, setCliNotice] = useState<CliUpdate[] | null>(null);
-  // Último resultado automático, para verlo en Herramientas tras cerrar el aviso.
+  // Último resultado automático, para verlo en Herramientas y en el centro de notificaciones.
   const [cliLast, setCliLast] = useState<CliUpdate[] | null>(null);
   const [browserTarget, setBrowserTarget] = useState<{ url: string } | null>(null);
   const [reportedModel, setReportedModel] = useState<{ key: number | string; model: string | null } | null>(null);
@@ -160,12 +160,11 @@ export default function App() {
   const [overlay, setOverlay] = useState<'palette' | 'cheat' | null>(null);
   const [noSide, setNoSide] = useState(false);
   const [narrowSideOpen, setNarrowSideOpen] = useState(false);
+  const [compactExplorerOpen, setCompactExplorerOpen] = useState(false);
   const [noRight, setNoRight] = useState(() => { try { return (localStorage.getItem('filigranas.disposicion') ?? 'chat') === 'chat'; } catch { return true; } });
   const [shell, setShell] = useState<ShellState>(() => createInitialShellState(false));
   const shellHydrated = useRef(false);
   const [browserMounted, setBrowserMounted] = useState(false);
-  const [leftMode, setLeftModeState] = useState<'threads' | 'projects'>(() => { try { return localStorage.getItem('filigranas.izquierda') === 'projects' ? 'projects' : 'threads'; } catch { return 'threads'; } });
-  const setLeftMode = (m: 'threads' | 'projects') => { setLeftModeState(m); try { localStorage.setItem('filigranas.izquierda', m); } catch { /* */ } };
   const [focusCi, setFocusCi] = useState<string | null>(null);
   const [entregaScope, setEntregaScope] = useState<number | null>(null);
   const [studioView, setStudioView] = useState<'captures' | 'canvas'>('captures');
@@ -253,6 +252,9 @@ export default function App() {
   useEffect(() => {
     setNarrowSideOpen(false);
   }, [shell.mode, shell.activeTool, view, project]);
+  useEffect(() => {
+    if (shell.mode !== 'compact') setCompactExplorerOpen(false);
+  }, [shell.mode]);
   const usageEngine = activeSession?.engine ?? (project && pmReady && pmProjects.has(project) && view === 'coach' ? pmEngine : 'codex');
   const usageModel = reportedModel?.key === (activeSession?.id ?? project) && usageEngine ? reportedModel.model : null;
   const quota = useProviderQuota(usageEngine, usageModel, true);
@@ -349,7 +351,11 @@ export default function App() {
   const refresh = useCallback(() => {
     api.workspace().then(
       (workspace) => { setWs(workspace); setWorkspaceError(null); },
-      (e) => setWorkspaceError(String(e)),
+      (e) => {
+        const msg = String(e);
+        setWorkspaceError(msg);
+        pushOperationalError(msg, { source: 'Espacio de trabajo' });
+      },
     );
   }, []);
 
@@ -514,20 +520,23 @@ export default function App() {
     }
   }, [derived.staleReason, derived.staleNotice, derived.selection]);
 
-  const newSession = (engine?: string, task: number | null = null, skillRole: 'designer' | null = null) => {
-    if (!project) return;
-    const chosen = engine ?? (pmEngine === 'claude' ? 'claude' : 'codex');
-    sessions.create(project, chosen, task, skillRole).then(
+  const newSession = (engine?: string, task: number | null = null, skillRole: 'designer' | null = null, targetProject?: string | null) => {
+    const destProject = targetProject ?? project;
+    if (!destProject) return;
+    const destPmEngine = pmClaudeByProject[destProject]?.engine ?? 'codex';
+    const chosen = engine ?? (destPmEngine === 'claude' ? 'claude' : 'codex');
+    sessions.create(destProject, chosen, task, skillRole).then(
       ({ notice, ...s }) => {
         setSessionsByProject((cur) => {
           const list = cur[s.project] ?? [];
           return { ...cur, [s.project]: list.some((item) => item.id === s.id) ? list : [...list, s] };
         });
-        if (currentProject.current === s.project) {
+        if (targetProject != null || currentProject.current === s.project) {
           const nextSel: Exclude<ActiveSelection, null> = { kind: 'session', sessionId: s.id, project: s.project };
           setActiveSelection(nextSel);
           setLastByProject((cur) => ({ ...cur, [s.project]: nextSel }));
           markVisited(nextSel);
+          if (shell.activeTool === 'inicio') setShell((cur) => onProjectSelected(cur));
         }
         if (notice) setError(notice);
       },
@@ -552,15 +561,13 @@ export default function App() {
   }, []);
   useEffect(checkTools, [checkTools]);
   useEffect(() => {
-    const unlisten = listen<CliUpdate[]>('cli-updates', (e) => { setCliNotice(e.payload); setCliLast(e.payload); checkTools(); });
+    const unlisten = listen<CliUpdate[]>('cli-updates', (e) => {
+      setCliLast(e.payload);
+      pushCliUpdatesNotification(e.payload);
+      checkTools();
+    });
     return () => { unlisten.then((off) => off()); };
   }, [checkTools]);
-  // Los avisos de éxito se retiran solos; los fallos esperan a que se lean.
-  useEffect(() => {
-    if (!cliNotice || cliNotice.some((u) => u.outcome === 'failed')) return;
-    const timer = window.setTimeout(() => setCliNotice(null), 12000);
-    return () => window.clearTimeout(timer);
-  }, [cliNotice]);
 
   const countPending = useCallback(() => {
     if (!project) return;
@@ -880,15 +887,74 @@ export default function App() {
       id: `tool-${d.id}`,
       label: d.label,
       keys: d.keys,
+      group: 'Órdenes',
       run: () => {
         if (d.id === 'containers' && !current) return;
         toggleToolInShell(d.id);
       },
     })),
-    ...baseCommands.map((c) => GLOBAL.has(c.id) ? c : { ...c, run: () => { ensureWorkspaceVisible(); c.run(); } }),
+    ...baseCommands.map((c) => {
+      const wrapped = GLOBAL.has(c.id) ? c : { ...c, run: () => { ensureWorkspaceVisible(); c.run(); } };
+      return { ...wrapped, group: wrapped.group ?? 'Órdenes' };
+    }),
   ];
+
   // Atajos que resuelve la vista visible (conversación, editor).
   const LOCAL = new Set(['send', 'stop', 'model', 'effort', 'allow', 'deny']);
+
+  // Búsqueda global (⌘K): proyectos, sesiones de todos los proyectos y órdenes.
+  const paletteCommands: Command[] = (() => {
+    const activeList = ws.projects.filter((p) => !p.archived);
+    const groupNames = new Map(ws.groups.map((g) => [g.id, g.name]));
+    const orderedProjects = [...activeList].sort((a, b) => {
+      if (a.path === project) return -1;
+      if (b.path === project) return 1;
+      return a.name.localeCompare(b.name, 'es');
+    });
+    const sessionItems: Command[] = [];
+    for (const p of orderedProjects) {
+      const pmClaude = pmClaudeByProject[p.path] ?? null;
+      const pPmEngine = pmClaude?.engine === 'claude' ? 'Claude' : 'Codex';
+      const pmLive = activity[pmActivityKey(p.path)] ?? null;
+      if (pmProjects.has(p.path)) {
+        sessionItems.push({
+          id: `pal-pm:${p.path}`,
+          group: 'Sesiones',
+          label: 'Project Manager',
+          subtitle: `${p.name} · ${pPmEngine}`,
+          keywords: `${p.name} project manager pm ${pPmEngine}`,
+          state: pmLive,
+          run: () => selectSession({ kind: 'pm', project: p.path }, { closeInicio: shell.activeTool === 'inicio' }),
+        });
+      }
+      for (const s of sessionsByProject[p.path] ?? []) {
+        const eng = s.engine === 'claude' ? 'Claude' : s.engine === 'codex' ? 'Codex' : (ENGINE_LABEL[s.engine] ?? s.engine);
+        const st = activity[String(s.id)] ?? (s.status === 'trabajando' ? 'trabajando' : s.status === 'esperando' ? 'permiso' : null);
+        sessionItems.push({
+          id: `pal-sess:${s.id}`,
+          group: 'Sesiones',
+          label: s.title?.trim() || s.name,
+          subtitle: `${p.name} · ${eng}${s.parentSession != null ? ' · subsesión' : ''}`,
+          keywords: `${p.name} ${s.name} ${s.title ?? ''} ${eng} ${s.branch ?? ''} ${s.task ?? ''}`,
+          state: st,
+          run: () => selectSession({ kind: 'session', sessionId: s.id, project: p.path }, { closeInicio: shell.activeTool === 'inicio' }),
+        });
+      }
+    }
+    const projectItems: Command[] = orderedProjects.map((p) => {
+      const gName = p.groupId != null ? groupNames.get(p.groupId) : undefined;
+      return {
+        id: `pal-proj:${p.path}`,
+        group: 'Proyectos',
+        label: p.name,
+        subtitle: gName ? `${gName} · abrir proyecto` : 'Abrir proyecto',
+        keywords: `${p.name} ${gName ?? ''} proyecto`,
+        run: () => selectProject(p.path, { keepTool: shell.activeTool != null && shell.activeTool !== 'inicio' }),
+      };
+    });
+    const orderItems = commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id) && !/^s\d+$/.test(c.id));
+    return [...sessionItems, ...projectItems, ...orderItems];
+  })();
   const KEY: Record<string, string> = { Enter: '↩', Period: '.', Slash: '/', Backquote: '`', Comma: ',' };
   keys.current = (e) => {
     if (e.defaultPrevented || (e.target instanceof Element && e.target.closest('.tr-modal'))) return;
@@ -935,35 +1001,6 @@ export default function App() {
         onChange: (value) => changeEngine(value),
       }
     : undefined;
-  const row = (key: string, active: boolean, name: string, meta: string | null, state: string | null, onClick: () => void, onClose?: () => void, tag?: string) => (
-    <div key={key} className={`srow${active ? ' is-on' : ''}`}>
-      <button className="srow-main" onClick={onClick}>
-        <span className={`dot${state ? ` is-${state}` : ''}`} aria-label={state ?? undefined} />
-        <span className="srow-name">{name}</span>
-        {tag && <span className="tag">{tag}</span>}
-        {meta && <span className="srow-meta">{meta}</span>}
-      </button>
-      {onClose && (
-        <button className="srow-x" aria-label={`Cerrar ${name}`} title="cerrar" onClick={onClose}>
-          <Icon name="close" size={9} />
-        </button>
-      )}
-    </div>
-  );
-
-  const sessionList = current && (
-    <div className="sessions" role="list">
-      {hasPm &&
-        row('coach', view === 'coach', 'Project manager', null, sessionState(pmActivityKey(current.path)), () => selectView('coach'), () => {
-          setPm(current.path, false);
-          selectView(agentSessions[0]?.id ?? 'coach');
-        })}
-      {agentSessions.map((s) => row(`s${s.id}`, view === s.id, s.name, ENGINE_LABEL[s.engine] ?? s.engine, sessionState(String(s.id)), () => selectView(s.id), () => closeSession(s.id)))}
-      <button className="project-new-session" onClick={() => newSession()}>
-        <Icon name="plus" size={12} /> Nueva sesión
-      </button>
-    </div>
-  );
 
   const editorPath = diff?.path ?? file;
   const editorScope = diff ? diff.session : fileSession;
@@ -1031,14 +1068,8 @@ export default function App() {
       focusConversation();
     });
   };
-  const errorToast = (error || workspaceError) && (
-    <button className="toast" onClick={() => { setError(null); setWorkspaceError(null); }} title="cerrar">
-      <Icon name="warn" size={13} />
-      <span>{error ?? workspaceError}</span>
-    </button>
-  );
 
-  const openRecentSession = (item: RecentSession) => {
+  const openRecentSession = (item: { project: string; sessionId: number | null; isPm: boolean; closed: boolean }) => {
     if (item.isPm) {
       setPm(item.project, true);
       selectSession({ kind: 'pm', project: item.project }, { closeInicio: true });
@@ -1057,7 +1088,10 @@ export default function App() {
       } else {
         selectSession({ kind: 'session', sessionId: item.sessionId, project: item.project }, { closeInicio: true });
       }
+    } else {
+      selectProject(item.project);
     }
+    requestAnimationFrame(focusConversation);
   };
 
   const activeToolNode = (() => {
@@ -1065,12 +1099,24 @@ export default function App() {
       case 'inicio':
         return (
           <Boundary name="Inicio">
-            <Home active={true} ws={ws} project={project} agentSessions={agentSessions} onWs={setWs} onError={setError}
+            <Home
+              active={true}
+              ws={ws}
+              project={project}
+              agentSessions={allOpenSessions}
+              sessionsByProject={sessionsByProject}
+              onWs={setWs}
+              onError={setError}
               onCi={(path) => { if (path !== project) selectProject(path, { keepTool: true }); setEntregaScope(null); setFocusCi(path); openToolInShell('entrega'); }}
               onProject={(path) => selectProject(path)}
-              onSession={(path, v) => selectView(v, path, { closeInicio: true })}
+              onSession={(path, v) => {
+                if (v === 'coach') setPm(path, true);
+                selectView(v, path, { closeInicio: true });
+                requestAnimationFrame(focusConversation);
+              }}
               onOpenRecentSession={openRecentSession}
-              onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path, { keepTool: true }); openEntrega('tarea', null); } }} />
+              onWork={(path, task) => { if (task) openTask(path, task); else { if (path !== project) selectProject(path, { keepTool: true }); openEntrega('tarea', null); } }}
+            />
           </Boundary>
         );
       case 'flow':
@@ -1119,11 +1165,11 @@ export default function App() {
           <Boundary name="Contenedores">
             <div className="tv tr-root tool-containers">
               {current ? (
-                <Containers key={current.path} project={current.path} onOpen={openBrowser} />
+                <Containers key={current.path} project={current.path} projectName={current.name} onOpen={openBrowser} />
               ) : (
                 <div className="welcome">
                   <h1>Contenedores y servicios</h1>
-                  <p>Selecciona un proyecto en Inicio para administrar sus procesos locales.</p>
+                  <p>Selecciona un proyecto en Inicio para administrar sus contenedores Docker y servicios locales.</p>
                   <div className="welcome-actions">
                     <button className="co-btn is-primary" onClick={() => openToolInShell('inicio')}>Abrir Inicio</button>
                   </div>
@@ -1155,6 +1201,66 @@ export default function App() {
     />
   );
 
+  const renderExplorer = (opts?: { onPicked?: () => void; keepCompact?: boolean }) => (
+    <Explorer
+      ws={ws}
+      selection={derived.selection}
+      project={project}
+      sessionsByProject={sessionsByProject}
+      pmProjects={pmProjects}
+      pmClaudeByProject={pmClaudeByProject}
+      onSelectSession={(next) => {
+        selectSession(next, { closeInicio: shell.activeTool === 'inicio' });
+        opts?.onPicked?.();
+      }}
+      onSelectProject={(path) => {
+        selectProject(path, { keepTool: shell.activeTool != null && shell.activeTool !== 'inicio' });
+        opts?.onPicked?.();
+      }}
+      onNewSession={(path) => {
+        newSession(undefined, null, null, path);
+        opts?.onPicked?.();
+      }}
+      onStartPm={(path) => {
+        setPm(path, true);
+        selectSession({ kind: 'pm', project: path }, { closeInicio: shell.activeTool === 'inicio' });
+        opts?.onPicked?.();
+      }}
+      onHidePm={(path) => {
+        setPm(path, false);
+        const first = (sessionsByProject[path] ?? [])[0];
+        if (project === path && view === 'coach' && first) {
+          selectSession({ kind: 'session', sessionId: first.id, project: path });
+        }
+      }}
+      onCloseSession={closeSession}
+      onUpdate={update}
+      onProjectView={(path, tab) => {
+        if (tab === 'containers') {
+          if (path !== project) selectProject(path, { keepTool: true });
+          openToolInShell('containers');
+          opts?.onPicked?.();
+          return;
+        }
+        if (path !== project) selectProject(path, { keepTool: !opts?.keepCompact && shell.activeTool != null && shell.activeTool !== 'inicio' });
+        revealRight(tab);
+        opts?.onPicked?.();
+      }}
+      onProjectTerminal={(path) => {
+        if (path !== project) selectProject(path, { keepTool: shell.activeTool != null && shell.activeTool !== 'inicio' });
+        ensureWorkspaceVisible();
+        openTerminal(path);
+        opts?.onPicked?.();
+      }}
+      onError={setError}
+      footer={muted && (
+        <button type="button" className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
+          <Icon name="mute" size={12} /> Silenciado
+        </button>
+      )}
+    />
+  );
+
   return (
     <div className="app">
       <AmbientField dim={fieldDim} />
@@ -1165,23 +1271,17 @@ export default function App() {
             selection={derived.selection}
             project={project}
             sessionsByProject={sessionsByProject}
-            pmProjects={pmProjects}
-            pmClaudeByProject={pmClaudeByProject}
             activity={activity}
             branch={branchInfo}
             onError={setError}
-            onSelectSession={(next) => {
-              selectSession(next, { closeInicio: shell.activeTool === 'inicio' });
-            }}
             onBranched={() => { void emit('project-changed'); }}
-            onManage={() => openToolInShell('inicio')}
             onBranchTools={() => { ensureWorkspaceVisible(); revealRight('git'); setChooseBranch(true); }}
           />
         </div>
         <div className="tb-center">
-          <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('órdenes, sesiones y vistas · ⌘K')}>
+          <button className="tb-pill" onClick={() => setOverlay('palette')} title={shortcut('Buscar proyecto, sesión u orden · ⌘K')}>
             <Icon name="search" size={14} />
-            <span className="grow">Buscar o ejecutar…</span>
+            <span className="grow">Buscar proyecto, sesión u orden…</span>
             <kbd>{shortcut('⌘K')}</kbd>
           </button>
           {current && (
@@ -1214,6 +1314,8 @@ export default function App() {
             onTask={(id) => { if (project) openTask(project, id); }}
             onEntrega={(stage) => openEntrega(stage, null)}
             onHome={() => openToolInShell('inicio')}
+            onTools={() => { setEngineOpen(null); setGithubOpen(false); setUsageOpen(true); }}
+            onSettings={() => openToolInShell('ajustes')}
           />
         </div>
       </header>
@@ -1232,10 +1334,14 @@ export default function App() {
         state={shell}
         compactInfo={compactInfo}
         browserMounted={browserMounted}
+        compactExplorer={renderExplorer({ onPicked: () => setCompactExplorerOpen(false), keepCompact: true })}
+        compactExplorerOpen={compactExplorerOpen}
+        onToggleCompactExplorer={() => setCompactExplorerOpen((v) => !v)}
+        onCloseCompactExplorer={() => setCompactExplorerOpen(false)}
         onResize={(px, available) => setShell((s) => resizeWorkspace(s, px, available))}
         onResetRatio={() => setShell((s) => resetWorkspaceRatio(s))}
         onMinimizeWorkspace={() => setShell((s) => minimizeWorkspace(s))}
-        onRestoreWorkspace={() => setShell((s) => restoreWorkspace(s))}
+        onRestoreWorkspace={() => { setCompactExplorerOpen(false); setShell((s) => restoreWorkspace(s)); }}
         onCloseTool={closeActiveTool}
         tool={activeToolNode}
         browserLayer={browserLayer}
@@ -1246,69 +1352,34 @@ export default function App() {
           return (
             <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${layout === 'code' && wsPanelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
               {showDrawer && <div className="ws-drawer-backdrop" onClick={() => setNarrowSideOpen(false)} aria-hidden="true" />}
-              {leftMode === 'threads' && current ? (
-                <Threads project={current.path} projectName={current.name} view={view} hasPm={hasPm} pmEngine={pmEngine === 'claude' ? 'Claude' : 'Codex'} pmSessionId={pmSession?.id ?? null} sessions={agentSessions}
-                  onView={(next) => { selectView(next); setNarrowSideOpen(false); }} onNew={() => { newSession(); setNarrowSideOpen(false); }} onStartPm={() => { startPm(current.path); setNarrowSideOpen(false); }}
-                  onClose={closeSession} onProjects={() => setLeftMode('projects')}
-                  footer={muted && <button className="btn sm ghost" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}><Icon name="mute" size={13} /> Silenciado</button>} />
-              ) : (
-                <Sidebar
-                  ws={ws}
-                  project={project}
-                  onProject={(path) => { selectProject(path); setNarrowSideOpen(false); }}
-                  onUpdate={update}
-                  onNewSession={() => { newSession(); setNarrowSideOpen(false); }}
-                  onProjectManager={(path) => { startPm(path); setNarrowSideOpen(false); }}
-                  onProjectView={(path, tab) => {
-                    if (tab === 'containers') {
-                      if (path !== project) selectProject(path, { keepTool: true });
-                      openToolInShell('containers');
-                      return;
-                    }
-                    if (path !== project) selectProject(path);
-                    revealRight(tab);
-                  }}
-                  onProjectTerminal={(path) => {
-                    if (path !== project) selectProject(path);
-                    openTerminal(path);
-                  }}
-                  onError={setError}
-                  sessions={sessionList}
-                  status={<>
-                    {muted && (
-                      <button className="side-usage" onClick={() => toggleMute()} title={shortcut('silenciado · ⌘⇧M')}>
-                        <Icon name="mute" size={13} /> Silenciado
-                      </button>
-                    )}
-                    {current && <button className="side-usage" onClick={() => setLeftMode('threads')}><Icon name="chat" size={13} /> Conversaciones</button>}
-                  </>}
-                />
-              )}
+              {renderExplorer({ onPicked: () => setNarrowSideOpen(false) })}
               {!collapsedSide && <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />}
 
               <main className="panel center" ref={centerPanel} tabIndex={-1}>
-                {centerTitle && (
+                {(centerTitle || collapsedSide) && (
                   <div className="center-head">
-                    {collapsedSide && current && (
+                    {collapsedSide && (
                       <button
                         type="button"
                         className={`tb-btn ws-side-toggle${showDrawer ? ' is-on' : ''}`}
                         onClick={() => setNarrowSideOpen((v) => !v)}
-                        aria-label="Mostrar conversaciones"
+                        aria-label="Mostrar explorador de proyectos y conversaciones"
                         aria-expanded={showDrawer}
-                        title={shortcut('Conversaciones · ⌘B')}
+                        title={shortcut('Explorador · ⌘B')}
                       >
                         <Icon name="sidebar" size={14} />
                       </button>
                     )}
-                    <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
-                    <span className="ch-name">{centerTitle.name}</span>
-                    {centerTitle.tag && <span className="tag">{centerTitle.tag}</span>}
-                    {!providerSwitch && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
-                    {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
+                    {centerTitle && <>
+                      <span className={`dot${centerTitle.state ? ` is-${centerTitle.state}` : ''}`} />
+                      <span className="ch-name">{centerTitle.name}</span>
+                      {centerTitle.tag && <span className="tag">{centerTitle.tag}</span>}
+                      {!providerSwitch && centerTitle.meta && <span className="ch-meta">{centerTitle.meta}</span>}
+                      {centerTitle.state && <span className={`ch-state is-${centerTitle.state}`}>{centerTitle.state === 'permiso' ? 'espera tu permiso' : 'trabajando'}</span>}
+                    </>}
                     <span className="grow" />
                     {current && !geometry.collapseWorkspaceSidebar && panelButtons}
-                    {!geometry.collapseWorkspaceSidebar && (
+                    {current && !geometry.collapseWorkspaceSidebar && (
                       <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
                         { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
                     )}
@@ -1434,9 +1505,6 @@ export default function App() {
                       <Terminal key={t.id} project={t.project} agentSession={t.session ?? null} initial={t.initial} hidden={!termOpen || t.project !== project || t.id !== activeTerm} />
                     ))}
                 </section>
-                {errorToast}
-                {cliNotice && !error && <CliNotice updates={cliNotice} onClose={() => setCliNotice(null)}
-                  onOpen={() => { setCliNotice(null); setEngineOpen(null); setUsageOpen(true); }} />}
               </main>
 
               {panelTabs.length > 0 && <nav className="rail" aria-label="Paneles y utilidades">
@@ -1553,7 +1621,7 @@ export default function App() {
             onSettings={() => openToolInShell('ajustes')} onTools={() => { setGithubOpen(false); setUsageOpen(true); }} />
         </div>
       </footer>
-      {overlay === 'palette' && <Palette commands={commands.filter((c) => c.id !== 'palette' && !LOCAL.has(c.id))} onClose={() => setOverlay(null)} />}
+      {overlay === 'palette' && <Palette commands={paletteCommands} onClose={() => setOverlay(null)} />}
       {overlay === 'cheat' && <Cheatsheet commands={commands} onClose={() => setOverlay(null)} />}
     </div>
   );

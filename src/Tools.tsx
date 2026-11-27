@@ -1,6 +1,5 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import GithubConnect from './GithubConnect';
-import { Icon } from './GitPanel';
 import ProviderLogo from './ProviderLogo';
 import { jev, tools as toolsApi, type CliUpdate, type JevSettings, type JevStatus, type Tool } from './ipc';
 
@@ -91,36 +90,6 @@ export default function Tools({ tools, checking, hidden, onLogin, onRefresh, aut
         {!hidden && <JevRouting className={block} />}
       </div>
     </section>
-  );
-}
-
-/** Aviso emergente de las CLI actualizadas o que fallaron en segundo plano. */
-export function CliNotice({ updates, onOpen, onClose }: { updates: CliUpdate[]; onOpen: () => void; onClose: () => void }) {
-  const done = updates.filter((u) => u.outcome === 'updated');
-  const failed = updates.filter((u) => u.outcome === 'failed');
-  const title = !failed.length
-    ? done.length === 1 ? `${done[0].name} se ha actualizado` : `Se han actualizado ${done.length} CLI`
-    : !done.length
-      ? failed.length === 1 ? `No se pudo actualizar ${failed[0].name}` : `No se pudieron actualizar ${failed.length} CLI`
-      : `${done.length} CLI actualizadas · ${failed.length} con errores`;
-  const items = [...done, ...failed];
-  return (
-    <div className={`toast cli-toast${failed.length ? '' : ' is-ok'}`} role={failed.length ? 'alert' : 'status'}>
-      <Icon name={failed.length ? 'warn' : 'check'} size={13} />
-      <div className="cli-toast-body">
-        <span className="cli-toast-title">{title}</span>
-        <ul>
-          {items.map((u) => (
-            <li key={u.id}>
-              {items.length > 1 && <span>{u.name}</span>}
-              <span className="cli-toast-detail" title={u.detail}>{u.outcome === 'updated' ? u.to ?? u.detail : u.detail}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <button className="co-link" onClick={onOpen}>detalles</button>
-      <button className="icon" aria-label="Cerrar aviso" onClick={onClose}><Icon name="close" size={12} /></button>
-    </div>
   );
 }
 

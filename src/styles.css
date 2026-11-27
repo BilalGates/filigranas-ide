@@ -1051,30 +1051,6 @@ html[data-resizing] .right {
   gap: 8px;
   margin-top: 18px;
 }
-.toast {
-  position: absolute;
-  left: 50%;
-  top: 56px;
-  z-index: 30;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  max-width: min(640px, 80%);
-  padding: 9px 12px;
-  border-radius: var(--r-l);
-  background: var(--raised);
-  box-shadow: var(--pop);
-  font-size: 12.5px;
-  color: var(--tx);
-  animation: pop var(--mid) var(--ease);
-}
-.toast > svg {
-  flex: none;
-  margin-top: 1px;
-  color: var(--warn);
-}
-
 /* Riel: iconos que abren cada panel de la derecha. */
 .rail {
   grid-column: 3;
@@ -1923,64 +1899,6 @@ button.co-file:hover {
 }
 .cli-update-state.is-failed {
   color: var(--warn);
-}
-
-.cli-toast {
-  align-items: flex-start;
-  gap: 10px;
-  min-width: 280px;
-}
-.cli-toast.is-ok > svg {
-  color: var(--ok);
-}
-.cli-toast-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.cli-toast-title {
-  font-weight: 500;
-  color: var(--tx);
-}
-.cli-toast ul {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 11.5px;
-  color: var(--tx3);
-}
-.cli-toast li {
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-}
-.cli-toast li > span:not(.cli-toast-detail) {
-  flex: none;
-  color: var(--tx2);
-}
-.cli-toast-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--mono);
-}
-/* Acciones a la altura del título, separadas de las versiones. */
-.cli-toast > .co-link,
-.cli-toast > .icon {
-  flex: none;
-  align-self: flex-start;
-  line-height: 18px;
-}
-.cli-toast > .co-link {
-  margin-left: 6px;
-}
-.cli-toast > .icon {
-  margin: -2px -4px 0 -4px;
 }
 
 .statusbar {

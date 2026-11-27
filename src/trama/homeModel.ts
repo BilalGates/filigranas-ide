@@ -1,5 +1,6 @@
 import type { Group, HomeActivityItem, HomeSummary, Project, RecentSession, Session } from '../ipc.ts';
 import { STATUS } from './taskMeta.ts';
+import { parsePmActivityKey, pmActivityKey } from './workspaceContext.ts';
 
 export type LiveActivityMap = Record<string, 'trabajando' | 'permiso' | null>;
 
@@ -93,21 +94,24 @@ export function deriveSessionStatus(
   session: RecentSession,
   liveActivity: LiveActivityMap,
   currentProject: string | null,
+  liveSessionsByProject?: Record<string, readonly Session[]>,
 ): DerivedSessionStatus {
-  if (currentProject && session.project === currentProject) {
-    const key = session.isPm ? 'coach' : session.sessionId != null ? String(session.sessionId) : null;
-    const live = key ? liveActivity[key] : null;
-    if (live === 'permiso') {
-      return { state: 'waiting', label: 'Pide permiso', priority: 4, live: true };
-    }
-    if (live === 'trabajando') {
-      return { state: 'working', label: session.isPm ? 'Coordinando' : 'Trabajando', priority: 3, live: true };
-    }
+  const pmKey = pmActivityKey(session.project);
+  const live = session.isPm
+    ? (liveActivity[pmKey] ?? (currentProject === session.project ? liveActivity.coach : null))
+    : session.sessionId != null
+      ? liveActivity[String(session.sessionId)]
+      : null;
+  const liveRow = !session.isPm && session.sessionId != null
+    ? liveSessionsByProject?.[session.project]?.find((s) => s.id === session.sessionId)
+    : undefined;
+  if (live === 'permiso' || liveRow?.status === 'esperando') {
+    return { state: 'waiting', label: 'Pide permiso', priority: 4, live: true };
   }
-  if (session.running) {
+  if (live === 'trabajando' || liveRow?.status === 'trabajando' || session.running) {
     return { state: 'working', label: session.isPm ? 'Coordinando' : 'Trabajando', priority: 3, live: true };
   }
-  if (session.paused) {
+  if (session.paused || liveRow?.paused) {
     return { state: 'paused', label: 'En pausa', priority: 2, live: false };
   }
   if (session.lastOutcome === 'failed' || session.lastOutcome === 'error') {
@@ -128,6 +132,7 @@ export function rankContinueSessions(
   liveActivity: LiveActivityMap,
   currentProject: string | null,
   limit = 12,
+  liveSessionsByProject?: Record<string, readonly Session[]>,
 ): ContinueSessionItem[] {
   const byPath = new Map(projects.filter((p) => !p.archived).map((p) => [p.path, p]));
   const seen = new Set<string>();
@@ -140,7 +145,7 @@ export function rankContinueSessions(
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const status = deriveSessionStatus(session, liveActivity, currentProject);
+    const status = deriveSessionStatus(session, liveActivity, currentProject, liveSessionsByProject);
     const description =
       firstMeaningfulLine(session.task) ??
       (session.isPm ? `Coordinación de ${proj.name}` : null);
@@ -172,37 +177,82 @@ export function buildAttentionItems({
   projects,
   snaps,
   agentSessions,
+  sessionsByProject,
   liveActivity,
   currentProject,
 }: {
   projects: readonly Project[];
   snaps: Record<string, HomeSummary | undefined>;
   agentSessions: readonly Session[];
+  sessionsByProject?: Record<string, readonly Session[]>;
   liveActivity: LiveActivityMap;
   currentProject: string | null;
 }): AttentionItem[] {
   const activeProjects = projects.filter((p) => !p.archived);
   const names = new Map(activeProjects.map((p) => [p.path, p.name]));
   const out: AttentionItem[] = [];
+  const seenPerm = new Set<string>();
+  const allLiveSessions = sessionsByProject ? Object.values(sessionsByProject).flat() : agentSessions;
 
-  if (currentProject && names.has(currentProject)) {
-    const currentName = names.get(currentProject)!;
-    for (const [key, state] of Object.entries(liveActivity)) {
-      if (state !== 'permiso') continue;
-      const session = key === 'coach' ? null : agentSessions.find((s) => String(s.id) === key);
-      if (key !== 'coach' && !session) continue;
+  for (const [key, state] of Object.entries(liveActivity)) {
+    if (state !== 'permiso') continue;
+    const pmProj = parsePmActivityKey(key);
+    if (pmProj || key === 'coach') {
+      const targetProject = pmProj ?? currentProject;
+      if (!targetProject || !names.has(targetProject)) continue;
+      const permKey = `perm:${targetProject}:coach`;
+      if (seenPerm.has(permKey)) continue;
+      seenPerm.add(permKey);
+      const projectName = names.get(targetProject)!;
       out.push({
-        key: `perm:${currentProject}:${key}`,
+        key: permKey,
         severity: 'waiting',
-        project: currentProject,
-        projectName: currentName,
-        title: `${session ? session.name : 'Project manager'} pide permiso`,
-        detail: firstMeaningfulLine(session?.task, 84) ?? currentName,
+        project: targetProject,
+        projectName,
+        title: 'Project manager pide permiso',
+        detail: projectName,
         action: 'Ir a la sesión',
         urgent: true,
-        target: { kind: 'session', project: currentProject, view: session ? session.id : 'coach' },
+        target: { kind: 'session', project: targetProject, view: 'coach' },
       });
+      continue;
     }
+    const session = allLiveSessions.find((s) => String(s.id) === key);
+    if (!session || !names.has(session.project)) continue;
+    const permKey = `perm:${session.project}:${session.id}`;
+    if (seenPerm.has(permKey)) continue;
+    seenPerm.add(permKey);
+    const projectName = names.get(session.project)!;
+    out.push({
+      key: permKey,
+      severity: 'waiting',
+      project: session.project,
+      projectName,
+      title: `${session.title?.trim() || session.name} pide permiso`,
+      detail: firstMeaningfulLine(session.task, 84) ?? projectName,
+      action: 'Ir a la sesión',
+      urgent: true,
+      target: { kind: 'session', project: session.project, view: session.id },
+    });
+  }
+
+  for (const session of allLiveSessions) {
+    if (session.status !== 'esperando' || !names.has(session.project)) continue;
+    const permKey = `perm:${session.project}:${session.id}`;
+    if (seenPerm.has(permKey)) continue;
+    seenPerm.add(permKey);
+    const projectName = names.get(session.project)!;
+    out.push({
+      key: permKey,
+      severity: 'waiting',
+      project: session.project,
+      projectName,
+      title: `${session.title?.trim() || session.name} pide permiso`,
+      detail: firstMeaningfulLine(session.task, 84) ?? projectName,
+      action: 'Ir a la sesión',
+      urgent: true,
+      target: { kind: 'session', project: session.project, view: session.id },
+    });
   }
 
   for (const { path, name } of activeProjects) {
@@ -395,6 +445,7 @@ export function buildProjectLibrary({
   groups,
   snaps,
   recentSessions,
+  sessionsByProject: liveSessionsByProject,
   liveActivity,
   currentProject,
   query,
@@ -405,6 +456,7 @@ export function buildProjectLibrary({
   groups: readonly Group[];
   snaps: Record<string, HomeSummary | undefined>;
   recentSessions: readonly RecentSession[];
+  sessionsByProject?: Record<string, readonly Session[]>;
   liveActivity: LiveActivityMap;
   currentProject: string | null;
   query: string;
@@ -466,13 +518,18 @@ export function buildProjectLibrary({
 
     let liveWorkingCount = 0;
     let liveWaitingCount = 0;
-    if (project.path === currentProject) {
-      for (const state of Object.values(liveActivity)) {
-        if (state === 'trabajando') liveWorkingCount++;
-        else if (state === 'permiso') liveWaitingCount++;
+    const pmState = liveActivity[`pm:${project.path}`] ?? (project.path === currentProject ? liveActivity.coach : null);
+    if (pmState === 'trabajando') liveWorkingCount++;
+    else if (pmState === 'permiso') liveWaitingCount++;
+    const openSessions = liveSessionsByProject?.[project.path] ?? [];
+    if (openSessions.length > 0) {
+      for (const s of openSessions) {
+        const st = liveActivity[String(s.id)];
+        if (st === 'permiso' || s.status === 'esperando') liveWaitingCount++;
+        else if (st === 'trabajando' || s.status === 'trabajando') liveWorkingCount++;
       }
     } else {
-      liveWorkingCount = projSessions.filter((s) => s.running).length;
+      liveWorkingCount += projSessions.filter((s) => !s.isPm && s.running).length;
     }
 
     entries.push({

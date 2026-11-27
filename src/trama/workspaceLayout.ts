@@ -220,6 +220,17 @@ export function onProjectSelected(state: ShellState): ShellState {
   };
 }
 
+export type Disposition = 'chat' | 'split' | 'code';
+
+/**
+ * Disposición que se está viendo, para marcarla en la cabecera: sin panel queda
+ * la conversación, y Observación nunca ocupa el centro aunque se prefiera Código.
+ */
+export function visibleDisposition(preferred: Disposition, panelOpen: boolean, observing: boolean): Disposition {
+  if (!panelOpen) return 'chat';
+  return preferred === 'code' && observing ? 'split' : preferred;
+}
+
 export type LayoutGeometry = {
   effectiveMode: ShellMode;
   workspaceWidthPx: number;

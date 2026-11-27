@@ -194,19 +194,25 @@ html[data-motion='reducido'] .ws-pane {
 
 .ws-inner {
   --workspace-sidebar-width: var(--side-w, 232px);
-  --right-width-limit: max(220px, calc(100% - var(--workspace-sidebar-width) - 260px));
+  /* 320 px: conversación (con las acciones de su cabecera) y carril. */
+  --right-width-limit: max(220px, calc(100% - var(--workspace-sidebar-width) - 320px));
   position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--side-w, 232px) minmax(0, 1fr) auto auto;
+  grid-template-columns: var(--side-w, 232px) minmax(0, 1fr) auto var(--right-col, auto);
   grid-template-rows: minmax(0, 1fr);
 }
 .ws-inner.no-side {
   --workspace-sidebar-width: 0px;
-  grid-template-columns: 0 minmax(0, 1fr) auto auto;
+  grid-template-columns: 0 minmax(0, 1fr) auto var(--right-col, auto);
 }
+/* El ancho del panel derecho se fija en la columna: en la rejilla los % miden el
+   Workspace; en el propio panel son circulares y lo dejaban fuera de la ventana. */
+.ws-inner.has-panel:not(.lay-code) { --right-col: min(var(--git-w, 360px), var(--right-width-limit)); }
+.ws-inner.has-panel.is-wide:not(.lay-code) { --right-col: min(max(var(--git-w, 360px), min(760px, 50%)), var(--right-width-limit)); }
+.ws-inner.has-panel:not(.lay-code):has(> .right.is-observing) { --right-col: min(var(--observe-w, 590px), var(--right-width-limit)); }
 .ws-inner > .sidebar { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; }
 .ws-inner > .center { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
 .ws-inner > .rail { grid-column: 3; grid-row: 1; }
@@ -214,12 +220,10 @@ html[data-motion='reducido'] .ws-pane {
 .ws-inner > .splitter.is-side { left: calc(var(--side-w, 232px) - 5px); }
 .ws-inner.no-side:not(.has-side-drawer) > .sidebar { visibility: hidden; pointer-events: none; overflow: hidden; }
 .ws-inner.no-side > .center { margin-left: 0; }
-.ws-inner.is-wide > .right {
-  width: min(max(var(--git-w, 360px), min(760px, 50%)), var(--right-width-limit));
-}
 .ws-inner > .right {
   grid-column: 4;
   grid-row: 1;
+  width: auto;
 }
 
 /* En vista dividida estrecha, el cajón de conversaciones flota sin aplastar el chat. */
@@ -744,7 +748,8 @@ html:not([data-motion='reducido']) .co-approval { animation: trPop var(--d2) var
 .center-head { height: 44px; gap: 10px; }
 .ch-state { color: var(--skyhi); }
 .ch-state.is-permiso { color: var(--amber); }
-.ws-layout .tr-seg button { height: 22px; padding: 0 8px; }
+.ws-layout, .ws-panels { display: flex; flex: none; }
+.ws-layout .tr-seg button, .ws-panels.tr-seg button { height: 22px; padding: 0 8px; }
 .ws-layout .seg-l { display: none; }
 /* iconos solos, como en el Artifact */
 .center { container-type: inline-size; }
@@ -753,7 +758,8 @@ html:not([data-motion='reducido']) .co-approval { animation: trPop var(--d2) var
 .ws-inner.lay-code > .center { visibility: hidden; }
 .ws-inner.lay-code > .right > .splitter { display: none; }
 .ws-inner.lay-code.no-side > .right { margin-left: 0; }
-.ws-back { grid-column: 2; grid-row: 1; justify-self: end; align-self: start; margin: 7px 10px 0 0; z-index: 3; background: var(--glass3); }
+/* En Código, los paneles y «Conversación» cierran la cabecera del panel, sin flotar sobre sus botones. */
+.ws-back { display: flex; flex: none; align-items: center; gap: 6px; }
 
 /* ── Brain: formulario modal de recuerdos ─────────────────────────── */
 .brain-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }

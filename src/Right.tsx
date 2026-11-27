@@ -25,6 +25,8 @@ type Props = {
   /** Carpeta de repositorios elegida al abrir Filigranas y ruta que muestra el panel. */
   root?: string | null;
   location?: string | null;
+  /** Acciones del Workspace que cierran la cabecera cuando el panel ocupa el centro. */
+  actions?: ReactNode;
   children: ReactNode;
 };
 
@@ -50,7 +52,7 @@ function Crumb({ path }: { path: string }) {
   );
 }
 
-export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, observation, root, location, children }: Props) {
+export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, observation, root, location, actions, children }: Props) {
   const panel = RIGHT_PANELS[tab];
   const editing = tab === 'editor' && editor;
   const crumb = root && location && PATH_PANELS.has(tab) ? fromRoot(root, location) : null;
@@ -85,6 +87,7 @@ export default function Right({ tab, hidden, onEditor, editor, onCloseEditor, ob
             <Icon name="close" size={12} />
           </button>
         )}
+        {actions}
       </header>}
       <div className={`panel-body is-${tab}`}>
         {children}

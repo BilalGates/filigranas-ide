@@ -1,5 +1,5 @@
 import { useAppUpdates } from './appUpdates';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
@@ -40,6 +40,7 @@ import {
   restoreWorkspace,
   toggleMaximizeTool,
   toggleTool,
+  visibleDisposition,
   type ShellState,
 } from './trama/workspaceLayout';
 import Home from './trama/Home';
@@ -82,6 +83,27 @@ const loadPm = (): Set<string> => {
 
 // `session`: terminal en el worktree de una sesión aislada (su nombre como etiqueta).
 type TerminalTab = { id: number; project: string; number: number; session?: number; label?: string; initial?: string };
+
+// Acciones de la cabecera del Workspace: paneles, disposición y vuelta desde Código.
+const WS_ACTIONS = '.ws-panels, .ws-layout, .ws-back';
+
+/** El ratón no deja el foco en ellas: Chromium pintaba el anillo con la siguiente tecla. */
+function noMouseFocus(e: ReactMouseEvent) {
+  e.preventDefault();
+  const focused = document.activeElement;
+  if (focused instanceof HTMLElement && focused.closest(WS_ACTIONS)) focused.blur();
+}
+
+/** Si el cambio de disposición oculta el botón con el foco, el teclado pasa a su equivalente visible. */
+function followFocus() {
+  const from = document.activeElement;
+  if (!from?.closest(WS_ACTIONS)) return;
+  const shown = (el: Element) => el.isConnected && getComputedStyle(el).visibility !== 'hidden';
+  requestAnimationFrame(() => {
+    if (shown(from)) return;
+    [...document.querySelectorAll<HTMLElement>('.ws-back .tr-btn, .ws-layout [aria-pressed="true"]')].find(shown)?.focus();
+  });
+}
 
 export default function App() {
   useAppUpdates();
@@ -609,6 +631,7 @@ export default function App() {
     ensureWorkspaceVisible();
   };
   const showRight = (tab: RightTab) => {
+    followFocus();
     if (tab === rightView && !noRight && shell.mode !== 'maximized' && shell.mode !== 'compact') setNoRight(true);
     else revealRight(tab);
   };
@@ -808,6 +831,7 @@ export default function App() {
   // libre. Dividida: conversación + editor ancho. Código: el editor ocupa
   // el centro (la conversación y los terminales siguen montados).
   const setLayout = (next: 'chat' | 'split' | 'code') => {
+    followFocus();
     setLayoutState(next);
     try { localStorage.setItem('filigranas.disposicion', next); } catch { /* sin almacenamiento */ }
     // Conversación: el chat ocupa el centro sin panel lateral, como en Trama.
@@ -1010,14 +1034,14 @@ export default function App() {
   });
   // Cambios y Archivos: en la cabecera del Workspace y, en Código, junto a «Conversación».
   const panelButtons = (
-    <div className="ws-panels" role="group" aria-label="Paneles del proyecto">
+    <div className="ws-panels tr-seg" role="group" aria-label="Paneles del proyecto" onMouseDown={noMouseFocus}>
       {(['git', 'files'] as const).map((id) => {
         const panel = RIGHT_PANELS[id];
         const active = panelOpen && rightView === id;
         return (
-          <button key={id} className={`tb-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
+          <button key={id} onClick={() => showRight(id)}
             aria-label={panel.title} aria-pressed={active} aria-controls="workspace-right-panel" title={shortcut(`${panel.title} · ${panel.keys}`)}>
-            <Icon name={panel.icon} size={15} />
+            <Icon name={panel.icon} size={13} />
             {id === 'git' && dirty && <span className="dot is-dirty" />}
           </button>
         );
@@ -1326,8 +1350,10 @@ export default function App() {
           const collapsedSide = noSide || geometry.collapseWorkspaceSidebar;
           const showDrawer = collapsedSide && narrowSideOpen;
           const wsPanelOpen = panelOpen && (!geometry.collapseWorkspaceSidebar || rightView === 'editor' || rightView === 'conflicts' || rightView === 'observe');
+          // En Código el panel ocupa el centro; Observación siempre acompaña a la conversación.
+          const codeView = layout === 'code' && wsPanelOpen && rightView !== 'observe';
           return (
-            <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${layout === 'code' && wsPanelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
+            <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${codeView ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
               {showDrawer && <div className="ws-drawer-backdrop" onClick={() => setNarrowSideOpen(false)} aria-hidden="true" />}
               {renderExplorer({ onPicked: () => setNarrowSideOpen(false) })}
               {!collapsedSide && <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />}
@@ -1357,7 +1383,7 @@ export default function App() {
                     <span className="grow" />
                     {current && !geometry.collapseWorkspaceSidebar && panelButtons}
                     {current && !geometry.collapseWorkspaceSidebar && (
-                      <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
+                      <div className="ws-layout" onMouseDown={noMouseFocus}><Seg label="Disposición" value={visibleDisposition(layout, wsPanelOpen, rightView === 'observe')} onChange={setLayout} items={[
                         { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
                     )}
                     {activeSession && (
@@ -1502,17 +1528,17 @@ export default function App() {
                 })}
               </nav>}
 
-              {layout === 'code' && wsPanelOpen && rightView !== 'observe' && (
-                <div className="ws-back">
-                  {current && panelButtons}
-                  <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
-                    <Icon name="chat" size={13} /> Conversación
-                  </button>
-                </div>
-              )}
               <Right tab={rightView} hidden={!wsPanelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
                 observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
-                root={ws.root} location={panelLocation}>
+                root={ws.root} location={panelLocation}
+                actions={codeView && (
+                  <div className="ws-back" onMouseDown={noMouseFocus}>
+                    {current && panelButtons}
+                    <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
+                      <Icon name="chat" size={13} /> Conversación
+                    </button>
+                  </div>
+                )}>
                 {current && conflictFiles && (
                   <Conflicts
                     project={current.path}

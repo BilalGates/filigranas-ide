@@ -24,6 +24,7 @@ import {
   TOOLS,
   type StorageLike,
   type ToolId,
+  visibleDisposition,
 } from '../src/trama/workspaceLayout.ts';
 
 function memoryStorage(): StorageLike {
@@ -204,4 +205,17 @@ test('persistencia por proyecto, reinicio y descarte de proyectos borrados o ina
   assert.equal(bootMissing.project, null);
   assert.equal(bootMissing.shell.activeTool, 'inicio');
   assert.equal(bootMissing.shell.mode, 'split');
+});
+
+test('la cabecera marca la disposición visible, no solo la preferida', () => {
+  // Con panel, se marca la preferencia.
+  assert.equal(visibleDisposition('chat', true, false), 'chat');
+  assert.equal(visibleDisposition('split', true, false), 'split');
+  assert.equal(visibleDisposition('code', true, false), 'code');
+  // Al cerrar el panel desde Cambios, Archivos, ⌘I o ⌘W solo queda la conversación.
+  assert.equal(visibleDisposition('split', false, false), 'chat');
+  assert.equal(visibleDisposition('code', false, false), 'chat');
+  // Observación acompaña a la conversación aunque se prefiera Código.
+  assert.equal(visibleDisposition('code', true, true), 'split');
+  assert.equal(visibleDisposition('chat', true, true), 'chat');
 });

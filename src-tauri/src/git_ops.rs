@@ -233,7 +233,7 @@ pub(crate) fn commit_staged_in(repo: &Path, message: &str) -> Result<String, Str
     // Comprobación local de espacios/conflictos antes del commit.
     run(&repo_str, &["diff", "--cached", "--check"])?;
     // Respeta todos los hooks configurados en el repositorio (nunca --no-verify).
-    let mut cmd = Command::new("git");
+    let mut cmd = crate::cli::command("git");
     cmd.arg("-C").arg(repo).args(["commit", "-m", trimmed]).env("GIT_TERMINAL_PROMPT", "0");
     if let Some(path) = crate::cli::login_path() {
         cmd.env("PATH", path);

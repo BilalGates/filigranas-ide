@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::approval::{Proof, Review};
 
@@ -139,7 +139,158 @@ pub async fn git_push(app: AppHandle, project: String, set_upstream: bool, proof
         if set_upstream {
             pr::configure_tracking(&path, &plan.branch, &plan.remote, &plan.dest, &plan.head)?;
         }
+        let _ = app.emit("project-changed", ());
         Ok(format!("rama publicada en {}/{}", plan.label(), plan.dest))
+    }).await.map_err(err)?
+}
+
+impl PushPlan {
+    fn read_branch(path: &Path, branch: &str, set_upstream: bool) -> Result<Self, String> {
+        let branch = crate::git::valid_ref(branch)?.to_string();
+        let ref_name = format!("refs/heads/{branch}");
+        let head = pr::value(path, &["rev-parse", "--verify", &ref_name])
+            .map_err(|_| format!("no existe la rama local «{branch}»"))?;
+        let (remote, dest) = if set_upstream {
+            ("origin".to_string(), branch.clone())
+        } else {
+            let tracking = pr::value(path, &["for-each-ref", "--format=%(upstream:remotename)%00%(upstream:remoteref)", &ref_name])?;
+            let (remote, reference) = tracking.split_once('\0').filter(|(r, _)| !r.is_empty()).ok_or("la rama carece de remoto de seguimiento")?;
+            let dest = reference.strip_prefix("refs/heads/").filter(|s| !s.is_empty()).ok_or("la rama carece de destino de seguimiento")?;
+            (remote.to_string(), dest.to_string())
+        };
+        let url = pr::push_url(path, &remote)?;
+        Ok(Self { branch, head, remote, dest, url, set_upstream })
+    }
+}
+
+/// Revisa el push exacto de cualquier rama local sin necesidad de hacer checkout.
+#[tauri::command]
+pub async fn git_review_push_branch(app: AppHandle, project: String, branch: String, set_upstream: bool) -> Result<Review, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let path = crate::isolate::work_dir(&state, &project, None)?;
+        let plan = PushPlan::read_branch(&path, &branch, set_upstream)?;
+        state.approvals.prepare(
+            ("git_push_branch", &path, &plan),
+            format!("Publicar {} → {}/{} · {}", plan.branch, plan.label(), plan.dest, &plan.head[..plan.head.len().min(7)]),
+            &plan.head,
+        )
+    }).await.map_err(err)?
+}
+
+/// Publica el SHA aprobado de una rama local concreta sin checkout ni `--force`.
+#[tauri::command]
+pub async fn git_push_branch(app: AppHandle, project: String, branch: String, set_upstream: bool, proof: Proof) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _gate = state.publication.try_lock().map_err(|_| "ya hay una operación de publicación en curso")?;
+        let path = crate::isolate::work_dir(&state, &project, None)?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
+        let plan = PushPlan::read_branch(&path, &branch, set_upstream)?;
+        state.approvals.consume(("git_push_branch", &path, &plan), &proof)?;
+        let exec = |program: &str, args: &[&str]| pr::run(&path, program, args);
+        pr::push_exact(&exec, &plan.url, &plan.head, &plan.dest)?;
+        if set_upstream {
+            pr::configure_tracking(&path, &plan.branch, &plan.remote, &plan.dest, &plan.head)?;
+        }
+        let _ = app.emit("project-changed", ());
+        Ok(format!("rama {} publicada en {}/{}", plan.branch, plan.label(), plan.dest))
+    }).await.map_err(err)?
+}
+
+pub(crate) fn stage_paths(repo: &Path, paths: &[String]) -> Result<String, String> {
+    if paths.is_empty() {
+        return Err("indica al menos un archivo para preparar".into());
+    }
+    let mut args = vec!["add", "--"];
+    for p in paths {
+        args.push(crate::git::relative(p)?);
+    }
+    run(&repo.to_string_lossy(), &args)
+}
+
+pub(crate) fn unstage_paths(repo: &Path, paths: &[String]) -> Result<String, String> {
+    if paths.is_empty() {
+        return Err("indica al menos un archivo para sacar de preparación".into());
+    }
+    let has_head = crate::git::git(repo, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_ok();
+    let mut args = if has_head { vec!["reset", "HEAD", "--"] } else { vec!["rm", "--cached", "--"] };
+    for p in paths {
+        args.push(crate::git::relative(p)?);
+    }
+    run(&repo.to_string_lossy(), &args)
+}
+
+pub(crate) fn commit_staged_in(repo: &Path, message: &str) -> Result<String, String> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return Err("el mensaje de commit no puede estar vacío".into());
+    }
+    let staged = crate::git::git(repo, &["diff", "--cached", "--name-only"])?;
+    if staged.is_empty() {
+        return Err("no hay archivos preparados (staged) para crear el commit".into());
+    }
+    let repo_str = repo.to_string_lossy();
+    // Comprobación local de espacios/conflictos antes del commit.
+    run(&repo_str, &["diff", "--cached", "--check"])?;
+    // Respeta todos los hooks configurados en el repositorio (nunca --no-verify).
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo).args(["commit", "-m", trimmed]).env("GIT_TERMINAL_PROMPT", "0");
+    if let Some(path) = crate::cli::login_path() {
+        cmd.env("PATH", path);
+    }
+    let out = cmd.output().map_err(|e| format!("no se pudo ejecutar git: {e}"))?;
+    if !out.status.success() {
+        let msg = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        return Err(msg.trim().to_string());
+    }
+    pr::value(repo, &["rev-parse", "HEAD"])
+}
+
+#[tauri::command]
+pub async fn git_stage(app: AppHandle, project: String, session: Option<i64>, paths: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let dir = crate::isolate::work_dir(&state, &project, session)?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
+        let out = stage_paths(&dir, &paths)?;
+        let _ = app.emit("project-changed", ());
+        Ok(out)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+pub async fn git_unstage(app: AppHandle, project: String, session: Option<i64>, paths: Vec<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let dir = crate::isolate::work_dir(&state, &project, session)?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
+        let out = unstage_paths(&dir, &paths)?;
+        let _ = app.emit("project-changed", ());
+        Ok(out)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+pub async fn git_commit_staged(app: AppHandle, project: String, session: Option<i64>, message: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _git = state.publication.try_lock().map_err(|_| "hay una operación Git en curso")?;
+        let project_resolved = crate::workspace::project_path(&*state.db.lock().map_err(err)?, &project)?;
+        let dir = crate::isolate::work_dir(&state, &project_resolved, session)?;
+        crate::work::git_idle(&*state.db.lock().map_err(err)?, &project_resolved)?;
+        let oid = commit_staged_in(&dir, &message)?;
+        let branch = pr::value(&dir, &["branch", "--show-current"]).unwrap_or_default();
+        let subject = message.lines().next().unwrap_or("").trim();
+        if !branch.is_empty() {
+            let conn = state.db.lock().map_err(err)?;
+            let _ = crate::github::record_commit(&conn, &project_resolved, &branch, &oid, subject);
+        }
+        let _ = app.emit("project-changed", ());
+        crate::tasks::changed(&app);
+        Ok(format!("{} {}", &oid[..oid.len().min(7)], subject))
     }).await.map_err(err)?
 }
 
@@ -312,6 +463,28 @@ mod tests {
         assert_eq!((a.status.as_str(), a.adds, a.dels), ("M", Some(1), Some(0)));
         assert!(d.files.iter().any(|f| f.path == "b.txt" && f.status == "A"));
         assert!(commit_detail(p, "HEAD; rm").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn stage_unstage_and_commit_staged_work_with_explicit_paths() {
+        let dir = fixture();
+        std::fs::write(dir.join("a.txt"), "mod\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "nuevo\n").unwrap();
+        stage_paths(&dir, &["a.txt".into()]).unwrap();
+        let cached = String::from_utf8(crate::git::git(&dir, &["diff", "--cached", "--name-only"]).unwrap()).unwrap();
+        assert_eq!(cached.trim(), "a.txt");
+        unstage_paths(&dir, &["a.txt".into()]).unwrap();
+        let cached = String::from_utf8(crate::git::git(&dir, &["diff", "--cached", "--name-only"]).unwrap()).unwrap();
+        assert!(cached.trim().is_empty());
+
+        stage_paths(&dir, &["b.txt".into()]).unwrap();
+        let oid = commit_staged_in(&dir, "feat: añade b").unwrap();
+        assert_eq!(oid.len(), 40);
+        // a.txt sigue sin commitear.
+        let rest = String::from_utf8(crate::git::git(&dir, &["status", "--porcelain"]).unwrap()).unwrap();
+        assert!(rest.contains("a.txt"));
+        assert!(!rest.contains("b.txt"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

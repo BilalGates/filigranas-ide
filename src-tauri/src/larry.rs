@@ -199,20 +199,40 @@ pub fn script_plan(repo: &Path) -> CmdResult<Plan> {
     })
 }
 
-/// Propone los commits del árbol de trabajo del proyecto.
-pub fn propose(app: &AppHandle, repo: &Path) -> CmdResult<Plan> {
-    let groups = script_groups(repo)?;
+/// Propone los commits del árbol de trabajo del proyecto (opcionalmente
+/// acotado a un subconjunto de rutas o con una indicación de revisión).
+pub fn propose_with(app: &AppHandle, repo: &Path, filter_paths: Option<&[String]>, instruction: Option<&str>) -> CmdResult<Plan> {
+    let mut groups = if filter_paths.is_some() {
+        parse_script(&run_script(repo)?)?
+    } else {
+        script_groups(repo)?
+    };
+    if let Some(paths) = filter_paths.filter(|p| !p.is_empty()) {
+        let allowed: BTreeSet<&str> = paths.iter().map(String::as_str).collect();
+        for g in &mut groups {
+            g.ficheros.retain(|f| allowed.contains(f.ruta.as_str()));
+        }
+        groups.retain(|g| !g.ficheros.is_empty());
+        if groups.is_empty() {
+            return Err("ninguno de los archivos seleccionados tiene cambios pendientes".into());
+        }
+    }
     let changed = changed_files(&groups);
     let summary: Vec<Value> = groups
         .iter()
         .map(|g| json!({ "tipo": g.tipo, "alcance": g.alcance, "ficheros": g.ficheros.iter().map(|f| &f.ruta).collect::<Vec<_>>() }))
         .collect();
     let log = git(repo, &["log", "-8", "--format=%s"]).map(|l| String::from_utf8_lossy(&l).into_owned()).unwrap_or_default();
+    let extra = instruction
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("\nIndicación adicional del usuario para ajustar los mensajes o agrupación:\n{s}\n"))
+        .unwrap_or_default();
     let prompt = format!(
         "Propón los commits para los cambios de este repositorio, siguiendo las reglas de la skill.\n\n\
 Grupos deterministas del script (ajústalos solo si un archivo pertenece claramente a otra unidad funcional):\n{}\n\n\
 Últimos mensajes del repositorio, para imitar su estilo e idioma:\n{log}\n\
-Diffs de los archivos modificados cuyo tipo (feat, fix o refactor) hay que decidir:\n{}\n\n\
+Diffs de los archivos modificados cuyo tipo (feat, fix o refactor) hay que decidir:\n{}{extra}\n\
 Responde con exactamente esos archivos, cada uno en un solo commit, en orden de dependencia. Mensajes en el idioma del repositorio. \
 `notes`: una o dos frases si algo merece revisión del usuario; si no, null.\n\n\
 Toda la información necesaria está en este mensaje: no leas archivos, no ejecutes comandos ni consultes otras fuentes; responde directamente.",
@@ -238,6 +258,10 @@ Toda la información necesaria está en este mensaje: no leas archivos, no ejecu
             fallback: true,
         },
     })
+}
+
+pub fn propose(app: &AppHandle, repo: &Path) -> CmdResult<Plan> {
+    propose_with(app, repo, None, None)
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -266,10 +290,25 @@ fn git_env(repo: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Crea los commits en orden. Se detiene en el primer problema y deja el
 /// repositorio en un estado visible: nunca deshace ni fuerza nada.
-fn commit_recording(repo: &Path, commits: &[Commit], mut record: impl FnMut(&str, &str) -> CmdResult<()>) -> CmdResult<Outcome> {
+fn commit_recording(repo: &Path, commits: &[Commit], partial: bool, mut record: impl FnMut(&str, &str) -> CmdResult<()>) -> CmdResult<Outcome> {
     ensure_index_empty(repo)?;
     let changed = changed_files(&parse_script(&run_script(repo)?)?);
-    validate(commits, &changed).map_err(|e| format!("el plan ya no coincide con los cambios ({e}): vuelve a pedirle a Larry"))?;
+    if partial {
+        let mut seen = BTreeSet::new();
+        for c in commits {
+            let subject = c.message.lines().next().unwrap_or("").trim();
+            if subject.is_empty() { return Err("hay un commit sin mensaje".into()); }
+            if subject.chars().count() > 100 { return Err(format!("mensaje demasiado largo: {subject}")); }
+            if c.files.is_empty() { return Err(format!("el commit «{subject}» no tiene archivos")); }
+            for f in &c.files {
+                if !changed.contains(f) { return Err(format!("{f} no está entre los archivos cambiados")); }
+                if !seen.insert(f.clone()) { return Err(format!("{f} aparece en más de un commit")); }
+            }
+        }
+        if seen.is_empty() { return Err("el plan no contiene archivos".into()); }
+    } else {
+        validate(commits, &changed).map_err(|e| format!("el plan ya no coincide con los cambios ({e}): vuelve a pedirle a Larry"))?;
+    }
     let mut created = Vec::new();
     for c in commits {
         let subject = c.message.lines().next().unwrap_or("").trim().to_string();
@@ -309,7 +348,7 @@ fn commit_recording(repo: &Path, commits: &[Commit], mut record: impl FnMut(&str
 
 #[cfg(test)]
 fn commit(repo: &Path, commits: &[Commit]) -> CmdResult<Outcome> {
-    commit_recording(repo, commits, |_, _| Ok(()))
+    commit_recording(repo, commits, false, |_, _| Ok(()))
 }
 
 // ── comandos ────────────────────────────────────────────────────────────
@@ -324,6 +363,22 @@ pub async fn larry_propose(app: AppHandle, project: String, session: Option<i64>
     .map_err(err)?
 }
 
+#[tauri::command]
+pub async fn larry_propose_selected(
+    app: AppHandle,
+    project: String,
+    session: Option<i64>,
+    paths: Option<Vec<String>>,
+    instruction: Option<String>,
+) -> CmdResult<Plan> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = crate::isolate::work_dir(&app.state::<AppState>(), &project, session)?;
+        propose_with(&app, &dir, paths.as_deref(), instruction.as_deref())
+    })
+    .await
+    .map_err(err)?
+}
+
 /// Grupos del script al instante, sin esperar al modelo.
 #[tauri::command]
 pub async fn larry_groups(app: AppHandle, project: String, session: Option<i64>) -> CmdResult<Plan> {
@@ -331,14 +386,20 @@ pub async fn larry_groups(app: AppHandle, project: String, session: Option<i64>)
 }
 
 #[tauri::command]
-pub async fn larry_commit(app: AppHandle, project: String, session: Option<i64>, commits: Vec<Commit>) -> CmdResult<Outcome> {
+pub async fn larry_commit(
+    app: AppHandle,
+    project: String,
+    session: Option<i64>,
+    commits: Vec<Commit>,
+    partial: Option<bool>,
+) -> CmdResult<Outcome> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let project = crate::workspace::project_path(&*state.db.lock().map_err(err)?, &project)?;
         let dir = crate::isolate::work_dir(&state, &project, session)?;
         let _git = state.publication.try_lock().map_err(|_| "ya hay una operación Git en curso")?;
         crate::work::git_idle(&*state.db.lock().map_err(err)?, &project)?;
-        let outcome = commit_recording(&dir, &commits, |oid, subject| {
+        let outcome = commit_recording(&dir, &commits, partial.unwrap_or(false), |oid, subject| {
             let branch = crate::pr::value(&dir, &["branch", "--show-current"])?;
             let conn = state.db.lock().map_err(err)?;
             crate::github::record_commit(&conn, &project, &branch, oid, subject)
@@ -402,7 +463,7 @@ mod tests {
         std::fs::remove_file(dir.join("ajeno.txt")).unwrap();
 
         let conn = crate::db::open(Path::new(":memory:")).unwrap();
-        let out = commit_recording(&dir, &[c("fix: corrige a", &["a.rs"]), c("docs: añade notas", &["notas.md"])], |oid, subject| {
+        let out = commit_recording(&dir, &[c("fix: corrige a", &["a.rs"]), c("docs: añade notas", &["notas.md"])], false, |oid, subject| {
             crate::github::record_commit(&conn, "proyecto", "main", oid, subject)
         }).unwrap();
         assert_eq!(out.stopped, None);

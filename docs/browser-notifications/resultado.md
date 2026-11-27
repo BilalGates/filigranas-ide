@@ -36,7 +36,7 @@ Todas las pruebas de navegación de esta tabla usan el motor nativo, sin mock de
 
 | Recorrido ejecutado | Evidencia |
 | --- | --- |
-| Google y Example Domain | [Google final](evidence/after-browser.png), [navegación real y Example Domain al retroceder](evidence/native-navigation.json) |
+| Google y Example Domain | [Google final](evidence/after-browser.png), [estado nativo de Example Domain](evidence/native-public-site.json) |
 | HTTP real en `localhost:3000` | Servidor de prueba local; [captura](evidence/after-localhost.png), [eventos de la página con tamaño y nonce de documento](evidence/localhost-events.json) |
 | Atrás, adelante y recarga desde botones | [Recorrido nativo](evidence/native-navigation.json) |
 | Seis ajustes del divisor por teclado, Workspace dividido y compacto | [Dimensiones DOM frente al motor](evidence/native-navigation.json) |

@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -116,7 +116,7 @@ pub(crate) async fn github_login_start(app: AppHandle) -> CmdResult<LoginStatus>
             .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty())) {
             return Err("GitHub CLI está usando credenciales del entorno. Abre Filigranas sin esas credenciales para iniciar sesión desde aquí.".into());
         }
-        let mut cmd = Command::new(program("gh"));
+        let mut cmd = crate::cli::command(program("gh"));
         cmd.args(["auth", "login", "--hostname", "github.com", "--web", "--skip-ssh-key", "--clipboard=false"])
             .env("GH_PROMPT_DISABLED", "1")
             .env("NO_COLOR", "1")
@@ -127,11 +127,6 @@ pub(crate) async fn github_login_start(app: AppHandle) -> CmdResult<LoginStatus>
             .stderr(Stdio::piped());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
         }
         let mut child = cmd.spawn().map_err(|_| "no se pudo abrir GitHub CLI")?;
         let stderr = child.stderr.take().ok_or("no se pudo leer el código de GitHub")?;
@@ -186,7 +181,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn tracks_a_login_process_and_clears_its_code_on_completion() {
-        let mut child = Command::new("sh").args(["-c", "echo 'First copy your one-time code: ABCD-EFGH' >&2; sleep 1"])
+        let mut child = crate::cli::command("sh").args(["-c", "echo 'First copy your one-time code: ABCD-EFGH' >&2; sleep 1"])
             .stderr(Stdio::piped()).spawn().unwrap();
         let stderr = child.stderr.take().unwrap();
         let login = Arc::new(Mutex::new(Login { child: Some(child), status: LoginStatus::Waiting { code: None } }));

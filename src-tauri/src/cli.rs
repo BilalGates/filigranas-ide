@@ -1,11 +1,30 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
+use std::process::Command;
 #[cfg(unix)]
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 /// Plazo de una actualización (descarga incluida).
 pub(crate) const UPDATE_LIMIT: Duration = Duration::from_secs(300);
+
+/// Punto único para crear un proceso hijo (`clippy.toml` prohíbe
+/// `Command::new` fuera de aquí). La build de release de Windows no tiene
+/// consola: sin `CREATE_NO_WINDOW`, cada hijo de consola abriría su ventana.
+/// `creation_flags` sustituye el valor: quien lo cambie debe conservar este.
+/// Los terminales integrados usan `portable-pty` y no pasan por aquí.
+pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
+    #[allow(clippy::disallowed_methods)]
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command
+}
 
 /// Programa externo listo para lanzar. En Windows, `Command` solo busca
 /// `.exe` en el PATH y las CLI pueden instalarse como `.cmd`: se resuelve la
@@ -40,7 +59,7 @@ pub(crate) fn login_path() -> Option<&'static str> {
         #[cfg(unix)]
         {
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-            let out = Command::new(shell).args(["-ilc", "printf '\\n<<%s>>' \"$PATH\""]).stdin(Stdio::null()).output().ok()?;
+            let out = command(shell).args(["-ilc", "printf '\\n<<%s>>' \"$PATH\""]).stdin(Stdio::null()).output().ok()?;
             let text = String::from_utf8_lossy(&out.stdout);
             let start = text.rfind("<<")? + 2;
             let end = start + text[start..].find(">>")?;
@@ -104,5 +123,39 @@ mod tests {
         waiter.join().unwrap();
         assert!(start.elapsed() >= Duration::from_millis(200) && start.elapsed() < Duration::from_secs(5));
         wait_update("otra-cli"); // sin actualización en curso no espera
+    }
+
+    /// El ejecutable de pruebas se relanza dos veces: «app» no tiene consola,
+    /// como la build de release, y su hijo informa de si ha recibido ventana.
+    #[cfg(windows)]
+    #[test]
+    fn a_child_of_the_windows_app_gets_no_console_window() {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const PROBE: &str = "FILIGRANAS_CONSOLE_PROBE";
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetConsoleWindow() -> *mut std::ffi::c_void;
+        }
+        let role = std::env::var(PROBE).unwrap_or_default();
+        if role == "child" {
+            // SAFETY: no recibe argumentos ni tiene precondiciones.
+            println!("console_window={}", !unsafe { GetConsoleWindow() }.is_null());
+            return;
+        }
+        let mut probe = command(std::env::current_exe().unwrap());
+        probe.args(["--exact", "cli::tests::a_child_of_the_windows_app_gets_no_console_window", "--nocapture"]);
+        if role == "app" {
+            probe.env(PROBE, "child");
+        } else {
+            probe.env(PROBE, "app").creation_flags(DETACHED_PROCESS);
+        }
+        let out = probe.output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        if role == "app" {
+            print!("{text}");
+        } else {
+            assert!(out.status.success() && text.contains("console_window=false"), "{text}");
+        }
     }
 }

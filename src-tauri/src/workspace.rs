@@ -330,7 +330,7 @@ pub async fn create_project(app: AppHandle, name: String) -> CmdResult<Workspace
             return Err(format!("ya existe {}", paths::to_string(&dir)));
         }
         std::fs::create_dir(&dir).map_err(|e| format!("no se puede crear {name}: {e}"))?;
-        let out = std::process::Command::new("git").arg("init").arg("-q").current_dir(&dir).output().map_err(|e| format!("git init: {e}"))?;
+        let out = crate::cli::command("git").arg("init").arg("-q").current_dir(&dir).output().map_err(|e| format!("git init: {e}"))?;
         if !out.status.success() {
             return Err(format!("git init: {}", String::from_utf8_lossy(&out.stderr).trim()));
         }
@@ -363,12 +363,12 @@ pub fn open_worktree(state: State<AppState>, path: String, editor: bool) -> CmdR
     if editor {
         #[cfg(windows)]
         let mut cmd = {
-            let mut c = std::process::Command::new("cmd");
+            let mut c = crate::cli::command("cmd");
             c.args(["/C", "code"]);
             c
         };
         #[cfg(not(windows))]
-        let mut cmd = std::process::Command::new("code");
+        let mut cmd = crate::cli::command("code");
         let mut child = cmd.arg(&path).spawn().map_err(|e| format!("no se pudo abrir VS Code: {e}"))?;
         std::thread::spawn(move || { let _ = child.wait(); });
         return Ok(());
@@ -383,7 +383,7 @@ fn reveal(path: &str) -> CmdResult<()> {
     let program = "explorer.exe";
     #[cfg(not(any(target_os = "macos", windows)))]
     let program = "xdg-open";
-    let mut child = std::process::Command::new(program).arg(path).spawn().map_err(err)?;
+    let mut child = crate::cli::command(program).arg(path).spawn().map_err(err)?;
     std::thread::spawn(move || { let _ = child.wait(); });
     Ok(())
 }

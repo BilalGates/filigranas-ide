@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -55,18 +55,13 @@ fn run(name: &str, args: &[&str]) -> Option<(bool, String)> {
 }
 
 fn run_for(name: &str, args: &[&str], limit: Duration) -> Option<(bool, String)> {
-    let mut cmd = Command::new(resolve(name));
+    let mut cmd = crate::cli::command(resolve(name));
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if name == "gh" {
         cmd.env_remove("GH_DEBUG");
     }
     if let Some(path) = login_path() {
         cmd.env("PATH", path);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
     let mut child = cmd.spawn().ok()?;
     // La salida se lee mientras corre: una actualización puede escribir más

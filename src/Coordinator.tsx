@@ -1,3 +1,4 @@
+import { pushAgentCompletion } from './trama/notifications';
 import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -141,6 +142,7 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
           setRunning(null);
           setApprovals([]);
           if (params.turn.error) turnError(params.turn.error);
+          else if (params.turn.status === 'completed') pushAgentCompletion(project, sessionId ?? 'coach', directName ?? 'Project manager');
           break;
         case 'item/started':
         case 'item/completed':

@@ -6,7 +6,7 @@ import { ago } from './kit';
 import {
   notificationCenter,
   useNotifications,
-  type NotificationActionTarget,
+  type NotificationAction,
   type NotificationEntry,
   type NotificationLevel,
 } from './notifications';
@@ -28,6 +28,7 @@ const LEVEL_ICON: Record<NotificationLevel, string> = {
   warning: 'warn',
   info: 'info',
   action: 'spark',
+  success: 'check',
 };
 
 const LEVEL_LABEL: Record<NotificationLevel, string> = {
@@ -35,6 +36,7 @@ const LEVEL_LABEL: Record<NotificationLevel, string> = {
   warning: 'Aviso',
   info: 'Info',
   action: 'Acción',
+  success: 'Agente finalizado',
 };
 
 /**
@@ -56,6 +58,7 @@ export default function Attention({
   onHome,
   onTools,
   onSettings,
+  onOverlayChange,
 }: {
   project: string | null;
   projectName: string | null;
@@ -69,6 +72,7 @@ export default function Attention({
   onHome: () => void;
   onTools: () => void;
   onSettings: () => void;
+  onOverlayChange?: (covered: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'error'>('all');
@@ -113,6 +117,11 @@ export default function Attention({
     return () => window.clearTimeout(timer);
   }, [ephemeral, toastHovered]);
 
+  useEffect(() => {
+    onOverlayChange?.(open);
+    return () => onOverlayChange?.(false);
+  }, [open, onOverlayChange]);
+
   const projectNames = new Map((projects ?? []).map((p) => [p.path, p.name]));
   const nameOf = (p: string) => projectNames.get(p) ?? (p === project && projectName ? projectName : p.split(/[\\/]/).filter(Boolean).pop() ?? p);
   const globalSessions = allSessions ?? sessions;
@@ -153,12 +162,14 @@ export default function Attention({
     pending.push({ key: `z${s.id}`, icon: 'pause', tone: 'mut', kind: 'pause', text: `${prefix}${label} en pausa · ${s.paused}`, run: () => onSession(s.id, s.project) });
   }
   if (work?.state === 'review') pending.push({ key: 'w', icon: 'flow', tone: 'warn', kind: 'review', text: 'Sesión de trabajo lista para revisar', run: () => onEntrega('tarea') });
-  for (const t of list) if (ATTENTION.has(t.status) && t.status !== 'waiting_approval')
+  for (const t of list) if (ATTENTION.has(t.status))
     pending.push({ key: `t${t.id}`, icon: t.status === 'paused_quota' ? 'pause' : t.status === 'failed' ? 'close' : 'lock', tone: t.status === 'failed' ? 'bad' : 'mut', kind: 'task', text: `#${t.id} ${STATUS[t.status]}: ${t.title}`, run: () => onTask(t.id) });
 
-  const runAction = (target: NotificationActionTarget) => {
+  const runAction = (action: NotificationAction) => {
+    const target = action.target;
     setOpen(false);
-    if (target === 'tools') onTools();
+    if (target === 'session' && action.session != null && action.project) onSession(action.session, action.project);
+    else if (target === 'tools') onTools();
     else if (target === 'settings') onSettings();
     else if (target === 'entrega') onEntrega('tarea');
     else onHome();
@@ -169,7 +180,7 @@ export default function Attention({
     void navigator.clipboard?.writeText(text).then(() => {
       setCopiedId(entry.id);
       window.setTimeout(() => setCopiedId((cur) => (cur === entry.id ? null : cur)), 1600);
-    });
+    }).catch(() => setCopiedId('failed'));
   };
 
   const totalBadge = pending.length + unreadCount;
@@ -237,131 +248,71 @@ export default function Attention({
       {open && (
         <div className="attn-menu" role="dialog" aria-label="Centro de notificaciones y atención">
           <div className="attn-top">
-            <span className="attn-head">Notificaciones</span>
-            <div className="attn-top-actions">
-              {unreadCount > 0 && (
-                <button type="button" className="attn-mini" onClick={() => notificationCenter.markAllRead()}>
-                  Marcar leídas
-                </button>
-              )}
-              {entries.length > 0 && (
-                <button type="button" className="attn-mini" onClick={() => notificationCenter.clear()}>
-                  Limpiar
-                </button>
-              )}
-            </div>
+            <span className="attn-top-title">Notificaciones</span>
+            {unreadCount > 0 && <span className="attn-unread">{unreadCount} sin leer</span>}
+            <button type="button" className="attn-mini-btn" aria-label="Cerrar notificaciones" onClick={() => setOpen(false)}>
+              <Icon name="close" size={12} />
+            </button>
           </div>
 
-          <div className="attn-scroll">
-            {/* 1. Permisos y acciones que requieren autorización: siempre arriba y visibles */}
-            {pending.length > 0 && (
-              <section className="attn-sec" aria-label="Requiere tu atención">
-                <div className="attn-sec-lab">Requiere tu atención</div>
-                {pending.map((i) => (
-                  <button
-                    key={i.key}
-                    type="button"
-                    className={`attn-item is-${i.tone}${i.kind === 'permission' ? ' is-perm' : ''}`}
-                    onClick={() => { setOpen(false); i.run(); }}
-                  >
-                    <Icon name={i.icon} size={14} />
-                    <span>{i.text}</span>
-                  </button>
-                ))}
-              </section>
-            )}
-
-            {/* 2. Historial de notificaciones operativas y diagnósticos */}
-            <section className="attn-sec" aria-label="Historial de avisos">
-              {entries.length > 0 && (
-                <div className="attn-sec-bar">
-                  <span className="attn-sec-lab">Historial</span>
-                  {hasErrorsInHistory && entries.some((e) => e.level !== 'error') && (
-                    <div className="attn-tabs" role="tablist" aria-label="Filtrar notificaciones">
-                      <button type="button" role="tab" aria-selected={filter === 'all'} className={filter === 'all' ? 'is-on' : ''} onClick={() => setFilter('all')}>
-                        Todo
-                      </button>
-                      <button type="button" role="tab" aria-selected={filter === 'error'} className={filter === 'error' ? 'is-on' : ''} onClick={() => setFilter('error')}>
-                        Errores
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {visibleHistory.length === 0 ? (
-                pending.length === 0 && (
-                  <p className="attn-empty">Sin notificaciones ni asuntos pendientes en {projectName ?? 'el espacio de trabajo'}.</p>
-                )
-              ) : (
-                <div className="attn-list">
-                  {visibleHistory.map((entry) => (
-                    <article
-                      key={entry.id}
-                      className={`attn-entry is-${entry.level}${entry.read ? ' is-read' : ''}`}
-                    >
-                      <div className="attn-entry-row">
-                        <span className="attn-entry-ico"><Icon name={LEVEL_ICON[entry.level]} size={13} /></span>
-                        <div className="attn-entry-body">
-                          <div className="attn-entry-head">
-                            <span className="attn-entry-title">{entry.title}</span>
-                            {entry.count > 1 && <span className="attn-repeat" title={`${entry.count} ocurrencias agrupadas`}>×{entry.count}</span>}
-                            <span className="attn-entry-time">{ago(entry.updatedAt)}</span>
-                          </div>
-                          <div className="attn-entry-meta">
-                            <span className={`attn-level is-${entry.level}`}>{LEVEL_LABEL[entry.level]}</span>
-                            {entry.source && <span>{entry.source}</span>}
-                          </div>
-                          {entry.summary !== entry.title && (
-                            <p className="attn-entry-summary">{entry.summary}</p>
-                          )}
-                          {entry.details && (
-                            <details className="attn-details" onToggle={(e) => { if (e.currentTarget.open) notificationCenter.markRead(entry.id); }}>
-                              <summary>Detalles técnicos</summary>
-                              <pre>{entry.details}</pre>
-                            </details>
-                          )}
-                          <div className="attn-entry-actions">
-                            {entry.action && (
-                              <button
-                                type="button"
-                                className="attn-act"
-                                onClick={() => { notificationCenter.markRead(entry.id); runAction(entry.action!.target); }}
-                              >
-                                {entry.action.label}
-                              </button>
-                            )}
-                            {entry.details && (
-                              <button type="button" className="attn-act is-subtle" onClick={() => copyDiagnostic(entry)}>
-                                {copiedId === entry.id ? 'Copiado' : 'Copiar diagnóstico'}
-                              </button>
-                            )}
-                            {!entry.read && (
-                              <button type="button" className="attn-act is-subtle" onClick={() => notificationCenter.markRead(entry.id)}>
-                                Leída
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className="attn-entry-dismiss"
-                          aria-label={`Descartar ${entry.title}`}
-                          onClick={() => notificationCenter.dismiss(entry.id)}
-                        >
-                          <Icon name="close" size={11} />
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
+          {pending.length > 0 && (
+            <section className="attn-pending" aria-label="Requiere tu atención">
+              <div className="attn-sec-head"><span className="attn-head">Requiere tu atención · {pending.length}</span></div>
+              {pending.map((i) => (
+                <button key={i.key} type="button" className={`attn-item is-${i.tone}${i.kind === 'permission' ? ' is-perm' : ''}`}
+                  onClick={() => { setOpen(false); i.run(); }}>
+                  <Icon name={i.icon} size={14} /><span>{i.text}</span>
+                </button>
+              ))}
             </section>
-          </div>
+          )}
 
-          <button type="button" className="attn-foot" onClick={() => { setOpen(false); onHome(); }}>
-            Ver todos los proyectos en Inicio
-          </button>
+          <div className="attn-scroll" aria-label="Historial de notificaciones">
+            {visibleHistory.length === 0 ? (
+              <p className="attn-empty">{filter === 'error' ? 'Sin errores.' : 'Sin notificaciones.'}</p>
+            ) : visibleHistory.map((entry) => (
+              <details key={entry.id} className={`attn-entry is-${entry.level}${entry.read ? ' is-read' : ' is-unread'}`}
+                onToggle={(e) => { if (e.currentTarget.open) notificationCenter.markRead(entry.id); }}>
+                <summary className="attn-entry-row">
+                  <span className="attn-entry-ico"><Icon name={LEVEL_ICON[entry.level]} size={13} /></span>
+                  <span className="attn-entry-body">
+                    <span className="attn-entry-head">
+                      <span className="attn-entry-title">{entry.title}</span>
+                      {entry.count > 1 && <span className="attn-repeat" title={`${entry.count} ocurrencias agrupadas`}>×{entry.count}</span>}
+                      <time className="attn-entry-time" dateTime={new Date(entry.updatedAt).toISOString()}
+                        title={new Date(entry.updatedAt).toLocaleString()}>{ago(entry.updatedAt)}</time>
+                    </span>
+                    {entry.summary !== entry.title && <span className="attn-entry-summary">{entry.summary}</span>}
+                    <span className="attn-entry-meta"><span>{LEVEL_LABEL[entry.level]}</span>{entry.source && <span>· {entry.source}</span>}</span>
+                  </span>
+                  <span className="attn-entry-chevron" aria-hidden="true">›</span>
+                </summary>
+                <div className="attn-expanded">
+                  {entry.title.length > 42 && <strong className="attn-full-summary">{entry.title}</strong>}
+                  {entry.summary !== entry.title && <p className="attn-full-summary">{entry.summary}</p>}
+                  <div className="attn-entry-meta">{new Date(entry.updatedAt).toLocaleString()}
+                    {entry.count > 1 && ` · Primera: ${new Date(entry.createdAt).toLocaleString()}`}</div>
+                  {entry.details && <div className="attn-details"><pre aria-label="Detalles técnicos">{entry.details}</pre></div>}
+                  <div className="attn-entry-actions">
+                    {entry.action && <button type="button" className="attn-act is-primary"
+                      onClick={() => runAction(entry.action!)}>{entry.action.label}</button>}
+                    {entry.details && <button type="button" className="attn-act" onClick={() => copyDiagnostic(entry)}>
+                      {copiedId === entry.id ? 'Copiado' : 'Copiar diagnóstico'}</button>}
+                    <button type="button" className="attn-act" onClick={() => notificationCenter.dismiss(entry.id)}>Descartar</button>
+                    {copiedId === 'failed' && <span role="status">No se pudo copiar el diagnóstico.</span>}
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
+          {entries.length > 0 && <div className="attn-footer">
+            {hasErrorsInHistory && <button type="button" className="attn-mini-btn" aria-pressed={filter === 'error'}
+              onClick={() => setFilter(filter === 'all' ? 'error' : 'all')}>{filter === 'all' ? 'Solo errores' : 'Ver todo'}</button>}
+            <span className="grow" />
+            <button type="button" className="attn-mini-btn" disabled={!unreadCount} onClick={() => notificationCenter.markAllRead()}>Marcar leídas</button>
+            <button type="button" className="attn-mini-btn" onClick={() => { notificationCenter.clear(); setFilter('all'); }}>Limpiar historial</button>
+          </div>}
+
         </div>
       )}
     </div>

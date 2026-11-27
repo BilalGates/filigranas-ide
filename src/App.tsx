@@ -166,6 +166,7 @@ export default function App() {
   const [noRight, setNoRight] = useState(() => { try { return (localStorage.getItem('filigranas.disposicion') ?? 'chat') === 'chat'; } catch { return true; } });
   const [shell, setShell] = useState<ShellState>(() => createInitialShellState(false));
   const shellHydrated = useRef(false);
+  const [attentionCovered, setAttentionCovered] = useState(false);
   const [browserMounted, setBrowserMounted] = useState(false);
   const [focusCi, setFocusCi] = useState<string | null>(null);
   const [entregaScope, setEntregaScope] = useState<number | null>(null);
@@ -1197,7 +1198,7 @@ export default function App() {
   const browserLayer = (
     <Browser
       visible={shell.activeTool === 'browser'}
-      covered={!!overlay || usageOpen || !!engineOpen || githubOpen}
+      covered={!!overlay || usageOpen || !!engineOpen || githubOpen || attentionCovered}
       target={browserTarget}
       project={project}
       projectName={current?.name ?? null}
@@ -1313,6 +1314,7 @@ export default function App() {
             {headerAgents.length > 5 && <span>+{headerAgents.length - 5}</span>}
           </button>}
           <Attention
+            onOverlayChange={setAttentionCovered}
             project={project}
             projectName={current?.name ?? null}
             projects={ws.projects}

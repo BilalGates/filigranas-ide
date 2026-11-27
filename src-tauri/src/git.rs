@@ -470,7 +470,8 @@ pub(crate) fn branch_inventory_at(repo: &Path, agents_by_branch: &std::collectio
     let text = String::from_utf8_lossy(&raw);
 
     let mut entries: std::collections::BTreeMap<String, BranchEntry> = std::collections::BTreeMap::new();
-    let mut remote_only_rows: Vec<(String, String, String, String, String, String, String, String)> = Vec::new();
+    type RemoteRow = (String, String, String, String, String, String, String, String);
+    let mut remote_only_rows: Vec<RemoteRow> = Vec::new();
 
     for line in text.lines().filter(|l| !l.is_empty()) {
         let cols: Vec<&str> = line.split('\0').collect();

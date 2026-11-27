@@ -188,6 +188,7 @@ pub fn save_policy(conn: &Connection, project: &str, policy: &AutomationPolicy) 
     load_policy(conn, project)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn record_archive(
     conn: &Connection,
     project: &str,
@@ -242,6 +243,7 @@ pub fn sanitize_untrusted_evidence(title: &str, raw: &str, max_chars: usize) -> 
 
 /// Construye el encargo estructurado para el Project Manager ante un fallo
 /// real de CI o revisión en una Pull Request.
+#[allow(clippy::too_many_arguments)]
 pub fn build_pm_autofix_brief(
     pr_number: u64,
     branch: &str,

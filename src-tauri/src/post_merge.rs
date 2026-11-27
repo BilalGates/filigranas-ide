@@ -214,11 +214,9 @@ pub fn evaluate_cleanup_plan(
     // 5. Árbol de trabajo limpio (tanto si la rama está activa en el repo como en un worktree)
     let mut tree_ok = true;
     let mut tree_detail = "Sin cambios sin commit en la rama.".to_string();
-    if active_branch.as_deref() == Some(snap.branch.as_str()) {
-        if !dir_is_clean(repo)? {
-            tree_ok = false;
-            tree_detail = "Hay cambios sin commit o archivos sin seguimiento en el repositorio activo.".into();
-        }
+    if active_branch.as_deref() == Some(snap.branch.as_str()) && !dir_is_clean(repo)? {
+        tree_ok = false;
+        tree_detail = "Hay cambios sin commit o archivos sin seguimiento en el repositorio activo.".into();
     }
     if let Some(ref wt) = worktree_path {
         if Path::new(wt).exists() && !dir_is_clean(Path::new(wt))? {

@@ -1,0 +1,219 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        options: [development, stable]
+        default: development
+      candidate:
+        description: Validated development release tag required for stable
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: filigranas-releases
+  queue: max
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  prepare:
+    needs: verify
+    if: vars.RELEASES_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.version.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.inputs.outputs.channel }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: inputs
+        env:
+          CHANNEL: ${{ inputs.channel || 'development' }}
+          CANDIDATE: ${{ inputs.candidate }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(gh repo view --json visibility --jq .visibility)" = PUBLIC
+          if [ "$CHANNEL" = stable ]; then
+            [[ "$CANDIDATE" =~ ^v0\.2\.[0-9]+-dev\.0$ ]]
+            test "$(gh release view "$CANDIDATE" --json isDraft,isPrerelease --jq '.isDraft == false and .isPrerelease == true')" = true
+            git merge-base --is-ancestor "$CANDIDATE" origin/main
+            git checkout --detach "$CANDIDATE"
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+      - id: version
+        env:
+          CHANNEL: ${{ steps.inputs.outputs.channel }}
+        run: node scripts/release/prepare.mjs
+  build:
+    needs: prepare
+    environment: release-signing
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-15
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '26.0.0'
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: release-${{ matrix.target }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+      - shell: bash
+        env:
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          FILIGRANAS_UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
+        run: node scripts/release/prepare.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - run: rustup toolchain install 1.100.0 --profile minimal --component clippy --target ${{ matrix.target }}
+      - run: cargo +1.100.0 test --locked --manifest-path src-tauri/Cargo.toml
+      - run: cargo +1.100.0 clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Import optional Apple certificate
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            test -n "$APPLE_SIGNING_IDENTITY"
+            KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+            echo "::add-mask::$KEYCHAIN_PASSWORD"
+            echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/apple.p12"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain-db"
+            security set-keychain-settings -lut 21600 "$RUNNER_TEMP/release.keychain-db"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain-db"
+            security import "$RUNNER_TEMP/apple.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/release.keychain-db"
+            security list-keychains -d user -s "$RUNNER_TEMP/release.keychain-db"
+            security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/release.keychain-db"
+          fi
+      - name: Build signed updater packages
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: 1.100.0
+          FILIGRANAS_UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          test -n "$FILIGRANAS_UPDATER_PUBLIC_KEY"
+          for optional in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!optional}" ]; then unset "$optional"; fi
+          done
+          if [ "$RUNNER_OS" = macOS ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            export APPLE_SIGNING_IDENTITY=-
+          fi
+          pnpm tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Verify macOS bundle signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: codesign --verify --deep --strict --verbose=2 "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Filigranas.app"
+      - name: Remove temporary Apple credentials
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/release.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/release.keychain-db"; fi
+          if [ -f "$RUNNER_TEMP/apple.p12" ]; then rm "$RUNNER_TEMP/apple.p12"; fi
+      - name: Collect distributables
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p "release-artifacts/$TARGET"
+          find "src-tauri/target/$TARGET/release/bundle" -type f \( -name '*.tar.gz' -o -name '*.sig' -o -name '*.dmg' -o -name '*-setup.exe' \) -print0 | while IFS= read -r -d '' file; do
+            cp "$file" "release-artifacts/$TARGET/$TARGET-$(basename "$file")"
+          done
+          cp release-info.json release-artifacts/
+      - name: Verify signature and signed version before publication
+        shell: bash
+        env:
+          FILIGRANAS_UPDATER_PUBLIC_KEY: ${{ vars.UPDATER_PUBLIC_KEY }}
+          RELEASE_ARTIFACT_DIR: release-artifacts/${{ matrix.target }}
+        run: cargo +1.100.0 test --locked --manifest-path src-tauri/Cargo.toml release_artifacts_verify -- --ignored
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-${{ matrix.target }}
+          path: release-artifacts
+          if-no-files-found: error
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    environment: release-publishing
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-artifacts
+      - name: Publish complete release and channel pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          test "$(gh repo view --json visibility --jq .visibility)" = PUBLIC
+          cp release-artifacts/release-info.json .
+          test "$(jq -r .version release-info.json)" = "$VERSION"
+          test "$(jq -r .sha release-info.json)" = "$SOURCE_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="v$VERSION" -f target_commitish="$SOURCE_SHA" --jq .body > release-notes.md
+          echo "" >> release-notes.md
+          echo "Commit $SOURCE_SHA · canal $CHANNEL" >> release-notes.md
+          gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/pulls" --jq '.[] | "- PR #\(.number) · \(.title)"' >> release-notes.md
+          node scripts/release/manifest.mjs release-artifacts
+          # El tag es inmutable. Reejecutar una publicación existente falla.
+          gh release create "v$VERSION" --target "$SOURCE_SHA" --title "Filigranas $VERSION" --notes-file release-notes.md --draft
+          find release-artifacts -type f ! -name release-info.json -exec gh release upload "v$VERSION" {} +
+          gh release upload "v$VERSION" latest.json release-info.json
+          if [ "$CHANNEL" = development ]; then
+            gh release edit "v$VERSION" --draft=false --prerelease --latest=false
+          else
+            gh release edit "v$VERSION" --draft=false --prerelease=false --latest
+          fi
+          if ! gh release view "channel-$CHANNEL" >/dev/null 2>&1; then
+            gh release create "channel-$CHANNEL" --target "$SOURCE_SHA" --title "Canal $CHANNEL" --notes "Manifiesto de actualizaciones de Filigranas." --prerelease --latest=false
+          fi
+          gh release upload "channel-$CHANNEL" latest.json --clobber

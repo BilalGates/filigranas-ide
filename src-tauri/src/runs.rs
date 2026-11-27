@@ -36,6 +36,7 @@ fn now() -> i64 {
 }
 
 pub fn begin(tx: &rusqlite::Transaction<'_>, project: &str, scope: &str, provider: &str, session: Option<i64>, task: Option<i64>) -> CmdResult<i64> {
+    if crate::updates::INSTALLING.load(std::sync::atomic::Ordering::SeqCst) { return Err("instalando actualización".into()); }
     if active(tx, scope)?.is_some() || session.map(|id| session_active(tx, id)).transpose().map_err(err)?.unwrap_or(false) {
         return Err("ya hay un turno en marcha".into());
     }

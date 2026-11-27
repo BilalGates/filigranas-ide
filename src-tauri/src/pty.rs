@@ -83,6 +83,8 @@ pub fn pty_open(
     rows: u16,
     on_event: Channel<PtyEvent>,
 ) -> CmdResult<u32> {
+    let _update = crate::updates::PROCESS_GATE.lock().map_err(err)?;
+    if crate::updates::INSTALLING.load(Ordering::SeqCst) { return Err("instalando actualización".into()); }
     let dir = project_path(&*state.db.lock().map_err(err)?, &project)?;
     // Terminal de una sesión aislada: en su worktree (registrado por el IDE).
     let dir = match session {
@@ -155,6 +157,12 @@ pub fn pty_close(state: State<AppState>, id: u32) -> CmdResult<()> {
         let _ = pty.child.kill();
     }
     Ok(())
+}
+
+impl Ptys {
+    pub fn has_open(&self) -> CmdResult<bool> {
+        Ok(!self.open.lock().map_err(err)?.is_empty())
+    }
 }
 
 #[cfg(test)]

@@ -21,6 +21,7 @@ pub fn run_with_stdin(command: Command, stdin: Stdio, seconds: u64) -> Result<Ou
 pub fn capture(
     mut command: Command, stdin: Stdio, seconds: u64, stdout_limit: usize, stderr_limit: usize,
 ) -> Result<(Output, Vec<u8>), &'static str> {
+    let _execution = crate::updates::Execution::enter()?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

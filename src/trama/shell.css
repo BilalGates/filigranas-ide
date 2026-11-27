@@ -1330,7 +1330,9 @@ html.is-light .app > .titlebar { background: transparent; }
 .cm-caret { opacity: .45; }
 
 /* Selector unificado de proveedor, modelo y razonamiento. */
-.mcm-trigger { max-width: min(360px, 56vw); }
+/* Con el panel abierto la conversación puede ser estrecha: el modelo cede antes de pisar «Enviar». */
+.co-model:has(> .mcm), .mcm { flex: 0 1 auto; max-width: 100%; }
+.mcm-trigger { max-width: min(360px, 100%); }
 .mcm-summary { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
 .mcm-part { white-space: nowrap; }
 .mcm-part.is-engine { color: var(--tx2); font-weight: 500; flex: none; }

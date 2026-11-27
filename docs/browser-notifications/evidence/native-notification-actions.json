@@ -1,0 +1,11 @@
+{
+  "value": {
+    "markRead": true,
+    "clear": true,
+    "close": true,
+    "reopen": true,
+    "escape": true,
+    "outsideClick": true
+  },
+  "errors": []
+}

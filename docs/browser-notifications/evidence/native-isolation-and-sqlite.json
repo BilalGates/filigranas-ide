@@ -1,0 +1,14 @@
+{
+  "ipc": [
+    {
+      "kind": "ipc-blocked",
+      "path": "/ipc",
+      "nonce": "cbbfd1a5-133d-472b-91d6-fe09fe1ab8dc",
+      "width": 887,
+      "height": 733,
+      "history": 2,
+      "at": 1795782699917
+    }
+  ],
+  "spaPersisted": true
+}

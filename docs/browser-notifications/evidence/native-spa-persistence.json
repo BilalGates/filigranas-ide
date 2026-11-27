@@ -1,0 +1,29 @@
+{
+  "value": {
+    "isolation": {
+      "exists": true,
+      "url": "http://localhost:3000/ipc",
+      "title": "Browser \u00b7 /ipc",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    },
+    "status": {
+      "exists": true,
+      "url": "http://localhost:3000/spa-restored",
+      "title": "Browser \u00b7 /spa",
+      "loading": false,
+      "loaded": true,
+      "error": null,
+      "canGoBack": true,
+      "canGoForward": false,
+      "width": 887,
+      "height": 733
+    }
+  },
+  "errors": []
+}

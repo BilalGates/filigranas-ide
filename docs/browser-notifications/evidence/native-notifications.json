@@ -1,0 +1,29 @@
+{
+  "value": {
+    "before": {
+      "entries": 4,
+      "unread": 4,
+      "rect": {
+        "x": 1046,
+        "y": 46,
+        "width": 384,
+        "height": 356.125,
+        "top": 46,
+        "right": 1430,
+        "bottom": 402.125,
+        "left": 1046
+      },
+      "collapsed": true,
+      "technicalVisible": false
+    },
+    "expanded": {
+      "unread": 3,
+      "details": "No se pudo actualizar Codex\nHTTP 503: primer intento\n\n\u2014 27/11/2026, 13:35:49 \u2014\nNo se pudo actualizar Codex\nEACCES: segundo intento",
+      "actions": [
+        "Copiar diagn\u00f3stico",
+        "Descartar"
+      ]
+    }
+  },
+  "errors": []
+}

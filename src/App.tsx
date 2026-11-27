@@ -39,6 +39,7 @@ import {
   restoreWorkspace,
   toggleMaximizeTool,
   toggleTool,
+  visibleDisposition,
   type ShellState,
 } from './trama/workspaceLayout';
 import Home from './trama/Home';
@@ -1355,7 +1356,7 @@ export default function App() {
                     <span className="grow" />
                     {current && !geometry.collapseWorkspaceSidebar && panelButtons}
                     {current && !geometry.collapseWorkspaceSidebar && (
-                      <div className="ws-layout"><Seg label="Disposición" value={layout} onChange={setLayout} items={[
+                      <div className="ws-layout"><Seg label="Disposición" value={visibleDisposition(layout, wsPanelOpen, rightView === 'observe')} onChange={setLayout} items={[
                         { id: 'chat', label: 'Conversación', icon: 'chat' }, { id: 'split', label: 'Dividida', icon: 'split' }, { id: 'code', label: 'Código', icon: 'code' }]} /></div>
                     )}
                     {activeSession && (

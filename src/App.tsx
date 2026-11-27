@@ -1009,14 +1009,14 @@ export default function App() {
   });
   // Cambios y Archivos: en la cabecera del Workspace y, en Código, junto a «Conversación».
   const panelButtons = (
-    <div className="ws-panels" role="group" aria-label="Paneles del proyecto">
+    <div className="ws-panels tr-seg" role="group" aria-label="Paneles del proyecto">
       {(['git', 'files'] as const).map((id) => {
         const panel = RIGHT_PANELS[id];
         const active = panelOpen && rightView === id;
         return (
-          <button key={id} className={`tb-btn${active ? ' is-on' : ''}`} onClick={() => showRight(id)}
+          <button key={id} onClick={() => showRight(id)}
             aria-label={panel.title} aria-pressed={active} aria-controls="workspace-right-panel" title={shortcut(`${panel.title} · ${panel.keys}`)}>
-            <Icon name={panel.icon} size={15} />
+            <Icon name={panel.icon} size={13} />
             {id === 'git' && dirty && <span className="dot is-dirty" />}
           </button>
         );
@@ -1325,8 +1325,10 @@ export default function App() {
           const collapsedSide = noSide || geometry.collapseWorkspaceSidebar;
           const showDrawer = collapsedSide && narrowSideOpen;
           const wsPanelOpen = panelOpen && (!geometry.collapseWorkspaceSidebar || rightView === 'editor' || rightView === 'conflicts' || rightView === 'observe');
+          // En Código el panel ocupa el centro; Observación siempre acompaña a la conversación.
+          const codeView = layout === 'code' && wsPanelOpen && rightView !== 'observe';
           return (
-            <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${layout === 'code' && wsPanelOpen && rightView !== 'observe' ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
+            <div className={`ws-inner${wsPanelOpen ? ' has-panel' : ''}${collapsedSide ? ' no-side' : ''}${geometry.collapseWorkspaceSidebar ? ' is-split-narrow' : ''}${showDrawer ? ' has-side-drawer' : ''}${wsPanelOpen && WIDE_RIGHT_PANELS.has(rightView) ? ' is-wide' : ''}${codeView ? ' lay-code' : ''}${layout === 'split' && wsPanelOpen ? ' is-wide' : ''}`}>
               {showDrawer && <div className="ws-drawer-backdrop" onClick={() => setNarrowSideOpen(false)} aria-hidden="true" />}
               {renderExplorer({ onPicked: () => setNarrowSideOpen(false) })}
               {!collapsedSide && <Splitter size={SIZES.side} axis="x" label="Ancho de la barra lateral" className="is-side" />}
@@ -1501,17 +1503,17 @@ export default function App() {
                 })}
               </nav>}
 
-              {layout === 'code' && wsPanelOpen && rightView !== 'observe' && (
-                <div className="ws-back">
-                  {current && panelButtons}
-                  <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
-                    <Icon name="chat" size={13} /> Conversación
-                  </button>
-                </div>
-              )}
               <Right tab={rightView} hidden={!wsPanelOpen} onEditor={openEditor} editor={editorTab} onCloseEditor={closeFile}
                 observation={observedPanel ? { title: `Observando · ${observedPanel.name}`, close: closeObservation, tabs: setObservationTabs, mark: (() => { const agent = headerAgents.find((item) => item.session === observedPanel.id); return agent ? <span className="tv obs-mark"><AgDot a={agent} s={12} /></span> : null; })() } : undefined}
-                root={ws.root} location={panelLocation}>
+                root={ws.root} location={panelLocation}
+                actions={codeView && (
+                  <div className="ws-back">
+                    {current && panelButtons}
+                    <button className="tr-btn sm" onClick={() => setLayout('chat')} title={shortcut('Volver a la conversación · ⌘⌥1')}>
+                      <Icon name="chat" size={13} /> Conversación
+                    </button>
+                  </div>
+                )}>
                 {current && conflictFiles && (
                   <Conflicts
                     project={current.path}

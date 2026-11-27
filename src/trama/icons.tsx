@@ -26,7 +26,7 @@ const G: Record<string, string> = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   folder: '<path d="M3.5 7.5a2 2 0 012-2h4l2 2h7a2 2 0 012 2v8a2 2 0 01-2 2h-13a2 2 0 01-2-2z"/>',
   file: '<path d="M7 3.5h7l4 4v13H7z"/><path d="M14 3.5v4h4"/>',
-  changes: '<path d="M12 4v8M8 8h8"/><path d="M8 17h8"/><circle class="n" cx="12" cy="20.5" r="1.1"/>',
+  changes: '<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M12 7.5v5M9.5 10h5M9.5 16h5"/>',
   tasks: '<path d="M9 7h11M9 12h11M9 17h11"/><circle class="n" cx="5" cy="7" r="1.2"/><circle class="n" cx="5" cy="12" r="1.2"/><circle class="n" cx="5" cy="17" r="1.2"/>',
   health: '<path d="M3 12h4l2-5 3 10 2.5-6 1.5 1h5"/><circle class="n" cx="19.5" cy="12" r="1.4"/>',
   design: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><path d="M12 7.5l4.5 8.5h-9z"/><circle class="n" cx="12" cy="13.3" r="1.4"/>',

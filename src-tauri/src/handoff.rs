@@ -197,6 +197,7 @@ mod tests {
             skill_role: crate::skills::Role::default(),
             parent_session: None,
             title: None,
+            delegated_by_pm: false,
             status: None,
         };
         let text = relevo(&from, "claude code", " src/a.ts | 3 ++-\n", "1234567 test de la cola\n", "Falta el caso deshabilitado.");

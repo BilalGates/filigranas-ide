@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { git, sessions, type DiffTarget } from '../ipc';
+import { git, sessions, type DiffMode, type DiffTarget } from '../ipc';
 import type { unifiedDiff } from '../unifiedDiff';
+
+export type DiffSpec = {
+  mode: DiffMode;
+  baseRef?: string | null;
+  headRef?: string | null;
+  commit?: string | null;
+  session?: number | null;
+  revisionKey?: string;
+};
 
 type ComputedDiff = ReturnType<typeof unifiedDiff>;
 import type { ReviewNote } from './findings';
@@ -44,11 +53,17 @@ function firstRow(rows: ReviewRow[], offset: number) {
   return low;
 }
 
-export default function ReviewDiff({ project, change, findings = NO_FINDINGS, finding }: {
-  project: string; change: DiffTarget; findings?: ReviewNote[]; finding?: { fingerprint: string };
+export default function ReviewDiff({ project, change, diffSpec, findings = NO_FINDINGS, finding }: {
+  project: string; change: DiffTarget; diffSpec?: DiffSpec; findings?: ReviewNote[]; finding?: { fingerprint: string };
 }) {
   const { path, orig, session } = change;
-  const scope = JSON.stringify([project, session, path, orig]);
+  const specMode = diffSpec?.mode ?? null;
+  const specBase = diffSpec?.baseRef ?? null;
+  const specHead = diffSpec?.headRef ?? null;
+  const specCommit = diffSpec?.commit ?? null;
+  const specSession = diffSpec?.session ?? session ?? null;
+  const specRev = diffSpec?.revisionKey ?? '';
+  const scope = JSON.stringify([project, specSession, path, orig, specMode, specBase, specHead, specCommit, specRev]);
   const [data, setData] = useState<{ scope: string; result?: ComputedDiff; error?: string }>();
   const [viewport, setViewport] = useState({ y: 0, height: 700 });
   const container = useRef<HTMLDivElement>(null);
@@ -64,7 +79,17 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
     const load = async () => {
       const id = ++revision;
       try {
-        const texts = await (session == null ? git.diffTexts(project, path, orig) : sessions.diffTexts(session, path, orig));
+        const texts = await (specMode
+          ? git.diffRef(project, specMode, path, {
+              orig,
+              baseRef: specBase,
+              headRef: specHead,
+              commit: specCommit,
+              session: specSession,
+            })
+          : specSession == null
+            ? git.diffTexts(project, path, orig)
+            : sessions.diffTexts(specSession, path, orig));
         if (!active || id !== revision) return;
         if (!worker) {
           const { default: DiffWorker } = await import('../unifiedDiff.worker?worker&inline');
@@ -85,18 +110,19 @@ export default function ReviewDiff({ project, change, findings = NO_FINDINGS, fi
       timer = window.setTimeout(load, 240);
     };
     timer = window.setTimeout(load);
-    const projectEvents = listen('project-changed', reload);
-    const sessionEvents = session == null ? null : listen<{ id: number; msg: { type?: string } }>('session', ({ payload }) => {
-      if (payload.id === session && ['result', 'turn_end'].includes(payload.msg?.type ?? '')) reload();
+    const liveWorktree = !specMode || specMode === 'worktree' || specMode === 'unstaged' || specMode === 'staged';
+    const projectEvents = liveWorktree ? listen('project-changed', reload) : null;
+    const sessionEvents = specSession == null ? null : listen<{ id: number; msg: { type?: string } }>('session', ({ payload }) => {
+      if (payload.id === specSession && ['result', 'turn_end'].includes(payload.msg?.type ?? '')) reload();
     });
     return () => {
       active = false;
       window.clearTimeout(timer);
       worker?.terminate();
-      void projectEvents.then((off) => off());
+      void projectEvents?.then((off) => off());
       void sessionEvents?.then((off) => off());
     };
-  }, [scope, project, path, orig, session]);
+  }, [scope, project, path, orig, specSession, specMode, specBase, specHead, specCommit]);
 
   const { rows, height, positions } = useMemo(() => {
     const byLine = new Map<number, ReviewNote[]>();

@@ -56,6 +56,7 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     crate::design::migrate(&conn)?;
     crate::skills::migrate(&conn)?;
     crate::github::migrate(&conn)?;
+    crate::delivery_auto::migrate(&conn)?;
     Ok(conn)
 }
 
@@ -97,6 +98,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         // Subsesiones delegadas por otra sesión (padre y título corto).
         ("parent_session", "INTEGER"),
         ("title", "TEXT"),
+        ("delegated_by_pm", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         if !has_in("sessions", col)? {
             conn.execute_batch(&format!("ALTER TABLE sessions ADD COLUMN {col} {ty}"))?;
@@ -162,6 +164,9 @@ pub struct Session {
     pub parent_session: Option<i64>,
     /// Título breve de la subsesión (si se proporcionó al delegar).
     pub title: Option<String>,
+    /// Indica si la subsesión fue delegada por el Project Manager (Codex o Claude).
+    #[serde(default)]
+    pub delegated_by_pm: bool,
     /// Estado observable en tiempo real (solo relleno en `session_list`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
@@ -174,7 +179,7 @@ impl Session {
     }
 }
 
-const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused, skill_role, parent_session, title";
+const SESSION_COLS: &str = "id, project, engine, name, provider_session, effort, worktree, branch, base, base_commit, integrated, task, handoff_from, paused, skill_role, parent_session, title, delegated_by_pm";
 
 fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -195,12 +200,21 @@ fn session_row(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         skill_role: crate::skills::Role::from_key(r.get::<_, Option<String>>(14)?.as_deref()),
         parent_session: r.get(15)?,
         title: r.get(16)?,
+        delegated_by_pm: r.get::<_, i64>(17)? != 0,
         status: None,
     })
 }
 
 pub fn set_session_parent(conn: &Connection, id: i64, parent_id: i64, title: Option<&str>) -> rusqlite::Result<()> {
     conn.execute("UPDATE sessions SET parent_session = ?2, title = ?3 WHERE id = ?1", params![id, parent_id, title])?;
+    Ok(())
+}
+
+pub fn set_session_delegated_by_pm(conn: &Connection, id: i64, parent_id: Option<i64>, title: Option<&str>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE sessions SET parent_session = ?2, title = ?3, delegated_by_pm = 1 WHERE id = ?1",
+        params![id, parent_id, title],
+    )?;
     Ok(())
 }
 

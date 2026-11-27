@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 3;
+pub const TOOLS_VERSION: i64 = 4;
 
 const ENGINES: [(&str, &str); 5] = [
     ("claude", "claude code"),
@@ -29,16 +29,18 @@ pub fn specs() -> Value {
         {
             "type": "function",
             "name": "delegar",
-            "description": "Crea una sesión de un agente ejecutor en este proyecto y le envía una tarea. Devuelve el nombre de la sesión. \
-La tarea debe ser autocontenida: objetivo, archivos relevantes, restricciones y cómo comprobar que está hecha. \
-Los permisos que pida el agente los aprueba el usuario en la pestaña de la sesión.",
+            "description": "Crea una subsesión visible de un agente ejecutor en este proyecto y le envía una tarea. Devuelve el nombre de la subsesión. \
+Usa siempre esta herramienta para cualquier investigación, edición, ejecución de comandos, pruebas o auditoría: el Project Manager nunca ejecuta trabajo técnico directamente. \
+La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restricciones y cómo verificar que está hecha.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["claude", "opencode", "agy", "devin"], "description": "claude = Claude Code, opencode = OpenCode (modelo gratuito), agy = Antigravity (Gemini), devin = Devin" },
-                    "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Archivos o carpetas relativos asignados al agente, sin comodines. Usa . para todo el proyecto, en ejecución secuencial." },
-                    "tarea": { "type": "string", "description": "Encargo completo para el agente." },
-                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Solo Claude Code. Por defecto medium." }
+                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "claude = Claude Code, codex = Codex, opencode = OpenCode, agy = Antigravity (Gemini), devin = Devin" },
+                    "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
+                    "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills del ejecutor. Por defecto senior." },
+                    "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
+                    "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
+                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
                 },
                 "required": ["agente", "tarea"],
                 "additionalProperties": false
@@ -47,7 +49,7 @@ Los permisos que pida el agente los aprueba el usuario en la pestaña de la sesi
         {
             "type": "function",
             "name": "asignar_archivos",
-            "description": "Cambia el área de un agente inactivo de la sesión compartida. No mueve archivos. Los ámbitos solapados se ejecutan por turnos.",
+            "description": "Cambia el área de un agente inactivo cuando existe una sesión de trabajo compartida. No mueve archivos.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -60,11 +62,11 @@ Los permisos que pida el agente los aprueba el usuario en la pestaña de la sesi
         {
             "type": "function",
             "name": "continuar_sesion",
-            "description": "Envía otro encargo al mismo agente. Permite continuar después de esperar un ámbito ocupado, sin crear otro chat.",
+            "description": "Envía otro encargo o aclaración a una subsesión existente en el mismo hilo, sin crear otro chat.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "sesion": { "type": "string" },
+                    "sesion": { "type": "string", "description": "Nombre o título de la subsesión." },
                     "tarea": { "type": "string" }
                 },
                 "required": ["sesion", "tarea"], "additionalProperties": false
@@ -83,7 +85,7 @@ Los permisos que pida el agente los aprueba el usuario en la pestaña de la sesi
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "sesion": { "type": "string", "description": "Nombre de la sesión (p. ej. xavi)." },
+                    "sesion": { "type": "string", "description": "Nombre o título de la sesión." },
                     "segundos": { "type": "integer", "minimum": 5, "maximum": WAIT_MAX, "description": "Plazo máximo de espera. Por defecto 300." }
                 },
                 "required": ["sesion"],
@@ -204,6 +206,18 @@ fn describe(state: &AppState, s: &db::Session, max: usize) -> String {
     line
 }
 
+fn find_project_session<'a>(list: &'a [db::Session], query: &str) -> Option<&'a db::Session> {
+    let q = query.trim();
+    list.iter()
+        .find(|s| s.name == q || s.title.as_deref() == Some(q))
+        .or_else(|| {
+            list.iter().find(|s| {
+                s.name.eq_ignore_ascii_case(q)
+                    || s.title.as_deref().is_some_and(|t| t.eq_ignore_ascii_case(q))
+            })
+        })
+}
+
 /// Ejecuta una herramienta del coordinador del hilo `thread`. Puede tardar
 /// (esperar_sesion): se llama fuera del hilo lector de Codex.
 pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdResult<String> {
@@ -219,8 +233,12 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             if task.is_empty() {
                 return Err("falta la tarea".into());
             }
-            let paths = args["archivos"].as_array().map(|paths| paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_else(|| vec![".".into()]);
-            let effort = (engine == "claude").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
+            let title = derive_title(args["titulo"].as_str(), task);
+            let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
+            let paths = args["archivos"].as_array().map(|paths| {
+                paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()
+            }).transpose()?;
+            let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
             let task_id = {
                 let mut conn = state.db.lock().map_err(err)?;
                 match crate::runs::task_for_thread(&conn, thread).map_err(err)? {
@@ -229,27 +247,21 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
                 }
             };
             crate::tasks::changed(app);
-            let created = claude::new_session(app, &project, engine, Some(task_id), None)?;
-            let session = created.session;
-            {
+            // Subsesión vinculada al Project Manager: funciona tanto con sesión de trabajo activa
+            // como en tareas de investigación/revisión sin sesión de trabajo previa.
+            let session = claude::create_pm_subsession(app, &project, None, engine, Some(&title), role, Some(task_id))?;
+            if let Some(paths) = paths {
                 let conn = state.db.lock().map_err(err)?;
-                if let Err(error) = crate::work::assign(&conn, &project, session.id, paths) {
-                    db::close_session(&conn, session.id).map_err(err)?;
-                    return Err(error);
+                if crate::work::current(&conn, &project)?.is_some_and(|w| w.state != "finished") {
+                    crate::work::assign(&conn, &project, session.id, paths)?;
                 }
             }
             let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
-            if let Err(error) = claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), effort) {
-                return Ok(format!("Sesión «{}» creada para la tarea #{task_id}, pero el turno no se inició: {error}. Conserva este chat. Tras resolverlo o esperar al agente ocupado, usa continuar_sesion con este nombre para reintentar.", session.name));
+            if let Err(error) = claude::send_message(app, session.id, format!("Encargo del Project manager ({title}):\n\n{task}"), effort) {
+                return Ok(format!("Subsesión «{}» ({title}) creada para la tarea #{task_id}, pero el turno no se inició: {error}. Puedes reintentar con continuar_sesion.", session.name));
             }
-            let place = match (&session.branch, &session.worktree) {
-                (Some(b), Some(w)) => format!("Trabaja en la rama {b}, en {w}; sus cambios no llegan al proyecto hasta que el usuario los integre."),
-                _ => format!("Comparte la carpeta del proyecto y la rama {}. No necesita integrar diffs de worktrees.", session.branch.as_deref().unwrap_or("de la sesión de trabajo")),
-            };
-            let notice = created.notice.map(|n| format!("\nAviso: {n}.")).unwrap_or_default();
             Ok(format!(
-                "Tarea #{task_id} enviada a la sesión «{}» ({}). {place}{notice}\nSigue su avance con estado_sesiones o espera el resultado con esperar_sesion {{\"sesion\": \"{}\"}}. \
-Si el agente pide permisos, el usuario los aprueba en la pestaña de la sesión.",
+                "Tarea #{task_id} enviada a la subsesión «{}» ({title} · {}). Comparte la carpeta y rama del proyecto.\nSigue su avance con estado_sesiones o espera el resultado con esperar_sesion {{\"sesion\": \"{}\"}}.",
                 session.name,
                 label(engine),
                 session.name
@@ -258,34 +270,41 @@ Si el agente pide permisos, el usuario los aprueba en la pestaña de la sesión.
         "asignar_archivos" | "continuar_sesion" => {
             let name = args["sesion"].as_str().unwrap_or("");
             let list = db::sessions(&*state.db.lock().map_err(err)?, &project).map_err(err)?;
-            let session = list.iter().find(|s| s.name == name).ok_or_else(|| format!("no hay una sesión abierta llamada «{name}»"))?;
+            let session = find_project_session(&list, name).ok_or_else(|| format!("no hay una sesión abierta llamada «{name}»"))?;
             if tool == "asignar_archivos" {
                 let paths = args["archivos"].as_array().ok_or("falta la lista de archivos")?.iter()
                     .map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()?;
                 crate::work::assign(&*state.db.lock().map_err(err)?, &project, session.id, paths)?;
                 crate::tasks::changed(app);
-                return Ok(format!("Reparto actualizado para {name}. Se aplicará en su próximo turno."));
+                return Ok(format!("Reparto actualizado para {}. Se aplicará en su próximo turno.", session.name));
             }
             let task = args["tarea"].as_str().filter(|s| !s.trim().is_empty()).ok_or("falta el encargo")?;
-            claude::send_message(app, session.id, format!("Encargo del coordinador del proyecto:\n\n{task}"), None)?;
-            Ok(format!("Encargo enviado a {name}."))
+            claude::send_message(app, session.id, format!("Seguimiento del Project manager:\n\n{task}"), None)?;
+            Ok(format!("Encargo enviado a «{}».", session.name))
         }
         "estado_sesiones" => {
             let list = db::sessions(&*state.db.lock().map_err(err)?, &project).map_err(err)?;
             if list.is_empty() {
                 return Ok("No hay sesiones de agentes abiertas en este proyecto.".into());
             }
-            Ok(list.iter().map(|s| describe(&state, s, 600)).collect::<Vec<_>>().join("\n\n"))
+            Ok(list
+                .iter()
+                .map(|s| {
+                    let head = s.title.as_deref().map(|t| format!("{t} ({})", s.name)).unwrap_or_else(|| s.name.clone());
+                    format!("{head}\n{}", describe(&state, s, 600))
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"))
         }
         "esperar_sesion" => {
             let name = args["sesion"].as_str().unwrap_or("");
             let list = db::sessions(&*state.db.lock().map_err(err)?, &project).map_err(err)?;
-            let s = list.iter().find(|s| s.name == name).ok_or_else(|| format!("no hay ninguna sesión abierta llamada «{name}»"))?;
+            let s = find_project_session(&list, name).ok_or_else(|| format!("no hay ninguna sesión abierta llamada «{name}»"))?;
             let secs = args["segundos"].as_u64().unwrap_or(WAIT_DEFAULT).clamp(5, WAIT_MAX);
             let t = state.tracker.wait_idle(s.id, Duration::from_secs(secs));
-            let mut out = describe(&state, s, 4000);
+            let mut out = describe(&state, s, 8000);
             if t.running {
-                out.push_str(&format!("\n(Sigue en marcha tras {secs} s de espera.)"));
+                out.push_str(&format!("\n(Sigue en marcha tras {secs} s de espera. Vuelve a llamar a esperar_sesion para esperar su resultado.)"));
             }
             Ok(out)
         }
@@ -432,6 +451,19 @@ mod tests {
         assert_eq!(loaded.title.as_deref(), Some("Investigar API"));
         // Una subsesión puede arrancar sin work_session activa en el proyecto.
         assert!(crate::work::before_turn(&conn, "/r/p", Some(child.id)).is_ok());
+
+        // Subsesión delegada por Codex PM (parent_session = None, delegated_by_pm = true):
+        // no debe fallar con "inicia una sesión de trabajo..." al iniciar ni al continuar_sesion.
+        let codex_child = db::create_session(&conn, "/r/p", "claude", "u-c", &["sesión 1", "sesión 2", "sesión 3"]).unwrap();
+        db::set_session_delegated_by_pm(&conn, codex_child.id, None, Some("Auditar PR")).unwrap();
+        let loaded_codex = db::session(&conn, codex_child.id).unwrap().unwrap();
+        assert!(loaded_codex.delegated_by_pm);
+        assert!(crate::work::before_turn(&conn, "/r/p", Some(codex_child.id)).is_ok());
+
+        // Una sesión independiente (NO delegada por PM y sin worktree) sigue exigiendo work_session activa.
+        let standalone = db::create_session(&conn, "/r/p", "claude", "u-s", &["sesión 1", "sesión 2", "sesión 3", "sesión 4"]).unwrap();
+        assert!(crate::work::before_turn(&conn, "/r/p", Some(standalone.id)).is_err());
+
         // No entra en huérfanas de worktrees aunque comparta el worktree del padre.
         db::set_session_worktree(&conn, child.id, "/wt", "ide/p", "main", "abc").unwrap();
         db::close_session(&conn, child.id).unwrap();

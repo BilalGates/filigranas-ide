@@ -13,12 +13,14 @@ mod codex;
 mod containers;
 mod db;
 mod delegate;
+mod delivery_auto;
 mod design;
 mod design_components;
 mod files;
 mod git;
 mod github;
 mod github_login;
+mod github_pr;
 mod handoff;
 mod health;
 mod home;
@@ -27,6 +29,7 @@ mod jev;
 mod larry;
 mod p5_process;
 mod paths;
+mod post_merge;
 mod pr;
 mod pty;
 mod rpc;
@@ -219,6 +222,11 @@ pub fn run() {
             git_ops::git_pull,
             git_ops::git_push,
             git_ops::git_review_push,
+            git_ops::git_review_push_branch,
+            git_ops::git_push_branch,
+            git_ops::git_stage,
+            git_ops::git_unstage,
+            git_ops::git_commit_staged,
             approval::cancel_review,
             git_ops::git_stash,
             git_ops::git_stash_pop,
@@ -255,8 +263,12 @@ pub fn run() {
             git::git_status,
             git::git_head,
             git::git_diff_texts,
+            git::git_diff_ref,
             git::git_log,
+            git::git_branch_log,
             git::git_branches,
+            git::git_branch_inventory,
+            git::git_compare_branch,
             git::git_switch,
             watch::watch_project,
             pty::pty_open,
@@ -306,6 +318,7 @@ pub fn run() {
             handoff::session_resume,
             handoff::session_handoff,
             larry::larry_propose,
+            larry::larry_propose_selected,
             larry::larry_commit,
             larry::larry_groups,
             pr::pr_draft,
@@ -315,6 +328,26 @@ pub fn run() {
             pr::pr_review_merge,
             pr::open_pr_url,
             pr::pr_status,
+            github_pr::pr_list_repo,
+            github_pr::pr_detail,
+            github_pr::pr_review_create_for_branch,
+            github_pr::pr_create_for_branch,
+            github_pr::pr_update,
+            github_pr::pr_set_draft,
+            github_pr::pr_comment,
+            github_pr::pr_reply_thread,
+            github_pr::pr_request_reviewers,
+            github_pr::pr_set_state,
+            github_pr::pr_rerun_checks,
+            github_pr::pr_check_log,
+            github_pr::pr_review_merge_number,
+            github_pr::pr_merge_number,
+            delivery_auto::delivery_auto_status,
+            delivery_auto::delivery_policy_save,
+            delivery_auto::delivery_request_autofix,
+            delivery_auto::delivery_cancel_autofix,
+            post_merge::delivery_cleanup_preview,
+            post_merge::delivery_cleanup_execute,
             tools::tools_status,
             tools::tools_update,
             tools::tools_auto_update,

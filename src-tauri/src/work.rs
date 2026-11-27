@@ -222,14 +222,15 @@ pub fn check_merge(repo: &Path, base: &str, head: &str) -> CmdResult<()> {
 pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<()> {
     if let Some(id) = session {
         let s = db::session(conn, id).map_err(err)?.ok_or("sesión inexistente")?;
-        // Una subsesión comparte la carpeta y la rama de su sesión padre:
-        // no exige una sesión de trabajo propia ni choca con el padre en curso.
-        if let Some(parent_id) = s.parent_session {
+        // Una subsesión (delegada por Claude PM, Codex PM u otra sesión padre)
+        // comparte la carpeta y la rama del proyecto/padre: no exige una sesión
+        // de trabajo propia para investigar o continuar, pero respeta el bloqueo
+        // si existe una sesión de trabajo en revisión.
+        if s.parent_session.is_some() || s.delegated_by_pm {
             if let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") {
                 if work.state != "active" { return Err("la sesión está en revisión para su PR; reanúdala para seguir trabajando".into()); }
                 conn.execute("UPDATE work_sessions SET tests=NULL,evidence=NULL,reviewed_head=NULL WHERE id=?1", [work.id]).map_err(err)?;
             }
-            let _ = parent_id;
             return Ok(());
         }
         if s.worktree.is_some() {

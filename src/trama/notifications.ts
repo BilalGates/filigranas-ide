@@ -1,13 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import type { CliUpdate } from '../ipc.ts';
 
-export type NotificationLevel = 'error' | 'warning' | 'info' | 'action';
+export type NotificationLevel = 'error' | 'warning' | 'info' | 'action' | 'success';
 
-export type NotificationActionTarget = 'tools' | 'settings' | 'entrega' | 'home';
+export type NotificationActionTarget = 'tools' | 'settings' | 'entrega' | 'home' | 'session';
 
 export type NotificationAction = {
   label: string;
   target: NotificationActionTarget;
+  session?: number | 'coach';
+  project?: string;
 };
 
 export type NotificationEntry = {
@@ -17,6 +19,7 @@ export type NotificationEntry = {
   title: string;
   summary: string;
   details: string | null;
+  diagnostics: readonly { at: number; text: string }[];
   count: number;
   createdAt: number;
   updatedAt: number;
@@ -99,11 +102,14 @@ export class NotificationCenter {
     let entry: NotificationEntry;
     if (existingIndex >= 0) {
       const existing = this.entries[existingIndex];
+      const diagnostics = details && !existing.diagnostics.some((d) => d.text === details)
+        ? [...existing.diagnostics, { at: now, text: details }] : existing.diagnostics;
       entry = {
         ...existing,
         title,
         summary,
-        details: details ?? existing.details,
+        diagnostics,
+        details: diagnostics.map((d, i) => `${i ? `— ${new Date(d.at).toLocaleString()} —\n` : ''}${d.text}`).join('\n\n') || null,
         action: input.action !== undefined ? input.action : existing.action,
         source: input.source !== undefined ? input.source : existing.source,
         count: existing.count + 1,
@@ -120,6 +126,7 @@ export class NotificationCenter {
         title,
         summary,
         details,
+        diagnostics: details ? [{ at: now, text: details }] : [],
         count: 1,
         createdAt: now,
         updatedAt: now,
@@ -198,9 +205,8 @@ export function pushOperationalError(raw: string, opts?: { source?: string; acti
   if (!clean) return null;
   const lines = clean.split('\n').map((l) => l.trim()).filter(Boolean);
   const first = lines[0] ?? clean;
-  const isInfoNote =
-    (first.startsWith('La rama ') && first.includes('se conserva')) ||
-    first.startsWith('Comparte la rama');
+  const isWorktreeNote = first.startsWith('La rama ') && first.includes('se conserva');
+  const isInfoNote = isWorktreeNote || first.startsWith('Comparte la rama');
   const title = first.length > 96 ? `${first.slice(0, 95)}…` : first;
   const hasDetails = lines.length > 1 || clean.length > 96;
   return notificationCenter.push({
@@ -210,7 +216,7 @@ export function pushOperationalError(raw: string, opts?: { source?: string; acti
     details: hasDetails ? clean : null,
     fingerprint: `${isInfoNote ? 'info' : 'error'}:${opts?.source ?? 'app'}:${normalizeKey(first)}`,
     source: opts?.source ?? null,
-    action: opts?.action ?? (first.startsWith('La rama ') && first.includes('se conserva') ? { label: 'Abrir Entrega', target: 'entrega' } : null),
+    action: opts?.action ?? (isWorktreeNote ? { label: 'Abrir Entrega', target: 'entrega' } : null),
   });
 }
 
@@ -268,4 +274,14 @@ export function pushCliUpdatesNotification(updates: readonly CliUpdate[]) {
   for (const item of cliUpdatesToNotifications(updates)) {
     notificationCenter.push(item);
   }
+}
+
+/** Called only on an explicit provider completion event, never on unmount/idle. */
+export function pushAgentCompletion(project: string, session: number | 'coach', name: string) {
+  return pushNotification({
+    level: 'success', title: `${name} ha finalizado`, summary: 'Turno completado. La conversación conserva el resultado.',
+    source: project.split(/[\\/]/).filter(Boolean).pop() ?? project,
+    fingerprint: `agent-completed:${project}:${session}`,
+    action: { label: 'Abrir conversación', target: 'session', session, project },
+  });
 }

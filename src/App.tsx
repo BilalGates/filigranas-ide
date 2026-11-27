@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type Session, type Tool, type Workspace } from './ipc';
+import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
 import Onboarding from './Onboarding';
 import type { ProviderSwitch } from './ModelConfigMenu';
 import Editor from './Editor';
@@ -1070,7 +1070,7 @@ export default function App() {
     });
   };
 
-  const openRecentSession = (item: { project: string; sessionId: number | null; isPm: boolean; closed: boolean }) => {
+  const openRecentSession = (item: RecentSession) => {
     if (item.isPm) {
       setPm(item.project, true);
       selectSession({ kind: 'pm', project: item.project }, { closeInicio: true });

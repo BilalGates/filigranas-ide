@@ -461,22 +461,6 @@ html[data-resizing] .right {
   font-size: 11px;
   color: var(--tx3);
 }
-.status-branch, .status-session-branch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-.status-branch:hover:enabled { background: var(--hover); color: var(--tx); }
-.status-branch svg, .status-session-branch svg { flex: none; }
-.status-branch span, .status-session-branch span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.usage-limit { color: var(--warn); }
 
  /* ── divisores ──────────────────────────────────────────── */
 
@@ -1420,7 +1404,6 @@ button.co-file:hover {
 .del {
   color: var(--del);
 }
-.co-profile,
 .chip-select {
   height: 26px;
   padding: 0 8px;
@@ -1435,7 +1418,6 @@ button.co-file:hover {
   field-sizing: content;
   cursor: pointer;
 }
-.co-profile:hover,
 .chip-select:hover {
   background: var(--hover);
   color: var(--tx);
@@ -1496,9 +1478,6 @@ button.co-file:hover {
 .co-attach {
   position: relative;
   flex: none;
-}
-.co-attach-button.chip {
-  padding-inline: 6px;
 }
 .co-attach-menu {
   bottom: calc(100% + 5px);
@@ -1675,10 +1654,6 @@ button.co-file:hover {
   margin: 5px 0 0;
   color: var(--err);
   font-size: 11.5px;
-}
-.co-provider {
-  flex: none;
-  color: var(--tx2);
 }
 .chip {
   height: 26px;
@@ -2020,22 +1995,10 @@ button.co-file:hover {
   font-size: 11px;
   color: var(--tx3);
 }
-.status-actions {
-  display: flex;
-  flex: none;
-  width: calc(var(--workspace-sidebar-width) - 16px);
-  gap: 4px;
-}
 .status-action {
   white-space: nowrap;
 }
-.status-usage {
-  width: 100%;
-}
-.app.no-side .status-actions {
-  width: auto;
-}
-.status-action, .status-branch, .status-session-branch {
+.status-action, .status-session-branch {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2043,10 +2006,10 @@ button.co-file:hover {
   padding: 3px 8px;
   border-radius: 4px;
 }
-.status-action:hover, .status-branch:hover:enabled { background: var(--hover); color: var(--tx); }
+.status-action:hover { background: var(--hover); color: var(--tx); }
 .status-action.is-on { background: var(--press); color: var(--tx); }
-.status-branch svg, .status-session-branch svg { flex: none; }
-.status-branch span, .status-session-branch span {
+.status-session-branch svg { flex: none; }
+.status-session-branch span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3240,7 +3203,6 @@ html.is-light .onboarding-card {
 .p5-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
 .p5-actions > label { min-width: 0; }
 .p5-actions input[type="number"] { width: 8ch; }
-.p5-panel label.p5-check { display: flex; align-items: center; gap: 6px; }
 .p5-section { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
 .p5-panel .p5-upload { position: relative; cursor: pointer; }
 .p5-upload input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
@@ -3249,20 +3211,9 @@ html.is-light .onboarding-card {
 .p5-record summary { cursor: pointer; overflow-wrap: anywhere; }
 .p5-finding { padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .p5-finding p { margin: 0 0 4px; }
-.design-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-items: start; gap: 12px; margin: 12px 0; }
-.design-comparison figure { min-width: 0; margin: 0; }
-.design-comparison figcaption { margin-bottom: 4px; color: var(--tx3); }
-.design-comparison img { display: block; width: 100%; height: auto; }
-.design-region { position: relative; overflow: hidden; cursor: crosshair; touch-action: none; }
-.design-region-outline { position: absolute; pointer-events: none; border: 2px solid white; box-shadow: 0 0 0 1px #121212; }
-.design-wipe { margin: 14px 0; max-width: 740px; }
-.design-wipe label { display: grid; gap: 6px; }
 .design-crop { position: relative; overflow: hidden; }
 .design-crop img { position: absolute; height: auto; display: block; }
 .design-crop-layer { position: absolute; inset: 0; overflow: hidden; }
-
-.tb-brain { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; color: var(--tx2); }
-.tb-brain:hover, .tb-brain.is-on { background: var(--s2); border-color: var(--line); color: var(--tx); }
 
 .menu-item > svg {
   flex: none;
@@ -3275,7 +3226,6 @@ html.is-light .onboarding-card {
 .github-connected { color: var(--tx2); overflow-wrap: anywhere; }
 
 /* Cuenta activa al final de la cabecera. */
-.tb-right .tb-brain { width: 30px; padding: 0; justify-content: center; }
 .github-profile { position: relative; margin-left: 8px; display: flex; align-items: center; }
 .github-profile-button { width: 30px; height: 30px; padding: 2px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; color: var(--tx2); overflow: hidden; }
 .github-profile-button:hover, .github-profile-button[aria-expanded="true"] { border-color: var(--tx2); color: var(--tx); }

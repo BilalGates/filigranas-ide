@@ -70,8 +70,6 @@ export function useChatHistory(project: string, session: number | null | undefin
   return { items, error };
 }
 
-export const KIND_LETTER: Record<string, string> = { add: 'A', delete: 'D', update: 'M' };
-
 /** Petición de permiso ya traducida, con la decisión a la que llama. */
 export type Ask = {
   key: string;

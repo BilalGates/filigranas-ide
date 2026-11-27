@@ -19,7 +19,6 @@ IDE personal y ultraligero centrado en proyectos, agentes y trabajo paralelo en 
 
 Cerrar un chat o salir de la aplicación no finaliza el trabajo. Tras una PR confirmada, la siguiente sesión crea otra rama y usa chats nuevos; los anteriores conservan su historial y su rama. Las sesiones antiguas con worktree mantienen sus acciones de integración y limpieza.
 
-- [Compartir proyectos y configurar el servicio de conexión](relay/README.md)
 - [Plan de implementación](PLAN.md)
 - [Mockup v2](https://claude.ai/artifact/JxK8TYzEXneM6Ca1Wr476L) — datos de ejemplo, sin conexión a agentes ni repositorios.
 
@@ -62,4 +61,4 @@ Los datos locales (ajustes, grupos, proyectos archivados, hilos del coordinador 
 
 - `src/` contiene la interfaz y el contrato con Tauri en `ipc.ts`. `mock.ts` simula el núcleo en el navegador durante el desarrollo.
 - `src-tauri/src/` contiene los comandos del escritorio y SQLite. `codex.rs`, `claude.rs` y `acp.rs` implementan los adaptadores, con transporte en `rpc.rs` y procesos externos en `cli.rs`. Los módulos `work`, `tasks` y `isolate` gestionan el trabajo y las sesiones. `git`, `github` y `pr` gestionan control de versiones y publicación.
-- `src-tauri/resources/` contiene las instrucciones, las skills y el script de Larry. `relay/` contiene el servicio de colaboración.
+- `src-tauri/resources/` contiene las instrucciones, las skills y el script de Larry.

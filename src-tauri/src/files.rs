@@ -8,8 +8,8 @@ use tauri::{AppHandle, Manager};
 use crate::{err, paths, workspace::root_of, AppState, CmdResult};
 
 /// Tamaño máximo que el visor carga de una vez.
-pub(crate) const MAX_TEXT: u64 = 2 * 1024 * 1024;
-pub(crate) static SAVE_GATE: Mutex<()> = Mutex::new(());
+const MAX_TEXT: u64 = 2 * 1024 * 1024;
+static SAVE_GATE: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +73,7 @@ fn write_file(file: &Path, content: &str) -> CmdResult<()> {
     write_file_checked(file, content, || Ok(()))
 }
 
-pub(crate) fn write_file_checked(file: &Path, content: &str, check: impl FnOnce() -> CmdResult<()>) -> CmdResult<()> {
+fn write_file_checked(file: &Path, content: &str, check: impl FnOnce() -> CmdResult<()>) -> CmdResult<()> {
     if content.len() as u64 > MAX_TEXT {
         return Err(format!("archivo demasiado grande ({} KB)", content.len() / 1024));
     }

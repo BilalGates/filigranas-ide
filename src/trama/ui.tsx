@@ -39,32 +39,6 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   );
 }
 
-/** Pestañas accesibles (flechas izquierda/derecha). */
-export function Tabs<T extends string>({ value, onChange, items, label }: {
-  value: T;
-  onChange: (v: T) => void;
-  items: { id: T; label: string; icon?: string; count?: number | null }[];
-  label: string;
-}) {
-  return (
-    <div className="tr-tabs" role="tablist" aria-label={label} onKeyDown={(e) => {
-      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const i = items.findIndex((x) => x.id === value);
-      const next = items[(i + (e.key === 'ArrowRight' ? 1 : items.length - 1)) % items.length];
-      onChange(next.id);
-      (e.currentTarget.querySelector(`[data-tab="${next.id}"]`) as HTMLElement | null)?.focus();
-    }}>
-      {items.map((t) => (
-        <button key={t.id} data-tab={t.id} role="tab" className="tr-tab" aria-selected={value === t.id} tabIndex={value === t.id ? 0 : -1} onClick={() => onChange(t.id)}>
-          {t.icon && <Icon name={t.icon} size={13} />}
-          {t.label}
-          {t.count != null && <span className="cnt">{t.count}</span>}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Selector segmentado. */
 export function Seg<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: { id: T; label: string; icon?: string }[]; label: string }) {
   return (
@@ -74,17 +48,6 @@ export function Seg<T extends string>({ value, onChange, items, label }: { value
           {t.icon && <Icon name={t.icon} size={13} />}<span className="seg-l">{t.label}</span>
         </button>
       ))}
-    </div>
-  );
-}
-
-export function Empty({ icon = 'info', title, children, action }: { icon?: string; title: string; children?: ReactNode; action?: ReactNode }) {
-  return (
-    <div className="tr-empty">
-      <span className="art"><Icon name={icon} size={40} /></span>
-      <h3>{title}</h3>
-      {children && <p>{children}</p>}
-      {action}
     </div>
   );
 }

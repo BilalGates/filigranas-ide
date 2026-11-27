@@ -62,8 +62,6 @@ export type ExplorerProps = {
   onHidePm: (projectPath: string) => void;
   onCloseSession: (id: number) => void;
   onUpdate: (p: Promise<Workspace>) => void;
-  onJoin: () => void;
-  onShare: (project: Project) => void;
   onProjectView: (path: string, tab: 'files' | 'git' | 'containers') => void;
   onProjectTerminal: (path: string) => void;
   onError: (message: string) => void;
@@ -91,8 +89,6 @@ export default function Explorer({
   onHidePm,
   onCloseSession,
   onUpdate,
-  onJoin,
-  onShare,
   onProjectView,
   onProjectTerminal,
   onError,
@@ -269,7 +265,6 @@ export default function Explorer({
                       onCloseSession={onCloseSession}
                       onUpdate={onUpdate}
                       onError={onError}
-                      onShare={() => onShare(p)}
                       onView={(tab) => onProjectView(p.path, tab)}
                       onTerminal={() => onProjectTerminal(p.path)}
                     />
@@ -296,9 +291,6 @@ export default function Explorer({
             <div className="exp-foot-row">
               <button type="button" className="btn sm ghost grow" onClick={() => setCreatingProject(true)}>
                 <Icon name="plus" size={12} /> Nuevo proyecto
-              </button>
-              <button type="button" className="btn sm ghost" onClick={onJoin} title="Unirse a un proyecto compartido">
-                Unirse
               </button>
             </div>
           )}
@@ -365,7 +357,6 @@ function ProjectNode({
   onCloseSession,
   onUpdate,
   onError,
-  onShare,
   onView,
   onTerminal,
 }: {
@@ -390,7 +381,6 @@ function ProjectNode({
   onCloseSession: (id: number) => void;
   onUpdate: (p: Promise<Workspace>) => void;
   onError: (message: string) => void;
-  onShare: () => void;
   onView: (tab: 'files' | 'git' | 'containers') => void;
   onTerminal: () => void;
 }) {
@@ -689,7 +679,6 @@ function ProjectNode({
           <button role="menuitem" className="menu-item" onClick={() => run(onSelectProject)}>Abrir proyecto</button>
           <button role="menuitem" className="menu-item" onClick={() => run(onNewSession)}>Nueva sesión</button>
           <button role="menuitem" className="menu-item" onClick={() => run(onStartPm)}>Abrir Project manager</button>
-          <button role="menuitem" className="menu-item" onClick={() => run(onShare)}>Compartir proyecto</button>
           <div className="menu-sep" />
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('files'))}>Ver archivos</button>
           <button role="menuitem" className="menu-item" onClick={() => run(() => onView('git'))}>Ver cambios</button>

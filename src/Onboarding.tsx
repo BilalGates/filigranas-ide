@@ -4,11 +4,10 @@ import GithubConnect from './GithubConnect';
 import { api, type Tool, type Workspace } from './ipc';
 import AmbientField from './trama/AmbientField';
 
-/** Pantalla de arranque: elegir la carpeta raíz de proyectos o unirse a una sesión compartida. */
-export default function Onboarding({ initialRoot, onDone, onJoin, github, onToolsRefresh, recoveryError, onRetry }: {
+/** Pantalla de arranque: elegir la carpeta raíz de proyectos. */
+export default function Onboarding({ initialRoot, onDone, github, onToolsRefresh, recoveryError, onRetry }: {
   initialRoot?: string | null;
   onDone: (ws: Workspace) => void;
-  onJoin: () => void;
   github?: Tool;
   onToolsRefresh: () => void;
   recoveryError: string | null;
@@ -54,7 +53,7 @@ export default function Onboarding({ initialRoot, onDone, onJoin, github, onTool
         <form className="onboarding-card" onSubmit={submit}>
           <div className="onboarding-head">
             <h1>Filigranas</h1>
-            <p>Elige la carpeta general de tus proyectos o únete a una sesión compartida.</p>
+            <p>Elige la carpeta general donde están tus proyectos.</p>
           </div>
           <div className="onboarding-group">
             <label htmlFor="root" className="onboarding-label">
@@ -80,12 +79,6 @@ export default function Onboarding({ initialRoot, onDone, onJoin, github, onTool
                 Reintentar carpeta actual
               </button>
             )}
-            <div className="onboarding-sep" aria-hidden="true">
-              <span>o</span>
-            </div>
-            <button className="ghost onboarding-join" type="button" onClick={onJoin} disabled={busy}>
-              Unirse a una sesión compartida
-            </button>
           </div>
           <GithubConnect tool={github} onRefresh={onToolsRefresh} />
         </form>

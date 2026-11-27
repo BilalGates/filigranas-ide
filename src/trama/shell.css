@@ -12,11 +12,6 @@
   flex-direction: column;
 }
 .tv.tr-root > * { flex: 1; min-height: 0; }
-.tv .home-agline { width: 100%; text-align: left; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; }
-.tv .home-agline:hover { background: rgba(255, 255, 255, 0.04); }
-.tv .home-calm { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 4px; color: var(--tx2); text-align: center; }
-.tv .home-calm p { margin: 0; font-size: var(--fs-s); }
-.tv .home-calm .emptyart { width: 140px; height: 70px; }
 
 /* ── Inicio: centro editorial de continuidad del trabajo ───────────── */
 .tv .home-hub {
@@ -1868,7 +1863,6 @@ html .tv .flow-start-card h3 {
 .tr-insp h3,
 .tr-modal h3,
 .eng-pop h2,
-#share-title,
 .panel-head h2:not(.is-path),
 html .tv .insp h3:not(.lab),
 html .tv .audit h3:not(.lab),
@@ -1881,7 +1875,6 @@ html .tv .empty h3 {
   letter-spacing: 0;
 }
 
-.tr-card h2,
 .ws-inner > .center .ch-name,
 html .tv .convh .ttl,
 html .tv .projects-head h3,

@@ -65,23 +65,6 @@ export const api = {
     invoke<void>('write_text', { path, content, session, previous }),
 };
 
-export type GuestShare = { name: string; editable: boolean };
-export type HostedShare = GuestShare & { invitation: string; expiresAt: number };
-type SharedFile = { text: string; revision: string };
-export const sharing = {
-  start: (project: string, session: number | null, relay: string, key: string, editable: boolean) =>
-    invoke<HostedShare>('share_start', { project, session, relay, key, editable }),
-  current: () => invoke<HostedShare | null>('share_current'),
-  stop: () => invoke<void>('share_stop'),
-  access: (editable: boolean) => invoke<HostedShare>('share_access', { editable }),
-  join: (code: string) => invoke<GuestShare>('share_join', { code }),
-  status: () => invoke<{ online: boolean; closed: boolean; editable: boolean }>('share_status'),
-  list: (path: string) => invoke<Entry[]>('share_list', { path }),
-  read: (path: string, revision: string | null) => invoke<SharedFile | null>('share_read', { path, revision }),
-  write: (path: string, previous: string, content: string) => invoke<void>('share_write', { path, previous, content }),
-  leave: () => invoke<void>('share_leave'),
-};
-
 export type BrowserBounds = { x: number; y: number; width: number; height: number };
 export type BrowserEntry = { url: string; title: string; timestamp: number };
 export type BrowserStatus = {

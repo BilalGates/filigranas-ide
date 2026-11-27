@@ -93,8 +93,6 @@ const G: Record<string, string> = {
   grid: '<circle class="n" cx="7" cy="7" r="1.3"/><circle class="n" cx="12" cy="7" r="1.3"/><circle class="n" cx="17" cy="7" r="1.3"/><circle class="n" cx="7" cy="12" r="1.3"/><circle class="n" cx="12" cy="12" r="1.3"/><circle class="n" cx="17" cy="12" r="1.3"/><circle class="n" cx="7" cy="17" r="1.3"/><circle class="n" cx="12" cy="17" r="1.3"/><circle class="n" cx="17" cy="17" r="1.3"/>',
 };
 
-export const ICON_NAMES = Object.keys(G);
-
 export function Icon({ name, size = 14, label }: { name: string; size?: number; label?: string }) {
   return (
     <svg className="ti i" width={size} height={size} style={{ width: size, height: size }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"

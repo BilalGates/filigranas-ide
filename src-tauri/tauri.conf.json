@@ -44,5 +44,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFGNkNGNDhBRTIyOEUwMEYKUldRUDRDamlpdlJzcnp1Ung4ZlFYRisrM0lwS0t2LzhDWEtoNWtKaGR2Szg4bmk1VWJzYkk3RzUK",
+      "requireSignedVersion": true
+    }
   }
 }

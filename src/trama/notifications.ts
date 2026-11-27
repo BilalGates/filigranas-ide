@@ -10,6 +10,7 @@ export type NotificationAction = {
   target: NotificationActionTarget;
   session?: number | 'coach';
   project?: string;
+  settingsSection?: 'actualizaciones';
 };
 
 export type NotificationEntry = {

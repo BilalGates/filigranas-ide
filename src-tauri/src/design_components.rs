@@ -63,7 +63,7 @@ pub(super) fn capture(
     use std::{
         io::{BufRead, BufReader, Read, Write},
         os::{fd::{AsRawFd, FromRawFd, OwnedFd}, unix::{net::UnixStream, process::CommandExt}},
-        process::{Child, Command, Stdio},
+        process::{Child, Stdio},
         time::{Duration, Instant},
     };
 
@@ -115,7 +115,7 @@ pub(super) fn capture(
     }
     let pipe = unsafe { OwnedFd::from_raw_fd(fd) };
     drop(child);
-    let mut command = Command::new(binary);
+    let mut command = crate::cli::command(binary);
     command.current_dir(dir).args([
         "--headless", "--no-first-run", "--disable-extensions", "--disable-sync",
         "--disable-background-networking", "--no-proxy-server", "--remote-debugging-pipe",

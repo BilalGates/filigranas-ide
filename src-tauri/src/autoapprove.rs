@@ -70,6 +70,12 @@ impl Modes {
         let _ = self.set(Scope::Session(child), mode);
     }
 
+    /// Hereda el nivel de permisos del proyecto en una subsesión delegada por el PM.
+    pub fn inherit_project(&self, project: &str, child: i64) {
+        let mode = self.get_project(project);
+        let _ = self.set(Scope::Session(child), mode);
+    }
+
     fn set(&self, scope: Scope, mode: Mode) -> CmdResult<()> {
         let mut modes = self.0.lock().map_err(err)?;
         if mode == Mode::Ask {

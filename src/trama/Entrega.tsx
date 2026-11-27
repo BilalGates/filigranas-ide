@@ -1,392 +1,836 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import CodeHealth from '../CodeHealth';
-import ReviewDiff, { type ReviewNote } from './ReviewDiff';
-import { openFindings } from './findings';
-import GitPanel from '../GitPanel';
-import Larry from '../Larry';
-import Pending from '../Pending';
-import Publish from '../Publish';
-import WorkSession from '../WorkSession';
-import { git, health, sessions as sessionApi, tasks as taskApi, workSessions, type Change, type DiffTarget, type GitStatus, type HealthRun, type LogRow, type PrInfo, type Session, type Task, type WorkSession as Work } from '../ipc';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import {
+  cancelReview,
+  deliveryAuto,
+  git,
+  gitOps,
+  githubPr,
+  health,
+  workSessions,
+  type AutomationStatus,
+  type BranchEntry,
+  type BranchInventory,
+  type CheckLog,
+  type CommitDetail,
+  type CompareResult,
+  type GitStatus,
+  type HealthRun,
+  type LogRow,
+  type PullDetail,
+  type PullSummary,
+  type RepoPulls,
+  type Review,
+  type Session,
+  type WorkSession,
+} from '../ipc';
+import { openFindings, type ReviewNote } from './findings';
 import { Icon } from './icons';
-import { EmptyArt, Root, StDot, ago } from './kit';
+import ReviewDiff, { type DiffSpec } from './ReviewDiff';
+import { AuditsView } from './entrega/AuditsView';
+import { AutomationView } from './entrega/AutomationView';
+import { BranchExplorer } from './entrega/BranchExplorer';
+import { ChangeTree } from './entrega/ChangeTree';
+import { ChecksView } from './entrega/ChecksView';
+import { CommitsView } from './entrega/CommitsView';
+import { ContextInspector, type InspectorPayload } from './entrega/ContextInspector';
+import { DeliveryHeader } from './entrega/DeliveryHeader';
+import {
+  changesToTreeItems,
+  computePipelineStages,
+  getEntregaState,
+  setEntregaState,
+  type CenterTab,
+  type EntregaProjectState,
+  type TreeFileItem,
+  type TreePerspective,
+} from './entrega/entregaStore';
+import { PullRequestView } from './entrega/PullRequestView';
 
-// Entrega de Trama v2: recorrido completo (tarea → integración) con el estado
-// real de cada etapa, explorador de cambios, diff protagonista y auditoría.
-// Las acciones usan los componentes y comandos existentes (commit, Larry,
-// push, PR, merge e integración conservan sus aprobaciones).
-type Stage = 'tarea' | 'agentes' | 'rama' | 'cambios' | 'tests' | 'commit' | 'pr' | 'ci' | 'integracion';
-export type EntregaStage = Stage;
-type StState = 'done' | 'now' | 'fail' | 'todo';
-const noop = () => {};
-const OUTCOME: Record<string, string> = { passed: 'correcto', failed: 'falló', findings: 'con hallazgos', incomplete: 'incompleto', unknown: 'desconocido' };
-const checkTotal = (pull: PrInfo) => pull.checks.reduce((count, checks) => count + checks, 0);
-export default function Entrega({ project, projectName, agentSessions, onFile, onConflicts, onBranchesChanged, initialScope = null, initialStage = null, initialCi = false, onConsumeCi }: {
-  initialScope?: number | null;
-  /** Etapa con la que se abre (Code Health, PR, commits o ramas sin integrar). */
-  initialStage?: EntregaStage | null;
-  initialCi?: boolean;
-  onConsumeCi?: () => void;
+export type EntregaStage =
+  | 'tarea'
+  | 'agentes'
+  | 'rama'
+  | 'cambios'
+  | 'tests'
+  | 'commit'
+  | 'pr'
+  | 'ci'
+  | 'integracion';
+
+function mapInitialStage(stage?: EntregaStage | null, ci?: boolean): CenterTab | null {
+  if (ci) return 'checks';
+  switch (stage) {
+    case 'cambios':
+      return 'diff';
+    case 'commit':
+    case 'rama':
+      return 'commits';
+    case 'pr':
+    case 'integracion':
+      return 'pr';
+    case 'ci':
+    case 'tests':
+      return 'checks';
+    default:
+      return null;
+  }
+}
+
+export default function Entrega({
+  project,
+  projectName,
+  initialStage,
+  initialCi,
+  onConsumeCi,
+  onFile,
+  onBranchesChanged,
+}: {
   project: string | null;
   projectName: string | null;
   agentSessions: Session[];
+  initialStage?: EntregaStage | null;
+  initialScope?: 'project' | number | null;
+  initialCi?: boolean;
+  onConsumeCi?: () => void;
   onFile: (path: string, session: number | null, root: string | null) => void;
-  onConflicts: (files: string[]) => void;
-  onBranchesChanged: () => void;
+  onConflicts?: (files: string[]) => void;
+  onBranchesChanged?: () => void;
 }) {
-  const [finding, setFinding] = useState<{ fingerprint: string }>();
-  const [stage, setStage] = useState<Stage | null>(initialCi ? 'ci' : initialStage);
-  const [scopeId, setScopeId] = useState<number | null>(initialScope);
-  const [diff, setDiff] = useState<DiffTarget | null>(null);
-  const [status, setStatus] = useState<GitStatus | null>(null);
-  const [log, setLog] = useState<LogRow[] | null>(null);
-  const [runs, setRuns] = useState<HealthRun[] | null>(null);
-  const [pulls, setPulls] = useState<PrInfo[] | null>(null);
-  const [work, setWork] = useState<Work | null>(null);
-  const [tasks, setTasks] = useState<Task[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const request = useRef(0);
-  const [left, setLeft] = useState(false);
-  const [right, setRight] = useState(false);
-  const isolated = agentSessions.filter((s) => s.worktree);
-  const chosen = isolated.find((s) => s.id === scopeId) ?? null;
-  const sid = chosen?.id ?? null;
-  useEffect(() => {
-    if (initialCi) {
-      setStage('ci');
-      onConsumeCi?.();
-    }
-  }, [initialCi, onConsumeCi]);
+  const [ui, setUi] = useState<EntregaProjectState>(() =>
+    project ? getEntregaState(project) : getEntregaState('__none__'),
+  );
 
-  const load = useCallback(async () => {
+  const patchUi = useCallback(
+    (patch: Partial<EntregaProjectState>) => {
+      if (!project) return;
+      setUi(setEntregaState(project, patch));
+    },
+    [project],
+  );
+
+  // Al cambiar de proyecto se restaura su estado independiente de Entrega.
+  useEffect(() => {
     if (!project) return;
-    const id = ++request.current;
-    const [st, lg, h, ci, w, t] = await Promise.allSettled([
-      sid == null ? git.status(project) : sessionApi.changes(sid), sid == null ? git.log(project) : Promise.resolve([]), health.list(project, sid), health.ci(project, sid), workSessions.current(project), taskApi.list(project),
-    ]);
-    if (id !== request.current) return;
-    setStatus(st.status === 'fulfilled' ? st.value : null);
-    setLog(lg.status === 'fulfilled' ? lg.value : null);
-    setRuns(h.status === 'fulfilled' ? h.value : null);
-    setPulls(ci.status === 'fulfilled' ? ci.value : null);
-    setWork(w.status === 'fulfilled' ? w.value : null);
-    setTasks(t.status === 'fulfilled' ? t.value : null);
-    const failed = [st, lg, h, ci, w, t].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
-    setError(failed ? String(failed.reason) : null);
-  }, [project, sid]);
+    const saved = getEntregaState(project);
+    const forcedTab = mapInitialStage(initialStage, initialCi);
+    if (forcedTab && saved.centerTab !== forcedTab) {
+      setUi(setEntregaState(project, { centerTab: forcedTab }));
+    } else {
+      setUi(saved);
+    }
+    if (initialCi) onConsumeCi?.();
+  }, [project, initialStage, initialCi, onConsumeCi]);
+
+  const [inventory, setInventory] = useState<BranchInventory | null>(null);
+  const [status, setStatus] = useState<GitStatus | null>(null);
+  const [compare, setCompare] = useState<CompareResult | null>(null);
+  const [branchLog, setBranchLog] = useState<LogRow[]>([]);
+  const [repoPulls, setRepoPulls] = useState<RepoPulls | null>(null);
+  const [prDetail, setPrDetail] = useState<PullDetail | null>(null);
+  const [prLoading, setPrLoading] = useState(false);
+  const [healthRuns, setHealthRuns] = useState<HealthRun[]>([]);
+  const [work, setWork] = useState<WorkSession | null>(null);
+  const [autoStatus, setAutoStatus] = useState<AutomationStatus | null>(null);
+
+  const [diffSubMode, setDiffSubMode] = useState<'worktree' | 'unstaged' | 'staged'>('worktree');
+  const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
+  const [commitDiffFile, setCommitDiffFile] = useState<{ commit: string; path: string } | null>(null);
+  const [activeLog, setActiveLog] = useState<{ title: string; log: CheckLog } | null>(null);
+  const [focusFinding, setFocusFinding] = useState<ReviewNote | undefined>(undefined);
+
+  const [pushReview, setPushReview] = useState<{ branch: string; setUpstream: boolean; review: Review } | null>(null);
+  const [pushCode, setPushCode] = useState('');
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [bannerError, setBannerError] = useState<string | null>(null);
+  const [bannerNotice, setBannerNotice] = useState<string | null>(null);
+
+  const loadLocal = useCallback(async () => {
+    if (!project) return;
+    try {
+      const [inv, st, runs, ws, auto] = await Promise.all([
+        git.branchInventory(project),
+        git.status(project),
+        health.list(project, null).catch(() => [] as HealthRun[]),
+        workSessions.current(project).catch(() => null),
+        deliveryAuto.status(project).catch(() => null),
+      ]);
+      setInventory(inv);
+      setStatus(st);
+      setHealthRuns(runs);
+      setWork(ws);
+      setAutoStatus(auto);
+
+      // Si no hay rama inspeccionada guardada o ya no existe, enfoca la rama activa.
+      const saved = getEntregaState(project);
+      const stillExists = saved.inspectedBranch && inv.branches.some((b) => b.name === saved.inspectedBranch);
+      if (!stillExists) {
+        const fallback = inv.branches.find((b) => b.active) ?? inv.branches[0] ?? null;
+        if (fallback) {
+          setUi(setEntregaState(project, { inspectedBranch: fallback.name, inspectedRef: fallback.refName }));
+        }
+      }
+    } catch (e) {
+      setBannerError(String(e));
+    }
+  }, [project]);
+
+  const loadPulls = useCallback(async () => {
+    if (!project) return;
+    try {
+      const res = await githubPr.listRepo(project);
+      setRepoPulls(res);
+    } catch {
+      // Silencioso: `pr_list_repo` devuelve errores estructurados en `res.error`.
+    }
+  }, [project]);
+
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(load, 15000);
-    return () => {
-      request.current++;
-      window.clearInterval(timer);
-    };
-  }, [load]);
-  const selectScope = (id: number | null) => {
-    request.current++;
+    setInventory(null);
     setStatus(null);
-    setLog(null);
-    setRuns(null);
-    setPulls(null);
-    setError(null);
-    setDiff(null);
-    setStage(null);
-    setScopeId(id);
-  };
-  // con cambios pendientes, el primer archivo abre el diff como protagonista
-  useEffect(() => { if (!diff && stage == null && status?.changes[0]) setDiff(sid == null ? status.changes[0] : { ...status.changes[0], session: sid }); }, [status, diff, stage, sid]);
+    setCompare(null);
+    setBranchLog([]);
+    setRepoPulls(null);
+    setPrDetail(null);
+    setCommitDetail(null);
+    setCommitDiffFile(null);
+    setActiveLog(null);
+    setPushReview(null);
+    setBannerError(null);
+    setBannerNotice(null);
+    if (!project) return;
+    void loadLocal();
+    void loadPulls();
+  }, [project, loadLocal, loadPulls]);
 
-  const changes = status?.changes ?? [];
-  const lastRun = runs?.[0] ?? null;
-  const open = useMemo(() => openFindings(runs), [runs]);
-  const diffFindings = useMemo(() =>
-    diff && (diff.session ?? null) === sid
-      ? open.filter((finding) => finding.path === diff.path && finding.line != null)
-      : undefined,
-  [open, diff, sid]);
-  const reviewers = [...new Set((diffFindings ?? []).flatMap((item) => item.who ?? []))];
+  // Refresco orientado a eventos reales del repositorio y tareas (sin polling ciego).
+  useEffect(() => {
+    if (!project) return;
+    let timer: number;
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void loadLocal(), 180);
+    };
+    const offProj = listen('project-changed', schedule);
+    const offTasks = listen('tasks-changed', schedule);
+    return () => {
+      window.clearTimeout(timer);
+      void offProj.then((off) => off());
+      void offTasks.then((off) => off());
+    };
+  }, [project, loadLocal]);
 
-  if (!project) return <Root label="Entrega"><div className="rev-empty"><div className="empty big"><EmptyArt /><h3>Elige un proyecto</h3><p>Entrega reúne cambios, commits, revisión, PR y CI del proyecto abierto.</p></div></div></Root>;
+  const inspected: BranchEntry | null = useMemo(() => {
+    if (!inventory) return null;
+    return (
+      inventory.branches.find((b) => b.name === ui.inspectedBranch) ??
+      inventory.branches.find((b) => b.active) ??
+      inventory.branches[0] ??
+      null
+    );
+  }, [inventory, ui.inspectedBranch]);
 
-  const exactPull = status?.headSha ? pulls?.find((p) => p.head === status.headSha && p.state === 'OPEN')
-    ?? pulls?.find((p) => p.head === status.headSha) : undefined;
-  const pull = exactPull ?? pulls?.find((p) => p.state === 'OPEN') ?? pulls?.[0] ?? null;
-  const ci = exactPull?.checksKnown ? exactPull : null;
-  const live = tasks?.filter((t) => t.status !== 'done' && t.status !== 'cancelled') ?? [];
-  const testRun = runs?.find((r) => ['cargo test', 'pnpm run test', 'npm run test'].includes(r.source));
-  const S: [Stage, string, string, StState][] = [
-    ['tarea', 'Tarea', work ? work.objective : tasks ? `${live.length} abiertas` : '—', work ? (work.state === 'finished' ? 'done' : 'now') : live.length ? 'now' : 'todo'],
-    ['agentes', 'Agentes', `${agentSessions.length} ${agentSessions.length === 1 ? 'sesión' : 'sesiones'}`, agentSessions.length ? 'done' : 'todo'],
-    ['rama', 'Rama', chosen?.branch ?? status?.branch ?? '—', status?.branch ? 'done' : 'todo'],
-    ['cambios', 'Cambios', `${changes.length} ${changes.length === 1 ? 'archivo' : 'archivos'}`, status ? (changes.length ? 'now' : 'done') : 'todo'],
-    ['tests', 'Tests', testRun ? OUTCOME[testRun.outcome] ?? testRun.outcome : 'sin ejecutar', testRun ? (testRun.outcome === 'passed' ? 'done' : testRun.outcome === 'failed' || testRun.outcome === 'findings' ? 'fail' : 'now') : 'todo'],
-    ['commit', 'Commit', status ? (status.ahead ? `${status.ahead} por publicar` : changes.length ? 'Larry' : 'al día') : '—', status ? (status.ahead ? 'now' : changes.length ? 'todo' : 'done') : 'todo'],
-    ['pr', 'Pull request', pull ? `PR #${pull.number}${pull.isDraft ? ' · borrador' : ''}` : 'sin PR', pull?.state === 'MERGED' || (exactPull?.state === 'OPEN' && !exactPull.isDraft) ? 'done' : pull ? 'now' : 'todo'],
-    ['ci', 'CI', ci ? `${ci.checks[0]}/${checkTotal(ci)}` : 'GitHub', ci ? (ci.checksState === 'success' ? 'done' : ci.checksState === 'failure' ? 'fail' : 'now') : 'todo'],
-    ['integracion', 'Integración', pull?.base ?? chosen?.base ?? '—', pull?.state === 'MERGED' || chosen?.integrated ? 'done' : 'todo'],
-  ];
-  const nowStage = (S.find((s) => s[3] === 'fail' || s[3] === 'now') ?? S[3])[0];
-  const active = stage ?? (diff ? 'cambios' : status?.changes.length === 0 ? 'rama' : nowStage);
-  const selectStage = (s: Stage) => {
-    setFinding(undefined);
-    setStage(s);
-    if (s !== 'cambios' && s !== 'ci') setDiff(null);
-    else if (!diff && changes[0]) setDiff({ ...changes[0], session: sid ?? undefined });
-  };
+  const prByBranch = useMemo(() => {
+    const map = new Map<string, PullSummary>();
+    for (const p of repoPulls?.pulls ?? []) {
+      const prev = map.get(p.branch);
+      // Prioriza PR abierta sobre cerradas/integradas anteriores.
+      if (!prev || (prev.state !== 'OPEN' && p.state === 'OPEN')) {
+        map.set(p.branch, p);
+      }
+    }
+    return map;
+  }, [repoPulls]);
 
-  const openChange = (change: Change, keepCi = false) => {
-    setFinding(undefined);
-    setDiff({ ...change, session: sid ?? undefined });
-    setStage(keepCi && stage === 'ci' ? 'ci' : 'cambios');
-  };
-  const selectAuditFile = (path: string) => {
-    const change = changes.find((entry) => entry.path === path);
-    if (change) openChange(change, true);
-    else onFile(path, sid, chosen?.worktree ?? null);
-  };
-  const errors = open.filter((f) => f.severity === 'error').length;
-  const warnings = open.filter((f) => f.severity === 'warning').length;
+  const inspectedPr: PullSummary | null = inspected ? (prByBranch.get(inspected.name) ?? null) : null;
 
-  const openFinding = (item: ReviewNote) => {
-    if (!item.path) return;
-    const change = changes.find((entry) => entry.path === item.path);
-    if (!change || item.line == null) {
-      onFile(item.path, sid, chosen?.worktree ?? null);
+  // Compara la rama inspeccionada frente a su base real y carga su historial (sin checkout).
+  useEffect(() => {
+    if (!project || !inspected) return;
+    let cancelled = false;
+    const baseRef = inspectedPr?.base
+      ? (inventory?.branches.find((b) => b.name === inspectedPr.base)?.refName ?? inspectedPr.base)
+      : (inventory?.defaultRef ?? null);
+    Promise.all([
+      git.compareBranch(project, inspected.refName, baseRef).catch(() => null),
+      git.branchLog(project, inspected.refName, 60).catch(() => [] as LogRow[]),
+    ]).then(([cmp, logs]) => {
+      if (cancelled) return;
+      setCompare(cmp);
+      setBranchLog(logs);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project, inspected?.refName, inspected?.headOid, inspectedPr?.base, inventory?.defaultRef]);
+
+  // Detalle completo de PR bajo demanda al tener una PR asociada a la rama inspeccionada.
+  const loadPrDetail = useCallback(
+    async (num: number) => {
+      if (!project) return;
+      setPrLoading(true);
+      try {
+        const d = await githubPr.detail(project, num);
+        setPrDetail(d);
+      } catch (e) {
+        setBannerError(String(e));
+      } finally {
+        setPrLoading(false);
+      }
+    },
+    [project],
+  );
+
+  useEffect(() => {
+    if (!inspectedPr) {
+      setPrDetail(null);
       return;
     }
-    openChange(change, true);
-    setFinding({ fingerprint: item.fingerprint });
+    if (prDetail?.number === inspectedPr.number && prDetail.headOid === inspectedPr.headOid) return;
+    void loadPrDetail(inspectedPr.number);
+  }, [inspectedPr?.number, inspectedPr?.headOid, loadPrDetail]);
+
+  const allOpenFindings = useMemo(() => openFindings(healthRuns), [healthRuns]);
+
+  // Elementos del árbol según la perspectiva activa.
+  const treeData = useMemo<{ items: TreeFileItem[]; localExtra: TreeFileItem[] }>(() => {
+    if (ui.treePerspective === 'uncommitted') {
+      if (!inspected?.active) return { items: [], localExtra: [] };
+      return { items: changesToTreeItems(status?.changes ?? []), localExtra: [] };
+    }
+    if (ui.treePerspective === 'branch') {
+      return { items: changesToTreeItems(compare?.files ?? []), localExtra: [] };
+    }
+    // Perspectiva Pull Request: archivos de GitHub separados de los cambios locales sin subir.
+    const prFiles: TreeFileItem[] = (prDetail?.files ?? []).map((f) => ({
+      path: f.path,
+      orig: null,
+      status: 'M',
+      adds: f.additions,
+      dels: f.deletions,
+      section: 'pr',
+    }));
+    const localExtra = inspected?.active ? changesToTreeItems(status?.changes ?? []) : [];
+    return { items: prFiles, localExtra };
+  }, [ui.treePerspective, inspected?.active, status?.changes, compare?.files, prDetail?.files]);
+
+  const selectedTreeFile: TreeFileItem | null = useMemo(() => {
+    const all = [...treeData.items, ...treeData.localExtra];
+    return all.find((f) => f.path === ui.selectedFile) ?? all[0] ?? null;
+  }, [treeData, ui.selectedFile]);
+
+  const diffSpec: DiffSpec | undefined = useMemo(() => {
+    if (commitDiffFile) {
+      return { mode: 'commit', commit: commitDiffFile.commit };
+    }
+    if (!selectedTreeFile || !inspected) return undefined;
+    if (ui.treePerspective === 'uncommitted') {
+      return { mode: diffSubMode, revisionKey: `${status?.headSha ?? ''}:${selectedTreeFile.staged ?? ''}:${selectedTreeFile.unstaged ?? ''}` };
+    }
+    if (ui.treePerspective === 'pr' && selectedTreeFile.section === 'local') {
+      return { mode: 'worktree', revisionKey: status?.headSha ?? '' };
+    }
+    const baseRef =
+      ui.treePerspective === 'pr' && prDetail
+        ? (inventory?.branches.find((b) => b.name === prDetail.base)?.refName ?? `refs/remotes/origin/${prDetail.base}`)
+        : (compare?.baseRef ?? inventory?.defaultRef ?? 'HEAD');
+    const headRef =
+      ui.treePerspective === 'pr' && prDetail
+        ? (prDetail.headOid || inspected.refName)
+        : inspected.refName;
+    return { mode: 'range', baseRef, headRef, revisionKey: `${baseRef}:${headRef}` };
+  }, [commitDiffFile, selectedTreeFile, inspected, ui.treePerspective, diffSubMode, status?.headSha, prDetail, compare?.baseRef, inventory]);
+
+  const stages = useMemo(
+    () =>
+      computePipelineStages({
+        branch: inspected,
+        status,
+        compareCount: compare?.files.length ?? 0,
+        pr: inspectedPr,
+        healthRuns,
+        openFindingsCount: allOpenFindings.length,
+        workSession: work,
+      }),
+    [inspected, status, compare?.files.length, inspectedPr, healthRuns, allOpenFindings.length, work],
+  );
+
+  // Acciones Git globales (cabecera + explorador)
+  const doFetch = async () => {
+    if (!project) return;
+    setBusyAction('fetch');
+    setBannerError(null);
+    try {
+      await gitOps.fetch(project);
+      await Promise.all([loadLocal(), loadPulls()]);
+      setBannerNotice('Referencias remotas actualizadas.');
+    } catch (e) {
+      setBannerError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
   };
 
-  return (
-    <Root label="Entrega">
-      <div className={`rev${left ? ' left-open' : ''}${right ? ' insp-open' : ''}`}>
-        <div className="pipe">
-          <div className="row">
-            <h2 className="vt grow">Entrega · {chosen?.branch ?? status?.branch ?? projectName}{(pull?.base ?? chosen?.base) ? ` → ${pull?.base ?? chosen?.base}` : ''}</h2>
-            {status?.head && <span className="chip mono">SHA {status.head.slice(0, 7)}</span>}
-            <span className={`chip${exactPull ? ' mint' : ''}`}>{pull ? `PR #${pull.number} ${pull.isDraft ? 'en borrador' : pull.state === 'OPEN' ? 'publicada' : pull.state === 'MERGED' ? 'integrada' : 'cerrada'}` : status?.upstream ? `upstream ${status.upstream}` : 'sin publicar'}</span>
-            {isolated.length > 0 && <label className="fsel"><select value={scopeId ?? ''} onChange={(e) => selectScope(e.currentTarget.value ? Number(e.currentTarget.value) : null)} aria-label="Alcance"><option value="">Checkout del proyecto</option>{isolated.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'worktree'}</option>)}</select><Icon name="down" size={11} /></label>}
-            <button className="tbtn" onClick={() => void load()} aria-label="Actualizar"><Icon name="refresh" size={15} /></button>
-            <button className="tbtn narrow-only" onClick={() => setLeft(!left)} aria-label="Archivos"><Icon name="sidebar" size={16} /></button>
-            <button className="tbtn narrow-only" onClick={() => setRight(!right)} aria-label="Auditoría"><Icon name="panel" size={16} /></button>
-          </div>
-          <Pipeline stages={S} active={active} onPick={selectStage} />
-        </div>
-        {error && <div className="rev-err" role="alert"><Icon name="warn" size={14} /> {error}</div>}
-        <div className="revb">
-          <aside className="ftree rev-git" aria-label="Archivos y commits">
-            <div className="fsec"><Icon name="file" size={13} /> {chosen ? `Sin integrar · ${chosen.name}` : 'Sin commit · local'}</div>
-            {changes.length ? changes.map((change) => (
-              <button key={change.path} className={`frow${diff?.path === change.path ? ' on' : ''}`}
-                title={change.orig ? `${change.orig} → ${change.path}` : change.path}
-                onClick={() => openChange(change)}>
-                <span className={`sev ${change.status === '!' || change.status === 'D' ? 'h' : change.status === 'M' ? 'm' : ''}`}
-                  aria-label={change.status} />
-                <span className="p">{change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/') + 1) : ''}<b>{change.path.split('/').pop()}</b></span>
-                <span className="n">{change.adds != null && <span className="add">+{change.adds}</span>} {change.dels ? <span className="del">−{change.dels}</span> : null}</span>
-              </button>
-            )) : <div className="fnote">{status ? 'Sin cambios' : 'Cargando cambios…'}</div>}
-            <div className="fsec"><Icon name="commit" size={13} /> Commits locales</div>
-            <button className="frow2 rev-link" onClick={() => selectStage('rama')}><span className="p">Historial y operaciones de rama</span><Icon name="chev" size={12} /></button>
-            <button className="frow2 rev-link" onClick={() => selectStage('commit')}><span className="p">Propuesta de Larry</span><Icon name="chev" size={12} /></button>
-            <div className="fsec"><Icon name="branch" size={13} /> {chosen ? 'Rama' : 'Remoto'}</div>
-            <div className="fnote">{chosen ? `${chosen.branch ?? '—'} · base ${chosen.base ?? '—'}` : status?.upstream ?? 'Sin rama de seguimiento'}</div>
-            {isolated.length > 0 && <>
-              <div className="fsec"><Icon name="pr" size={13} /> Worktrees de sesiones</div>
-              {isolated.map((s) => <button key={s.id} className={`frow2${sid === s.id ? ' on' : ''}`} onClick={() => selectScope(sid === s.id ? null : s.id)}><span className="p">{s.name} · {s.branch ?? 'worktree'}</span><span className="n mono">{s.integrated ? 'integrada' : ''}</span></button>)}
-            </>}
-          </aside>
-          <section className="diffv" aria-label="Contenido">
-            <Center stage={active} project={project} diff={diff} chosen={chosen} sid={sid} status={status} log={log} work={work} tasks={tasks} agentSessions={agentSessions} findings={diffFindings} finding={finding} reviewers={reviewers}
-              onDiff={(c) => { setDiff(c); setStage('cambios'); }} onFile={onFile} onConflicts={onConflicts} onChanged={() => { onBranchesChanged(); void load(); }} onStage={selectStage} />
-          </section>
-          <aside className="audit" aria-label="Auditoría">
-            <div className="sec">
-              <div className="row"><h3 className="grow">Auditoría</h3>
-                {errors > 0 && <span className="chip coral">{errors} {errors === 1 ? 'alto' : 'altos'}</span>}
-                {warnings > 0 && <span className="chip amber">{warnings} {warnings === 1 ? 'medio' : 'medios'}</span>}
-              </div>
-              <p className="mut audit-intro">{lastRun ? 'Sin puntuaciones: cada hallazgo enlaza a su línea y a su evidencia.' : 'Ejecuta una comprobación desde Tests para ver los hallazgos.'}</p>
-              {(changes.length > 0 || open.some((item) => item.path)) && <Treemap findings={open} changes={changes} selected={diff?.path} onFile={selectAuditFile} />}
-              {open.slice(0, 12).map((f) => (
-                <button key={f.fingerprint} className={`fitem${finding?.fingerprint === f.fingerprint ? ' on' : ''}`} onClick={() => openFinding(f)}>
-                  <span className={`sev ${f.severity === 'error' ? 'h' : f.severity === 'warning' ? 'm' : 'l'}`} />
-                  <span><span className="ft" title={f.title ? f.rule : undefined}>{f.title ?? f.rule}</span><span className="mono mut fmeta" title={f.path ?? undefined}>{f.path?.split('/').pop() ?? '—'}{f.line ? `:${f.line}` : ''} · {f.who?.join(' + ')}</span></span>
-                </button>
-              ))}
-              {lastRun && !open.length && <div className="fnote" style={{ padding: 0 }}><Icon name="check" size={13} /> Sin hallazgos abiertos</div>}
-            </div>
-            <div className="sec"><span className="lab">Evidencias verificables</span>
-              {(runs ?? []).slice(0, 8).map((r) => (
-                <div key={r.id} className="check">{r.outcome === 'passed' ? <span className="add"><Icon name="check" size={13} /></span> : r.outcome === 'failed' ? <span className="del"><Icon name="close" size={13} /></span> : <StDot st="idle" />}<span>{r.tool}</span><span className="mono mut2">{OUTCOME[r.outcome] ?? r.outcome} · {ago(r.observed)}</span></div>
-              ))}
-              {(ci || active === 'ci') && <section aria-label={active === 'ci' ? 'Estado de CI' : undefined}>
-                <div className="check">{ci?.checksState === 'success' ? <span className="add"><Icon name="check" size={13} /></span> : ci?.checksState === 'failure' ? <span className="del"><Icon name="close" size={13} /></span> : <StDot st={ci ? 'working' : 'idle'} />}
-                  <span>CI GitHub</span><span className="mono mut2">{ci ? `${ci.checks[0]}/${checkTotal(ci)}` : 'pendiente'}</span></div>
-                {active === 'ci' && (pull ? <dl className="kv ci-inspector">
-                  <dt>Pull request</dt><dd>#{pull.number} · {pull.branch} → {pull.base}</dd>
-                  <dt>SHA observado</dt><dd className="mono">{pull.head.slice(0, 7)}</dd>
-                  <dt>Resultados</dt><dd>{ci ? `${ci.checks[0]} correctos · ${ci.checks[1]} fallidos · ${ci.checks[2]} pendientes` : 'Pendiente de observación para este SHA'}</dd>
-                  <dt>Observado</dt><dd>{ago(pull.observedAt)}</dd>
-                </dl> : <p className="mut2">Pendiente de una observación de GitHub para esta rama.</p>)}
-              </section>}
-              {!runs?.length && !ci && active !== 'ci' && <p className="mut2" style={{ margin: '6px 0 0' }}>Nada verificado todavía.</p>}
-            </div>
-          </aside>
+  const doPull = async () => {
+    if (!project) return;
+    setBusyAction('pull');
+    setBannerError(null);
+    try {
+      const msg = await gitOps.pull(project);
+      await loadLocal();
+      setBannerNotice(msg || 'Rama actualizada con avance rápido.');
+    } catch (e) {
+      setBannerError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const doCheckout = async (branchName: string) => {
+    if (!project) return;
+    setBusyAction('switch');
+    setBannerError(null);
+    setBannerNotice(null);
+    try {
+      await git.switch(project, branchName);
+      onBranchesChanged?.();
+      await loadLocal();
+      setBannerNotice(`Rama activa cambiada a «${branchName}».`);
+    } catch (e) {
+      setBannerError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const startPush = async () => {
+    if (!project || !inspected?.local) return;
+    setBusyAction('push-review');
+    setBannerError(null);
+    try {
+      const setUpstream = !inspected.published;
+      const review = await gitOps.reviewPushBranch(project, inspected.name, setUpstream);
+      setPushReview({ branch: inspected.name, setUpstream, review });
+      setPushCode('');
+    } catch (e) {
+      setBannerError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const confirmPush = async () => {
+    if (!project || !pushReview) return;
+    setBusyAction('push');
+    setBannerError(null);
+    try {
+      const msg = await gitOps.pushBranch(project, pushReview.branch, pushReview.setUpstream, {
+        id: pushReview.review.id,
+        typed: pushCode.trim(),
+      });
+      setPushReview(null);
+      setPushCode('');
+      setBannerNotice(msg);
+      await Promise.all([loadLocal(), loadPulls()]);
+    } catch (e) {
+      setBannerError(String(e));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const doStage = async (paths: string[]) => {
+    if (!project) return;
+    setBannerError(null);
+    try {
+      await gitOps.stage(project, paths, null);
+      await loadLocal();
+    } catch (e) {
+      setBannerError(String(e));
+    }
+  };
+
+  const doUnstage = async (paths: string[]) => {
+    if (!project) return;
+    setBannerError(null);
+    try {
+      await gitOps.unstage(project, paths, null);
+      await loadLocal();
+    } catch (e) {
+      setBannerError(String(e));
+    }
+  };
+
+  const handleInspectBranch = (b: BranchEntry) => {
+    setCommitDiffFile(null);
+    setCommitDetail(null);
+    setActiveLog(null);
+    const nextPersp: TreePerspective = b.active
+      ? (status?.changes.length ? 'uncommitted' : 'branch')
+      : 'branch';
+    patchUi({
+      inspectedBranch: b.name,
+      inspectedRef: b.refName,
+      treePerspective: nextPersp,
+      selectedFile: null,
+      selectedCommit: null,
+    });
+  };
+
+  const handleSelectCommit = async (hash: string) => {
+    if (!project) return;
+    patchUi({ selectedCommit: hash, inspectorOpen: true });
+    setActiveLog(null);
+    try {
+      const d = await gitOps.detail(project, hash);
+      setCommitDetail(d);
+    } catch (e) {
+      setBannerError(String(e));
+    }
+  };
+
+  const inspectorPayload: InspectorPayload | null = useMemo(() => {
+    if (activeLog) return { kind: 'log', title: activeLog.title, log: activeLog.log };
+    if (commitDetail && ui.selectedCommit) {
+      return {
+        kind: 'commit',
+        detail: commitDetail,
+        onOpenFile: (path) => {
+          setCommitDiffFile({ commit: commitDetail.hash, path });
+          patchUi({ centerTab: 'diff', selectedFile: path });
+        },
+      };
+    }
+    if (ui.centerTab === 'diff' && selectedTreeFile) {
+      const fileFindings = allOpenFindings.filter((f) => f.path === selectedTreeFile.path);
+      return { kind: 'file', file: selectedTreeFile, findings: fileFindings };
+    }
+    if (ui.centerTab === 'pr' && prDetail) {
+      return { kind: 'pr', detail: prDetail };
+    }
+    return null;
+  }, [activeLog, commitDetail, ui.selectedCommit, ui.centerTab, selectedTreeFile, allOpenFindings, prDetail, patchUi]);
+
+  const showInspector = Boolean(ui.inspectorOpen && inspectorPayload);
+
+  if (!project) {
+    return (
+      <div className="tv ent-root">
+        <div className="tr-empty">
+          <Icon name="review" size={28} />
+          <h3>Centro de Entrega</h3>
+          <p>Selecciona un proyecto para inspeccionar ramas, cambios, commits, Pull Requests y comprobaciones CI.</p>
         </div>
       </div>
-    </Root>
-  );
-}
-
-function Pipeline({ stages, active, onPick }: { stages: [Stage, string, string, StState][]; active: Stage; onPick: (s: Stage) => void }) {
-  const ref = useRef<SVGSVGElement>(null);
-  const [w, setW] = useState(1000);
-  useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (ref.current) ro.observe(ref.current); return () => ro.disconnect(); }, []);
-  const n = stages.length, step = (w - 60) / (n - 1);
-  const col: Record<StState, string> = { done: '#6fe0b3', now: '#9db6ff', fail: '#ff6b5d', todo: 'rgba(220,226,236,.35)' };
-  // El tramo verde llega a la última etapa en curso antes de la primera pendiente.
-  const firstTodo = stages.findIndex((s) => s[3] === 'todo');
-  const reached = (firstTodo < 0 ? stages : stages.slice(0, firstTodo)).map((s) => s[3]).lastIndexOf('now');
-  const nowI = reached >= 0 ? reached : Math.max(0, stages.findIndex((s) => s[3] === 'now' || s[3] === 'fail'));
-  return (
-    <svg id="pipesvg" ref={ref} role="group" aria-label="Recorrido de la entrega">
-      <line x1="30" x2={w - 30} y1="30" y2="30" stroke="rgba(255,255,255,.08)" strokeWidth="2" strokeDasharray="1 5" strokeLinecap="round" />
-      <line x1="30" x2={30 + nowI * step} y1="30" y2="30" stroke="rgba(111,224,179,.5)" strokeWidth="2" />
-      {stages.map(([id, label, sub, st], i) => {
-        const x = 30 + i * step, c = col[st], on = active === id;
-        return (
-          <g key={id} className={`st${on ? ' on' : ''}`} transform={`translate(${x},30)`} tabIndex={0} role="button" aria-label={`${label}: ${sub}`} onClick={() => onPick(id)} onKeyDown={(e) => {
-            if (e.key !== 'Enter' && e.key !== ' ') return;
-            e.preventDefault();
-            onPick(id);
-          }}>
-            <rect x="-46" y="-16" width="92" height="66" rx="8" className="sthit" />
-            {st === 'now' && <circle r="10" fill="none" stroke={c} strokeOpacity=".4" className="svgbreath" />}
-            <circle r={on ? 6 : 4.5} fill={st === 'todo' ? '#0d0f12' : c} stroke={c} strokeWidth="1.5" />
-            {on && <circle r="11" fill="none" stroke="#fff" strokeOpacity=".55" />}
-            <text y="30" textAnchor="middle">{label}</text>
-            <text className="s" y="45" textAnchor="middle">{w < 760 && i % 2 ? '' : sub.length > 18 ? `${sub.slice(0, 17)}…` : sub}</text>
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function Treemap({ findings, changes, selected, onFile }: {
-  findings: HealthRun['findings']; changes: Change[]; selected?: string; onFile: (path: string) => void;
-}) {
-  const files = new Map(changes.map((change) => [change.path, {
-    findings: [] as HealthRun['findings'], lines: (change.adds ?? 0) + (change.dels ?? 0),
-  }]));
-  for (const finding of findings) {
-    if (!finding.path) continue;
-    const file = files.get(finding.path) ?? { findings: [], lines: 0 };
-    file.findings.push(finding);
-    files.set(finding.path, file);
+    );
   }
-  const entries = [...files].sort(([, a], [, b]) => b.findings.length - a.findings.length || b.lines - a.lines).slice(0, 4);
-  return (
-    <div className="tree audit-map" role="group" aria-label="Mapa de archivos" data-count={entries.length}>
-      {entries.map(([path, data]) => <button key={path} className="tmap" title={path}
-        aria-label={`Revisar ${path}`} aria-pressed={selected === path} onClick={() => onFile(path)}>
-        {path.split('/').pop()}
-        <span className="map-findings" aria-hidden="true">
-          {data.findings.slice(0, 6).map((finding) => <i key={finding.fingerprint}
-            className={`sev ${finding.severity === 'error' ? 'h' : finding.severity === 'warning' ? 'm' : 'l'}`} />)}
-        </span>
-      </button>)}
-    </div>
-  );
-}
 
-function Center({ stage, project, diff, chosen, sid, status, log, work, tasks, agentSessions, findings, finding, reviewers = [], onDiff, onFile, onConflicts, onChanged, onStage }: {
-  stage: Stage; project: string; diff: DiffTarget | null; chosen: Session | null; sid: number | null; status: GitStatus | null; log: LogRow[] | null; work: Work | null; tasks: Task[] | null; agentSessions: Session[];
-  findings?: ReviewNote[];
-  finding?: { fingerprint: string };
-  reviewers?: string[];
-  onDiff: (c: DiffTarget) => void; onFile: (path: string, session: number | null, root: string | null) => void; onConflicts: (f: string[]) => void; onChanged: () => void; onStage: (s: Stage) => void;
-}) {
-  const head = (icon: string, title: string, extra?: React.ReactNode, full?: string) => <div className="tabs"><span className="tab on" title={full}><Icon name={icon} size={13} />{title}</span><span className="grow" />{extra}</div>;
-  const base = (path: string) => path.split('/').pop() ?? path;
-  if ((stage === 'cambios' || stage === 'ci') && diff) return (
-    <>
-      {head('file', diff.orig ? `${diff.orig} → ${diff.path}` : base(diff.path), <>
-        {reviewers.length > 0 && <span className="chip"><Icon name="agent" size={11} /> revisado por {reviewers.length > 1 ? `${reviewers.slice(0, -1).join(', ')} y ${reviewers.at(-1)}` : reviewers[0]}</span>}
-        <button className="btn sm ghost" onClick={() => onFile(diff.path, diff.session ?? null, chosen?.worktree ?? null)}><Icon name="code" size={12} /> Abrir en el editor</button></>, diff.path)}
-      <div className="rev-diff"><ReviewDiff project={project} change={diff} findings={findings} finding={finding} /></div>
-    </>
-  );
-  if (stage === 'commit') return <>{head('commit', 'Commits por unidad funcional · Larry')}<div className="rev-tool legacy"><Larry key={`${project}:${sid}`} project={project} session={chosen} onDiff={onDiff} onDone={onChanged} /></div></>;
-  if (stage === 'pr') return <>{head('pr', 'Pull request')}<div className="rev-tool legacy"><Publish key={`${project}:${sid}`} project={project} session={sid} hidden={false} /></div></>;
-  if (stage === 'tests' || stage === 'ci') return <>{head('shield', stage === 'ci' ? 'CI y revisión' : 'Tests y revisión de código')}<div className="rev-tool legacy"><CodeHealth key={`${project}:${sid}`} project={project} session={chosen} closed={false} onFile={onFile} /></div></>;
-  if (stage === 'integracion' && chosen) return <>{head('merge', `Integrar ${chosen.name}`)}<div className="rev-tool legacy"><Pending key={chosen.id} session={chosen} closed={false} onDiff={onDiff} onChanged={onChanged} onConflicts={onConflicts} /></div></>;
-  if (stage === 'tarea' || stage === 'integracion') return <>{head('flow', 'Sesión de trabajo')}<div className="rev-tool"><div className="legacy"><WorkSession key={project} project={project} hidden={false} onReview={(ready) => { if (ready) onStage('pr'); }} /></div>
-    {stage === 'integracion' && <ClosedBranches project={project} onDiff={onDiff} onChanged={onChanged} onConflicts={onConflicts} />}
-    {tasks && tasks.length > 0 && <div className="rev-tasks"><span className="lab">Tareas abiertas</span>{tasks.filter((t) => t.status !== 'done' && t.status !== 'cancelled').slice(0, 12).map((t) => <div key={t.id} className="frow2"><span className="p">#{t.id} {t.title}</span><span className="n">{t.status}</span></div>)}</div>}</div></>;
-  if (stage === 'agentes') return <>{head('agent', 'Sesiones del proyecto')}<div className="rev-tool rev-list">
-    {agentSessions.length ? agentSessions.map((s) => <div key={s.id} className="frow2"><span className="p"><b>{s.name}</b> · {s.engine}{s.branch ? ` · ${s.branch}` : ''}</span><span className="n">{s.worktree ? (s.integrated ? 'integrada' : 'worktree propio') : 'checkout compartido'}</span></div>)
-      : <div className="empty sm">No hay sesiones abiertas.</div>}</div></>;
-  // rama, o sin cambios: historial y estado como protagonistas
+  const diffTarget = commitDiffFile
+    ? { path: commitDiffFile.path, orig: null, status: 'M', adds: null, dels: null }
+    : selectedTreeFile
+      ? {
+          path: selectedTreeFile.path,
+          orig: selectedTreeFile.orig,
+          status: selectedTreeFile.status,
+          adds: selectedTreeFile.adds,
+          dels: selectedTreeFile.dels,
+        }
+      : null;
+
+  const fileFindings = diffTarget ? allOpenFindings.filter((f) => f.path === diffTarget.path) : [];
+
   return (
-    <>
-      {head('branch', `Historial · ${chosen?.branch ?? status?.branch ?? ''}`, status && <span className="mut2" style={{ fontSize: 12 }}>{status.upstream ? `${status.ahead} por publicar · ${status.behind} por traer` : 'sin upstream'}</span>)}
-      <div className="rev-history scr">
-        {sid == null && <section className="legacy rev-git-controls" aria-label="Operaciones de rama">
-          <GitPanel key={project} project={project} selected={null} onDiff={onDiff} chooseBranch={false}
-            onBranchPickerOpened={noop} pending={0} onPending={noop} onPublish={() => onStage('pr')}
-            onChanged={onChanged} operationsOnly />
-        </section>}
-        {status && status.changes.length === 0 && (
-          <div className="rev-next">
-            <b>Árbol limpio.</b> <span className="mut2">{status.ahead ? `Hay ${status.ahead} commits locales por publicar.` : work ? `Sesión de trabajo: ${work.objective}.` : 'No hay nada pendiente de confirmar.'}</span>
-            <div className="row" style={{ marginTop: 8 }}>
-              {status.ahead > 0 && <button className="btn sm" onClick={() => onStage('pr')}><Icon name="pr" size={12} /> Preparar la PR</button>}
-              <button className="btn sm" onClick={() => onStage('tests')}><Icon name="shield" size={12} /> Ejecutar comprobaciones</button>
+    <div className="tv ent-root">
+      <DeliveryHeader
+        projectName={projectName ?? project.split('/').pop() ?? 'Proyecto'}
+        activeBranch={inventory?.activeBranch ?? status?.branch ?? null}
+        inspected={inspected}
+        stages={stages}
+        activeTab={ui.centerTab}
+        busyAction={busyAction}
+        inspectorOpen={showInspector}
+        hasInspectorData={inspectorPayload !== null}
+        onSelectStage={(tab) => patchUi({ centerTab: tab })}
+        onFetch={doFetch}
+        onPull={doPull}
+        onPush={startPush}
+        onCheckout={doCheckout}
+        onToggleInspector={() => patchUi({ inspectorOpen: !ui.inspectorOpen })}
+      />
+
+      {pushReview && (
+        <div className="ent-push-bar">
+          <Icon name="push" size={14} />
+          <span><strong>Confirmar publicación:</strong> {pushReview.review.message}</span>
+          <input
+            className="in mono"
+            style={{ maxWidth: 150 }}
+            value={pushCode}
+            onChange={(e) => setPushCode(e.target.value)}
+            placeholder={`Escribe ${pushReview.review.code}`}
+          />
+          <button className="btn sm pearl" disabled={busyAction !== null || !pushCode.trim()} onClick={confirmPush}>
+            Publicar
+          </button>
+          <button
+            className="btn sm ghost"
+            onClick={() => {
+              void cancelReview(pushReview.review.id);
+              setPushReview(null);
+            }}
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {(bannerError || bannerNotice || (repoPulls?.error && ui.centerTab === 'pr')) && (
+        <div className="ent-banners">
+          {bannerError && (
+            <div className="tr-error" role="alert">
+              <Icon name="warn" size={14} />
+              <span className="grow">{bannerError}</span>
+              <button className="tbtn" onClick={() => setBannerError(null)} aria-label="Cerrar error"><Icon name="close" size={12} /></button>
             </div>
+          )}
+          {bannerNotice && (
+            <div className="ent-notice">
+              <Icon name="check" size={14} />
+              <span className="grow">{bannerNotice}</span>
+              <button className="tbtn" onClick={() => setBannerNotice(null)} aria-label="Cerrar aviso"><Icon name="close" size={12} /></button>
+            </div>
+          )}
+          {repoPulls?.error && ui.centerTab === 'pr' && (
+            <div className="ent-warn-banner">
+              <Icon name="warn" size={14} />
+              <span>GitHub: {repoPulls.error}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className={`ent-body${showInspector ? ' has-insp' : ''}`}>
+        {/* Explorador permanente izquierdo: Ramas + Árbol de cambios */}
+        <aside className="ent-left" aria-label="Explorador de ramas y cambios">
+          <BranchExplorer
+            branches={inventory?.branches ?? []}
+            inspectedBranch={inspected?.name ?? null}
+            prByBranch={prByBranch}
+            search={ui.branchSearch}
+            showMerged={ui.showMergedBranches}
+            onSearch={(branchSearch) => patchUi({ branchSearch })}
+            onToggleMerged={() => patchUi({ showMergedBranches: !ui.showMergedBranches })}
+            onInspect={handleInspectBranch}
+            onCheckout={doCheckout}
+          />
+          <ChangeTree
+            perspective={ui.treePerspective}
+            items={treeData.items}
+            localExtraItems={treeData.localExtra}
+            selectedFile={selectedTreeFile?.path ?? null}
+            collapsedDirs={ui.collapsedDirs}
+            canStage={Boolean(inspected?.active)}
+            prNumber={inspectedPr?.number ?? null}
+            baseLabel={inspectedPr?.base ?? inventory?.defaultBranch ?? 'base'}
+            onPerspective={(treePerspective) => {
+              setCommitDiffFile(null);
+              patchUi({ treePerspective, selectedFile: null });
+            }}
+            onSelectFile={(item) => {
+              setCommitDiffFile(null);
+              setActiveLog(null);
+              patchUi({ selectedFile: item.path, centerTab: 'diff' });
+            }}
+            onToggleDir={(dirPath) =>
+              patchUi({ collapsedDirs: { ...ui.collapsedDirs, [dirPath]: !ui.collapsedDirs[dirPath] } })
+            }
+            onStage={doStage}
+            onUnstage={doUnstage}
+            onOpenEditor={(path) => onFile(path, null, project)}
+          />
+        </aside>
+
+        {/* Área central única con navegación contextual compacta */}
+        <main className="ent-center">
+          <div className="ent-tabs-bar">
+            <div className="tr-seg" role="tablist" aria-label="Superficies de Entrega">
+              <button role="tab" aria-selected={ui.centerTab === 'diff'} onClick={() => patchUi({ centerTab: 'diff' })}>
+                <Icon name="diff" size={12} /> Diff
+              </button>
+              <button role="tab" aria-selected={ui.centerTab === 'commits'} onClick={() => patchUi({ centerTab: 'commits' })}>
+                <Icon name="commit" size={12} /> Commits y Larry
+              </button>
+              <button role="tab" aria-selected={ui.centerTab === 'pr'} onClick={() => patchUi({ centerTab: 'pr' })}>
+                <Icon name="pr" size={12} /> PR{inspectedPr ? ` #${inspectedPr.number}` : ''}
+              </button>
+              <button role="tab" aria-selected={ui.centerTab === 'checks'} onClick={() => patchUi({ centerTab: 'checks' })}>
+                <Icon name="health" size={12} /> Tests y CI
+                {inspectedPr && inspectedPr.checksFailed > 0 && <span className="ent-badge-err">{inspectedPr.checksFailed}</span>}
+              </button>
+              <button role="tab" aria-selected={ui.centerTab === 'audits'} onClick={() => patchUi({ centerTab: 'audits' })}>
+                <Icon name="shield" size={12} /> Auditoría
+                {allOpenFindings.length > 0 && <span className="ent-badge-warn">{allOpenFindings.length}</span>}
+              </button>
+              <button role="tab" aria-selected={ui.centerTab === 'automation'} onClick={() => patchUi({ centerTab: 'automation' })}>
+                <Icon name="spark" size={12} /> Auto
+              </button>
+            </div>
+
+            {ui.centerTab === 'diff' && diffTarget && (
+              <div className="ent-diff-bar-right">
+                {commitDiffFile ? (
+                  <button className="btn sm" onClick={() => setCommitDiffFile(null)}>
+                    Volver a {ui.treePerspective === 'uncommitted' ? 'sin commit' : ui.treePerspective}
+                  </button>
+                ) : ui.treePerspective === 'uncommitted' ? (
+                  <div className="tr-seg">
+                    <button aria-pressed={diffSubMode === 'worktree'} onClick={() => setDiffSubMode('worktree')}>Todo</button>
+                    <button aria-pressed={diffSubMode === 'unstaged'} onClick={() => setDiffSubMode('unstaged')}>Sin preparar</button>
+                    <button aria-pressed={diffSubMode === 'staged'} onClick={() => setDiffSubMode('staged')}>Preparado</button>
+                  </div>
+                ) : null}
+                {inspected?.active && (
+                  <button className="btn sm" onClick={() => onFile(diffTarget.path, null, project)}>
+                    <Icon name="code" size={12} /> Abrir en editor
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-        )}
-        {sid != null ? <div className="empty sm">El historial se muestra en el checkout del proyecto.</div> : log === null ? <div className="tr-skel" style={{ height: 120 }} /> : log.length === 0 ? <div className="empty sm">Sin commits.</div> : (
-          <ol className="rev-log">
-            {log.slice(0, 80).map((r) => (
-              <li key={r.hash}>
-                <span className="dot2" />
-                <span className="subj">{r.subject}{r.refs && r.refs.split(', ').filter(Boolean).slice(0, 3).map((ref) => <span key={ref} className={`chip tiny${ref.includes('HEAD') ? ' sky' : ref.startsWith('origin') ? '' : ' mint'}`}>{ref.replace('HEAD -> ', '')}</span>)}</span>
-                <span className="mut2">{r.author}</span>
-                <span className="mono mut2">{r.hash.slice(0, 7)}</span>
-                <span className="mono mut2">{ago(new Date(r.date).getTime())}</span>
-              </li>
-            ))}
-          </ol>
+
+          {ui.centerTab === 'diff' && (
+            <div className="ent-diff-host">
+              {diffTarget ? (
+                <>
+                  <div className="ent-diff-meta">
+                    <span className="mono">{diffTarget.path}</span>
+                    {commitDiffFile && <span className="chip tiny mono">Commit {commitDiffFile.commit.slice(0, 7)}</span>}
+                    {!commitDiffFile && ui.treePerspective === 'branch' && compare && (
+                      <span className="chip tiny mono">
+                        {compare.mergeBase?.slice(0, 7) ?? compare.baseRef}..{inspected?.shortOid}
+                      </span>
+                    )}
+                    {!commitDiffFile && ui.treePerspective === 'pr' && inspectedPr && (
+                      <span className="chip sky tiny">PR #{inspectedPr.number}</span>
+                    )}
+                    {fileFindings.length > 0 && (
+                      <span className="chip amber tiny">{fileFindings.length} hallazgos</span>
+                    )}
+                  </div>
+                  <ReviewDiff
+                    project={project}
+                    change={diffTarget}
+                    diffSpec={diffSpec}
+                    findings={fileFindings}
+                    finding={focusFinding}
+                  />
+                </>
+              ) : (
+                <div className="tr-empty">
+                  <Icon name="diff" size={24} />
+                  <h3>Sin archivo seleccionado</h3>
+                  <p>
+                    Elige un archivo en el árbol izquierdo o cambia la perspectiva a <strong>vs base</strong> para inspeccionar todos los cambios de la rama.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {ui.centerTab === 'commits' && (
+            <CommitsView
+              project={project}
+              inspected={inspected}
+              status={status}
+              commits={branchLog}
+              selectedCommit={ui.selectedCommit}
+              onSelectCommit={handleSelectCommit}
+              onStage={doStage}
+              onUnstage={doUnstage}
+              onRefresh={() => {
+                void loadLocal();
+                void loadPulls();
+              }}
+            />
+          )}
+
+          {ui.centerTab === 'pr' && (
+            <PullRequestView
+              project={project}
+              inspected={inspected}
+              defaultBranch={inventory?.defaultBranch ?? 'main'}
+              branches={inventory?.branches ?? []}
+              prSummary={inspectedPr}
+              prDetail={prDetail}
+              loading={prLoading}
+              onRefresh={() => {
+                void loadLocal();
+                void loadPulls();
+                if (inspectedPr) void loadPrDetail(inspectedPr.number);
+              }}
+              onInspectPrFiles={() => patchUi({ treePerspective: 'pr', centerTab: 'diff', selectedFile: null })}
+              onGoChecks={() => patchUi({ centerTab: 'checks' })}
+            />
+          )}
+
+          {ui.centerTab === 'checks' && (
+            <ChecksView
+              project={project}
+              headSha={inspected?.headOid ?? status?.headSha ?? null}
+              dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
+              isActiveBranch={Boolean(inspected?.active)}
+              prDetail={prDetail}
+              healthRuns={healthRuns}
+              onRefresh={() => {
+                void loadLocal();
+                if (inspectedPr) void loadPrDetail(inspectedPr.number);
+              }}
+              onInspectLog={(title, log) => {
+                setActiveLog({ title, log });
+                patchUi({ inspectorOpen: true });
+              }}
+            />
+          )}
+
+          {ui.centerTab === 'audits' && (
+            <AuditsView
+              project={project}
+              headSha={inspected?.headOid ?? status?.headSha ?? null}
+              dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
+              runs={healthRuns}
+              onOpenFinding={(note) => {
+                setFocusFinding(note);
+                setCommitDiffFile(null);
+                patchUi({
+                  centerTab: 'diff',
+                  selectedFile: note.path ?? ui.selectedFile,
+                  inspectorOpen: true,
+                });
+              }}
+              onRefresh={() => void loadLocal()}
+            />
+          )}
+
+          {ui.centerTab === 'automation' && (
+            <AutomationView
+              project={project}
+              status={autoStatus}
+              onRefresh={() => void loadLocal()}
+            />
+          )}
+        </main>
+
+        {/* Inspector contextual condicional: solo existe cuando aporta contexto real */}
+        {showInspector && inspectorPayload && (
+          <ContextInspector
+            payload={inspectorPayload}
+            onClose={() => {
+              setActiveLog(null);
+              patchUi({ inspectorOpen: false });
+            }}
+          />
         )}
       </div>
-    </>
-  );
-}
-
-/** Ramas de sesiones ya cerradas que siguen sin integrar (antes en Trabajo › Ramas). */
-function ClosedBranches({ project, onDiff, onChanged, onConflicts }: {
-  project: string; onDiff: (c: DiffTarget) => void; onChanged: () => void; onConflicts: (f: string[]) => void;
-}) {
-  const [list, setList] = useState<Session[] | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => sessionApi.orphans(project).then((l) => { setList(l); setError(null); }, (e) => setError(String(e))), [project]);
-  useEffect(() => { void load(); }, [load]);
-  const chosen = list?.find((s) => s.id === open) ?? null;
-  return (
-    <div className="rev-tasks rev-orphans">
-      <span className="lab">Ramas de sesiones cerradas</span>
-      {error && <div className="flow-err" role="alert">{error}</div>}
-      {list == null && !error && <span className="mut2">Consultando ramas…</span>}
-      {list?.length === 0 && <span className="mut2">No hay ramas de sesiones cerradas pendientes de integrar.</span>}
-      {list?.map((s) => <button key={s.id} className={`frow2 rowbtn${open === s.id ? ' on' : ''}`} onClick={() => setOpen(open === s.id ? null : s.id)}>
-        <span className="p mono">{s.branch} → {s.base}</span><span className="n">{s.name}</span>
-      </button>)}
-      {chosen && <div className="legacy"><Pending key={chosen.id} session={chosen} closed onDiff={onDiff} onConflicts={onConflicts}
-        onChanged={() => { onChanged(); void load(); setOpen(null); }} /></div>}
     </div>
   );
 }

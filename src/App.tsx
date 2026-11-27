@@ -1,3 +1,4 @@
+import { useAppUpdates } from './appUpdates';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api, chats, git, sessions, tools as toolsApi, type ChatEngine, type DiffTarget, type CliUpdate, type RecentSession, type Session, type Tool, type Workspace } from './ipc';
@@ -105,6 +106,7 @@ function followFocus() {
 }
 
 export default function App() {
+  useAppUpdates();
   useQuotaEvents();
   const [ws, setWs] = useState<Workspace | null>(null);
   const [startupConfirmed, setStartupConfirmed] = useState(false);
@@ -1149,7 +1151,7 @@ export default function App() {
       case 'entrega':
         return (
           <Boundary name="Entrega">
-            <Entrega key={`${project ?? 'none'}:${entregaStage ?? ''}:${entregaScope ?? ''}`} initialScope={entregaScope} initialStage={entregaStage} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
+            <Entrega key={project ?? 'none'} initialScope={entregaScope} initialStage={entregaStage} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
               onConflicts={(files) => showConflicts(files)} onBranchesChanged={countPending}
               onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); openEditor(); }} />
           </Boundary>

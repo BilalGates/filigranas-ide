@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -165,7 +165,7 @@ pub(crate) fn notify_subsession(app: &AppHandle, id: i64) {
     let state = app.state::<AppState>();
     let project = state.db.lock().ok()
         .and_then(|conn| db::session(&conn, id).ok().flatten())
-        .filter(|s| s.parent_session.is_some())
+        .filter(|s| s.parent_session.is_some() || s.delegated_by_pm)
         .map(|s| s.project);
     if let Some(project) = project {
         let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
@@ -308,21 +308,27 @@ impl Claude {
         procs.remove(&session.id); // termina el anterior (Drop)
 
         let rules = crate::skills::RULES;
-        let is_subsession = session.parent_session.is_some();
-        let can_delegate = !is_subsession;
+        let is_subsession = session.parent_session.is_some() || session.delegated_by_pm;
+        let can_delegate = is_pm || !is_subsession;
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
-            let role = policy.split("## Cómo delegas").next().unwrap_or(policy);
             format!(
-                "{role}Coordina el trabajo y comprueba los resultados. Cuando necesites delegar o paralelizar trabajo, crea subsesiones visibles de Filigranas usando las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`); nunca uses subagentes internos de Claude Code. Las subsesiones aparecen en el panel «Conversaciones» bajo esta sesión, comparten la carpeta y la rama actuales y pueden durar lo que necesiten: recoge sus resultados con `esperar_sesion` (repite la espera si siguen en marcha). Deja los commits, la publicación y la integración a las acciones del IDE y del usuario.\n\n{rules}"
+                "{policy}\n\nUsa exclusivamente las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) para delegar y supervisar subsesiones visibles; nunca uses subagentes internos de Claude Code ni herramientas directas de archivo o terminal.\n\n{rules}"
             )
         } else {
             system_prompt(&session.name, rules, is_subsession)
         };
-        let mut cmd = Command::new(crate::cli::program("claude"));
+        let mut cmd = crate::cli::command(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
             .args(["--permission-prompt-tool", "stdio"])
-            .args(["--disallowedTools", "Agent,Task"])
+            .args([
+                "--disallowedTools",
+                if is_pm {
+                    "Bash,Edit,Write,MultiEdit,NotebookEdit,Read,Glob,Grep,LS,WebFetch,WebSearch,Agent,Task,TodoWrite"
+                } else {
+                    "Agent,Task"
+                },
+            ])
             .args(["--append-system-prompt", &prompt]);
         if can_delegate {
             cmd.args(["--mcp-config", r#"{"mcpServers":{"filigranas":{"type":"sdk","name":"filigranas"}}}"#]);
@@ -342,11 +348,6 @@ impl Claude {
         cmd.current_dir(session.cwd()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(path) = login_path() {
             cmd.env("PATH", path);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
         let mut child = cmd.spawn().map_err(|e| format!("no se pudo arrancar claude ({e}); comprueba que Claude Code está instalado"))?;
         let stdout = child.stdout.take().ok_or("sin salida de claude")?;
@@ -413,6 +414,16 @@ impl Claude {
                         let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
                             "request_id": request_id, "response": permission(&msg["request"], "accept") } }));
                         runs::on_active(&handle, id, |conn, run| runs::phase(conn, run, "running"));
+                        continue;
+                    }
+                    // Garantía arquitectónica: el Project Manager NUNCA ejecuta
+                    // herramientas directas (archivo, terminal, búsqueda, web).
+                    if is_pm {
+                        let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
+                            "request_id": request_id, "response": {
+                                "behavior": "deny",
+                                "message": format!("El Project Manager no puede ejecutar herramientas directas ({tool_name}). Delega el trabajo técnico a un agente ejecutor usando mcp__filigranas__delegar.")
+                            } } }));
                         continue;
                     }
                     if matches!(tool_name, "Agent" | "Task") {
@@ -557,6 +568,80 @@ pub async fn session_create_subsession(
     })
     .await
     .map_err(err)?
+}
+
+/// Crea una subsesión delegada por el Project Manager (Codex o Claude) sin exigir
+/// una sesión de trabajo previa. Si `parent_id` es `Some`, hereda worktree/rama/permisos
+/// de la sesión padre; si es `None` (Codex PM), hereda los permisos del proyecto.
+pub fn create_pm_subsession(
+    app: &AppHandle,
+    project: &str,
+    parent_id: Option<i64>,
+    engine: &str,
+    title: Option<&str>,
+    skill_role: Option<crate::skills::Role>,
+    task_id: Option<i64>,
+) -> CmdResult<db::Session> {
+    let state = app.state::<AppState>();
+    let parent = parent_id.map(|pid| open_session(&state, pid)).transpose()?;
+    if parent.as_ref().is_some_and(|p| p.parent_session.is_some() || p.delegated_by_pm) {
+        return Err("una subsesión no puede crear otras subsesiones".into());
+    }
+    let provider = match engine {
+        "claude" => uuid::Uuid::new_v4().to_string(),
+        "codex" => String::new(),
+        e if crate::acp::ENGINES.contains(&e) => String::new(),
+        _ => return Err(format!("motor desconocido: {engine}")),
+    };
+    let names = numbered();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let title = title.map(str::trim).filter(|t| !t.is_empty());
+    let current_branch = crate::git::head_at(Path::new(project)).ok().filter(|b| !b.starts_with("HEAD ·"));
+    let session = {
+        let mut conn = state.db.lock().map_err(err)?;
+        let tx = conn.transaction().map_err(err)?;
+        let s = db::create_session(&tx, project, engine, &provider, &names).map_err(err)?;
+        db::set_session_delegated_by_pm(&tx, s.id, parent.as_ref().map(|p| p.id), title).map_err(err)?;
+        if let Some(role) = skill_role {
+            crate::skills::assign_session(&tx, s.id, role)?;
+        }
+        if let Some(tid) = task_id {
+            let _ = tasks::link(&tx, project, tid, s.id);
+        }
+        if let Some(p) = &parent {
+            if let (Some(wt), Some(br)) = (&p.worktree, &p.branch) {
+                db::set_session_worktree(
+                    &tx,
+                    s.id,
+                    wt,
+                    br,
+                    p.base.as_deref().unwrap_or("main"),
+                    p.base_commit.as_deref().unwrap_or(""),
+                )
+                .map_err(err)?;
+            } else if let Some(br) = &p.branch {
+                tx.execute(
+                    "UPDATE sessions SET branch = ?2, base = ?3, base_commit = ?4 WHERE id = ?1",
+                    rusqlite::params![s.id, br, p.base, p.base_commit],
+                )
+                .map_err(err)?;
+            }
+        } else if let Some(br) = &current_branch {
+            tx.execute("UPDATE sessions SET branch = ?2 WHERE id = ?1", rusqlite::params![s.id, br])
+                .map_err(err)?;
+        }
+        let saved = db::session(&tx, s.id).map_err(err)?.ok_or("la subsesión no se guardó")?;
+        tx.commit().map_err(err)?;
+        saved
+    };
+    if let Some(p) = &parent {
+        state.permissions.inherit(p.id, session.id);
+    } else {
+        state.permissions.inherit_project(project, session.id);
+    }
+    let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
+    tasks::changed(app);
+    Ok(session)
 }
 
 /// Crea una subsesión visible en «Conversaciones» bajo la sesión padre.
@@ -1029,7 +1114,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let uuid = uuid::Uuid::new_v4().to_string();
         let run = |resume: bool, text: &str, decision: &str| -> Vec<Value> {
-            let mut cmd = Command::new("claude");
+            let mut cmd = crate::cli::command("claude");
             cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio", "--effort", "low"])
                 .args([if resume { "--resume" } else { "--session-id" }, &uuid])
                 .current_dir(&dir)

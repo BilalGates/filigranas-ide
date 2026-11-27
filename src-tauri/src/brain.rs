@@ -154,7 +154,7 @@ fn validate(conn: &Connection, project: &str, draft: &Draft) -> CmdResult<()> {
     }
     if let Some(run) = draft.source_run {
         let matches: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM task_runs WHERE id=?1 AND project=?2 AND (?3 IS NULL OR task=?3) AND ended_ms IS NOT NULL)",
+            "SELECT EXISTS(SELECT 1 FROM task_runs WHERE id=?1 AND project=?2 AND (?3 IS NULL OR task_id=?3) AND ended_ms IS NOT NULL)",
             params![run,project,draft.task], |r| r.get(0),
         ).map_err(err)?;
         if !matches || draft.source_task.is_some() {

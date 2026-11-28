@@ -22,6 +22,20 @@ const ENGINES: [(&str, &str); 3] = [
 const WAIT_DEFAULT: u64 = 300;
 const WAIT_MAX: u64 = 900;
 
+/// A queued executor has no tracker turn yet. Wait for durable work as well.
+fn unfinished(conn: &rusqlite::Connection, id: i64, running: bool) -> CmdResult<bool> {
+    Ok(running || crate::runs::session_active(conn,id).map_err(err)?)
+}
+
+fn wait_session(state: &AppState, id: i64, timeout: Duration) -> CmdResult<bool> {
+    let deadline=std::time::Instant::now()+timeout;
+    loop {
+        let active=unfinished(&*state.db.lock().map_err(err)?,id,state.tracker.get(id).running)?;
+        if !active || std::time::Instant::now()>=deadline { return Ok(active); }
+        std::thread::sleep(Duration::from_millis(100).min(deadline.saturating_duration_since(std::time::Instant::now())));
+    }
+}
+
 const FLOW_TOOLS: &[&str]=&["flow_plan_create","flow_plans","flow_plan","flow_task_create","flow_tasks","flow_task","flow_task_edit","flow_assign","flow_continue","flow_reassign","flow_review","flow_block","flow_cancel","flow_retry","flow_delivery"];
 
 pub fn specs() -> Value {
@@ -289,9 +303,9 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             include_closed_by_id(&state,&project,name,&mut list)?;
             let s = find_project_session(&list, name).ok_or_else(|| format!("no hay ninguna sesión abierta llamada «{name}»"))?;
             let secs = args["segundos"].as_u64().unwrap_or(WAIT_DEFAULT).clamp(5, WAIT_MAX);
-            let t = state.tracker.wait_idle(s.id, Duration::from_secs(secs));
+            let active = wait_session(&state,s.id,Duration::from_secs(secs))?;
             let mut out = describe(&state, s, 8000);
-            if t.running {
+            if active {
                 out.push_str(&format!("\n(Sigue en marcha tras {secs} s de espera. Vuelve a llamar a esperar_sesion para esperar su resultado.)"));
             }
             Ok(out)
@@ -393,9 +407,9 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
             let s = find_child(&list, parent_id, name)
                 .ok_or_else(|| format!("no hay ninguna subsesión abierta llamada «{name}»"))?;
             let secs = args["segundos"].as_u64().unwrap_or(WAIT_DEFAULT).clamp(5, WAIT_MAX);
-            let t = state.tracker.wait_idle(s.id, Duration::from_secs(secs));
+            let active = wait_session(&state,s.id,Duration::from_secs(secs))?;
             let mut out = describe(&state, s, 8000);
-            if t.running {
+            if active {
                 out.push_str(&format!("\n(La subsesión sigue trabajando tras {secs} s y no se ha cerrado. Vuelve a llamar a esperar_sesion para esperar su resultado.)"));
             }
             Ok(out)
@@ -426,6 +440,19 @@ mod tests {
             assert!(claude.as_array().unwrap().iter().any(|t|t["name"]==*name));
         }
         assert_eq!(codex.as_array().unwrap().len(),claude.as_array().unwrap().len());
+    }
+
+    #[test]
+    fn waiting_does_not_report_a_queued_executor_as_finished() {
+        let conn=db::open(std::path::Path::new(":memory:")).unwrap();
+        let session=db::create_session(&conn,"/a","codex","",&["one"]).unwrap();
+        let run=crate::runs::prepare(&conn,"/a",&crate::runs::session_scope(session.id),"codex",Some(session.id),None,"queued prompt",false).unwrap();
+        conn.execute("UPDATE task_runs SET outcome='queued' WHERE id=?1",[run]).unwrap();
+        assert!(unfinished(&conn,session.id,false).unwrap());
+        conn.execute("UPDATE task_runs SET outcome='preparing' WHERE id=?1",[run]).unwrap();
+        assert!(unfinished(&conn,session.id,false).unwrap());
+        crate::runs::fail_start(&conn,run,"model unavailable").unwrap();
+        assert!(!unfinished(&conn,session.id,false).unwrap());
     }
 
     #[test]

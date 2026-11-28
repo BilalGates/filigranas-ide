@@ -5,11 +5,12 @@ Reparación previa a la rama de capacidades (`feat/capacidades-agentes`, PR #44)
 ## Alcance
 
 1. **Motor único de permisos** (`autoapprove::evaluate`), usado por Claude Code (`can_use_tool`), Codex (app-server) y ACP, con cuatro modos:
-   - **Solo lectura**: lecturas y una lista corta de comandos de consulta. Claude arranca además sin `Bash`, `Edit` ni `Write`.
+   - **Solo lectura**: lecturas y consultas simples sin Git (Git ejecuta su configuración local, p. ej. `core.fsmonitor`). Claude arranca además sin `Bash`, `Edit` ni `Write` y sin servidores MCP personales.
    - **Con autorización** (por defecto): toda petición llega al usuario con su origen y motivo.
-   - **Automático**: lecturas, ediciones y `test/build/lint/check` dentro del proyecto; el resto pregunta.
-   - **Control total**: aprueba dentro del alcance autorizado. Las rutas fuera del proyecto, las operaciones protegidas (`git push/merge/rebase/reset --hard/clean -f/branch -D/config`, `gh pr merge/close`, borrados, intérpretes y `sudo`) y las ediciones sin rutas declaradas siguen preguntando.
-   - En todos los modos: los comandos catastróficos (`rm -rf /`, `mkfs`, `dd` a un disco…) se deniegan.
+   - **Automático**: lecturas, ediciones dentro del proyecto y `test/build/lint/check`. Editar `.git/`, `.claude/`, `.codex/`, `.mcp.json`, manifiestos, scripts de build, `.env`, `.github/` o `.vscode/` pregunta, porque cambia lo que harán órdenes ya aprobadas.
+   - **Control total**: una **lista positiva**. Aprueba ediciones dentro del proyecto (salvo `.git/`, `.claude/`, `.codex/` y `.mcp.json`) y órdenes simples de una lista cerrada: consultas, consultas de Git, `git add`, `mkdir/touch/cp/mv`, instalar, compilar, probar y formatear, y lecturas de `gh`. Cualquier orden con metacaracteres de shell (saltos de línea, `;`, `&`, `|`, redirecciones, `$`, comillas, subshells o escapes), con rutas fuera del proyecto o fuera de la lista pregunta. Por eso publicar, integrar, borrar, cambiar de rama o de configuración, la red y los intérpretes nunca se aprueban solos.
+   - En todos los modos: los comandos catastróficos (`rm -rf /`, `~` o `$HOME`, también dentro de `sh -c`; `mkfs`; `dd` a un disco…) se deniegan.
+   - Bajar el modo de una sesión baja también el de sus subsesiones ya creadas.
 2. **Los proveedores no se saltan la política**: Claude arranca en `--permission-mode default` con `ask` explícito para las herramientas de escritura. Codex trabaja con sandbox `read-only` y `approvalPolicy: untrusted` también en Control total, para que cada escritura pase por Filigranas. «Aceptar para la sesión» se reduce a «aceptar una vez» en los tres proveedores.
 3. **Herencia y cambios de modo**: una subsesión hereda el modo de su padre en el momento de crearla. Bajar a Solo lectura reinicia el proceso de Claude para quitarle las herramientas de escritura.
 4. **PM**: en Claude, sin herramientas (`--tools ""`) ni MCP ajenos. En Codex, sin shell, multiagente, apps, navegador ni búsqueda web.
@@ -31,7 +32,7 @@ Cada punto se comprueba con la prueba indicada. No se considera hecho lo que no 
 | 7 | La credencial de Jev se guarda, se sustituye y se borra sin tocar la personal, y no aparece en ningún objeto Git | `real_keychain_roundtrip` y `real_typesafe_personal_api` (ignoradas, con credencial real) |
 | 8 | El fixture nativo no existe en compilaciones normales ni de release | `#[cfg(all(debug_assertions, feature = "p0-acceptance"))]`, el identificador `.dev.p0` y el marcador `p0-acceptance.started` (una sola ejecución) |
 | 9 | Sin regresiones | `cargo test --lib`, `cargo clippy --lib --tests`, `pnpm build` y `pnpm test` |
-| 10 | Revisión adversarial con veredicto APTO, o hallazgos corregidos | informe de la revisión en la PR |
+| 10 | Revisión adversarial con veredicto APTO, o hallazgos corregidos | informe de la revisión en la PR; cada bypass demostrado tiene su prueba en `autoapprove::tests` |
 
 ## Aceptación nativa
 
@@ -44,7 +45,10 @@ pnpm tauri dev --config src-tauri/tauri.dev.conf.json \
 
 Al terminar escribe `filigranas-p0-native-evidence.json` en el directorio temporal del sistema y una línea `P0_NATIVE_ACCEPTANCE complete=…`. Para repetirla hay que borrar `p0-acceptance.started` de los datos de esa instancia. `FILIGRANAS_P0_PROVIDERS=claude` limita los proveedores.
 
-## Fuera de alcance
+## Fuera de alcance y limitaciones conocidas
+
+- ACP (Antigravity y los motores retirados): Filigranas solo controla las peticiones que el agente decide enviar. Si un agente ACP no pide permiso, Solo lectura no puede impedirlo técnicamente.
+- Las órdenes que Control total ya no aprueba solas (compuestas o fuera de la lista) piden confirmación: es una pérdida de fluidez deliberada frente a una lista negra que se podía esquivar.
 
 - Antigravity: no tiene estado de sesión oficial, así que no es candidato automático de Jev y no forma parte de la aceptación nativa.
 - Retirar OpenCode y Devin de `delegar` (lo hace la rama de capacidades).

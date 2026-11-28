@@ -9,6 +9,7 @@ import { beep, shortcut, useReportActivity } from './ui';
 import { pmActivityKey } from './trama/workspaceContext';
 import Coordinator from './Coordinator';
 import ChipMenu from './ChipMenu';
+import { CapabilityChips, CapabilityMenu } from './trama/CapabilityChips';
 import ModelConfigMenu, { type ProviderSwitch, type ReasoningGroup } from './ModelConfigMenu';
 import { contextRemaining, LOW_REMAINING, percentLabel, reportQuotaLimit } from './usageStore';
 import { PermissionChip, SessionContext, usePermissionMode } from './trama/SessionBar';
@@ -760,12 +761,16 @@ export default function Session({ session, project, hidden, switching, providerS
                 title={shortcut(isClaude ? 'Proveedor, modelo y razonamiento · ⌘M · ⌘⇧E' : 'Modelo y razonamiento · ⌘M')}
               />
             }
-            topExtra={manager?.task && (
-              <button className="co-top-chip" onClick={manager.clearTask} title="Desvincular los próximos mensajes" disabled={running}>
-                <span>#{manager.task.id} {manager.task.title}</span>
-                <span className="co-top-x" aria-hidden="true">×</span>
-              </button>
-            )}
+            topExtra={<>
+              {manager?.task && (
+                <button className="co-top-chip" onClick={manager.clearTask} title="Desvincular los próximos mensajes" disabled={running}>
+                  <span>#{manager.task.id} {manager.task.title}</span>
+                  <span className="co-top-x" aria-hidden="true">×</span>
+                </button>
+              )}
+              <CapabilityChips session={session.id} />
+            </>}
+            attachExtra={(close) => <CapabilityMenu session={session.id} engine={session.engine} onClose={close} />}
             onSend={send}
             onInterrupt={() => sessions.interrupt(session.id).catch((e) => setError(String(e)))}
             placeholder="/filigranas"

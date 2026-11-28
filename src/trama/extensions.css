@@ -1,0 +1,61 @@
+/* Extensiones y capacidades (Trama v2): listas sobrias, chips y paneles discretos. */
+.tr-root .ext { display: grid; gap: 12px; max-width: 900px; }
+.tr-root .ext-tabs { justify-self: start; }
+.tr-root .ext-status { margin: 0; }
+.tr-root .ext-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tr-root .ext-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.tr-root .ext-item { border-bottom: 1px solid var(--line); }
+.tr-root .ext-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 2px; text-align: left; color: var(--tx); }
+.tr-root .ext-head:hover { background: rgba(255, 255, 255, .025); }
+.tr-root .ext-head .grow { flex: 1; }
+.tr-root .ext-item.is-open .ext-head svg:last-child { transform: rotate(90deg); }
+.tr-root .ext-name { font-weight: 500; }
+.tr-root .ext-ver { font-size: 11px; color: var(--tx3); }
+.tr-root .ext-detail { padding: 2px 2px 14px; display: grid; gap: 10px; color: var(--tx2); }
+.tr-root .ext-detail p { margin: 0; }
+.tr-root .ext-facts { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 12.5px; }
+.tr-root .ext-facts dt { color: var(--tx3); }
+.tr-root .ext-facts dd { margin: 0; display: flex; flex-wrap: wrap; gap: 5px; overflow-wrap: anywhere; }
+.tr-root .ext-facts dd.mono { font: 11.5px/1.5 var(--mono); }
+.tr-root .ext-perms { border: 0; margin: 0; padding: 10px 12px; border-radius: var(--r2); box-shadow: inset 0 0 0 1px var(--line); display: grid; gap: 6px; }
+.tr-root .ext-perms legend { padding: 0 4px; color: var(--tx); font-size: 12.5px; }
+.tr-root .ext-perms .btn { justify-self: start; }
+.tr-root .ext-actions { gap: 6px; flex-wrap: wrap; }
+.tr-root .ext-import { padding: 10px 0; display: grid; gap: 8px; }
+.tr-root .ext-import summary { cursor: pointer; color: var(--tx2); display: inline-flex; gap: 6px; align-items: center; }
+.tr-root .ext-import[open] { display: grid; gap: 8px; }
+.tr-root .ext-import .row { gap: 8px; }
+.tr-root .ext-import .btn { justify-self: start; }
+.tr-root .ext-matrix { min-width: 900px; }
+.tr-root .ext-matrix tbody th { text-align: left; font-weight: 500; color: var(--tx); border-top: 1px solid var(--line); white-space: nowrap; }
+.tr-root .ext-cell { appearance: none; background: transparent; border: 0; color: var(--tx2); font: 11px var(--mono); padding: 3px 4px; border-radius: 4px; cursor: pointer; text-align: center; }
+.tr-root .ext-cell option { background: #0d0f12; color: var(--tx); }
+.tr-root .ext-cell:hover, .tr-root .ext-cell:focus-visible { box-shadow: inset 0 0 0 1px var(--line2); }
+.tr-root .ext-cell.inherited { font-style: italic; color: var(--tx3); }
+.tr-root .ext-cell.p-mandatory:not(.inherited) { color: var(--mint); }
+.tr-root .ext-cell.p-automatic:not(.inherited) { color: var(--skyhi); }
+.tr-root .ext-cell.p-disabled:not(.inherited) { color: var(--coral); }
+.tr-root .ext-num { width: 96px; }
+.tr-root .ext-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 12.5px; color: var(--tx2); }
+.tr-root .coral-tx { color: var(--coral); }
+
+/* Capacidades en el compositor, Flow, Studio y Entrega */
+.tr-root .cap-chips, .cap-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.cap-chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 4px 0 7px; border-radius: 5px; font-size: 11px; color: var(--tx2, #b8bcc6); background: rgba(255, 255, 255, .04); box-shadow: inset 0 0 0 1px var(--line, rgba(255,255,255,.08)); }
+.cap-chip.is-policy { color: var(--mint, #8fe3c0); }
+.cap-chip.is-auto { color: var(--skyhi, #9cc8ff); }
+.cap-chip.is-blocked { color: var(--coral, #ff9d8a); }
+.cap-chip button { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; color: inherit; opacity: .7; }
+.cap-chip button:hover { opacity: 1; background: rgba(255, 255, 255, .08); }
+.cap-panel { display: grid; gap: 8px; }
+.cap-panel h4 { margin: 0; font-size: 12px; font-weight: 500; color: var(--tx2, #b8bcc6); letter-spacing: .02em; }
+.cap-row { display: grid; gap: 3px; padding: 7px 0; border-top: 1px solid var(--line, rgba(255,255,255,.08)); font-size: 12px; }
+.cap-row .cap-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cap-row .cap-top b { font-weight: 500; color: var(--tx, #eceef3); }
+.cap-row .cap-meta { font: 11px/1.45 var(--mono, ui-monospace); color: var(--tx3, #7d828e); overflow-wrap: anywhere; }
+.cap-row ul { margin: 2px 0 0; padding-left: 14px; color: var(--tx2, #b8bcc6); }
+.cap-row .cap-verify { display: flex; gap: 5px; }
+.cap-menu { display: grid; gap: 2px; min-width: 240px; max-height: 320px; overflow: auto; }
+.cap-menu label { display: flex; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 5px; font-size: 12.5px; cursor: pointer; }
+.cap-menu label:hover { background: rgba(255, 255, 255, .06); }
+.cap-menu .cap-hint { font-size: 11px; color: var(--tx3, #7d828e); padding: 2px 8px 6px; }

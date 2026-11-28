@@ -7,6 +7,8 @@ import { useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { createGraph, dependencyLevels, escapeXml, type GEdge, type GNode, type GraphHandle } from './graph';
 import { ICON_PATHS, Icon } from './icons';
+import { CapabilitiesPanel } from './CapabilitiesPanel';
+import { capMark, capTitle, useRunCapabilities } from './flowCapabilities';
 import { AgDot, EmptyArt, Root, StDot, sessionAgents, STATE_LABEL, type AgState, type Agent } from './kit';
 import { Modal } from './ui';
 
@@ -17,7 +19,7 @@ const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
 type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number; files?: string };
-type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; context?: string | null; event?: string };
+type FRun = { id?: number; task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; context?: string | null; event?: string };
 const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
 type DemoDecision = { scores: [string, number][]; cost: string; escalation?: string };
 type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean; decisions?: Record<string, DemoDecision> };
@@ -37,7 +39,7 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
   const lv = dependencyLevels(base);
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
-    task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
+    id: r.id, task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
     confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs, cost: r.routing?.costEstimateUsd ?? r.costEstimateUsd, context: r.routing?.eventAdvice ?? r.routing?.context,
   })));
   const used = new Set(base.map((t) => t.agent));
@@ -523,6 +525,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
         {t.real?.criteria && <><dt>Criterios</dt><dd>{t.real.criteria}</dd></>}
         {t.real && <><dt>Verificación</dt><dd>{t.real.verification}{t.real.tests ? ` · ${t.real.tests}` : ''}</dd></>}
       </dl></div>
+      {!m.demo && <CapabilitiesPanel runs={runs.flatMap((r) => r.id != null ? [r.id] : []).slice(0, 6)} />}
       <div className="sec">
         <div className="row" style={{ marginBottom: 8 }}><Icon name="route" size={14} /><b>{last ? `Por qué ${last.model ?? last.provider}` : 'Decisión de Jev'}</b><span className="grow" />{last?.complexity && <span className="chip">{last.complexity}</span>}</div>
         <div className="why">{last?.reason ?? (last ? 'Esta ejecución no registró motivo.' : 'Aún no se ha ejecutado: no hay decisión registrada.')}
@@ -557,6 +560,7 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (svg.current) ro.observe(svg.current); return () => ro.disconnect(); }, []);
   const day = new Date(); day.setHours(0, 0, 0, 0);
   const runs = (m?.runs ?? []).filter((r) => r.at >= day.getTime() || m?.demo).sort((a, b) => a.at - b.at);
+  const caps = useRunCapabilities(m?.demo ? [] : runs.flatMap((r) => r.id != null ? [r.id] : []).slice(-60));
   const demoStart = runs[0]?.at - 2 * 60000;
   const t0 = m?.demo ? demoStart : runs.length ? runs[0].at - 5 * 60000 : Date.now() - 3600000;
   const t1 = m?.demo ? t0 + 45 * 60000 : Math.max(t0 + 30 * 60000, (runs.at(-1)?.at ?? Date.now()) + 5 * 60000);
@@ -578,8 +582,9 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
             const c = color(r), on = sel === r.task; return (
             <g key={i} className={`rt${on ? ' on' : ''}`} tabIndex={0} role="button" aria-label={`${r.task}: ${r.model ?? r.provider}`} onClick={() => onSel(r.task)} onKeyDown={(e) => e.key === 'Enter' && onSel(r.task)}>
               <line x1={x} x2={x} y1="44" y2={y} stroke={c} strokeOpacity=".45" />
-              <title>{r.source ? ROUTING_SOURCE[r.source] : 'Origen sin registrar'}</title>
+              <title>{r.source ? ROUTING_SOURCE[r.source] : 'Origen sin registrar'}{capTitle(caps.get(r.id ?? -1))}</title>
               <path d={`M${x},${y - 6} L${x + 6},${y} L${x},${y + 6} L${x - 6},${y}z`} fill={!r.event && (r.source === 'jev' || r.source === 'shadow') ? c : '#0d0f12'} stroke={c} strokeWidth={on ? 2 : 1.2} />
+              {capMark(caps.get(r.id ?? -1), x, y)}
               <text x={x + 10} y={y + 4} className="tll">{m?.tasks.find((t) => t.id === r.task)?.num != null ? `#${r.task}` : r.task} · {r.event ?? r.model ?? r.provider}</text>
             </g>); })}
         </svg>

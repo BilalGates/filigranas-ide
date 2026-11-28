@@ -457,6 +457,8 @@ type ComposerProps = {
   model?: ReactNode;
   /** Chips de contexto en la fila superior junto a «+» y los adjuntos (p. ej. tarea vinculada). */
   topExtra?: ReactNode;
+  /** Entradas adicionales del menú «+» (p. ej. capacidades de la tarea). */
+  attachExtra?: (close: () => void) => ReactNode;
   /** Indicadores auxiliares en la barra inferior (estado de conexión…). */
   extra?: ReactNode;
   /** Fila sobre la caja: dónde trabaja la sesión (carpeta, rama, motor). */
@@ -499,7 +501,7 @@ function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
 }
 
 /** Caja de mensaje con selector unificado, modo de trabajo, ↩ para enviar y ⌘. para interrumpir. */
-export function Composer({ disabled, running, efforts = [], effort = '', onEffort, model, topExtra, extra, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
+export function Composer({ disabled, running, efforts = [], effort = '', onEffort, model, topExtra, attachExtra, extra, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
   const fitArea = () => {
     const el = area.current;
@@ -764,6 +766,7 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
           {attachMenu && <div className="menu co-attach-menu" id={menuId}>
             <button className="menu-item" type="button" onClick={() => { fileInput.current?.click(); setAttachMenu(false); }}>Adjuntar imágenes o archivos</button>
             <button className="menu-item" type="button" onClick={() => { setAttachMenu(false); setLink(''); }}>Añadir enlace</button>
+            {attachExtra?.(() => setAttachMenu(false))}
           </div>}
         </div>
         {attachments.length > 0 && (

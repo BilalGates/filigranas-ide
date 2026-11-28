@@ -8,12 +8,14 @@ import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
 import { setFieldIntensity, setMotion, useMotion, type Motion } from './motion';
 import { Root } from './kit';
+import { ExtensionsManager } from './ExtensionsSettings';
+import { ROLE_NAMES, ROLE_ORDER } from './capabilityLabels';
 
 // Ajustes de Trama v2 con configuración real: cada opción indica dónde está
 // definida (global, proyecto o sesión). Lo que no existe en el núcleo no se
 // presenta como un control: se explica dónde se gestiona.
 type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'apariencia' | 'actualizaciones' | 'atajos';
-const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['actualizaciones', 'download', 'Actualizaciones'], ['atajos', 'grid', 'Atajos']];
+const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Extensiones'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['actualizaciones', 'download', 'Actualizaciones'], ['atajos', 'grid', 'Atajos']];
 const sc = (k: 'g' | 'p' | 's') => <span className={`scope ${k}`}>{{ g: 'global', p: 'proyecto', s: 'sesión' }[k]}</span>;
 
 export default function Settings({ agentSessions, project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
@@ -35,7 +37,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
           {SECS.map(([id, ic, l]) => <button key={id} className={sec === id ? 'on' : ''} aria-current={sec === id ? 'page' : undefined} onClick={() => pick(id)}><Icon name={ic} size={15} /><span>{l}</span></button>)}
           {sec === 'skills' && <div className="settings-scope">
             <span className="lab">Ámbito</span>
-            <div className="seg" role="group" aria-label="Ámbito de las skills">
+            <div className="seg" role="group" aria-label="Ámbito de las extensiones">
               <button aria-pressed={!projectSkills || !project} className={!projectSkills || !project ? 'on' : ''} onClick={() => setProjectSkills(false)}>Global</button>
               {project && <button aria-pressed={projectSkills} className={projectSkills ? 'on' : ''} title={projectName ?? undefined} onClick={() => setProjectSkills(true)}>Proyecto</button>}
               {project && <button onClick={() => pick('agentes')}>Sesión</button>}
@@ -72,10 +74,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
   );
 }
 
-const ROLES: [SkillRole, string][] = [
-  ['pm', 'PM'], ['researcher', 'Investigador'], ['designer', 'Diseñador'], ['senior', 'Senior'],
-  ['junior', 'Junior'], ['auditor', 'Auditor'], ['auditor2', 'Auditor 2'],
-];
+const ROLES: [SkillRole, string][] = ROLE_ORDER.map((role) => [role, ROLE_NAMES[role]]);
 const SKILL_NAMES: Record<string, string> = {
   implement: 'Implementación', debug: 'Depuración', research: 'Investigación',
   'design-loop': 'Diseño', 'code-review': 'Revisión', 'github-flow': 'GitHub',
@@ -83,11 +82,14 @@ const SKILL_NAMES: Record<string, string> = {
 
 function SkillsSec({ project, scope }: { project: string | null; scope: string | null }) {
   return <>
-    <h2 className="vt">Skills y reglas</h2>
-    <p className="lead">Activa o desactiva las skills que recibe cada rol en su siguiente turno.</p>
+    <h2 className="vt">Extensiones</h2>
+    <p className="lead">Capacidades que reciben los agentes según su rol y el tipo de trabajo. Filigranas resuelve las obligatorias, automáticas y manuales antes de cada turno y registra cuáles se cargaron.</p>
+    <ExtensionsManager key={`ext:${scope ?? 'global'}`} project={scope} />
+    <h3 className="vt">Métodos internos</h3>
+    <p className="mut2">Métodos breves de Filigranas que se inyectan en la skill de cada rol.</p>
     <SkillMatrix key={`scope:${scope ?? 'global'}:${project ?? ''}`} project={scope} rulesProject={project} />
     <div className="srow"><div><div className="t">Reglas del proyecto <span className="mono">AGENTS.md</span> {sc('p')}</div><div className="d">Instrucciones de trabajo del repositorio</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
-    <div className="srow"><div><div className="t">Instrucciones globales <span className="mono">reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
+    <div className="srow"><div><div className="t">Políticas y reglas <span className="mono">politicas.md · reglas.md</span> {sc('g')}</div><div className="d">Incluidas en la app; prevalecen sobre skills y extensiones</div></div><span className="chip"><Icon name="lock" size={11} /> vigente</span></div>
   </>;
 }
 
@@ -147,10 +149,10 @@ function SkillMatrix({ project, rulesProject }: { project: string | null; rulesP
             {ROLES.map(([role, name]) => <option key={role} value={role}>{name}</option>)}
           </select></label>
         </div>
-        <p className="mut2">Skills disponibles para este rol en el siguiente turno de Codex o Claude.</p>
+        <p className="mut2">Métodos que se inyectan para este rol en su siguiente turno, en Claude, Codex y Antigravity.</p>
         {cells.some((cell) => cell.enabled && cell.role === catalogRole) ? <ul>
           {cells.filter((cell) => cell.enabled && cell.role === catalogRole).map((cell) => <li key={cell.skill}><span className="mono">{cell.skill}</span></li>)}
-        </ul> : <p className="mut2">Este rol carece de skills habilitadas en este ámbito.</p>}
+        </ul> : <p className="mut2">Este rol no tiene métodos habilitados en este ámbito.</p>}
       </section>
     </div>}
   </>;

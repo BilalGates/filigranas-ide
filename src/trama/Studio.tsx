@@ -168,7 +168,7 @@ export default function Studio({ project, projectName, agentSessions, view, onVi
     <StudioComposer project={project} screen={screen} shot={shot} baseline={baseline} region={region} cmp={comparable ? cmp : null} busy={busy} reviewable={reviewable} onNewSession={onNewSession} agentSessions={agentSessions} locks={visibleLocks} selected={selected} references={referenceIds.length}
       onCmp={setCmp} onClear={() => chooseComponent(null)} onOpenSession={onOpenSession}
       onReview={(approve) => act(async () => { await design.review(project, screen.id!, { shot: shot.id, baseline: screen.approved, revision: screen.revision ?? 0, approve, confirmed: approve }); await loadScreens(); await loadShots(screen.id!); setCmp(null); }, approve ? 'Versión aprobada como referencia.' : 'Versión descartada.')}
-      onSend={(session, text, compare) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
+      onSend={(session, text, compare, phase) => act(async () => { await design.send(project, { session, screen: screen.id!, shot: shot.id, region: sendRegion(region), request: text, compare, confirmed: true, references: referenceIds, component: selected?.selector ?? null, phase }); setSent((l) => [{ text, label: selected?.name ?? (isFull(region) ? 'Toda la pantalla' : `Región ${Math.round(region.x)},${Math.round(region.y)} · ${Math.round(region.width)}×${Math.round(region.height)} %`), at: Date.now() }, ...l]); },
         compare ? 'Comparación enviada; la respuesta llegará a la conversación de la sesión.' : 'Encargo enviado. Captura de nuevo cuando la sesión termine para ver la nueva versión.')} />
   ) : null;
   return (
@@ -376,10 +376,18 @@ function Canvas({ shot, label, live, image, base, cmp, tool, region, onRegion, l
   );
 }
 
+/** Fases creativas de Studio y la capacidad que activan (si está instalada y permitida). */
+export type StudioPhase = 'direccion' | 'identidad' | 'implementacion' | 'revision' | 'efectos';
+const STUDIO_PHASES: [StudioPhase, string, string][] = [
+  ['direccion', 'Dirección visual', 'UI UX Pro Max'], ['identidad', 'Identidad corporativa', 'Logo Design'],
+  ['implementacion', 'Implementación', 'UI Skills'], ['revision', 'Revisión estética', 'Unslop'], ['efectos', 'Efectos gráficos', 'PixelFX'],
+];
+
 function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessions, locks, selected, references, onCmp, onClear, onOpenSession, onNewSession, reviewable, onReview, onSend }: {
   project: string; screen: DesignScreen; shot: DesignShot; baseline: DesignShot | null; region: DesignRegion; cmp: Cmp; busy: boolean; agentSessions: Session[]; locks: Lock[]; selected: DesignComponent | null; references: number;
-  onNewSession: () => void; reviewable: boolean; onCmp: (c: Cmp) => void; onClear: () => void; onOpenSession: (id: number) => void; onReview: (approve: boolean) => void; onSend: (session: number, text: string, compare: boolean) => void;
+  onNewSession: () => void; reviewable: boolean; onCmp: (c: Cmp) => void; onClear: () => void; onOpenSession: (id: number) => void; onReview: (approve: boolean) => void; onSend: (session: number, text: string, compare: boolean, phase: StudioPhase) => void;
 }) {
+  const [phase, setPhase] = useState<StudioPhase>('implementacion');
   const designers = agentSessions.filter((s) => s.project === project && s.engine === 'claude');
   const [session, setSession] = useState<number | null>(designers[0]?.id ?? null);
   const [models, setModels] = useState<{ id: string; label: string }[]>([]);
@@ -425,11 +433,12 @@ function StudioComposer({ project, shot, baseline, region, cmp, busy, agentSessi
       <div className="row wrap" style={{ marginTop: 6 }}>
         <label className="fsel"><select value={session ?? ''} onChange={(e) => { setSession(Number(e.currentTarget.value)); setOk(false); }} aria-label="Sesión">{designers.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch ?? 'proyecto'}</option>)}</select><Icon name="down" size={11} /></label>
         {models.length > 0 && <label className="fsel"><select value={model ?? ''} onChange={(e) => { const v = e.currentTarget.value; sessionApi.setOption(session!, 'model', v).then(() => setModel(v || null)); }} aria-label="Modelo"><option value="">Modelo predeterminado</option>{models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select><Icon name="down" size={11} /></label>}
+        <label className="fsel" title="La fase decide qué capacidades visuales recibe el agente en este encargo"><select value={phase} onChange={(e) => setPhase(e.currentTarget.value as StudioPhase)} aria-label="Fase creativa">{STUDIO_PHASES.map(([id, name, cap]) => <option key={id} value={id}>{name} · {cap}</option>)}</select><Icon name="down" size={11} /></label>
         <label className="row" style={{ fontSize: 12 }}><input type="checkbox" checked={ok} onChange={(e) => setOk(e.currentTarget.checked)} /> Enviar captura y protecciones{references ? ` con ${references} ${references === 1 ? 'referencia' : 'referencias'}` : ''}</label>
         <span className="grow" />
         <button className="btn sm ghost" onClick={() => session != null && onOpenSession(session)}>Conversación</button>
-        <button className="btn sm" disabled={busy || !ok || !text.trim() || !selectable || session == null || !baseline || baseline.id === shot.id} onClick={() => { onSend(session!, text, true); setText(''); }} title="Comparar con la referencia sin editar archivos">Comparar</button>
-        <button className="btn sm pearl" disabled={busy || !ok || !text.trim() || !selectable || session == null} onClick={() => { onSend(session!, text, false); setText(''); }}><Icon name="spark" size={12} /> Pedir cambio</button>
+        <button className="btn sm" disabled={busy || !ok || !text.trim() || !selectable || session == null || !baseline || baseline.id === shot.id} onClick={() => { onSend(session!, text, true, 'revision'); setText(''); }} title="Comparar con la referencia sin editar archivos">Comparar</button>
+        <button className="btn sm pearl" disabled={busy || !ok || !text.trim() || !selectable || session == null} onClick={() => { onSend(session!, text, false, phase); setText(''); }}><Icon name="spark" size={12} /> Pedir cambio</button>
       </div>
       {reviewActions}
     </div>

@@ -25,6 +25,8 @@ export default function JevUsage({ open, onOpen, onSettings, onTools, buttonRef 
   const [status, setStatus] = useState<JevStatus | null>(null);
   const [usdPerEuro, setUsdPerEuro] = useState<number | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const localButton = useRef<HTMLButtonElement>(null);
+  const trigger = buttonRef ?? localButton;
   const toggle = useRef(onOpen);
   toggle.current = onOpen;
 
@@ -62,13 +64,14 @@ export default function JevUsage({ open, onOpen, onSettings, onTools, buttonRef 
 
   useEffect(() => {
     if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('.eng-pop header button')?.focus();
     let active = true;
     jev.status().then((s) => { if (active) setStatus(s); }, () => { if (active) setStatus(null); });
     const out = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) toggle.current(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') toggle.current(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); toggle.current(false); trigger.current?.focus(); } };
     document.addEventListener('pointerdown', out); document.addEventListener('keydown', esc);
     return () => { active = false; document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); };
-  }, [open]);
+  }, [open, trigger]);
 
   const cost = !usage || usage.costUsd === null ? null
     : usage.costUsd === 0 ? euros.format(0)
@@ -76,18 +79,18 @@ export default function JevUsage({ open, onOpen, onSettings, onTools, buttonRef 
 
   return (
     <div className="eng-wrap" ref={root}>
-      <button ref={buttonRef} className={`status-action eng-btn${open ? ' is-on' : ''}`} onClick={() => onOpen(!open)} aria-expanded={open}
+      <button ref={trigger} className={`status-action eng-btn${open ? ' is-on' : ''}`} onClick={() => onOpen(!open)} aria-expanded={open}
         aria-label={`Jev${bar ? ` ${SHORT[bar.mode]} · ${bar.used} de ${bar.limit} intentos hoy` : ''}${usage ? ` · ${tokens.format(usage.tokens)} tokens` : ''}`} title="Jev: intentos de las últimas 24 horas">
         <Icon name="route" size={13} />Jev{bar && <span className="mut">{SHORT[bar.mode]}</span>}{bar && <span className="num">{bar.used}/{bar.limit}</span>}
       </button>
       {open && (
-        <section className="eng-pop" role="dialog" aria-label="Consumo de Jev">
-          <header><span className="eng-mark jev" /><h2>Jev</h2><span className="grow" /><button className="icon" onClick={() => onOpen(false)} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
+        <section className="eng-pop eng-dashboard" role="dialog" aria-label="Consumo de Jev">
+          <header><div className="eng-provider-logo"><Icon name="route" size={24} /></div><div><h2>Jev</h2><p className="eng-note">Uso del enrutamiento</p></div><span className="grow" /><button className="icon" onClick={() => { onOpen(false); trigger.current?.focus(); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
           <div className="eng-sec">
             <div className="eng-lab">Consumo</div>
-            {bar && <p className="eng-big"><b>{bar.used}</b> de {bar.limit} intentos en las últimas 24 horas</p>}
+            {bar && <div className="eng-window"><div className="eng-window-top"><strong>Últimas 24 horas</strong><span><b>{bar.used}</b> / {bar.limit} intentos</span></div><div className="eng-quota-bar" role="meter" aria-label="Intentos de Jev" aria-valuemin={0} aria-valuemax={Math.max(1, bar.limit)} aria-valuenow={Math.min(bar.used, Math.max(1, bar.limit))}><i style={{ width: `${Math.min(100, 100 * bar.used / Math.max(1, bar.limit))}%` }} /></div><p className="eng-note">Ventana móvil: los intentos se liberan al cumplir 24 horas.</p></div>}
             {failed ? <p className="eng-note">Consumo no disponible.</p> : !usage ? <p className="eng-note">Consultando consumo…</p> : <>
-              <p className="eng-big"><b>{tokens.format(usage.tokens)}</b> tokens en total · {cost === null ? 'coste no disponible' : <b>≈ {cost}</b>}</p>
+              <div className="eng-stats eng-stats-pair"><div><b>{tokens.format(usage.tokens)}</b><span>Tokens registrados</span></div><div><b>{cost === null ? '—' : `≈ ${cost}`}</b><span>Coste estimado</span></div></div>
               <p className="eng-note">Suma de las llamadas a la API de Jev para enrutar tareas. Coste estimado con la tarifa de TypeSafe y el cambio de referencia del BCE.</p>
             </>}
           </div>

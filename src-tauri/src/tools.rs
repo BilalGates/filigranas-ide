@@ -384,3 +384,33 @@ mod tests {
         }
     }
 }
+
+// Destinos fijos: la interfaz no puede enviar una URL arbitraria al sistema.
+fn provider_usage_url(provider: &str) -> CmdResult<&'static str> {
+    match provider {
+        "codex" => Ok("https://chatgpt.com/codex/settings/usage"),
+        "claude" => Ok("https://claude.ai/settings/usage"),
+        "agy" => Ok("https://antigravity.google/docs/plans/"),
+        _ => Err("proveedor de cuota desconocido".into()),
+    }
+}
+
+#[tauri::command]
+pub fn provider_usage_open(provider: String) -> CmdResult<()> {
+    crate::pr::open_browser(provider_usage_url(&provider)?)
+}
+
+#[cfg(test)]
+mod usage_link_tests {
+    use super::provider_usage_url;
+
+    #[test]
+    fn usage_management_only_opens_known_provider_destinations() {
+        assert_eq!(provider_usage_url("codex").unwrap(), "https://chatgpt.com/codex/settings/usage");
+        assert_eq!(provider_usage_url("claude").unwrap(), "https://claude.ai/settings/usage");
+        assert_eq!(provider_usage_url("agy").unwrap(), "https://antigravity.google/docs/plans/");
+        for value in ["", "https://example.com", "codex --help", "Codex"] {
+            assert!(provider_usage_url(value).is_err());
+        }
+    }
+}

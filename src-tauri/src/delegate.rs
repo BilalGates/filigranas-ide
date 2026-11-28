@@ -460,9 +460,9 @@ mod tests {
         assert!(loaded_codex.delegated_by_pm);
         assert!(crate::work::before_turn(&conn, "/r/p", Some(codex_child.id)).is_ok());
 
-        // Una sesión independiente (NO delegada por PM y sin worktree) sigue exigiendo work_session activa.
+        // Una sesión independiente también puede conversar sin trabajo Git activo.
         let standalone = db::create_session(&conn, "/r/p", "claude", "u-s", &["sesión 1", "sesión 2", "sesión 3", "sesión 4"]).unwrap();
-        assert!(crate::work::before_turn(&conn, "/r/p", Some(standalone.id)).is_err());
+        assert!(crate::work::before_turn(&conn, "/r/p", Some(standalone.id)).is_ok());
 
         // No entra en huérfanas de worktrees aunque comparta el worktree del padre.
         db::set_session_worktree(&conn, child.id, "/wt", "ide/p", "main", "abc").unwrap();

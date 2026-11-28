@@ -666,7 +666,7 @@ export default function Session({ session, project, hidden, switching, providerS
         {notice && <div className="co-notice">{notice}</div>}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <span className="grow">La operación requiere un trabajo Git activo. Puedes conversar en esta sesión sin crear un trabajo; revisa el motivo del bloqueo antes de continuar.</span>
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}
@@ -684,7 +684,7 @@ export default function Session({ session, project, hidden, switching, providerS
         {permission.error && <div className="co-error">{permission.error}</div>}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <span className="grow">La operación requiere un trabajo Git activo. Puedes conversar en esta sesión sin crear un trabajo; revisa el motivo del bloqueo antes de continuar.</span>
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}

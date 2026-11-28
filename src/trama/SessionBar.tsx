@@ -7,11 +7,12 @@ import { Icon } from './icons';
 import { pushOperationalError } from './notifications';
 
 /** Nivel de permisos de una sesión o del Project manager (ver src-tauri/src/autoapprove.rs). */
-export type PermissionMode = 'ask' | 'auto' | 'full';
+export type PermissionMode = 'readonly' | 'ask' | 'auto' | 'full';
 const MODES: { id: PermissionMode; label: string; icon: string; text: string }[] = [
+  { id: 'readonly', label: 'Solo lectura', icon: 'lock', text: 'Consultas sin modificaciones. Las escrituras se rechazan por política.' },
   { id: 'ask', label: 'Con autorización', icon: 'lock', text: 'Cada petición del agente te llega para aprobarla o rechazarla.' },
-  { id: 'auto', label: 'Auto', icon: 'shield', text: 'Aprueba lecturas y ediciones dentro de la carpeta del proyecto. Terminal, red, borrados y lo que salga de la carpeta siguen preguntando.' },
-  { id: 'full', label: 'Full control', icon: 'unlock', text: 'Aprueba cualquier petición del agente en este chat, también fuera de su carpeta. Úsalo solo si confías en el encargo.' },
+  { id: 'auto', label: 'Automático', icon: 'shield', text: 'Aprueba lecturas, ediciones dentro del proyecto y tests o builds locales. Los cambios en Git, en la configuración de los agentes, en manifiestos o scripts de build y cualquier otra orden te llegan para aprobarlos.' },
+  { id: 'full', label: 'Full control', icon: 'unlock', text: 'Aprueba ediciones y órdenes simples dentro del proyecto. Publicar, integrar, borrar, cambiar de rama, la red, los intérpretes y las órdenes compuestas siguen pidiendo tu aprobación.' },
 ];
 const KEY = (scope: string) => `filigranas.permisos.${scope}`;
 const BRANCH_CHANGED_EVENT = 'filigranas:branch-changed';
@@ -19,10 +20,10 @@ const BRANCH_CHANGED_EVENT = 'filigranas:branch-changed';
 function readMode(scope: string, fallbackScope?: string): PermissionMode {
   try {
     const v = localStorage.getItem(KEY(scope));
-    if (v === 'auto' || v === 'full' || v === 'ask') return v;
+    if (v === 'readonly' || v === 'auto' || v === 'full' || v === 'ask') return v;
     if (fallbackScope) {
       const parent = localStorage.getItem(KEY(fallbackScope));
-      if (parent === 'auto' || parent === 'full') return parent;
+      if (parent === 'readonly' || parent === 'ask' || parent === 'auto' || parent === 'full') return parent;
     }
     return 'ask';
   } catch {
@@ -37,16 +38,24 @@ export function usePermissionMode(id: number | null, project: string | null = nu
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (scope == null || (id == null && !project)) return;
-    const saved = (restricted && readMode(scope, fallbackScope) === 'full' ? 'auto' : readMode(scope, fallbackScope));
-    setModeState(saved);
-    sessions.permissionMode(id, saved, id == null ? project : null).catch((e) => setError(String(e)));
+    let active = true;
+    // El backend conserva la herencia de una subsesión recién creada. Montar
+    // una vista sin preferencia propia nunca la sobrescribe con ask.
+    const own = localStorage.getItem(KEY(scope));
+    const read = own == null ? null : readMode(scope, fallbackScope);
+    const saved = restricted && read === 'full' ? 'auto' : read;
+    const loading = saved == null
+      ? sessions.getPermissionMode(id, project)
+      : sessions.permissionMode(id, saved, project);
+    loading.then((value) => { if (active) setModeState(restricted && value === 'full' ? 'auto' : value as PermissionMode); }, (e) => { if (active) setError(String(e)); });
+    return () => { active = false; };
   }, [id, project, scope, fallbackScope, restricted]);
   const setMode = useCallback((next: PermissionMode) => {
     if (scope == null || (id == null && !project)) return;
-    sessions.permissionMode(id, next, id == null ? project : null).then(() => {
+    sessions.permissionMode(id, next, project).then(() => {
       setModeState(next);
       setError(null);
-      try { if (next === 'ask') localStorage.removeItem(KEY(scope)); else localStorage.setItem(KEY(scope), next); } catch { /* sin almacenamiento */ }
+      try { localStorage.setItem(KEY(scope), next); } catch { /* sin almacenamiento */ }
     }, (e) => setError(String(e)));
   }, [id, project, scope]);
   return { mode, setMode, error };
@@ -386,7 +395,7 @@ function WorkForm({ project, work, onStarted }: { project: string; work: WorkSes
   };
   return (
     <form className="sb-form" onSubmit={start}>
-      <p className="sb-note">Para escribir en la carpeta del proyecto, la sesión necesita un objetivo y una rama propia. Los demás agentes directos compartirán esta rama.</p>
+      <p className="sb-note">Puedes conversar sin un trabajo Git activo. Crea un trabajo para coordinar un objetivo, una rama y el reparto de archivos entre agentes.</p>
       {error && <div className="co-error" role="alert">{error}</div>}
       <label><span className="lab">Objetivo</span><input className="in" required autoFocus value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Qué vais a conseguir" /></label>
       <div className="sb-row">

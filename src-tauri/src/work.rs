@@ -82,7 +82,7 @@ pub fn idle(conn: &Connection, project: &str) -> CmdResult<()> {
 
 fn active(conn: &Connection, project: &str) -> CmdResult<Work> {
     current(conn, project)?.filter(|w| w.state != "finished")
-        .ok_or_else(|| "inicia una sesión de trabajo con su objetivo y rama desde Trabajo".into())
+        .ok_or_else(|| "no hay una sesión de trabajo Git activa; si quieres coordinar una rama de entrega compartida, iníciala desde Entrega".into())
 }
 
 fn check_branch(project: &str, work: &Work) -> CmdResult<()> {
@@ -220,15 +220,15 @@ pub fn check_merge(repo: &Path, base: &str, head: &str) -> CmdResult<()> {
 
 /// Se llama dentro de la misma transacción que registra el turno.
 pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> CmdResult<()> {
+    if current(conn, project)?.is_some_and(|w| w.state == "review") {
+        return Err("El trabajo Git está en revisión. reanuda desde Entrega antes de iniciar otro turno.".into());
+    }
     if let Some(id) = session {
         let s = db::session(conn, id).map_err(err)?.ok_or("sesión inexistente")?;
-        // Una subsesión (delegada por Claude PM, Codex PM u otra sesión padre)
-        // comparte la carpeta y la rama del proyecto/padre: no exige una sesión
-        // de trabajo propia para investigar o continuar, pero respeta el bloqueo
-        // si existe una sesión de trabajo en revisión.
+        // Una subsesión (de un PM o de otra sesión) comparte la carpeta y la rama
+        // de su padre: no se une al reparto, pero invalida las pruebas del trabajo abierto.
         if s.parent_session.is_some() || s.delegated_by_pm {
-            if let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") {
-                if work.state != "active" { return Err("la sesión está en revisión para su PR; reanúdala para seguir trabajando".into()); }
+            if let Some(work) = current(conn, project)?.filter(|w| w.state == "active") {
                 conn.execute("UPDATE work_sessions SET tests=NULL,evidence=NULL,reviewed_head=NULL WHERE id=?1", [work.id]).map_err(err)?;
             }
             return Ok(());
@@ -244,8 +244,13 @@ pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> Cm
             }
             return Ok(());
         }
-        let work = active(conn, project)?;
-        if work.state != "active" { return Err("la sesión está en revisión para su PR; reanúdala para seguir trabajando".into()); }
+        // Una sesión independiente puede conversar y trabajar sobre el checkout actual
+        // sin exigir una sesión de trabajo Git activa. Solo si existe una sesión de
+        // trabajo abierta se aplican sus controles de revisión, rama y reparto de archivos.
+        let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") else {
+            return Ok(());
+        };
+        if work.state != "active" { return Err("la sesión de trabajo está en revisión para su PR; reanúdala desde Entrega para seguir trabajando".into()); }
         check_branch(project, &work)?;
         join(conn, project, id)?;
         let paths = work.agents.iter().find(|a| a.session_id == id).map(|a| a.paths.clone()).unwrap_or_else(|| vec![".".into()]);
@@ -274,7 +279,7 @@ pub fn context(conn: &Connection, project: &str, session: Option<i64>, input: St
     }
     let rules = match scope {
         Some(agent) => format!("Tu área asignada: {}. Modifica solo estas rutas. Si necesitas otra área, pide al coordinador que cambie el reparto y espera. No hagas commits, push, merge, checkout, stash ni operaciones del índice; los gestiona Larry desde el IDE. Conserva el trabajo ajeno.", agent.paths.join(", ")),
-        None => "Coordina el reparto y revisa resultados. Mientras haya ejecutores activos, no edites archivos ni ejecutes operaciones Git que escriban. Usa los chats ejecutores para implementar. El cierre se realiza desde Trabajo con una PR a main.".into(),
+        None => "Coordina el reparto y revisa resultados. Mientras haya ejecutores activos, no edites archivos ni ejecutes operaciones Git que escriban. Usa los chats ejecutores para implementar. El cierre se realiza desde Entrega con una PR a main.".into(),
     };
     Ok(format!("{input}\n\n[Sesión de trabajo compartida #{}]\nObjetivo: {}\nRama: {} · destino: main\nTodos los agentes usan la carpeta del proyecto. {rules}", work.id, work.objective, work.branch))
 }
@@ -330,7 +335,7 @@ pub fn publication(conn: &Connection, project: &str, dir: &Path, base: &str) -> 
     let Some(work) = current(conn, project)?.filter(|w| w.state != "finished") else { return Ok(None); };
     idle(conn, project)?;
     check_branch(project, &work)?;
-    if work.state != "review" || base != "main" { return Err("finaliza la sesión desde Trabajo para revisar su PR hacia main".into()); }
+    if work.state != "review" || base != "main" { return Err("finaliza la sesión desde Entrega para revisar su PR hacia main".into()); }
     require_integrated(conn, &work)?;
     if !pr::value(dir, &["status", "--porcelain"])?.is_empty() || work.reviewed_head.as_deref() != Some(pr::value(dir, &["rev-parse", "HEAD"])?.as_str()) {
         return Err("el trabajo cambió después de las pruebas. Reanuda la sesión y vuelve a verificarlo".into());
@@ -446,12 +451,26 @@ mod tests {
     }
 
     #[test]
+    fn a_subsession_starts_while_its_parent_works_on_the_shared_checkout() {
+        let (_dir, project, mut conn) = fixture();
+        let parent = db::create_session(&conn, &project, "claude", "p", &["padre"]).unwrap();
+        start(&mut conn, &project, "Delegar en paralelo", "feat", "delegacion", false).unwrap();
+        let running = begin(&mut conn, &project, parent.id).unwrap();
+        let child = db::create_session(&conn, &project, "codex", "h", &["hija"]).unwrap();
+        db::set_session_parent(&conn, child.id, parent.id, Some("hija")).unwrap();
+        assert!(begin(&mut conn, &project, child.id).is_ok(), "la subsesión no debe chocar con el turno del padre");
+        runs::finish(&conn, running, "completed").unwrap();
+    }
+
+    #[test]
     fn shared_checkout_reservations_restart_and_handoff() {
         let (dir, project, mut conn) = fixture();
         let a = db::create_session(&conn, &project, "claude", "a", &["uno"]).unwrap();
         let b = db::create_session(&conn, &project, "opencode", "b", &["dos"]).unwrap();
         let c = db::create_session(&conn, &project, "codex", "c", &["tres"]).unwrap();
-        assert!(begin(&mut conn, &project, a.id).unwrap_err().contains("inicia una sesión"));
+        // Una sesión independiente puede iniciar turnos sin sesión de trabajo previa.
+        let standalone = begin(&mut conn, &project, a.id).unwrap();
+        runs::finish(&conn, standalone, "completed").unwrap();
         let work = start(&mut conn, &project, "Compartir el trabajo", "refactor", "agentes rama compartida", false).unwrap();
         assert_eq!(work.branch, "refactor/agentes-rama-compartida");
         assert!(pr::value(Path::new(&project), &["rev-parse", "--abbrev-ref", "@{upstream}"]).is_err());

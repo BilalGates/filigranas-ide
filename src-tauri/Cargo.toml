@@ -8,6 +8,9 @@ edition = "2021"
 name = "filigranas_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+p0-acceptance = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

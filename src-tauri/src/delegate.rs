@@ -87,7 +87,7 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto = Jev elige entre proveedores disponibles; claude = Anthropic, codex = OpenAI, agy = Antigravity de Google; opencode y devin son motores anteriores" },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto (preferido) consulta Jev cuando hay una decisión real; fijar proveedor es selección explícita del llamante. claude = Claude Code, codex = Codex, agy = Antigravity" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
                     "rol": { "type": "string", "enum": ["researcher", "architect", "designer", "graphic", "senior", "junior", "security", "auditor", "auditor2", "verifier", "data"], "description": "Rol del ejecutor. Por defecto senior." },
                     "tipo": { "type": "string", "enum": ["implementacion", "correccion", "refactorizacion", "revision", "threat_model", "arquitectura", "planificacion", "revision_independiente", "diseno", "frontend", "auditoria_visual", "logo", "efectos", "investigacion", "config_repo", "estadistica", "verificacion"], "description": "Tipo de trabajo. Filigranas lo usa para resolver las capacidades obligatorias y automáticas." },
@@ -97,7 +97,7 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo; Antigravity valida el valor contra su catálogo real y usa el nivel actual si se omite." }
                 },
-                "required": ["agente", "tarea"],
+                "required": ["tarea"],
                 "additionalProperties": false
             }
         },
@@ -498,9 +498,9 @@ mod tests {
         assert!(loaded_codex.delegated_by_pm);
         assert!(crate::work::before_turn(&conn, "/r/p", Some(codex_child.id)).is_ok());
 
-        // Una sesión independiente (NO delegada por PM y sin worktree) sigue exigiendo work_session activa.
+        // Una sesión independiente también puede conversar sin trabajo Git activo.
         let standalone = db::create_session(&conn, "/r/p", "claude", "u-s", &["sesión 1", "sesión 2", "sesión 3", "sesión 4"]).unwrap();
-        assert!(crate::work::before_turn(&conn, "/r/p", Some(standalone.id)).is_err());
+        assert!(crate::work::before_turn(&conn, "/r/p", Some(standalone.id)).is_ok());
 
         // No entra en huérfanas de worktrees aunque comparta el worktree del padre.
         db::set_session_worktree(&conn, child.id, "/wt", "ide/p", "main", "abc").unwrap();

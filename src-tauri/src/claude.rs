@@ -300,6 +300,7 @@ impl Claude {
             (claude_model(&conn, session.id)?, crate::chat::is_pm(&conn, session.id).map_err(err)?,
                 crate::capabilities::personal_config(&conn) != "all")
         };
+        let readonly = state.permissions.get(session.id) == crate::autoapprove::Mode::ReadOnly;
         let mut procs = self.procs.lock().map_err(err)?;
         if let Some(p) = procs.get(&session.id) {
             let busy = state.tracker.get(session.id).running;
@@ -323,16 +324,23 @@ impl Claude {
         };
         let mut cmd = crate::cli::command(crate::cli::program("claude"));
         cmd.args(["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
-            .args(["--permission-prompt-tool", "stdio"])
+            .args(["--permission-prompt-tool", "stdio", "--permission-mode", "default"])
+            .args(["--settings", r#"{"permissions":{"ask":["Bash","Edit","Write","MultiEdit","NotebookEdit"]}}"#])
             .args([
                 "--disallowedTools",
                 if is_pm {
                     "Bash,Edit,Write,MultiEdit,NotebookEdit,Read,Glob,Grep,LS,WebFetch,WebSearch,Agent,Task,TodoWrite"
+                } else if readonly {
+                    "Agent,Task,Bash,Edit,Write,MultiEdit,NotebookEdit"
                 } else {
                     "Agent,Task"
                 },
             ])
             .args(["--append-system-prompt", &prompt]);
+        // Solo lectura y el PM no cargan servidores MCP de la configuración personal:
+        // sus herramientas no pasarían por la política de Filigranas.
+        if is_pm { cmd.args(["--tools", "", "--strict-mcp-config"]); }
+        else if readonly { cmd.arg("--strict-mcp-config"); }
         if can_delegate {
             cmd.args(["--mcp-config", r#"{"mcpServers":{"filigranas":{"type":"sdk","name":"filigranas"}}}"#]);
         }
@@ -443,8 +451,15 @@ impl Claude {
                     }
                     // Nivel de permisos de la sesión: Filigranas puede aprobar por su cuenta.
                     let mode = handle.state::<AppState>().permissions.get(id);
-                    let (kind, paths) = crate::autoapprove::claude_request(&msg["request"]);
-                    if crate::autoapprove::approves(mode, &cwd, kind, &paths) {
+                    let (kind, paths, command) = crate::autoapprove::claude_request(&msg["request"]);
+                    let decision = crate::autoapprove::evaluate(mode, &cwd, kind, &paths, command.as_deref());
+                    if let crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } = &decision {
+                        let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
+                            "request_id": request_id, "response": { "behavior": "deny", "message": reason } } }));
+                        let _ = handle.emit("session", Event { id, msg: json!({ "type": "policy_denied", "origin": origin, "reason": reason }) });
+                        continue;
+                    }
+                    if decision == crate::autoapprove::PolicyDecision::Allow {
                         let _ = write_line(&input, &json!({ "type": "control_response", "response": { "subtype": "success",
                             "request_id": request_id, "response": permission(&msg["request"], "accept") } }));
                         runs::on_active(&handle, id, |conn, run| runs::phase(conn, run, "running"));
@@ -452,6 +467,11 @@ impl Claude {
                             "tool": msg.pointer("/request/tool_name"), "input": msg.pointer("/request/input") }) });
                         continue;
                     }
+                    if let crate::autoapprove::PolicyDecision::Ask { origin, reason } = decision {
+                        msg["request"]["origin"] = json!(origin);
+                        msg["request"]["policy_reason"] = json!(reason);
+                    }
+                    runs::on_active(&handle, id, |conn, run| runs::phase(conn, run, "waiting_approval"));
                     let Ok(mut requests) = pending.lock() else { break };
                     if !flag.load(Ordering::SeqCst) || PermissionRequest::register(&mut requests, id, &mut msg, &flag).is_none() {
                         continue;
@@ -1002,7 +1022,7 @@ fn permission(request: &Value, decision: &str) -> Value {
         "acceptForSession" => json!({
             "behavior": "allow",
             "updatedInput": request["input"],
-            "updatedPermissions": request.get("permission_suggestions").cloned().unwrap_or(json!([])),
+            "updatedPermissions": [],
         }),
         "cancel" => json!({ "behavior": "deny", "message": "El usuario ha detenido la tarea", "interrupt": true }),
         _ => json!({ "behavior": "deny", "message": "El usuario ha rechazado esta acción" }),
@@ -1171,7 +1191,7 @@ mod tests {
     fn permission_responses() {
         let req = json!({ "input": { "file_path": "a" }, "permission_suggestions": [{ "type": "setMode", "mode": "acceptEdits", "destination": "session" }] });
         assert_eq!(permission(&req, "accept"), json!({ "behavior": "allow", "updatedInput": { "file_path": "a" } }));
-        assert_eq!(permission(&req, "acceptForSession")["updatedPermissions"][0]["mode"], json!("acceptEdits"));
+        assert_eq!(permission(&req, "acceptForSession")["updatedPermissions"], json!([]));
         assert_eq!(permission(&req, "decline")["behavior"], json!("deny"));
         assert_eq!(permission(&req, "cancel")["interrupt"], json!(true));
     }

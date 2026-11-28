@@ -12,9 +12,13 @@ pub enum Failure {
     Timeout,
     Unavailable,
     InvalidResponse,
+    Http(u16),
 }
 
 impl Failure {
+    pub fn status(self) -> Option<u16> {
+        match self { Self::RateLimit => Some(429), Self::Http(status) => Some(status), _ => None }
+    }
     pub fn code(self) -> &'static str {
         match self {
             Self::Credential => "credential",
@@ -22,6 +26,8 @@ impl Failure {
             Self::Timeout => "timeout",
             Self::Unavailable => "unavailable",
             Self::InvalidResponse => "invalid_response",
+            Self::Http(401 | 403) => "credential",
+            Self::Http(_) => "http_error",
         }
     }
 }
@@ -78,9 +84,13 @@ fn request(url: &str, protocols: &str, key: &str, timeout: u32, body: Option<&Va
     let (data, status) = stdout.split_at(stdout.len().checked_sub(4).ok_or(Failure::InvalidResponse)?);
     match status {
         b"\n200" => serde_json::from_slice(data).map_err(|_| Failure::InvalidResponse),
-        b"\n401" | b"\n403" => Err(Failure::Credential),
+        b"\n401" => Err(Failure::Http(401)),
+        b"\n403" => Err(Failure::Http(403)),
         b"\n429" => Err(Failure::RateLimit),
-        _ => Err(Failure::Unavailable),
+        _ => {
+            let code = std::str::from_utf8(status).ok().and_then(|s| s.trim().parse::<u16>().ok());
+            Err(code.filter(|c| (100..=599).contains(c)).map(Failure::Http).unwrap_or(Failure::Unavailable))
+        }
     }
 }
 

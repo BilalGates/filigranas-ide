@@ -472,6 +472,8 @@ mockIPC(
         return null;
       case 'session_interrupt':
         return null;
+      case 'session_get_permission_mode':
+        return 'ask';
       case 'session_permission_mode':
         return a.mode;
       case 'session_changes':

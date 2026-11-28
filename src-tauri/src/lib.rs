@@ -3,6 +3,8 @@ mod providers;
 mod antigravity;
 mod approval;
 mod attachments;
+#[cfg(all(debug_assertions, feature = "p0-acceptance"))]
+mod p0_acceptance;
 mod autoapprove;
 mod brain;
 mod capabilities;
@@ -343,6 +345,7 @@ pub fn run() {
             claude::session_interrupt,
             claude::session_respond,
             autoapprove::session_permission_mode,
+            autoapprove::session_get_permission_mode,
             claude::session_close,
             claude::session_set_option,
             claude::claude_chat_options,
@@ -395,6 +398,9 @@ pub fn run() {
             github_login::github_login_cancel,
             github_login::github_login_open,
             jev::jev_status,
+            jev::jev_credential_set,
+            jev::jev_credential_delete,
+            jev::jev_test_connection,
             jev::jev_statusbar,
             jev::jev_usage,
             jev::jev_euro_rate,

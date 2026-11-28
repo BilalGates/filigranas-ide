@@ -74,13 +74,13 @@ pub fn reader(session: &db::Session) -> bool {
 /// Tool names and locations are untrusted; use the same canonical path checks
 /// as common auto approvals, also for explicit approvals and full mode.
 pub fn permits(cwd: &Path, tool: &serde_json::Value, read_only: bool) -> bool {
-    let (kind, paths) = crate::autoapprove::acp_request(tool);
+    let (kind, paths, _) = crate::autoapprove::acp_request(tool);
     match kind {
         crate::autoapprove::Kind::Read | crate::autoapprove::Kind::Edit => {
             !(read_only && kind == crate::autoapprove::Kind::Edit) && !paths.is_empty()
                 && paths.iter().all(|p| crate::autoapprove::inside(cwd, p))
         }
-        crate::autoapprove::Kind::Other => tool["name"] == "run_command",
+        crate::autoapprove::Kind::Exec | crate::autoapprove::Kind::Other => tool["name"] == "run_command",
     }
 }
 

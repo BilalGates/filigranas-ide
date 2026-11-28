@@ -13,7 +13,7 @@ use crate::{db, err, AppState, CmdResult};
 use typesafe::Failure;
 
 // Changing the data disclosed to TypeSafe requires a new consent setting.
-const SETTING: &str = "jev.routing.v1";
+const SETTING: &str = "jev.routing.v2";
 const DAILY_ATTEMPTS: u32 = 100;
 const EFFORTS: [&str; 3] = ["low", "medium", "high"];
 
@@ -69,6 +69,7 @@ pub struct Status {
     account: &'static str,
     #[serde(rename = "codexModels")]
     codex_models: Vec<String>,
+    credential: &'static str,
 }
 
 impl Status {
@@ -77,6 +78,7 @@ impl Status {
             settings, supported: cfg!(any(target_os = "macos", windows)),
             service: credential::SERVICE, account: credential::ACCOUNT,
             codex_models,
+            credential: if credential::read(false).is_some() { "available" } else { "missing_or_locked" },
         }
     }
 }
@@ -90,6 +92,46 @@ fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
 pub fn jev_status(state: State<AppState>) -> CmdResult<Status> {
     let saved = settings(&*state.db.lock().map_err(err)?).map_err(err)?;
     Ok(Status::new(saved, state.codex.jev_models()?))
+}
+
+#[tauri::command]
+pub async fn jev_credential_set(app: AppHandle, key: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _gate = state.jev_gate.lock().map_err(err)?;
+        credential::save(key.trim())
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+pub async fn jev_credential_delete(app: AppHandle) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let _gate = state.jev_gate.lock().map_err(err)?;
+        credential::delete()?;
+        let mut saved = settings(&*state.db.lock().map_err(err)?).map_err(err)?;
+        saved.mode = Mode::Local;
+        saved.model = None;
+        let conn = state.db.lock().map_err(err)?;
+        db::set_setting(&conn, SETTING, &serde_json::to_string(&saved).map_err(err)?).map_err(err)
+    }).await.map_err(err)?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionTest { authenticated: bool, model: Option<String>, duration_ms: u64, error: Option<&'static str> }
+
+#[tauri::command]
+pub async fn jev_test_connection() -> CmdResult<ConnectionTest> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let started = std::time::Instant::now();
+        let result = credential::read(true).ok_or(Failure::Credential).and_then(|key| typesafe::models(&key, 10));
+        let (authenticated, model, error) = match result {
+            Ok(value) => (true, select_model(&value), None),
+            Err(failure) => (false, None, Some(failure.code())),
+        };
+        Ok(ConnectionTest { authenticated, model, error, duration_ms: started.elapsed().as_millis() as u64 })
+    }).await.map_err(err)?
 }
 
 #[derive(Serialize)]
@@ -133,7 +175,7 @@ fn configure(change: Change, discover: impl FnOnce(u32) -> Result<Value, Failure
         _ if !change.consent => return Err("Autoriza el envío de metadatos a TypeSafe para activar Jev".into()),
         _ => {
             let catalog = discover(change.timeout_secs).map_err(|e| match e {
-                Failure::Credential => "Añade una clave válida de TypeSafe al almacén del sistema y permite su lectura",
+                Failure::Credential | Failure::Http(401 | 403) => "Añade una clave válida de TypeSafe al almacén del sistema y permite su lectura",
                 Failure::Timeout => "TypeSafe no respondió dentro del plazo",
                 Failure::RateLimit => "TypeSafe alcanzó su límite de peticiones",
                 _ => "No se pudo consultar el catálogo de TypeSafe",
@@ -329,6 +371,14 @@ pub struct Trace {
     lightweight: bool,
     pub execution_model: Option<String>,
     #[serde(default)]
+    pub execution_provider: Option<String>,
+    #[serde(default)]
+    api_attempted: bool,
+    #[serde(default)]
+    http_status: Option<u16>,
+    #[serde(default)]
+    endpoint: Option<String>,
+    #[serde(default)]
     selected_provider: Option<String>,
     #[serde(default)]
     candidates: Option<Vec<String>>,
@@ -431,7 +481,7 @@ fn decide(
         _ => "standard",
     };
     let mut trace = Trace {
-        source: "local".into(),
+        source: if settings.model.is_none() { "unconfigured" } else { "local" }.into(),
         effort: best_effort(available, target, floor),
         complexity: Some(complexity.into()),
         review: Some(if high_risk { "independent" } else { "standard" }.into()),
@@ -454,6 +504,7 @@ fn decide(
     let answer = match result {
         Ok(value) => value,
         Err(reason) => {
+            trace.source = "api_error".into();
             trace.reason = Some(reason.into());
             return trace;
         }
@@ -519,14 +570,22 @@ pub fn route(state: &AppState, run: i64, baseline: Option<&str>, available: &[St
     };
     let candidates = state.codex.jev_models()?;
     let light_model = settings.light_model.as_ref().filter(|id| allow_model_override && baseline.is_some_and(|b| b != *id) && candidates.contains(id));
+    let mut api_attempted = false;
+    let mut http_status = None;
     let mut trace = decide(&settings, &signals, available, light_model.is_some(), |body| {
         let _gate = gate.map_err(|_| "busy")?;
         let key = credential::read(false).ok_or("credential")?;
         if !reserve(&state.db).map_err(|_| "budget")? {
             return Err("budget");
         }
-        typesafe::evaluate(&key, settings.timeout_secs, body).map_err(Failure::code)
+        api_attempted = true;
+        let result = typesafe::evaluate(&key, settings.timeout_secs, body);
+        http_status = match &result { Ok(_) => Some(200), Err(failure) => failure.status() };
+        result.map_err(Failure::code)
     });
+    trace.api_attempted = api_attempted;
+    trace.http_status = http_status;
+    trace.endpoint = api_attempted.then(|| "POST /v1/systemone".into());
     if trace.lightweight {
         trace.execution_model = light_model.cloned();
     }
@@ -836,7 +895,7 @@ mod tests {
             (Ok(response("low", 0.5)), "confidence")] {
             let trace = decide(&settings, &normal, &modes(), false, |_| result);
             assert_eq!((trace.source.as_str(), trace.reason.as_deref(), trace.effort.as_deref()),
-                ("local", Some(reason), Some("medium")));
+                (if matches!(reason, "timeout" | "rate_limit" | "credential") { "api_error" } else { "local" }, Some(reason), Some("medium")));
         }
         let trace = decide(&settings, &high, &modes(), false, |_| Ok(response("low", 0.99)));
         assert_eq!((trace.reason.as_deref(), trace.effort.as_deref()), (Some("policy"), Some("high")));
@@ -854,7 +913,7 @@ mod tests {
             policy: Policy::Economy, ..Settings::default() };
         let signals = Signals { risk: "low", priority: "normal", scope: "large", history: "incomplete", ambiguous_failure: true };
         let trace = decide(&settings, &signals, &modes(), true, |_| Err("unavailable"));
-        assert_eq!((trace.source.as_str(), trace.effort.as_deref()), ("local", Some("medium")));
+        assert_eq!((trace.source.as_str(), trace.effort.as_deref()), ("api_error", Some("medium")));
         assert_eq!(trace.complexity.as_deref(), Some("complex"));
         assert_eq!(trace.event_advice.as_deref(), Some("inspect"));
         assert!(!trace.lightweight);
@@ -943,5 +1002,39 @@ mod tests {
         assert_eq!(runs[1]["routing"]["source"], "jev");
         drop(conn);
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod real_acceptance {
+    use super::*;
+    #[test]
+    #[ignore = "real personal Keychain credential, network and billable TypeSafe request"]
+    fn real_typesafe_personal_api() {
+        let key = credential::read(false).expect("personal_credential_missing_or_native_access_denied");
+        let start = std::time::Instant::now();
+        let catalog = typesafe::models(&key, 10).unwrap_or_else(|failure| panic!("catalog_failed:{}", failure.code()));
+        let model = select_model(&catalog).expect("no_compatible_jev_model");
+        println!("TYPE_SAFE_CATALOG authenticated=true model={} latency_ms={}",model,start.elapsed().as_millis());
+        let saved = Settings { mode: Mode::Active, model: Some(model), timeout_secs:10, ..Default::default() };
+        let signals = Signals { risk:"low",priority:"normal",scope:"small",history:"fresh",ambiguous_failure:false };
+        let available = vec!["low".into(),"medium".into(),"high".into()];
+        let trace = decide(&saved, &signals, &available, false, |body| typesafe::evaluate(&key, 10, body).map_err(Failure::code));
+        println!("TYPE_SAFE_DECISION {}",serde_json::to_string(&trace).unwrap());
+        assert_eq!(trace.source,"jev", "real API decision was not applied; see sanitized trace");
+        assert!(trace.input_tokens.is_some());
+        assert!(trace.effort.is_some());
+        // Exact credential audit: subprocess output stays private in memory.
+        let objects = crate::cli::command("git").args(["rev-list","--objects","--all"]).output().unwrap();
+        assert!(objects.status.success());
+        let mut checked = 0;
+        for line in String::from_utf8_lossy(&objects.stdout).lines() {
+            let oid = line.split_whitespace().next().unwrap();
+            let object = crate::cli::command("git").args(["cat-file","-p",oid]).output().unwrap();
+            assert!(object.status.success());
+            assert!(!object.stdout.windows(key.len()).any(|v| v == key.as_bytes()), "personal credential exposed in Git object {}: revoke and rotate immediately",oid);
+            checked += 1;
+        }
+        println!("SECRET_AUDIT exact_personal_key_git_objects_checked={} findings=0",checked);
     }
 }

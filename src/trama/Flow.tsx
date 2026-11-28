@@ -42,7 +42,7 @@ type FRun = {
     complexity: string | null;
     confidence: number | null;
     effort: string | null;
-    source: 'local' | 'shadow' | 'jev' | null;
+    source: NonNullable<TaskRun['routing']>['source'] | null;
     tokens: number | null;
     duration: number | null;
     cost?: number | null;
@@ -65,7 +65,7 @@ type FModel = {
         escalation?: string;
     }>;
 };
-const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
+const ROUTING_SOURCE: Record<NonNullable<FRun['source']>, string> = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales', manual: 'elección manual', api_error: 'Jev no disponible (error de API)', unconfigured: 'Jev sin configurar' };
 const LANE_H = 76, COL_W = 306, NODE_W = 280, NODE_H = 58;
 const LAB: Record<FStatus, [
     string,

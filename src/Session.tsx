@@ -98,7 +98,7 @@ function claudeAsk(msg: any): Pending {
     command: r.tool_name === 'Bash' ? r.input?.command : undefined,
     files: isEdit ? [r.input?.file_path ?? r.input?.notebook_path ?? ''] : undefined,
     detail: r.tool_name !== 'Bash' && !isEdit ? brief(r.input) || JSON.stringify(r.input, null, 2) : undefined,
-    reason: [r.decision_reason, r.description].find((x) => typeof x === 'string' && x.trim()),
+    reason: [r.origin, r.policy_reason, r.decision_reason, r.description].find((x) => typeof x === 'string' && x.trim()),
   };
 }
 
@@ -147,6 +147,7 @@ function acpAsk(msg: any): Pending {
     command: call.kind === 'execute' ? acpCommand(call) : undefined,
     files: acpPaths(call),
     detail: call.kind !== 'execute' && !acpPaths(call).length ? call.title : undefined,
+    reason: [msg.origin, msg.reason].filter(Boolean).join(' · ') || undefined,
   };
 }
 
@@ -213,7 +214,7 @@ export default function Session({ session, project, hidden, switching, providerS
   const [integrated, setIntegrated] = useState(!!session.integrated);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoNotes, setAutoNotes] = useState<string[]>([]);
-  const permission = usePermissionMode(session.id, null, manager ? `pm:${project}` : undefined, parentPermissionScope, session.engine === 'agy');
+  const permission = usePermissionMode(isCodex ? null : session.id, manager ? project : null, manager ? `pm:${project}` : undefined, parentPermissionScope, session.engine === 'agy');
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
@@ -391,7 +392,7 @@ export default function Session({ session, project, hidden, switching, providerS
           break;
         }
         case 'policy_denied':
-          setError(msg.message);
+          setError(`${msg.origin}: ${msg.reason}`);
           break;
         case 'permission':
           setPending((p) => [...p, acpAsk(msg)]);
@@ -668,7 +669,7 @@ export default function Session({ session, project, hidden, switching, providerS
         {notice && <div className="co-notice">{notice}</div>}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <span className="grow">La operación requiere un trabajo Git activo. Puedes conversar en esta sesión sin crear un trabajo; revisa el motivo del bloqueo antes de continuar.</span>
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}
@@ -686,7 +687,7 @@ export default function Session({ session, project, hidden, switching, providerS
         {permission.error && <div className="co-error">{permission.error}</div>}
         {error && (NEEDS_WORK.test(error) && onStartWork ? (
           <div className="co-error co-needs-work" role="alert">
-            <span className="grow">Las sesiones directas trabajan en el checkout del proyecto: antes hay que fijar un objetivo y una rama en una sesión de trabajo. Si prefieres no tocar el checkout, abre una sesión aislada.</span>
+            <span className="grow">La operación requiere un trabajo Git activo. Puedes conversar en esta sesión sin crear un trabajo; revisa el motivo del bloqueo antes de continuar.</span>
             <button className="co-link" onClick={onStartWork}>Iniciar sesión de trabajo</button>
           </div>
         ) : <div className="co-error">{error}</div>)}

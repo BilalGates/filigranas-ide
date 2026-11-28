@@ -113,6 +113,24 @@ pub(crate) fn updates_running() -> bool {
     updating().0.lock().map(|s| !s.is_empty()).unwrap_or(true)
 }
 
+/// Bounded graceful shutdown, followed by cleanup of our own process group.
+pub(crate) fn finish_child(child: &mut std::process::Child) {
+    let end = std::time::Instant::now() + Duration::from_secs(4);
+    while std::time::Instant::now() < end {
+        if child.try_wait().ok().flatten().is_some() { break; }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    #[cfg(unix)] unsafe { libc::kill(-(child.id() as i32), libc::SIGTERM); }
+    if child.try_wait().ok().flatten().is_none() { let _ = child.kill(); }
+    let _ = child.wait();
+}
+
+/// RAII also covers failures before a process has been registered with an adapter.
+pub(crate) struct ChildProcess(pub std::process::Child);
+impl std::ops::Deref for ChildProcess { type Target=std::process::Child; fn deref(&self)->&Self::Target { &self.0 } }
+impl std::ops::DerefMut for ChildProcess { fn deref_mut(&mut self)->&mut Self::Target { &mut self.0 } }
+impl Drop for ChildProcess { fn drop(&mut self) { finish_child(&mut self.0); } }
+
 #[cfg(test)]
 mod tests {
     use super::*;

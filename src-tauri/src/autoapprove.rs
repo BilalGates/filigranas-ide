@@ -98,7 +98,7 @@ pub fn approves(mode: Mode, cwd: &Path, kind: Kind, paths: &[String]) -> bool {
 
 /// `path` (absoluta o relativa a `cwd`) queda dentro de `cwd`, siguiendo
 /// enlaces simbólicos de la parte que ya existe.
-fn inside(cwd: &Path, path: &str) -> bool {
+pub(crate) fn inside(cwd: &Path, path: &str) -> bool {
     let Ok(root) = std::fs::canonicalize(cwd) else { return false };
     let raw = Path::new(path);
     let joined = if raw.is_absolute() { raw.to_path_buf() } else { cwd.join(raw) };

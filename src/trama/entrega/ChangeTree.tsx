@@ -7,11 +7,14 @@ type Props = {
   items: TreeFileItem[];
   localExtraItems?: TreeFileItem[];
   selectedFile: string | null;
+  selectedCommitHash: string | null;
+  commitLoading?: boolean;
   collapsedDirs: Record<string, boolean>;
   canStage: boolean;
   prNumber: number | null;
   baseLabel: string;
-  onPerspective: (p: TreePerspective) => void;
+  onPerspective: (p: Exclude<TreePerspective, 'commit'>) => void;
+  onClearCommit: () => void;
   onSelectFile: (item: TreeFileItem) => void;
   onToggleDir: (dirPath: string) => void;
   onStage: (paths: string[]) => void;
@@ -29,11 +32,14 @@ export function ChangeTree({
   items,
   localExtraItems = [],
   selectedFile,
+  selectedCommitHash,
+  commitLoading = false,
   collapsedDirs,
   canStage,
   prNumber,
   baseLabel,
   onPerspective,
+  onClearCommit,
   onSelectFile,
   onToggleDir,
   onStage,
@@ -46,11 +52,15 @@ export function ChangeTree({
   const totals = useMemo(() => {
     let adds = 0;
     let dels = 0;
+    let stagedCount = 0;
+    let unstagedCount = 0;
     for (const item of items) {
       adds += item.adds ?? 0;
       dels += item.dels ?? 0;
+      if (item.staged) stagedCount++;
+      if (item.unstaged) unstagedCount++;
     }
-    return { count: items.length, adds, dels };
+    return { count: items.length, adds, dels, stagedCount, unstagedCount };
   }, [items]);
 
   const renderNode = (node: TreeNode, depth: number, keyPrefix: string) => {
@@ -60,7 +70,7 @@ export function ChangeTree({
         <div key={`${keyPrefix}:d:${node.path}`}>
           <div
             className="ent-trow ent-tdir"
-            style={{ paddingLeft: 10 + depth * 12 }}
+            style={{ paddingLeft: 8 + depth * 12 }}
             onClick={() => onToggleDir(`${keyPrefix}:${node.path}`)}
             role="button"
             tabIndex={0}
@@ -71,12 +81,13 @@ export function ChangeTree({
               }
             }}
           >
-            <Icon name={collapsed ? 'chev' : 'down'} size={11} />
-            <Icon name="folder" size={12} />
+            <Icon name={collapsed ? 'chev' : 'down'} size={10} />
+            <Icon name="folder" size={11} />
             <span className="ent-tname mono">{node.name}</span>
             <span className="ent-tmeta mono">{node.filesCount}</span>
             {canStage && perspective === 'uncommitted' && (
               <button
+                type="button"
                 className="ent-tact"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -102,7 +113,7 @@ export function ChangeTree({
       <div
         key={`${keyPrefix}:f:${f.path}`}
         className={`ent-trow ent-tfile${isSel ? ' on' : ''}`}
-        style={{ paddingLeft: 16 + depth * 12 }}
+        style={{ paddingLeft: 14 + depth * 12 }}
         onClick={() => onSelectFile(f)}
         role="button"
         tabIndex={0}
@@ -116,19 +127,20 @@ export function ChangeTree({
       >
         <span className={`ent-st ent-st-${f.status.toLowerCase()}`}>{f.status === 'U' ? '?' : f.status}</span>
         <span className="ent-tname mono">{node.name}</span>
-        {perspective === 'uncommitted' && (
-          <span className="ent-su">
+        {perspective === 'uncommitted' && (hasStaged || hasUnstaged) && (
+          <span className="ent-su" aria-hidden="true">
             {hasStaged && <i className="ent-su-s" title={`Preparado (${f.staged})`}>S</i>}
             {hasUnstaged && <i className="ent-su-u" title={`Sin preparar (${f.unstaged})`}>U</i>}
           </span>
         )}
         <span className="ent-tcounts mono">
           {f.adds != null && f.adds > 0 && <span className="add">+{f.adds}</span>}
-          {f.dels != null && f.dels > 0 && <span className="del">-{f.dels}</span>}
+          {f.dels != null && f.dels > 0 && <span className="del">−{f.dels}</span>}
         </span>
         <span className="ent-tacts">
           {canStage && perspective === 'uncommitted' && hasUnstaged && (
             <button
+              type="button"
               className="ent-tact"
               onClick={(e) => {
                 e.stopPropagation();
@@ -141,6 +153,7 @@ export function ChangeTree({
           )}
           {canStage && perspective === 'uncommitted' && hasStaged && (
             <button
+              type="button"
               className="ent-tact"
               onClick={(e) => {
                 e.stopPropagation();
@@ -151,8 +164,9 @@ export function ChangeTree({
               −
             </button>
           )}
-          {perspective === 'uncommitted' && (
+          {perspective === 'uncommitted' && canStage && (
             <button
+              type="button"
               className="ent-tact"
               onClick={(e) => {
                 e.stopPropagation();
@@ -160,7 +174,7 @@ export function ChangeTree({
               }}
               title="Abrir en editor"
             >
-              <Icon name="code" size={11} />
+              <Icon name="code" size={10} />
             </button>
           )}
         </span>
@@ -169,64 +183,112 @@ export function ChangeTree({
   };
 
   return (
-    <section className="ent-block ent-tree" aria-label="Árbol permanente de cambios">
-      <div className="ent-sec-head">
-        <Icon name="changes" size={13} />
+    <section className="ent-col ent-col-tree" aria-label="Árbol de cambios">
+      <div className="ent-col-head">
+        <Icon name="changes" size={12} />
         <span>Cambios</span>
-        <span className="ent-count mono">
+        <span className="ent-col-count mono">
           {totals.count}
-          {totals.adds > 0 ? ` +${totals.adds}` : ''}
-          {totals.dels > 0 ? ` -${totals.dels}` : ''}
+          {totals.adds > 0 ? <span className="add"> +{totals.adds}</span> : null}
+          {totals.dels > 0 ? <span className="del"> −{totals.dels}</span> : null}
         </span>
+        {canStage && perspective === 'uncommitted' && totals.count > 0 && (
+          <span className="ent-col-head-acts">
+            {totals.unstagedCount > 0 && (
+              <button
+                type="button"
+                className="ent-tact"
+                onClick={() => onStage(items.filter((i) => i.unstaged).map((i) => i.path))}
+                title={`Preparar todos (${totals.unstagedCount})`}
+              >
+                +
+              </button>
+            )}
+            {totals.stagedCount > 0 && (
+              <button
+                type="button"
+                className="ent-tact"
+                onClick={() => onUnstage(items.filter((i) => i.staged).map((i) => i.path))}
+                title={`Vaciar preparación (${totals.stagedCount})`}
+              >
+                −
+              </button>
+            )}
+          </span>
+        )}
       </div>
 
-      <div className="ent-persp">
-        <div className="tr-seg ent-persp-seg" role="tablist" aria-label="Perspectiva del árbol de cambios">
+      <div className="ent-persp-bar" role="tablist" aria-label="Ámbito del árbol de cambios">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={perspective === 'uncommitted'}
+          className={perspective === 'uncommitted' ? 'on' : ''}
+          onClick={() => onPerspective('uncommitted')}
+        >
+          Sin commit
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={perspective === 'branch'}
+          className={perspective === 'branch' ? 'on' : ''}
+          onClick={() => onPerspective('branch')}
+          title={`Diferencias de la rama frente a ${baseLabel}`}
+        >
+          vs {baseLabel}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={perspective === 'pr'}
+          className={perspective === 'pr' ? 'on' : ''}
+          onClick={() => onPerspective('pr')}
+          disabled={prNumber == null}
+          title={prNumber ? `Archivos de la PR #${prNumber}` : 'Esta rama no tiene Pull Request'}
+        >
+          PR{prNumber ? ` #${prNumber}` : ''}
+        </button>
+      </div>
+
+      {perspective === 'commit' && selectedCommitHash && (
+        <div className="ent-commit-banner">
+          <Icon name="commit" size={11} />
+          <span className="mono">Commit {selectedCommitHash.slice(0, 7)}</span>
           <button
-            role="tab"
-            aria-selected={perspective === 'uncommitted'}
-            onClick={() => onPerspective('uncommitted')}
+            type="button"
+            className="ent-tact"
+            onClick={onClearCommit}
+            title="Volver a los cambios de la rama"
+            aria-label="Salir de inspección de commit"
           >
-            Sin commit
-          </button>
-          <button
-            role="tab"
-            aria-selected={perspective === 'branch'}
-            onClick={() => onPerspective('branch')}
-            title={`Cambios de la rama frente a ${baseLabel}`}
-          >
-            vs base
-          </button>
-          <button
-            role="tab"
-            aria-selected={perspective === 'pr'}
-            onClick={() => onPerspective('pr')}
-            disabled={prNumber == null}
-            title={prNumber ? `Archivos de la PR #${prNumber}` : 'Esta rama no tiene Pull Request'}
-          >
-            PR{prNumber ? ` #${prNumber}` : ''}
+            <Icon name="close" size={10} />
           </button>
         </div>
-      </div>
+      )}
 
       <div className="ent-scroll">
         {tree.length > 0 ? (
           tree.map((n) => renderNode(n, 0, perspective))
         ) : (
           <p className="ent-empty-mini">
-            {perspective === 'uncommitted'
-              ? canStage
-                ? 'Árbol de trabajo limpio.'
-                : 'Cambia a esta rama o cambia a «vs base» para ver sus cambios.'
-              : perspective === 'branch'
-                ? `Sin diferencias respecto a ${baseLabel}.`
-                : 'Sin archivos en la PR.'}
+            {perspective === 'commit'
+              ? commitLoading
+                ? 'Cargando archivos del commit…'
+                : 'Sin archivos modificados en este commit.'
+              : perspective === 'uncommitted'
+                ? canStage
+                  ? 'Árbol de trabajo limpio.'
+                  : 'Inspección sin checkout: cambia a «vs base» para ver los cambios de esta rama.'
+                : perspective === 'branch'
+                  ? `Sin diferencias respecto a ${baseLabel}.`
+                  : 'Sin archivos en la Pull Request.'}
           </p>
         )}
 
         {perspective === 'pr' && localTree.length > 0 && (
           <div className="ent-local-sep">
-            <div className="ent-bgroup-lbl">Cambios locales sin subir ({localExtraItems.length})</div>
+            <div className="ent-bgroup-lbl">Locales sin subir · {localExtraItems.length}</div>
             {localTree.map((n) => renderNode(n, 0, 'pr-local'))}
           </div>
         )}

@@ -1,7 +1,7 @@
 import { design, type ChatEngine } from './ipc';
 import { canvasPrompt, readCanvasReply, saveCanvas, type CanvasFrame, type CanvasPair } from './designCanvasModel';
 
-export const CANVAS_ENGINES: Record<ChatEngine, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const CANVAS_ENGINES: Record<ChatEngine, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity' };
 export const canvasRuns = new Map<string, { engine: ChatEngine; result: Promise<CanvasPair> }>();
 
 export function generateCanvas(project: string, reference: CanvasFrame, request: string, engine: ChatEngine) {

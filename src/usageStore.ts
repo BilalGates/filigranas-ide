@@ -1,13 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { coordinator, type CoordinatorEvent, type RateLimits, type SessionEvent } from './ipc';
+import { providers, type ProviderHealth, coordinator, type CoordinatorEvent, type RateLimits, type SessionEvent } from './ipc';
 
-type Engine = 'codex' | 'claude';
+type Engine = import('./providers').ExecutionProvider;
 export const LOW_REMAINING = 10;
 export type QuotaWindow = { label: string; percent: number; resetsAt: number | null };
-type Snapshot = { windows: QuotaWindow[]; blockedUntil: number | null; warningUntil: number | null };
+type Snapshot = { observedAt: number; windows: QuotaWindow[]; blockedUntil: number | null; warningUntil: number | null };
 
-const EMPTY: Snapshot = { windows: [], blockedUntil: null, warningUntil: null };
+const EMPTY: Snapshot = { observedAt: 0, windows: [], blockedUntil: null, warningUntil: null };
 const CLAUDE_KEY = 'filigranas.claude-quota';
 const nowSeconds = () => Date.now() / 1000;
 
@@ -16,6 +16,7 @@ function loadClaude(): Snapshot {
     const saved = JSON.parse(localStorage.getItem(CLAUDE_KEY) ?? '[]');
     const windows: QuotaWindow[] = Array.isArray(saved) ? saved : saved.windows;
     return {
+      observedAt: Number.isFinite(saved.observedAt) ? saved.observedAt : 0,
       windows: windows.filter((w) => Number.isFinite(w.percent) && w.resetsAt != null && w.resetsAt > nowSeconds()),
       blockedUntil: Number.isFinite(saved.blockedUntil) ? saved.blockedUntil : null,
       warningUntil: Number.isFinite(saved.warningUntil) ? saved.warningUntil : null,
@@ -25,8 +26,14 @@ function loadClaude(): Snapshot {
   }
 }
 
-let limits: Record<Engine, Snapshot> = { codex: EMPTY, claude: loadClaude() };
+let limits: Record<Engine, Snapshot> = { codex: EMPTY, claude: loadClaude(), agy: EMPTY };
 const listeners = new Set<() => void>();
+let health: Record<string, ProviderHealth> = {};
+function reportHealth(value: ProviderHealth) {
+  health = { ...health, [value.id]: value };
+  limits = { ...limits };
+  listeners.forEach((notify) => notify());
+}
 
 function report(engine: Engine, snapshot: Snapshot) {
   limits = { ...limits, [engine]: snapshot };
@@ -41,7 +48,7 @@ export function reportCodex(snapshot: RateLimits) {
     return [{ label, percent: w.usedPercent, resetsAt: w.resetsAt ?? null }];
   });
   const blocked = snapshot.ordinaryUsageAllowed === false || snapshot.spendControlReached === true || !!snapshot.rateLimitReachedType;
-  report('codex', { windows, blockedUntil: blocked ? nowSeconds() + 120 : null, warningUntil: null });
+  report('codex', { observedAt: nowSeconds(), windows, blockedUntil: blocked ? nowSeconds() + 120 : null, warningUntil: null });
 }
 
 export function reportQuotaLimit(engine: Engine) {
@@ -63,7 +70,7 @@ function reportClaude(info: ClaudeQuota) {
     const unified = info.unifiedWindows?.[key];
     const own = info.rateLimitType === key ? info : undefined;
     const utilization = own?.status === 'rejected' ? 1 : unified?.utilization ?? own?.utilization;
-    const resetsAt = unified?.resetsAt ?? own?.resetsAt ?? (utilization != null ? now + 120 : undefined);
+    const resetsAt = unified?.resetsAt ?? own?.resetsAt;
     if (typeof utilization === 'number' && Number.isFinite(utilization)) {
       active.set(label, { label, percent: utilization * 100, resetsAt: resetsAt ?? null });
     } else if (resetsAt != null && active.get(label)?.resetsAt !== resetsAt) {
@@ -72,6 +79,7 @@ function reportClaude(info: ClaudeQuota) {
   }
   const until = info.resetsAt && info.resetsAt > now ? info.resetsAt : now + 120;
   const snapshot = {
+    observedAt: now,
     windows: [...active.values()],
     blockedUntil: info.status === 'rejected' ? until : null,
     warningUntil: info.status === 'allowed_warning' ? until : null,
@@ -86,6 +94,9 @@ function reportClaude(info: ClaudeQuota) {
 
 export function useQuotaEvents() {
   useEffect(() => {
+    let active = true;
+    const providerEvents = listen<ProviderHealth>('provider-health', ({ payload }) => { if (active) reportHealth(payload); });
+    void providerEvents.then(() => providers.health()).then((values) => { if (active) values.forEach(reportHealth); }, () => {});
     const codex = listen<CoordinatorEvent>('coordinator', ({ payload }) => {
       if (payload.method === 'account/rateLimits/updated' && payload.params.rateLimits) reportCodex(payload.params.rateLimits);
     });
@@ -93,6 +104,8 @@ export function useQuotaEvents() {
       if (msg.type === 'rate_limit_event' && msg.rate_limit_info) reportClaude(msg.rate_limit_info);
     });
     return () => {
+      active = false;
+      void providerEvents.then((off) => off());
       void codex.then((off) => off());
       void claude.then((off) => off());
     };
@@ -131,14 +144,21 @@ export function useProviderQuota(engine: string | null, model: string | null, re
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [engine, refreshCodex]);
 
-  const snapshot = engine === 'claude' || engine === 'codex' ? snapshots[engine] : EMPTY;
+  const snapshot = engine === 'claude' || engine === 'codex' || engine === 'agy' ? snapshots[engine] : EMPTY;
   const windows = snapshot.windows.filter((w) =>
     (w.resetsAt == null || w.resetsAt > now) &&
     (!['Opus', 'Sonnet'].includes(w.label) || model?.toLowerCase().includes(w.label.toLowerCase())));
   const remaining = windows.length ? Math.max(0, 100 - Math.max(...windows.map((w) => w.percent))) : null;
-  const exhausted = (snapshot.blockedUntil ?? 0) > now || remaining === 0;
+  const provider = engine ? health[engine] : undefined;
+  const representative = windows.reduce<QuotaWindow | null>((chosen, window) => !chosen || window.percent > chosen.percent ? window : chosen, null);
+  const disconnected = provider?.connected === false;
+  const used = disconnected ? null : representative?.percent ?? null;
+  const quotaStale = engine === 'agy' && !!provider?.quotaModel && (!provider.quotaObservedAt || now - provider.quotaObservedAt > 1800);
+  const exhausted = (snapshot.blockedUntil ?? 0) > now || remaining === 0 || (engine === 'agy' && !!provider?.quotaModel && !quotaStale);
+  const stale = quotaStale || (snapshot.observedAt > 0 && now - snapshot.observedAt > 300);
+  const status = disconnected ? 'desconectado' : exhausted ? 'cuota agotada' : stale ? 'datos desactualizados' : used === null ? 'consumo no disponible' : 'consumo conocido';
   const near = exhausted || (snapshot.warningUntil ?? 0) > now || (remaining !== null && remaining <= LOW_REMAINING);
-  return { windows, remaining, exhausted, near, loading: engine === 'codex' && codexLoading };
+  return { windows, remaining, used, representative, exhausted, near, stale, status, provider, observedAt: snapshot.observedAt || provider?.quotaObservedAt || provider?.observedAt || 0, loading: engine === 'codex' && codexLoading };
 }
 
 export type ProviderQuota = ReturnType<typeof useProviderQuota>;

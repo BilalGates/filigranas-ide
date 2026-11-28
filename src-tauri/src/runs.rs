@@ -113,6 +113,8 @@ pub fn begin_prepared(tx: &rusqlite::Transaction<'_>, project: &str, scope: &str
         return Err("ya hay un turno en marcha".into());
     }
     crate::work::before_turn(tx, project, session)?;
+    let concurrent: u32 = tx.query_row("SELECT count(*) FROM task_runs WHERE provider=?1 AND ended_ms IS NULL AND outcome<>'preparing' AND coordinator=0 AND id IS NOT ?2",params![provider,prepared],|r|r.get(0)).map_err(err)?;
+    if !coordinator && concurrent >= crate::providers::concurrency_limit(tx,provider) { return Err("se alcanzó el límite de ejecuciones de este proveedor".into()); }
     if let Some(id) = task.filter(|_|!coordinator) {
         tasks::validate_start(tx, project, id)?;
     }
@@ -134,6 +136,9 @@ pub fn begin_prepared(tx: &rusqlite::Transaction<'_>, project: &str, scope: &str
          VALUES(?1,?2,?3,?4,?5,?6,?7)", params![project,scope,provider,session,task,now(),retry],
     ).map_err(err)?;
     let id = tx.last_insert_rowid();
+    if let Some(session) = session {
+        tx.execute("INSERT OR IGNORE INTO jev_routes(run_id,data) SELECT ?1,trace FROM provider_assignments WHERE session_id=?2",params![id,session]).map_err(err)?;
+    }
     if let Some(task) = task {
         tx.execute("UPDATE tasks SET status='running',tests=NULL,updated_at=unixepoch() WHERE id=?1", [task]).map_err(err)?;
     }
@@ -282,6 +287,13 @@ impl Usage {
             .and_then(|m| m.keys().next()).cloned();
         Self { input, cached, output: count(&usage["output_tokens"]),
             cost: result["total_cost_usd"].as_f64().filter(|n| n.is_finite() && *n >= 0.0), model, context: None }
+    }
+
+    pub fn acp_result(result: &Value) -> Self {
+        let usage = &result["usage"];
+        Self { input: count(&usage["inputTokens"]).and_then(|n|n.checked_add(count(&usage["cachedReadTokens"]).unwrap_or_default()))
+                .and_then(|n|n.checked_add(count(&usage["cachedWriteTokens"]).unwrap_or_default())),
+            output: count(&usage["outputTokens"]), cached: count(&usage["cachedReadTokens"]), ..Self::default() }
     }
 
     pub fn acp(update: &Value) -> Self {
@@ -609,6 +621,16 @@ mod tests {
         }
         assert!(recent_for_project(&conn, "/b").unwrap().is_empty());
         assert!(conn.execute("UPDATE task_runs SET attempt=0", []).is_err());
+    }
+
+    #[test]
+    fn acp_usage_preserves_unknown_values_and_counts_observed_cache_semantics() {
+        let absent = Usage::acp_result(&json!({"stopReason":"end_turn"}));
+        assert!(absent.input.is_none() && absent.output.is_none() && absent.cost.is_none());
+        // Captured official 1.5.18 usage: 4489 uncached + 18378 cached + 205 output.
+        let observed = Usage::acp_result(&json!({"usage":{"inputTokens":4489,"cachedReadTokens":18378,"cachedWriteTokens":0,"outputTokens":205,"totalTokens":23072}}));
+        assert_eq!((observed.input,observed.cached,observed.output),(Some(22867),Some(18378),Some(205)));
+        assert!(observed.cost.is_none());
     }
 
     #[test]

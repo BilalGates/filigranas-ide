@@ -63,7 +63,7 @@ fn message(user: bool, text: &str, engine: &str) -> Option<Value> {
     })
 }
 
-fn codex_messages(thread: &Value) -> Vec<Value> {
+pub(crate) fn codex_messages(thread: &Value) -> Vec<Value> {
     thread.pointer("/thread/turns").and_then(Value::as_array).into_iter().flatten()
         .flat_map(|turn| turn["items"].as_array().into_iter().flatten())
         .filter_map(|item| match item["type"].as_str() {
@@ -152,6 +152,7 @@ fn validate_session(conn: &Connection, project: &str, id: i64) -> CmdResult<db::
 
 #[tauri::command]
 pub async fn chat_switch(app: AppHandle, project: String, session: Option<i64>, engine: String) -> CmdResult<Option<db::Session>> {
+    if engine == "agy" && session.is_none() { return Err("Antigravity está disponible como ejecutor; el Project Manager requiere herramientas de coordinación y restricciones verificadas".into()); }
     if !matches!(engine.as_str(), "codex" | "claude") {
         return Err("proveedor desconocido".into());
     }

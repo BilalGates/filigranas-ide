@@ -389,13 +389,14 @@ pub async fn design_generate(app: AppHandle, project: String, prompt: String, en
                     format!("Codex no pudo generar las variantes: {error}")
                 }
             }),
+            CanvasEngine::Agy => crate::antigravity::structured(&app, &scratch.0, CANVAS_INSTRUCTIONS, &prompt, &canvas_schema(), 180),
         }
     }).await.map_err(err)?
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum CanvasEngine { Claude, Codex }
+pub enum CanvasEngine { Claude, Codex, Agy }
 
 const CANVAS_INSTRUCTIONS: &str = "Genera variantes de diseño para Filigranas IDE. Toda la información necesaria está en el encargo. Responde directamente con el JSON pedido, sin usar herramientas ni consultar archivos.";
 

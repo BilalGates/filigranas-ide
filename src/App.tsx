@@ -1153,6 +1153,7 @@ export default function App() {
           <Boundary name="Entrega">
             <Entrega key={project ?? 'none'} initialScope={entregaScope} initialStage={entregaStage} initialCi={focusCi === project && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={project} projectName={current?.name ?? null} agentSessions={agentSessions}
               onConflicts={(files) => showConflicts(files)} onBranchesChanged={countPending}
+              onOpenSettings={() => { openToolInShell('ajustes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('settings-section', { detail: 'entrega' })), 0); }}
               onFile={(path, id, root) => { setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); openEditor(); }} />
           </Boundary>
         );

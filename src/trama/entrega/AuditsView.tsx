@@ -31,7 +31,14 @@ export function AuditsView({ project, headSha, dirtyTree, runs, onOpenFinding, o
     setBusyFp(note.fingerprint);
     setError(null);
     try {
-      await health.resolve(project, null, latestRun.id, note.fingerprint, status, status === 'resolved' ? 'Corregido' : 'Aceptado');
+      await health.resolve(
+        project,
+        null,
+        latestRun.id,
+        note.fingerprint,
+        status,
+        status === 'resolved' ? 'Corregido' : 'Aceptado',
+      );
       onRefresh();
     } catch (e) {
       setError(String(e));
@@ -41,65 +48,71 @@ export function AuditsView({ project, headSha, dirtyTree, runs, onOpenFinding, o
   };
 
   return (
-    <div className="ent-view">
-      {error && <div className="tr-error" role="alert"><Icon name="warn" size={14} /><span>{error}</span></div>}
-
-      <section className="ent-card">
-        <div className="ent-card-head">
-          <div className="ent-row-wrap">
-            <strong><Icon name="shield" size={13} /> Auditorías y hallazgos ({notes.length} abiertos)</strong>
-            {latestRun && (
-              stale ? (
-                <span className="chip amber tiny">Resultados sobre revisión anterior — re-auditar tras cambios</span>
-              ) : (
-                <span className="chip mint tiny">Vigente para HEAD actual</span>
-              )
-            )}
-          </div>
-          <div className="tr-seg">
-            <button aria-pressed={sevFilter === 'all'} onClick={() => setSevFilter('all')}>Todos ({notes.length})</button>
-            <button aria-pressed={sevFilter === 'error'} onClick={() => setSevFilter('error')}>
-              Errores ({notes.filter((n) => n.severity === 'error').length})
-            </button>
-            <button aria-pressed={sevFilter === 'warning'} onClick={() => setSevFilter('warning')}>
-              Avisos ({notes.filter((n) => n.severity === 'warning').length})
-            </button>
-          </div>
+    <section className="ent-sec">
+      {error && (
+        <div className="tr-error" role="alert">
+          <Icon name="warn" size={13} />
+          <span>{error}</span>
         </div>
+      )}
 
-        {filtered.length === 0 ? (
-          <p className="ent-empty-mini">Sin hallazgos abiertos para el filtro seleccionado.</p>
-        ) : (
-          <div className="ent-finding-list">
-            {filtered.map((n) => (
-              <div key={n.fingerprint} className="ent-finding-row">
-                <span className={`sev ${n.severity === 'error' ? 'h' : n.severity === 'warning' ? 'm' : 'l'}`} />
-                <div className="ent-finding-body">
-                  <button className="ent-finding-link" onClick={() => onOpenFinding(n)}>
-                    <strong>{n.title ?? n.rule}</strong>
-                    <span className="mut mono">
-                      {n.path ?? 'general'}{n.line != null ? `:${n.line}` : ''} · {n.rule}
-                    </span>
-                  </button>
-                  {n.who && n.who.length > 0 && (
-                    <div className="ent-row-wrap" style={{ marginTop: 4 }}>
-                      {n.who.map((w) => <span key={w} className="chip tiny">{w}</span>)}
-                    </div>
-                  )}
-                </div>
-                <div className="ent-row-wrap">
-                  <button className="btn sm" disabled={busyFp === n.fingerprint} onClick={() => resolveNote(n, 'resolved')}>
-                    Resuelto
-                  </button>
-                  <button className="btn sm ghost" disabled={busyFp === n.fingerprint} onClick={() => resolveNote(n, 'accepted')}>
-                    Aceptar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+      <div className="ent-sec-bar">
+        <Icon name="shield" size={12} />
+        <strong>Auditorías y hallazgos</strong>
+        <span className="ent-mono-meta mono">{notes.length} abiertos</span>
+        {latestRun && (
+          <span className={`ent-inline-tag tone-${stale ? 'amber' : 'mint'}`}>
+            {stale ? 'Re-auditar' : 'Vigente'}
+          </span>
         )}
-      </section>
-    </div>
+        <span className="grow" />
+        <div className="tr-seg ent-mini-seg">
+          <button type="button" aria-pressed={sevFilter === 'all'} onClick={() => setSevFilter('all')}>
+            Todos
+          </button>
+          <button type="button" aria-pressed={sevFilter === 'error'} onClick={() => setSevFilter('error')}>
+            Errores ({notes.filter((n) => n.severity === 'error').length})
+          </button>
+          <button type="button" aria-pressed={sevFilter === 'warning'} onClick={() => setSevFilter('warning')}>
+            Avisos ({notes.filter((n) => n.severity === 'warning').length})
+          </button>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="ent-empty-inline">Sin hallazgos abiertos para el filtro seleccionado.</p>
+      ) : (
+        <div className="ent-list">
+          {filtered.map((n) => (
+            <div key={n.fingerprint} className="ent-list-row">
+              <span className={`sev ${n.severity === 'error' ? 'h' : n.severity === 'warning' ? 'm' : 'l'}`} />
+              <button type="button" className="ent-finding-link" onClick={() => onOpenFinding(n)}>
+                <strong>{n.title ?? n.rule}</strong>
+                <span className="mut mono">
+                  {n.path ?? 'general'}{n.line != null ? `:${n.line}` : ''} · {n.rule}
+                  {n.who && n.who.length > 0 ? ` · ${n.who.join(', ')}` : ''}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn sm ghost"
+                disabled={busyFp === n.fingerprint}
+                onClick={() => resolveNote(n, 'resolved')}
+              >
+                Resuelto
+              </button>
+              <button
+                type="button"
+                className="btn sm ghost"
+                disabled={busyFp === n.fingerprint}
+                onClick={() => resolveNote(n, 'accepted')}
+              >
+                Aceptar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

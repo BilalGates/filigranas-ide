@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
   cancelReview,
@@ -7,11 +7,11 @@ import {
   gitOps,
   githubPr,
   health,
+  tasks as taskApi,
   workSessions,
   type AutomationStatus,
   type BranchEntry,
   type BranchInventory,
-  type CheckLog,
   type CommitDetail,
   type CompareResult,
   type GitStatus,
@@ -22,33 +22,42 @@ import {
   type RepoPulls,
   type Review,
   type Session,
+  type Task,
   type WorkSession,
 } from '../ipc';
 import { openFindings, type ReviewNote } from './findings';
 import { Icon } from './icons';
 import ReviewDiff, { type DiffSpec } from './ReviewDiff';
-import { AuditsView } from './entrega/AuditsView';
-import { AutomationView } from './entrega/AutomationView';
 import { BranchExplorer } from './entrega/BranchExplorer';
 import { ChangeTree } from './entrega/ChangeTree';
 import { ChecksView } from './entrega/ChecksView';
+import { CommitGraph } from './entrega/CommitGraph';
 import { CommitsView } from './entrega/CommitsView';
-import { ContextInspector, type InspectorPayload } from './entrega/ContextInspector';
-import { DeliveryHeader } from './entrega/DeliveryHeader';
 import {
+  DEFAULT_LAYOUT_PREFS,
   changesToTreeItems,
-  computePipelineStages,
+  commitFilesToTreeItems,
+  computeTimelineStages,
   getEntregaState,
+  loadEntregaLayoutPrefs,
+  resolveEntregaLayout,
+  saveEntregaLayoutPrefs,
   setEntregaState,
-  type CenterTab,
+  type EntregaLayoutPrefs,
   type EntregaProjectState,
+  type HistoryScope,
+  type TimelineStageId,
   type TreeFileItem,
   type TreePerspective,
 } from './entrega/entregaStore';
 import { PullRequestView } from './entrega/PullRequestView';
+import { StageAgentsView } from './entrega/StageAgentsView';
+import { StageTasksView } from './entrega/StageTasksView';
+import { TimelineHeader } from './entrega/TimelineHeader';
 
 export type EntregaStage =
   | 'tarea'
+  | 'tareas'
   | 'agentes'
   | 'rama'
   | 'cambios'
@@ -58,20 +67,27 @@ export type EntregaStage =
   | 'ci'
   | 'integracion';
 
-function mapInitialStage(stage?: EntregaStage | null, ci?: boolean): CenterTab | null {
-  if (ci) return 'checks';
+function mapInitialStage(stage?: EntregaStage | null, ci?: boolean): TimelineStageId | null {
+  if (ci) return 'ci';
   switch (stage) {
-    case 'cambios':
-      return 'diff';
-    case 'commit':
+    case 'tarea':
+    case 'tareas':
+      return 'tareas';
+    case 'agentes':
+      return 'agentes';
     case 'rama':
-      return 'commits';
+    case 'cambios':
+      return 'cambios';
+    case 'tests':
+      return 'tests';
+    case 'commit':
+      return 'commit';
     case 'pr':
-    case 'integracion':
       return 'pr';
     case 'ci':
-    case 'tests':
-      return 'checks';
+      return 'ci';
+    case 'integracion':
+      return 'integracion';
     default:
       return null;
   }
@@ -80,11 +96,14 @@ function mapInitialStage(stage?: EntregaStage | null, ci?: boolean): CenterTab |
 export default function Entrega({
   project,
   projectName,
+  agentSessions,
   initialStage,
   initialCi,
   onConsumeCi,
   onFile,
+  onConflicts,
   onBranchesChanged,
+  onOpenSettings,
 }: {
   project: string | null;
   projectName: string | null;
@@ -96,6 +115,7 @@ export default function Entrega({
   onFile: (path: string, session: number | null, root: string | null) => void;
   onConflicts?: (files: string[]) => void;
   onBranchesChanged?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const [ui, setUi] = useState<EntregaProjectState>(() =>
     project ? getEntregaState(project) : getEntregaState('__none__'),
@@ -109,35 +129,69 @@ export default function Entrega({
     [project],
   );
 
-  // Al cambiar de proyecto se restaura su estado independiente de Entrega.
   useEffect(() => {
     if (!project) return;
     const saved = getEntregaState(project);
-    const forcedTab = mapInitialStage(initialStage, initialCi);
-    if (forcedTab && saved.centerTab !== forcedTab) {
-      setUi(setEntregaState(project, { centerTab: forcedTab }));
+    const forced = mapInitialStage(initialStage, initialCi);
+    if (forced && saved.selectedStage !== forced) {
+      setUi(setEntregaState(project, { selectedStage: forced }));
     } else {
       setUi(saved);
     }
     if (initialCi) onConsumeCi?.();
   }, [project, initialStage, initialCi, onConsumeCi]);
 
+  // Preferencias de distribución adaptables y persistentes (columnas + altura de historial).
+  const [layoutPrefs, setLayoutPrefs] = useState<EntregaLayoutPrefs>(loadEntregaLayoutPrefs);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [bodySize, setBodySize] = useState({ width: 1120, height: 640 });
+  const [dragging, setDragging] = useState<'col1' | 'col2' | 'hist' | null>(null);
+  const dragOrigin = useRef<{ startX: number; startY: number; startBranches: number; startTree: number; startHist: number } | null>(null);
+
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setBodySize({ width: Math.round(rect.width), height: Math.round(rect.height) });
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [project]);
+
+  const layout = useMemo(
+    () => resolveEntregaLayout(layoutPrefs, bodySize.width, bodySize.height),
+    [layoutPrefs, bodySize.width, bodySize.height],
+  );
+
+  const updateLayoutPrefs = useCallback((next: EntregaLayoutPrefs) => {
+    setLayoutPrefs(next);
+    saveEntregaLayoutPrefs(next);
+  }, []);
+
+  // Estado de datos reales (reutilizando íntegramente el backend Git/GitHub existente)
   const [inventory, setInventory] = useState<BranchInventory | null>(null);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [compare, setCompare] = useState<CompareResult | null>(null);
+  const [repoLog, setRepoLog] = useState<LogRow[]>([]);
   const [branchLog, setBranchLog] = useState<LogRow[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
   const [repoPulls, setRepoPulls] = useState<RepoPulls | null>(null);
   const [prDetail, setPrDetail] = useState<PullDetail | null>(null);
   const [prLoading, setPrLoading] = useState(false);
   const [healthRuns, setHealthRuns] = useState<HealthRun[]>([]);
   const [work, setWork] = useState<WorkSession | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [autoStatus, setAutoStatus] = useState<AutomationStatus | null>(null);
 
   const [diffSubMode, setDiffSubMode] = useState<'worktree' | 'unstaged' | 'staged'>('worktree');
   const [commitDetail, setCommitDetail] = useState<CommitDetail | null>(null);
-  const [commitDiffFile, setCommitDiffFile] = useState<{ commit: string; path: string } | null>(null);
-  const [activeLog, setActiveLog] = useState<{ title: string; log: CheckLog } | null>(null);
   const [focusFinding, setFocusFinding] = useState<ReviewNote | undefined>(undefined);
+  const commitCacheRef = useRef(new Map<string, CommitDetail>());
 
   const [pushReview, setPushReview] = useState<{ branch: string; setUpstream: boolean; review: Review } | null>(null);
   const [pushCode, setPushCode] = useState('');
@@ -145,23 +199,32 @@ export default function Entrega({
   const [bannerError, setBannerError] = useState<string | null>(null);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
 
+  const projectSessions = useMemo(
+    () => (project ? agentSessions.filter((s) => s.project === project) : []),
+    [agentSessions, project],
+  );
+
   const loadLocal = useCallback(async () => {
     if (!project) return;
+    setLogLoading((prev) => prev || repoLog.length === 0);
     try {
-      const [inv, st, runs, ws, auto] = await Promise.all([
+      const [inv, st, lg, runs, ws, tks, auto] = await Promise.all([
         git.branchInventory(project),
         git.status(project),
+        git.log(project).catch(() => [] as LogRow[]),
         health.list(project, null).catch(() => [] as HealthRun[]),
         workSessions.current(project).catch(() => null),
+        taskApi.list(project).catch(() => [] as Task[]),
         deliveryAuto.status(project).catch(() => null),
       ]);
       setInventory(inv);
       setStatus(st);
+      setRepoLog(lg);
       setHealthRuns(runs);
       setWork(ws);
+      setTasks(tks);
       setAutoStatus(auto);
 
-      // Si no hay rama inspeccionada guardada o ya no existe, enfoca la rama activa.
       const saved = getEntregaState(project);
       const stillExists = saved.inspectedBranch && inv.branches.some((b) => b.name === saved.inspectedBranch);
       if (!stillExists) {
@@ -172,6 +235,8 @@ export default function Entrega({
       }
     } catch (e) {
       setBannerError(String(e));
+    } finally {
+      setLogLoading(false);
     }
   }, [project]);
 
@@ -181,20 +246,20 @@ export default function Entrega({
       const res = await githubPr.listRepo(project);
       setRepoPulls(res);
     } catch {
-      // Silencioso: `pr_list_repo` devuelve errores estructurados en `res.error`.
+      // `pr_list_repo` devuelve errores estructurados en `res.error`.
     }
   }, [project]);
 
   useEffect(() => {
+    commitCacheRef.current.clear();
     setInventory(null);
     setStatus(null);
     setCompare(null);
+    setRepoLog([]);
     setBranchLog([]);
     setRepoPulls(null);
     setPrDetail(null);
     setCommitDetail(null);
-    setCommitDiffFile(null);
-    setActiveLog(null);
     setPushReview(null);
     setBannerError(null);
     setBannerNotice(null);
@@ -209,7 +274,7 @@ export default function Entrega({
     let timer: number;
     const schedule = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void loadLocal(), 180);
+      timer = window.setTimeout(() => void loadLocal(), 200);
     };
     const offProj = listen('project-changed', schedule);
     const offTasks = listen('tasks-changed', schedule);
@@ -234,7 +299,6 @@ export default function Entrega({
     const map = new Map<string, PullSummary>();
     for (const p of repoPulls?.pulls ?? []) {
       const prev = map.get(p.branch);
-      // Prioriza PR abierta sobre cerradas/integradas anteriores.
       if (!prev || (prev.state !== 'OPEN' && p.state === 'OPEN')) {
         map.set(p.branch, p);
       }
@@ -244,27 +308,48 @@ export default function Entrega({
 
   const inspectedPr: PullSummary | null = inspected ? (prByBranch.get(inspected.name) ?? null) : null;
 
-  // Compara la rama inspeccionada frente a su base real y carga su historial (sin checkout).
+  // Compara la rama inspeccionada frente a su base real (sin checkout).
   useEffect(() => {
     if (!project || !inspected) return;
     let cancelled = false;
     const baseRef = inspectedPr?.base
       ? (inventory?.branches.find((b) => b.name === inspectedPr.base)?.refName ?? inspectedPr.base)
       : (inventory?.defaultRef ?? null);
-    Promise.all([
-      git.compareBranch(project, inspected.refName, baseRef).catch(() => null),
-      git.branchLog(project, inspected.refName, 60).catch(() => [] as LogRow[]),
-    ]).then(([cmp, logs]) => {
-      if (cancelled) return;
-      setCompare(cmp);
-      setBranchLog(logs);
-    });
+    git
+      .compareBranch(project, inspected.refName, baseRef)
+      .then((cmp) => {
+        if (!cancelled) setCompare(cmp);
+      })
+      .catch(() => {
+        if (!cancelled) setCompare(null);
+      });
     return () => {
       cancelled = true;
     };
   }, [project, inspected?.refName, inspected?.headOid, inspectedPr?.base, inventory?.defaultRef]);
 
-  // Detalle completo de PR bajo demanda al tener una PR asociada a la rama inspeccionada.
+  // Carga el historial filtrado por rama solo cuando el usuario elige filtrar por rama.
+  useEffect(() => {
+    if (!project || !inspected || ui.historyScope !== 'branch') return;
+    let cancelled = false;
+    setLogLoading(true);
+    git
+      .branchLog(project, inspected.refName, 160)
+      .then((logs) => {
+        if (!cancelled) setBranchLog(logs);
+      })
+      .catch(() => {
+        if (!cancelled) setBranchLog([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project, inspected?.refName, inspected?.headOid, ui.historyScope]);
+
+  // Detalle completo de PR bajo demanda cuando la rama inspeccionada tiene PR.
   const loadPrDetail = useCallback(
     async (num: number) => {
       if (!project) return;
@@ -290,10 +375,40 @@ export default function Entrega({
     void loadPrDetail(inspectedPr.number);
   }, [inspectedPr?.number, inspectedPr?.headOid, loadPrDetail]);
 
+  // Recupera detalle del commit seleccionado si persistía en estado.
+  useEffect(() => {
+    if (!project || !ui.selectedCommit) {
+      setCommitDetail(null);
+      return;
+    }
+    const key = `${project}:${ui.selectedCommit}`;
+    const cached = commitCacheRef.current.get(key);
+    if (cached) {
+      setCommitDetail(cached);
+      return;
+    }
+    let cancelled = false;
+    gitOps
+      .detail(project, ui.selectedCommit)
+      .then((d) => {
+        commitCacheRef.current.set(key, d);
+        if (!cancelled) setCommitDetail(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setBannerError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project, ui.selectedCommit]);
+
   const allOpenFindings = useMemo(() => openFindings(healthRuns), [healthRuns]);
 
-  // Elementos del árbol según la perspectiva activa.
+  // Elementos del árbol permanente según perspectiva activa (incluyendo commit seleccionado).
   const treeData = useMemo<{ items: TreeFileItem[]; localExtra: TreeFileItem[] }>(() => {
+    if (ui.treePerspective === 'commit' && ui.selectedCommit) {
+      return { items: commitFilesToTreeItems(commitDetail), localExtra: [] };
+    }
     if (ui.treePerspective === 'uncommitted') {
       if (!inspected?.active) return { items: [], localExtra: [] };
       return { items: changesToTreeItems(status?.changes ?? []), localExtra: [] };
@@ -301,7 +416,6 @@ export default function Entrega({
     if (ui.treePerspective === 'branch') {
       return { items: changesToTreeItems(compare?.files ?? []), localExtra: [] };
     }
-    // Perspectiva Pull Request: archivos de GitHub separados de los cambios locales sin subir.
     const prFiles: TreeFileItem[] = (prDetail?.files ?? []).map((f) => ({
       path: f.path,
       orig: null,
@@ -312,7 +426,7 @@ export default function Entrega({
     }));
     const localExtra = inspected?.active ? changesToTreeItems(status?.changes ?? []) : [];
     return { items: prFiles, localExtra };
-  }, [ui.treePerspective, inspected?.active, status?.changes, compare?.files, prDetail?.files]);
+  }, [ui.treePerspective, ui.selectedCommit, commitDetail, inspected?.active, status?.changes, compare?.files, prDetail?.files]);
 
   const selectedTreeFile: TreeFileItem | null = useMemo(() => {
     const all = [...treeData.items, ...treeData.localExtra];
@@ -320,12 +434,15 @@ export default function Entrega({
   }, [treeData, ui.selectedFile]);
 
   const diffSpec: DiffSpec | undefined = useMemo(() => {
-    if (commitDiffFile) {
-      return { mode: 'commit', commit: commitDiffFile.commit };
+    if (ui.treePerspective === 'commit' && ui.selectedCommit) {
+      return { mode: 'commit', commit: commitDetail?.hash ?? ui.selectedCommit };
     }
     if (!selectedTreeFile || !inspected) return undefined;
     if (ui.treePerspective === 'uncommitted') {
-      return { mode: diffSubMode, revisionKey: `${status?.headSha ?? ''}:${selectedTreeFile.staged ?? ''}:${selectedTreeFile.unstaged ?? ''}` };
+      return {
+        mode: diffSubMode,
+        revisionKey: `${status?.headSha ?? ''}:${selectedTreeFile.staged ?? ''}:${selectedTreeFile.unstaged ?? ''}`,
+      };
     }
     if (ui.treePerspective === 'pr' && selectedTreeFile.section === 'local') {
       return { mode: 'worktree', revisionKey: status?.headSha ?? '' };
@@ -339,11 +456,22 @@ export default function Entrega({
         ? (prDetail.headOid || inspected.refName)
         : inspected.refName;
     return { mode: 'range', baseRef, headRef, revisionKey: `${baseRef}:${headRef}` };
-  }, [commitDiffFile, selectedTreeFile, inspected, ui.treePerspective, diffSubMode, status?.headSha, prDetail, compare?.baseRef, inventory]);
+  }, [
+    ui.treePerspective,
+    ui.selectedCommit,
+    commitDetail?.hash,
+    selectedTreeFile,
+    inspected,
+    diffSubMode,
+    status?.headSha,
+    prDetail,
+    compare?.baseRef,
+    inventory,
+  ]);
 
   const stages = useMemo(
     () =>
-      computePipelineStages({
+      computeTimelineStages({
         branch: inspected,
         status,
         compareCount: compare?.files.length ?? 0,
@@ -351,11 +479,19 @@ export default function Entrega({
         healthRuns,
         openFindingsCount: allOpenFindings.length,
         workSession: work,
+        tasks,
+        agentSessions: projectSessions,
+        automation: autoStatus,
       }),
-    [inspected, status, compare?.files.length, inspectedPr, healthRuns, allOpenFindings.length, work],
+    [inspected, status, compare?.files.length, inspectedPr, healthRuns, allOpenFindings.length, work, tasks, projectSessions, autoStatus],
   );
 
-  // Acciones Git globales (cabecera + explorador)
+  const agentBranches = useMemo(
+    () => [...new Set(projectSessions.map((s) => s.branch).filter((b): b is string => Boolean(b)))],
+    [projectSessions],
+  );
+
+  // Acciones Git globales
   const doFetch = async () => {
     if (!project) return;
     setBusyAction('fetch');
@@ -403,14 +539,14 @@ export default function Entrega({
     }
   };
 
-  const startPush = async () => {
-    if (!project || !inspected?.local) return;
+  const startPushForBranch = async (branch: BranchEntry | null) => {
+    if (!project || !branch?.local) return;
     setBusyAction('push-review');
     setBannerError(null);
     try {
-      const setUpstream = !inspected.published;
-      const review = await gitOps.reviewPushBranch(project, inspected.name, setUpstream);
-      setPushReview({ branch: inspected.name, setUpstream, review });
+      const setUpstream = !branch.published;
+      const review = await gitOps.reviewPushBranch(project, branch.name, setUpstream);
+      setPushReview({ branch: branch.name, setUpstream, review });
       setPushCode('');
     } catch (e) {
       setBannerError(String(e));
@@ -461,10 +597,8 @@ export default function Entrega({
     }
   };
 
+  // Interconexión entre secciones
   const handleInspectBranch = (b: BranchEntry) => {
-    setCommitDiffFile(null);
-    setCommitDetail(null);
-    setActiveLog(null);
     const nextPersp: TreePerspective = b.active
       ? (status?.changes.length ? 'uncommitted' : 'branch')
       : 'branch';
@@ -477,90 +611,133 @@ export default function Entrega({
     });
   };
 
-  const handleSelectCommit = async (hash: string) => {
-    if (!project) return;
-    patchUi({ selectedCommit: hash, inspectorOpen: true });
-    setActiveLog(null);
-    try {
-      const d = await gitOps.detail(project, hash);
-      setCommitDetail(d);
-    } catch (e) {
-      setBannerError(String(e));
+  const handleSelectCommit = useCallback(
+    (hash: string) => {
+      patchUi({
+        selectedCommit: hash,
+        treePerspective: 'commit',
+        selectedFile: null,
+        selectedStage: 'cambios',
+      });
+    },
+    [patchUi],
+  );
+
+  const handleClearCommit = useCallback(() => {
+    const fallbackPersp: TreePerspective = inspected?.active
+      ? (status?.changes.length ? 'uncommitted' : 'branch')
+      : 'branch';
+    patchUi({
+      selectedCommit: null,
+      treePerspective: fallbackPersp,
+      selectedFile: null,
+    });
+  }, [inspected?.active, status?.changes.length, patchUi]);
+
+  const handleScopeChange = useCallback(
+    (historyScope: HistoryScope) => patchUi({ historyScope }),
+    [patchUi],
+  );
+
+  const handleHistorySearchChange = useCallback(
+    (historySearch: string) => patchUi({ historySearch }),
+    [patchUi],
+  );
+
+  // Gestión de arrastre de divisores redimensionables
+  const beginDrag = (kind: 'col1' | 'col2' | 'hist', e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragOrigin.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startBranches: layout.branchesPx,
+      startTree: layout.treePx,
+      startHist: layout.historyPx,
+    };
+    setDragging(kind);
+    document.documentElement.dataset.resizing = kind === 'hist' ? 'y' : 'x';
+  };
+
+  const moveDrag = (kind: 'col1' | 'col2' | 'hist', e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragOrigin.current) return;
+    const w = Math.max(520, bodySize.width);
+    const h = Math.max(280, bodySize.height);
+    if (kind === 'col1') {
+      const nextPx = dragOrigin.current.startBranches + (e.clientX - dragOrigin.current.startX);
+      const ratio = Math.min(0.36, Math.max(0.14, nextPx / w));
+      updateLayoutPrefs({ ...layoutPrefs, branchesRatio: ratio });
+    } else if (kind === 'col2') {
+      const nextPx = dragOrigin.current.startTree + (e.clientX - dragOrigin.current.startX);
+      const ratio = Math.min(0.38, Math.max(0.16, nextPx / w));
+      updateLayoutPrefs({ ...layoutPrefs, treeRatio: ratio });
+    } else {
+      const nextPx = dragOrigin.current.startHist - (e.clientY - dragOrigin.current.startY);
+      const ratio = Math.min(0.56, Math.max(0.18, nextPx / h));
+      updateLayoutPrefs({ ...layoutPrefs, historyRatio: ratio });
     }
   };
 
-  const inspectorPayload: InspectorPayload | null = useMemo(() => {
-    if (activeLog) return { kind: 'log', title: activeLog.title, log: activeLog.log };
-    if (commitDetail && ui.selectedCommit) {
-      return {
-        kind: 'commit',
-        detail: commitDetail,
-        onOpenFile: (path) => {
-          setCommitDiffFile({ commit: commitDetail.hash, path });
-          patchUi({ centerTab: 'diff', selectedFile: path });
-        },
-      };
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragOrigin.current) return;
+    dragOrigin.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    if (ui.centerTab === 'diff' && selectedTreeFile) {
-      const fileFindings = allOpenFindings.filter((f) => f.path === selectedTreeFile.path);
-      return { kind: 'file', file: selectedTreeFile, findings: fileFindings };
-    }
-    if (ui.centerTab === 'pr' && prDetail) {
-      return { kind: 'pr', detail: prDetail };
-    }
-    return null;
-  }, [activeLog, commitDetail, ui.selectedCommit, ui.centerTab, selectedTreeFile, allOpenFindings, prDetail, patchUi]);
-
-  const showInspector = Boolean(ui.inspectorOpen && inspectorPayload);
+    setDragging(null);
+    delete document.documentElement.dataset.resizing;
+  };
 
   if (!project) {
     return (
       <div className="tv ent-root">
         <div className="tr-empty">
           <Icon name="review" size={28} />
-          <h3>Centro de Entrega</h3>
-          <p>Selecciona un proyecto para inspeccionar ramas, cambios, commits, Pull Requests y comprobaciones CI.</p>
+          <h3>Entrega</h3>
+          <p>Selecciona un proyecto para seguir la línea temporal, ramas, cambios, Pull Requests y el grafo de commits.</p>
         </div>
       </div>
     );
   }
 
-  const diffTarget = commitDiffFile
-    ? { path: commitDiffFile.path, orig: null, status: 'M', adds: null, dels: null }
-    : selectedTreeFile
-      ? {
-          path: selectedTreeFile.path,
-          orig: selectedTreeFile.orig,
-          status: selectedTreeFile.status,
-          adds: selectedTreeFile.adds,
-          dels: selectedTreeFile.dels,
-        }
-      : null;
+  const diffTarget = selectedTreeFile
+    ? {
+        path: selectedTreeFile.path,
+        orig: selectedTreeFile.orig,
+        status: selectedTreeFile.status,
+        adds: selectedTreeFile.adds,
+        dels: selectedTreeFile.dels,
+      }
+    : null;
 
   const fileFindings = diffTarget ? allOpenFindings.filter((f) => f.path === diffTarget.path) : [];
+  const graphRows = ui.historyScope === 'branch' ? branchLog : repoLog;
+  const activeStageObj = stages.find((s) => s.id === ui.selectedStage) ?? stages[2];
 
   return (
-    <div className="tv ent-root">
-      <DeliveryHeader
+    <div className={`tv ent-root${dragging ? ' is-dragging' : ''}`}>
+      {/* SECCIÓN 01 — Entrega (Línea temporal Trama v2) */}
+      <TimelineHeader
         projectName={projectName ?? project.split('/').pop() ?? 'Proyecto'}
         activeBranch={inventory?.activeBranch ?? status?.branch ?? null}
+        agentBranches={agentBranches}
         inspected={inspected}
         stages={stages}
-        activeTab={ui.centerTab}
+        selectedStage={ui.selectedStage}
+        automation={autoStatus}
         busyAction={busyAction}
-        inspectorOpen={showInspector}
-        hasInspectorData={inspectorPayload !== null}
-        onSelectStage={(tab) => patchUi({ centerTab: tab })}
+        onSelectStage={(id) => patchUi({ selectedStage: id })}
         onFetch={doFetch}
         onPull={doPull}
-        onPush={startPush}
+        onPush={() => void startPushForBranch(inspected)}
         onCheckout={doCheckout}
-        onToggleInspector={() => patchUi({ inspectorOpen: !ui.inspectorOpen })}
+        onOpenSettings={onOpenSettings}
       />
 
       {pushReview && (
         <div className="ent-push-bar">
-          <Icon name="push" size={14} />
+          <Icon name="push" size={13} />
           <span><strong>Confirmar publicación:</strong> {pushReview.review.message}</span>
           <input
             className="in mono"
@@ -569,10 +746,11 @@ export default function Entrega({
             onChange={(e) => setPushCode(e.target.value)}
             placeholder={`Escribe ${pushReview.review.code}`}
           />
-          <button className="btn sm pearl" disabled={busyAction !== null || !pushCode.trim()} onClick={confirmPush}>
+          <button type="button" className="btn sm pearl" disabled={busyAction !== null || !pushCode.trim()} onClick={confirmPush}>
             Publicar
           </button>
           <button
+            type="button"
             className="btn sm ghost"
             onClick={() => {
               void cancelReview(pushReview.review.id);
@@ -584,139 +762,227 @@ export default function Entrega({
         </div>
       )}
 
-      {(bannerError || bannerNotice || (repoPulls?.error && ui.centerTab === 'pr')) && (
+      {(bannerError || bannerNotice || (repoPulls?.error && (ui.selectedStage === 'pr' || ui.selectedStage === 'ci'))) && (
         <div className="ent-banners">
           {bannerError && (
             <div className="tr-error" role="alert">
-              <Icon name="warn" size={14} />
+              <Icon name="warn" size={13} />
               <span className="grow">{bannerError}</span>
-              <button className="tbtn" onClick={() => setBannerError(null)} aria-label="Cerrar error"><Icon name="close" size={12} /></button>
+              <button type="button" className="tbtn" onClick={() => setBannerError(null)} aria-label="Cerrar error">
+                <Icon name="close" size={12} />
+              </button>
             </div>
           )}
           {bannerNotice && (
             <div className="ent-notice">
-              <Icon name="check" size={14} />
+              <Icon name="check" size={13} />
               <span className="grow">{bannerNotice}</span>
-              <button className="tbtn" onClick={() => setBannerNotice(null)} aria-label="Cerrar aviso"><Icon name="close" size={12} /></button>
+              <button type="button" className="tbtn" onClick={() => setBannerNotice(null)} aria-label="Cerrar aviso">
+                <Icon name="close" size={12} />
+              </button>
             </div>
           )}
-          {repoPulls?.error && ui.centerTab === 'pr' && (
+          {repoPulls?.error && (ui.selectedStage === 'pr' || ui.selectedStage === 'ci') && (
             <div className="ent-warn-banner">
-              <Icon name="warn" size={14} />
+              <Icon name="warn" size={13} />
               <span>GitHub: {repoPulls.error}</span>
             </div>
           )}
         </div>
       )}
 
-      <div className={`ent-body${showInspector ? ' has-insp' : ''}`}>
-        {/* Explorador permanente izquierdo: Ramas + Árbol de cambios */}
-        <aside className="ent-left" aria-label="Explorador de ramas y cambios">
-          <BranchExplorer
-            branches={inventory?.branches ?? []}
-            inspectedBranch={inspected?.name ?? null}
-            prByBranch={prByBranch}
-            search={ui.branchSearch}
-            showMerged={ui.showMergedBranches}
-            onSearch={(branchSearch) => patchUi({ branchSearch })}
-            onToggleMerged={() => patchUi({ showMergedBranches: !ui.showMergedBranches })}
-            onInspect={handleInspectBranch}
-            onCheckout={doCheckout}
-          />
-          <ChangeTree
-            perspective={ui.treePerspective}
-            items={treeData.items}
-            localExtraItems={treeData.localExtra}
-            selectedFile={selectedTreeFile?.path ?? null}
-            collapsedDirs={ui.collapsedDirs}
-            canStage={Boolean(inspected?.active)}
-            prNumber={inspectedPr?.number ?? null}
-            baseLabel={inspectedPr?.base ?? inventory?.defaultBranch ?? 'base'}
-            onPerspective={(treePerspective) => {
-              setCommitDiffFile(null);
-              patchUi({ treePerspective, selectedFile: null });
-            }}
-            onSelectFile={(item) => {
-              setCommitDiffFile(null);
-              setActiveLog(null);
-              patchUi({ selectedFile: item.path, centerTab: 'diff' });
-            }}
-            onToggleDir={(dirPath) =>
-              patchUi({ collapsedDirs: { ...ui.collapsedDirs, [dirPath]: !ui.collapsedDirs[dirPath] } })
-            }
-            onStage={doStage}
-            onUnstage={doUnstage}
-            onOpenEditor={(path) => onFile(path, null, project)}
-          />
-        </aside>
-
-        {/* Área central única con navegación contextual compacta */}
-        <main className="ent-center">
-          <div className="ent-tabs-bar">
-            <div className="tr-seg" role="tablist" aria-label="Superficies de Entrega">
-              <button role="tab" aria-selected={ui.centerTab === 'diff'} onClick={() => patchUi({ centerTab: 'diff' })}>
-                <Icon name="diff" size={12} /> Diff
-              </button>
-              <button role="tab" aria-selected={ui.centerTab === 'commits'} onClick={() => patchUi({ centerTab: 'commits' })}>
-                <Icon name="commit" size={12} /> Commits y Larry
-              </button>
-              <button role="tab" aria-selected={ui.centerTab === 'pr'} onClick={() => patchUi({ centerTab: 'pr' })}>
-                <Icon name="pr" size={12} /> PR{inspectedPr ? ` #${inspectedPr.number}` : ''}
-              </button>
-              <button role="tab" aria-selected={ui.centerTab === 'checks'} onClick={() => patchUi({ centerTab: 'checks' })}>
-                <Icon name="health" size={12} /> Tests y CI
-                {inspectedPr && inspectedPr.checksFailed > 0 && <span className="ent-badge-err">{inspectedPr.checksFailed}</span>}
-              </button>
-              <button role="tab" aria-selected={ui.centerTab === 'audits'} onClick={() => patchUi({ centerTab: 'audits' })}>
-                <Icon name="shield" size={12} /> Auditoría
-                {allOpenFindings.length > 0 && <span className="ent-badge-warn">{allOpenFindings.length}</span>}
-              </button>
-              <button role="tab" aria-selected={ui.centerTab === 'automation'} onClick={() => patchUi({ centerTab: 'automation' })}>
-                <Icon name="spark" size={12} /> Auto
-              </button>
-            </div>
-
-            {ui.centerTab === 'diff' && diffTarget && (
-              <div className="ent-diff-bar-right">
-                {commitDiffFile ? (
-                  <button className="btn sm" onClick={() => setCommitDiffFile(null)}>
-                    Volver a {ui.treePerspective === 'uncommitted' ? 'sin commit' : ui.treePerspective}
-                  </button>
-                ) : ui.treePerspective === 'uncommitted' ? (
-                  <div className="tr-seg">
-                    <button aria-pressed={diffSubMode === 'worktree'} onClick={() => setDiffSubMode('worktree')}>Todo</button>
-                    <button aria-pressed={diffSubMode === 'unstaged'} onClick={() => setDiffSubMode('unstaged')}>Sin preparar</button>
-                    <button aria-pressed={diffSubMode === 'staged'} onClick={() => setDiffSubMode('staged')}>Preparado</button>
-                  </div>
-                ) : null}
-                {inspected?.active && (
-                  <button className="btn sm" onClick={() => onFile(diffTarget.path, null, project)}>
-                    <Icon name="code" size={12} /> Abrir en editor
-                  </button>
-                )}
-              </div>
-            )}
+      {/* Contenedor vertical para SECCIÓN 02 (58%) + Divisor + SECCIÓN 03 (30%) */}
+      <div ref={bodyRef} className="ent-workspace">
+        {/* SECCIÓN 02 — Ramas, cambios y commit (3 columnas redimensionables) */}
+        <div className="ent-s02" aria-label="Ramas, cambios y revisión">
+          <div className="ent-pane-slot" style={{ width: layout.branchesPx }}>
+            <BranchExplorer
+              branches={inventory?.branches ?? []}
+              inspectedBranch={inspected?.name ?? null}
+              prByBranch={prByBranch}
+              search={ui.branchSearch}
+              showMerged={ui.showMergedBranches}
+              onSearch={(branchSearch) => patchUi({ branchSearch })}
+              onToggleMerged={() => patchUi({ showMergedBranches: !ui.showMergedBranches })}
+              onInspect={handleInspectBranch}
+              onCheckout={doCheckout}
+              onFilterHistory={(b) => {
+                handleInspectBranch(b);
+                patchUi({ historyScope: 'branch' });
+              }}
+              onOpenPr={(b) => {
+                handleInspectBranch(b);
+                patchUi({ selectedStage: 'pr' });
+              }}
+              onPushBranch={(b) => void startPushForBranch(b)}
+            />
           </div>
 
-          {ui.centerTab === 'diff' && (
-            <div className="ent-diff-host">
-              {diffTarget ? (
-                <>
-                  <div className="ent-diff-meta">
-                    <span className="mono">{diffTarget.path}</span>
-                    {commitDiffFile && <span className="chip tiny mono">Commit {commitDiffFile.commit.slice(0, 7)}</span>}
-                    {!commitDiffFile && ui.treePerspective === 'branch' && compare && (
-                      <span className="chip tiny mono">
-                        {compare.mergeBase?.slice(0, 7) ?? compare.baseRef}..{inspected?.shortOid}
-                      </span>
-                    )}
-                    {!commitDiffFile && ui.treePerspective === 'pr' && inspectedPr && (
-                      <span className="chip sky tiny">PR #{inspectedPr.number}</span>
-                    )}
-                    {fileFindings.length > 0 && (
-                      <span className="chip amber tiny">{fileFindings.length} hallazgos</span>
+          <div
+            className="ent-vsplit"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Ajustar ancho de ramas"
+            tabIndex={0}
+            title="Arrastra para ajustar · Doble clic para restablecer"
+            onPointerDown={(e) => beginDrag('col1', e)}
+            onPointerMove={(e) => moveDrag('col1', e)}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onDoubleClick={() => updateLayoutPrefs({ ...layoutPrefs, branchesRatio: DEFAULT_LAYOUT_PREFS.branchesRatio })}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft') updateLayoutPrefs({ ...layoutPrefs, branchesRatio: Math.max(0.14, layoutPrefs.branchesRatio - 0.02) });
+              else if (e.key === 'ArrowRight') updateLayoutPrefs({ ...layoutPrefs, branchesRatio: Math.min(0.36, layoutPrefs.branchesRatio + 0.02) });
+            }}
+          />
+
+          <div className="ent-pane-slot" style={{ width: layout.treePx }}>
+            <ChangeTree
+              perspective={ui.treePerspective}
+              items={treeData.items}
+              localExtraItems={treeData.localExtra}
+              selectedFile={selectedTreeFile?.path ?? null}
+              selectedCommitHash={ui.selectedCommit}
+              commitLoading={Boolean(ui.selectedCommit && (!commitDetail || !commitDetail.hash.startsWith(ui.selectedCommit)))}
+              collapsedDirs={ui.collapsedDirs}
+              canStage={Boolean(inspected?.active)}
+              prNumber={inspectedPr?.number ?? null}
+              baseLabel={inspectedPr?.base ?? inventory?.defaultBranch ?? 'base'}
+              onPerspective={(treePerspective) => {
+                patchUi({ treePerspective, selectedFile: null, selectedCommit: null });
+              }}
+              onClearCommit={handleClearCommit}
+              onSelectFile={(item) => {
+                patchUi({ selectedFile: item.path, selectedStage: 'cambios' });
+              }}
+              onToggleDir={(dirPath) =>
+                patchUi({ collapsedDirs: { ...ui.collapsedDirs, [dirPath]: !ui.collapsedDirs[dirPath] } })
+              }
+              onStage={doStage}
+              onUnstage={doUnstage}
+              onOpenEditor={(path) => onFile(path, null, project)}
+            />
+          </div>
+
+          <div
+            className="ent-vsplit"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Ajustar ancho del árbol de cambios"
+            tabIndex={0}
+            title="Arrastra para ajustar · Doble clic para restablecer"
+            onPointerDown={(e) => beginDrag('col2', e)}
+            onPointerMove={(e) => moveDrag('col2', e)}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onDoubleClick={() => updateLayoutPrefs({ ...layoutPrefs, treeRatio: DEFAULT_LAYOUT_PREFS.treeRatio })}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft') updateLayoutPrefs({ ...layoutPrefs, treeRatio: Math.max(0.16, layoutPrefs.treeRatio - 0.02) });
+              else if (e.key === 'ArrowRight') updateLayoutPrefs({ ...layoutPrefs, treeRatio: Math.min(0.38, layoutPrefs.treeRatio + 0.02) });
+            }}
+          />
+
+          {/* Columna derecha — Revisión y operaciones (cambia contextualmente según etapa, commit o archivo) */}
+          <main className="ent-col ent-col-right" aria-label={`Revisión y operaciones: ${activeStageObj.label}`}>
+            <div className="ent-col-head ent-right-head">
+              <span className={`ent-dot-sm tone-${activeStageObj.status === 'done' ? 'mint' : activeStageObj.status === 'active' ? 'sky' : activeStageObj.status === 'failed' ? 'coral' : activeStageObj.status === 'blocked' ? 'amber' : 'mut'}`} />
+              <span>
+                {ui.selectedStage === 'cambios' && ui.treePerspective === 'commit' && ui.selectedCommit
+                  ? `Commit ${ui.selectedCommit.slice(0, 7)}`
+                  : activeStageObj.label}
+              </span>
+              {ui.selectedStage === 'cambios' && diffTarget && (
+                <span className="ent-right-path mono" title={diffTarget.path}>
+                  {diffTarget.path}
+                </span>
+              )}
+              <span className="grow" />
+
+              {ui.selectedStage === 'cambios' && diffTarget && (
+                <div className="ent-right-acts">
+                  {ui.treePerspective === 'commit' && ui.selectedCommit ? (
+                    <button type="button" className="btn sm ghost" onClick={handleClearCommit}>
+                      Salir de commit
+                    </button>
+                  ) : ui.treePerspective === 'uncommitted' ? (
+                    <div className="tr-seg ent-mini-seg">
+                      <button type="button" aria-pressed={diffSubMode === 'worktree'} onClick={() => setDiffSubMode('worktree')}>
+                        Todo
+                      </button>
+                      <button type="button" aria-pressed={diffSubMode === 'unstaged'} onClick={() => setDiffSubMode('unstaged')}>
+                        Sin prep.
+                      </button>
+                      <button type="button" aria-pressed={diffSubMode === 'staged'} onClick={() => setDiffSubMode('staged')}>
+                        Prep.
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {ui.treePerspective === 'branch' && compare && (
+                    <span className="ent-mono-meta mono">
+                      {compare.mergeBase?.slice(0, 7) ?? compare.baseRef}..{inspected?.shortOid}
+                    </span>
+                  )}
+                  {fileFindings.length > 0 && (
+                    <button
+                      type="button"
+                      className="ent-inline-tag tone-amber"
+                      onClick={() => patchUi({ selectedStage: 'tests' })}
+                    >
+                      {fileFindings.length} hallazgos
+                    </button>
+                  )}
+                  {inspected?.active && ui.treePerspective !== 'commit' && (
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => onFile(diffTarget.path, null, project)}
+                      title="Abrir archivo en el editor"
+                    >
+                      <Icon name="code" size={11} /> Editor
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {ui.selectedStage === 'tareas' && (
+              <StageTasksView
+                project={project}
+                work={work}
+                tasks={tasks}
+                onGoPr={() => patchUi({ selectedStage: 'pr' })}
+              />
+            )}
+
+            {ui.selectedStage === 'agentes' && (
+              <StageAgentsView
+                project={project}
+                activeBranch={inventory?.activeBranch ?? status?.branch ?? null}
+                agentSessions={projectSessions}
+                automation={autoStatus}
+                onRefresh={() => void loadLocal()}
+                onOpenSettings={onOpenSettings}
+              />
+            )}
+
+            {ui.selectedStage === 'cambios' && (
+              <div className="ent-diff-host">
+                {ui.treePerspective === 'commit' && commitDetail && (
+                  <div className="ent-commit-summary">
+                    <div className="ent-commit-sum-top">
+                      <strong className="mono">{commitDetail.hash.slice(0, 10)}</strong>
+                      <span className="mut">{commitDetail.author}</span>
+                      <span className="mut mono">{commitDetail.date.slice(0, 16).replace('T', ' ')}</span>
+                      <span className="ent-mono-meta mono">{commitDetail.files.length} archivos</span>
+                    </div>
+                    {commitDetail.body && (
+                      <div className="ent-commit-sum-body">{commitDetail.body.trim()}</div>
                     )}
                   </div>
+                )}
+
+                {diffTarget ? (
                   <ReviewDiff
                     project={project}
                     change={diffTarget}
@@ -724,112 +990,158 @@ export default function Entrega({
                     findings={fileFindings}
                     finding={focusFinding}
                   />
-                </>
-              ) : (
-                <div className="tr-empty">
-                  <Icon name="diff" size={24} />
-                  <h3>Sin archivo seleccionado</h3>
-                  <p>
-                    Elige un archivo en el árbol izquierdo o cambia la perspectiva a <strong>vs base</strong> para inspeccionar todos los cambios de la rama.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
+                ) : (
+                  <div className="ent-empty-pane">
+                    <Icon name="diff" size={20} />
+                    <p>
+                      {ui.treePerspective === 'uncommitted'
+                        ? 'Árbol de trabajo limpio. Selecciona un commit en el historial inferior o cambia a «vs base» para revisar diferencias.'
+                        : 'Selecciona un archivo en el árbol central para inspeccionar su diff.'}
+                    </p>
+                    {ui.treePerspective === 'uncommitted' && (compare?.files.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        onClick={() => patchUi({ treePerspective: 'branch', selectedFile: null })}
+                      >
+                        Ver {compare!.files.length} archivos vs {inspectedPr?.base ?? inventory?.defaultBranch ?? 'base'}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-          {ui.centerTab === 'commits' && (
-            <CommitsView
-              project={project}
-              inspected={inspected}
-              status={status}
-              commits={branchLog}
-              selectedCommit={ui.selectedCommit}
-              onSelectCommit={handleSelectCommit}
-              onStage={doStage}
-              onUnstage={doUnstage}
-              onRefresh={() => {
-                void loadLocal();
-                void loadPulls();
-              }}
-            />
-          )}
+            {ui.selectedStage === 'tests' && (
+              <ChecksView
+                mode="tests"
+                project={project}
+                headSha={inspected?.headOid ?? status?.headSha ?? null}
+                dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
+                isActiveBranch={Boolean(inspected?.active)}
+                prDetail={prDetail}
+                healthRuns={healthRuns}
+                automation={autoStatus}
+                onRefresh={() => {
+                  void loadLocal();
+                  if (inspectedPr) void loadPrDetail(inspectedPr.number);
+                }}
+                onOpenFinding={(note) => {
+                  setFocusFinding(note);
+                  patchUi({
+                    selectedStage: 'cambios',
+                    selectedCommit: null,
+                    treePerspective: inspected?.active && (status?.changes.length ?? 0) > 0 ? 'uncommitted' : 'branch',
+                    selectedFile: note.path ?? ui.selectedFile,
+                  });
+                }}
+              />
+            )}
 
-          {ui.centerTab === 'pr' && (
-            <PullRequestView
-              project={project}
-              inspected={inspected}
-              defaultBranch={inventory?.defaultBranch ?? 'main'}
-              branches={inventory?.branches ?? []}
-              prSummary={inspectedPr}
-              prDetail={prDetail}
-              loading={prLoading}
-              onRefresh={() => {
-                void loadLocal();
-                void loadPulls();
-                if (inspectedPr) void loadPrDetail(inspectedPr.number);
-              }}
-              onInspectPrFiles={() => patchUi({ treePerspective: 'pr', centerTab: 'diff', selectedFile: null })}
-              onGoChecks={() => patchUi({ centerTab: 'checks' })}
-            />
-          )}
+            {ui.selectedStage === 'commit' && (
+              <CommitsView
+                project={project}
+                inspected={inspected}
+                status={status}
+                onStage={doStage}
+                onUnstage={doUnstage}
+                onRefresh={() => {
+                  void loadLocal();
+                  void loadPulls();
+                }}
+              />
+            )}
 
-          {ui.centerTab === 'checks' && (
-            <ChecksView
-              project={project}
-              headSha={inspected?.headOid ?? status?.headSha ?? null}
-              dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
-              isActiveBranch={Boolean(inspected?.active)}
-              prDetail={prDetail}
-              healthRuns={healthRuns}
-              onRefresh={() => {
-                void loadLocal();
-                if (inspectedPr) void loadPrDetail(inspectedPr.number);
-              }}
-              onInspectLog={(title, log) => {
-                setActiveLog({ title, log });
-                patchUi({ inspectorOpen: true });
-              }}
-            />
-          )}
+            {(ui.selectedStage === 'pr' || ui.selectedStage === 'integracion') && (
+              <PullRequestView
+                mode={ui.selectedStage}
+                project={project}
+                inspected={inspected}
+                defaultBranch={inventory?.defaultBranch ?? 'main'}
+                branches={inventory?.branches ?? []}
+                prSummary={inspectedPr}
+                prDetail={prDetail}
+                automation={autoStatus}
+                loading={prLoading}
+                onRefresh={() => {
+                  void loadLocal();
+                  void loadPulls();
+                  if (inspectedPr) void loadPrDetail(inspectedPr.number);
+                }}
+                onInspectPrFiles={() =>
+                  patchUi({
+                    treePerspective: 'pr',
+                    selectedStage: 'cambios',
+                    selectedCommit: null,
+                    selectedFile: null,
+                  })
+                }
+                onGoChecks={() => patchUi({ selectedStage: 'ci' })}
+                onGoIntegration={() => patchUi({ selectedStage: 'integracion' })}
+                onDiff={(d) => patchUi({ selectedFile: d.path, selectedStage: 'cambios' })}
+                onConflicts={onConflicts}
+              />
+            )}
 
-          {ui.centerTab === 'audits' && (
-            <AuditsView
-              project={project}
-              headSha={inspected?.headOid ?? status?.headSha ?? null}
-              dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
-              runs={healthRuns}
-              onOpenFinding={(note) => {
-                setFocusFinding(note);
-                setCommitDiffFile(null);
-                patchUi({
-                  centerTab: 'diff',
-                  selectedFile: note.path ?? ui.selectedFile,
-                  inspectorOpen: true,
-                });
-              }}
-              onRefresh={() => void loadLocal()}
-            />
-          )}
+            {ui.selectedStage === 'ci' && (
+              <ChecksView
+                mode="ci"
+                project={project}
+                headSha={inspected?.headOid ?? status?.headSha ?? null}
+                dirtyTree={Boolean(inspected?.active && (status?.changes.length ?? 0) > 0)}
+                isActiveBranch={Boolean(inspected?.active)}
+                prDetail={prDetail}
+                healthRuns={healthRuns}
+                automation={autoStatus}
+                onRefresh={() => {
+                  void loadLocal();
+                  void loadPulls();
+                  if (inspectedPr) void loadPrDetail(inspectedPr.number);
+                }}
+                onOpenFinding={(note) => {
+                  setFocusFinding(note);
+                  patchUi({ selectedStage: 'cambios', selectedFile: note.path ?? ui.selectedFile });
+                }}
+              />
+            )}
+          </main>
+        </div>
 
-          {ui.centerTab === 'automation' && (
-            <AutomationView
-              project={project}
-              status={autoStatus}
-              onRefresh={() => void loadLocal()}
-            />
-          )}
-        </main>
+        {/* Divisor horizontal redimensionable entre SECCIÓN 02 y SECCIÓN 03 */}
+        <div
+          className="ent-hsplit"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Ajustar altura del historial de commits"
+          tabIndex={0}
+          title="Arrastra para ajustar altura del historial · Doble clic para restablecer"
+          onPointerDown={(e) => beginDrag('hist', e)}
+          onPointerMove={(e) => moveDrag('hist', e)}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onDoubleClick={() => updateLayoutPrefs({ ...layoutPrefs, historyRatio: DEFAULT_LAYOUT_PREFS.historyRatio })}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp') updateLayoutPrefs({ ...layoutPrefs, historyRatio: Math.min(0.56, layoutPrefs.historyRatio + 0.03) });
+            else if (e.key === 'ArrowDown') updateLayoutPrefs({ ...layoutPrefs, historyRatio: Math.max(0.18, layoutPrefs.historyRatio - 0.03) });
+          }}
+        />
 
-        {/* Inspector contextual condicional: solo existe cuando aporta contexto real */}
-        {showInspector && inspectorPayload && (
-          <ContextInspector
-            payload={inspectorPayload}
-            onClose={() => {
-              setActiveLog(null);
-              patchUi({ inspectorOpen: false });
-            }}
+        {/* SECCIÓN 03 — Historial de commits permanente e interactivo (Git Graph real) */}
+        <div className="ent-s03-slot" style={{ height: layout.historyPx }}>
+          <CommitGraph
+            rows={graphRows}
+            loading={logLoading}
+            scope={ui.historyScope}
+            inspectedBranchName={inspected?.name ?? null}
+            selectedCommit={ui.selectedCommit}
+            search={ui.historySearch}
+            pulls={repoPulls?.pulls ?? []}
+            onScopeChange={handleScopeChange}
+            onSearchChange={handleHistorySearchChange}
+            onSelectCommit={handleSelectCommit}
+            onClearCommit={handleClearCommit}
           />
-        )}
+        </div>
       </div>
     </div>
   );

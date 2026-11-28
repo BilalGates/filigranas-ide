@@ -23,7 +23,11 @@ export default function Settings({ agentSessions, project, projectName, tools, c
 }) {
   const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'skills'; } catch { return 'skills'; } });
   useEffect(() => {
-    const open = () => setSec('actualizaciones');
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<Section | undefined>).detail;
+      const valid = detail && SECS.some(([id]) => id === detail);
+      setSec(valid ? detail : 'actualizaciones');
+    };
     window.addEventListener('settings-section', open);
     return () => window.removeEventListener('settings-section', open);
   }, []);

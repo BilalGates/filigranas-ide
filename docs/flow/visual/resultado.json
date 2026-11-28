@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-28T09:05:36.624Z",
+  "source": "Vite 1428 + mock UI; no acredita backend",
+  "checks": [
+    "Ejecución, fases separadas y progreso sin cancelación como éxito",
+    "Vista de dependencias con el mismo conjunto de tareas",
+    "Inspector de tarea: prompt literal, clamp, Enter, Escape y restauración de foco",
+    "Actividad histórica (hace 3 días), detalle de ejecución y cierre exterior",
+    "Divisor accesible y persistencia del tamaño",
+    "Vista de 1000×800 y formulario con avanzadas cerradas"
+  ],
+  "errors": []
+}

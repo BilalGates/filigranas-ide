@@ -368,9 +368,9 @@ fn commit_detail(project: &str, hash: &str) -> Result<CommitDetail, String> {
     let mut parts = head.splitn(4, '\x1f');
     let mut next = || parts.next().unwrap_or("").trim().to_string();
     let (full, author, date, body) = (next(), next(), next(), next());
-    // Mismo orden en ambas salidas: se emparejan por posición.
-    let names = run(project, &["show", "--no-color", "--format=", "-M", "--name-status", hash])?;
-    let nums = run(project, &["show", "--no-color", "--format=", "-M", "--numstat", hash])?;
+    // Mismo orden en ambas salidas: se emparejan por posición. `-m --first-parent` incluye los archivos de commits de merge.
+    let names = run(project, &["show", "--no-color", "--format=", "-m", "--first-parent", "-M", "--name-status", hash])?;
+    let nums = run(project, &["show", "--no-color", "--format=", "-m", "--first-parent", "-M", "--numstat", hash])?;
     let mut nums = nums.lines().filter(|l| !l.trim().is_empty());
     let files = names
         .lines()

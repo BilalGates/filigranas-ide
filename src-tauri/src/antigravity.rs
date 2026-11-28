@@ -173,6 +173,7 @@ pub fn structured(app: &tauri::AppHandle, scratch: &Path, instructions: &str, pr
     studio_turn(&root, scratch, &registered, &studio_prompt(instructions, prompt, schema), schema, seconds)
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn studio_prompt(instructions: &str, prompt: &str, schema: &serde_json::Value) -> String {
     format!("{instructions}\n\nResponde únicamente con un objeto JSON válido que cumpla este esquema, sin texto adicional ni bloques de código:\n{schema}\n\n{prompt}")
 }
@@ -218,6 +219,7 @@ fn studio_turn(root: &Path, scratch: &Path, registered: &[PathBuf], prompt: &str
 }
 
 /// Extracts the JSON object of the reply and checks the schema's required keys.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn structured_result(text: &str, schema: &serde_json::Value) -> CmdResult<String> {
     if crate::handoff::quota_reason(text).is_some() {
         return Err("Antigravity ha agotado su cuota. Puedes seguir editando las variantes que ya tienes.".into());

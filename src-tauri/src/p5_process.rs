@@ -1,4 +1,4 @@
-use std::{io::Read, process::{Command, Stdio}, time::{Duration, Instant}};
+use std::{io::Read, process::{Command, Stdio}, sync::atomic::{AtomicBool, Ordering}, time::{Duration, Instant}};
 
 pub const TIMEOUT: &str = "se agotó el plazo de la comprobación";
 const LIMIT: usize = 128 * 1024;
@@ -19,7 +19,20 @@ pub fn run_with_stdin(command: Command, stdin: Stdio, seconds: u64) -> Result<Ou
 
 /// Captures stdout and stderr separately for commands that return structured data.
 pub fn capture(
-    mut command: Command, stdin: Stdio, seconds: u64, stdout_limit: usize, stderr_limit: usize,
+    command: Command, stdin: Stdio, seconds: u64, stdout_limit: usize, stderr_limit: usize,
+) -> Result<(Output, Vec<u8>), &'static str> {
+    capture_until(command, stdin, seconds, stdout_limit, stderr_limit, None)
+}
+
+pub const CANCELLED: &str = "cancelado";
+
+/// Como [`run_with_stdin`], pero termina el proceso en cuanto `cancel` se activa.
+pub fn run_cancellable(command: Command, stdin: Stdio, seconds: u64, cancel: &AtomicBool) -> Result<Output, &'static str> {
+    capture_until(command, stdin, seconds, LIMIT, 0, Some(cancel)).map(|(output, _)| output)
+}
+
+fn capture_until(
+    mut command: Command, stdin: Stdio, seconds: u64, stdout_limit: usize, stderr_limit: usize, cancel: Option<&AtomicBool>,
 ) -> Result<(Output, Vec<u8>), &'static str> {
     let _execution = crate::updates::Execution::enter()?;
     #[cfg(unix)]
@@ -47,6 +60,7 @@ pub fn capture(
                     return Ok((Output { success: exit.success(), bytes, truncated }, diagnostics));
                 }
                 None if Instant::now() >= deadline => return Err(TIMEOUT),
+                None if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) => return Err(CANCELLED),
                 None => std::thread::sleep(Duration::from_millis(50)),
             }
         }

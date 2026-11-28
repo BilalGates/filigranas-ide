@@ -26,7 +26,7 @@ Perfil privado por sesión, configuración oficial estricta, sin customizaciones
 
 En macOS se aplica además contención de proceso y descendientes: metadatos Git y configuración gestionada protegidos; otros proyectos/worktrees registrados inaccesibles; lectura sola protegida por el sistema; plugins, hooks y MCP del workspace no se activan. Se corrigió experimentalmente la resolución `/var` → `/private/var` en políticas. Un worktree no se trata como frontera de seguridad. La contención no se presenta como protección universal de todos los archivos del usuario: los comandos siguen requiriendo revisión y la CLI conserva sus servicios de autenticación/red oficiales. Ejecución deshabilitada fuera de macOS hasta validar contención equivalente.
 
-Antigravity **no** está habilitado como PM. Studio **no** ofrece aún generación con Antigravity: aunque F0 confirmó JSON estructurado en headless, falta validar su camino de producto con idéntica contención. Tampoco se habilitan inspección visual, imágenes o audio por anunciarse solamente en capacidades.
+Antigravity **no** está habilitado como PM. Studio **no** muestra aún Antigravity en su selector. El backend ya tiene su camino (`CanvasEngine::Agy`) con idéntica contención: el turno va por ACP con el perfil gestionado, el agente lector, permisos de herramientas cancelados, sin MCP y con un sandbox que impide escribir en el directorio temporal y leer o escribir en proyectos y worktrees registrados. No se usa `agy --print`: en la versión 1.5.19 no admite `--gemini-dir` ni `--app-data-dir` y heredaría el perfil global del usuario. Falta una generación real con cuota disponible antes de mostrarlo. Tampoco se habilitan inspección visual, imágenes o audio por anunciarse solamente en capacidades.
 
 ## Verificado
 
@@ -42,7 +42,10 @@ Antigravity **no** está habilitado como PM. Studio **no** ofrece aún generaci�
 | PM, Jev y resultado delegado | PM Codex → `auto` → Codex disponible → resultado recuperado, ambas ejecuciones completadas; `routingPassed: true` |
 | Larry | Commit real en fixture: `f0e2792 feat: confirm native test marker`, solo `result-codex.txt`, sin push |
 | Interfaz | DOM real de WKWebView: orden de tres proveedores, gris `rgb(188,193,201)`, ancho homogéneo 101 px, cero puntos/nombres; compositor con modelo real |
-| Compilación y pruebas | `pnpm install --frozen-lockfile`, `pnpm build`, 55 tests frontend, 168 Rust pasados/12 ignorados; Clippy con `-D warnings` pasado |
+| Contención de Studio | `studio_policy_contains_descendants_without_a_model` (ignorado, ejecutado): un nieto no lee un proyecto registrado ni escribe en el proyecto, en el directorio temporal o en el perfil; pasado |
+| Camino real de Studio | `real_studio_structured_turn` (ignorado, ejecutado el 2026-11-28): `initialize` y `session/new` pasan dentro del sandbox; el turno se rechaza por cuota y se notifica como cuota agotada. **Generación no demostrada** |
+| CPU y RAM atribuibles | `tests/process_metrics.py` y `process-metrics.json`; véase Rendimiento |
+| Compilación y pruebas | `pnpm install --frozen-lockfile`, `pnpm build`, 55 tests frontend, 169 Rust pasados/14 ignorados (2026-11-28); Clippy con `-D warnings` pasado |
 
 Las 28 comprobaciones de `docs/antigravity-f0/verify.py` validan evidencia de sondas; no son 28 pruebas nativas de producto. La suite ordinaria no ejecuta los tests ignorados. No se declaran superados mediante mocks los recorridos reales pendientes.
 
@@ -56,6 +59,9 @@ cargo test --locked --offline --manifest-path src-tauri/Cargo.toml
 cargo clippy --locked --offline --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --offline --manifest-path src-tauri/Cargo.toml antigravity::tests::macos_policy_is_effective -- --ignored
 cargo test --locked --offline --manifest-path src-tauri/Cargo.toml antigravity::tests::real_antigravity_does_not_autostart_workspace_mcp -- --ignored
+cargo test --locked --offline --manifest-path src-tauri/Cargo.toml antigravity::tests::studio_policy_contains -- --ignored
+# Consume un turno mínimo si hay cuota:
+cargo test --locked --offline --manifest-path src-tauri/Cargo.toml antigravity::tests::real_studio_structured_turn -- --ignored --nocapture
 ```
 
 La aceptación nativa usa `tests/antigravity_native.mjs` y `tests/antigravity_native_webview.js`, frontend compilado y Tauri IPC real. Identificador exclusivo `com.filigranas.ide.antigravity-acceptance`, perfil SQLite separado y fixture `/private/tmp/filigranas-agy-acceptance/repos/fixture`. `native.json` evita repetir automáticamente turnos ya ejecutados. Un perfil nuevo sí consume modelos y crea commits locales de prueba autorizados. No ejecutar contra repositorios personales ni la instalación de producción.
@@ -67,6 +73,19 @@ La aceptación nativa usa `tests/antigravity_native.mjs` y `tests/antigravity_na
 ## Rendimiento
 
 `native.json.metrics` contiene muestras **globales del Mac**, no consumo atribuible a Filigranas: antes 66,6 % CPU y 83,1 % RAM; durante el intento 37,0–80,5 % CPU y 83,5–84,9 % RAM. Había otras aplicaciones/agentes activos. El solapamiento de arranque fue breve por las cuotas; **no** es una medición válida de tres motores trabajando sostenidamente. Se observó la liberación del proceso ACP tras inactividad. Medición comparativa y prueba de carga triple pendientes.
+
+**Consumo atribuible (2026-11-28).** `python3 -I tests/process_metrics.py --seconds 60 --out docs/antigravity-validacion/process-metrics.json` mide el árbol de procesos de Filigranas por motor, incluidos los procesos de WebKit que macOS lanza desde launchd y que se atribuyen por *responsible pid*. Solo lee `ps`. La muestra se tomó sobre la app instalada en uso real, con sesiones abiertas de los tres motores pero sin turnos activos: 60 s, cada 2 s; CPU en % de un núcleo y RSS con memoria compartida incluida.
+
+| Grupo | CPU media / máx. | RSS media / máx. |
+|---|---|---|
+| Núcleo Filigranas | 3,5 % / 4,9 % | 33 / 37 MiB |
+| WebView (WebContent + GPU) | **47,2 % / 53,8 %** | 145 / 192 MiB |
+| Claude | 0,1 % / 2,5 % | 142 / 225 MiB |
+| Codex | 0,2 % / 2,7 % | 292 / 319 MiB |
+| Antigravity | 0,0 % / 0,5 % | 42 / 111 MiB |
+| **Total** | **51,0 % / 58,5 %** | **654 / 828 MiB** |
+
+Hallazgo: casi todo el consumo en reposo viene del WebView (unos 23 % en el proceso GPU y unos 20 % en WebContent), no de los motores. Apunta a una animación o un repintado continuo de la interfaz. No se ha investigado en esta rama. La carga con tres turnos simultáneos sigue pendiente de cuota.
 
 El último intento de recompilar el binario nativo falló por falta de espacio al escribir la caché incremental. Las capturas posteriores usan el binario de aceptación compilado correctamente antes, con el frontend final. Build frontend y Clippy final sí pasaron; véase `checks.json`. Solo se limpió con `cargo clean` el target temporal accidental de este worktree (62,1 MiB); no se limpiaron targets de otros agentes.
 
@@ -80,7 +99,8 @@ F5 **no está completada**. La cuenta de Antigravity devolvió `Individual quota
 - Autenticación desde cero y actualización real de la CLI no se ejecutaron: se reutilizó cuenta instalada y se preservó su versión. API key opcional pendiente.
 - Proveedor ausente/desconectado, carreras de reconexión/cancelación y navegación bajo carga: validación nativa completa pendiente. La suite de regresión pasa, pero no demuestra ausencia universal de regresiones.
 - Cuotas estructuradas y coste de Antigravity no disponibles por interfaz oficial verificada; sin scraping ni endpoints privados. Un aviso de agotamiento por modelo no representa el porcentaje global.
-- Studio, multimodalidad, Antigravity PM y contención de otras plataformas deshabilitados hasta demostración.
+- Studio con Antigravity: backend y contención listos; falta una generación real con cuota y, después, mostrarlo en el selector. Multimodalidad, Antigravity PM y contención de otras plataformas deshabilitados hasta demostración.
+- Consumo del WebView en reposo (unos 47 % de un núcleo): investigar en una rama propia.
 
 ## Commits
 

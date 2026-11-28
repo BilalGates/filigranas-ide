@@ -145,6 +145,101 @@ pub fn command(app: &tauri::AppHandle, session: &db::Session, root: &Path) -> Cm
     Ok(command)
 }
 
+/// Studio policy: the model only receives the prompt. It cannot write the
+/// scratch workspace, alter its profile or read/write any registered project.
+#[cfg(target_os = "macos")]
+fn studio_policy(root: &Path, scratch: &Path, registered: &[PathBuf]) -> CmdResult<String> {
+    let mut policy = protected_policy(root, &[], scratch, true)?;
+    for path in registered {
+        policy.push_str(&format!("(deny file-read* file-write* (subpath {}))", policy_path(path)?));
+    }
+    Ok(policy)
+}
+
+/// One Studio turn over ACP, with the same managed profile, reader agent and
+/// macOS boundary as native sessions. Print mode (`agy --print`) cannot use a
+/// managed profile, so it would inherit the user's global CLI configuration.
+#[cfg(target_os = "macos")]
+pub fn structured(app: &tauri::AppHandle, scratch: &Path, instructions: &str, prompt: &str, schema: &serde_json::Value, seconds: u64) -> CmdResult<String> {
+    let root = app.path().app_data_dir().map_err(err)?.join("antigravity").join("studio");
+    let registered: Vec<PathBuf> = {
+        let state = app.state::<crate::AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        let mut query = conn.prepare("SELECT path FROM projects UNION SELECT worktree FROM sessions WHERE worktree IS NOT NULL").map_err(err)?;
+        let paths = query.query_map([], |row| row.get::<_, String>(0)).map_err(err)?
+            .filter_map(Result::ok).filter_map(|p| crate::paths::canonical(Path::new(&p)).ok()).collect();
+        paths
+    };
+    studio_turn(&root, scratch, &registered, &studio_prompt(instructions, prompt, schema), schema, seconds)
+}
+
+fn studio_prompt(instructions: &str, prompt: &str, schema: &serde_json::Value) -> String {
+    format!("{instructions}\n\nResponde únicamente con un objeto JSON válido que cumpla este esquema, sin texto adicional ni bloques de código:\n{schema}\n\n{prompt}")
+}
+
+#[cfg(target_os = "macos")]
+fn studio_turn(root: &Path, scratch: &Path, registered: &[PathBuf], prompt: &str, schema: &serde_json::Value, seconds: u64) -> CmdResult<String> {
+    use std::process::Stdio;
+    use std::time::Duration;
+    let _execution = crate::updates::Execution::enter()?;
+    profile(root)?;
+    let policy = studio_policy(root, scratch, registered)?;
+    let mut command = crate::cli::command("/usr/bin/sandbox-exec");
+    command.args(["-p", &policy]).arg(crate::cli::program("agy")).arg("acp");
+    configure(&mut command, root, true)?;
+    if let Some(path) = crate::cli::login_path() { command.env("PATH", path); }
+    { use std::os::unix::process::CommandExt; command.process_group(0); }
+    let mut child = crate::cli::ChildProcess(command.current_dir(scratch).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
+        .spawn().map_err(|_| "No se pudo iniciar Antigravity. Comprueba que la CLI está instalada.")?);
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let rpc = crate::rpc::Rpc::start_with(child.stdout.take().ok_or("sin salida")?, child.stdin.take().ok_or("sin entrada")?, move |rpc, msg| match msg {
+        crate::rpc::Incoming::Notification { params, .. } if params.pointer("/update/sessionUpdate") == Some(&json!("agent_message_chunk")) => {
+            if let Some(text) = params.pointer("/update/content/text").and_then(serde_json::Value::as_str) { let _ = tx.send(text.to_string()); }
+        }
+        // Studio only needs text: every tool permission is refused.
+        crate::rpc::Incoming::Request { id, .. } => { let _ = rpc.respond(id, json!({ "outcome": { "outcome": "cancelled" } })); }
+        _ => {}
+    }, true);
+    let limit = Duration::from_secs(seconds);
+    let quota = |e: String| if crate::handoff::quota_reason(&e).is_some() {
+        "Antigravity ha agotado su cuota. Puedes seguir editando las variantes que ya tienes.".to_string()
+    } else { format!("Antigravity no pudo generar las variantes: {e}") };
+    rpc.request("initialize", json!({"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false}}), Duration::from_secs(30)).map_err(quota)?;
+    let session = rpc.request("session/new", json!({"cwd": scratch, "mcpServers": []}), Duration::from_secs(30)).map_err(quota)?;
+    let sid = session["sessionId"].as_str().ok_or("Antigravity no devolvió la sesión")?.to_string();
+    let done = rpc.request("session/prompt", json!({"sessionId": sid, "prompt": [{"type":"text","text": prompt}]}), limit).map_err(quota)?;
+    rpc.close_input();
+    drop(child);
+    let text: String = rx.try_iter().collect();
+    if done["stopReason"] != "end_turn" {
+        return Err(quota(format!("turno terminado con {}", done["stopReason"])));
+    }
+    structured_result(&text, schema)
+}
+
+/// Extracts the JSON object of the reply and checks the schema's required keys.
+fn structured_result(text: &str, schema: &serde_json::Value) -> CmdResult<String> {
+    if crate::handoff::quota_reason(text).is_some() {
+        return Err("Antigravity ha agotado su cuota. Puedes seguir editando las variantes que ya tienes.".into());
+    }
+    let (start, end) = (text.find('{'), text.rfind('}'));
+    let value: serde_json::Value = match (start, end) {
+        (Some(s), Some(e)) if s < e => serde_json::from_str(&text[s..=e]).map_err(|_| "Antigravity no devolvió un JSON válido.")?,
+        _ => return Err("Antigravity no devolvió un JSON válido.".into()),
+    };
+    let required = schema["required"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str);
+    let missing: Vec<&str> = required.filter(|k| value.get(*k).is_none()).collect();
+    if !value.is_object() || !missing.is_empty() {
+        return Err(format!("La respuesta de Antigravity no cumple el formato pedido (falta {}).", missing.join(", ")));
+    }
+    Ok(value.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn structured(_app: &tauri::AppHandle, _scratch: &Path, _instructions: &str, _prompt: &str, _schema: &serde_json::Value, _seconds: u64) -> CmdResult<String> {
+    Err("Antigravity requiere validar el aislamiento nativo de esta plataforma antes de habilitar su ejecución".into())
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn command(_app: &tauri::AppHandle, _session: &db::Session, _root: &Path) -> CmdResult<Command> {
     Err("Antigravity requiere validar el aislamiento nativo de esta plataforma antes de habilitar su ejecución".into())
@@ -209,6 +304,53 @@ mod tests {
         assert!(!canary.exists(),"unmanaged MCP executed without Filigranas authorization");
         rpc.close_input();drop(child);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires the real macOS sandbox-exec; run separately"]
+    fn studio_policy_contains_descendants_without_a_model() {
+        let dir = std::env::temp_dir().join(format!("filigranas-agy-studio-{}", uuid::Uuid::new_v4()));
+        let (root, scratch, project) = (dir.join("managed"), dir.join("scratch"), dir.join("project"));
+        profile(&root).unwrap();
+        std::fs::create_dir_all(&scratch).unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("secret.txt"), "synthetic-secret").unwrap();
+        let policy = studio_policy(&root, &scratch, std::slice::from_ref(&project)).unwrap();
+        let sh = |script: &str, arg: &Path| crate::cli::command("/usr/bin/sandbox-exec").args(["-p", &policy, "/bin/sh", "-c", script, "probe"])
+            .arg(arg).stderr(std::process::Stdio::null()).output().unwrap();
+        // A grandchild tries to exfiltrate and to write: every path is denied.
+        let read = sh("/bin/sh -c 'cat \"$0\"' \"$1\"", &project.join("secret.txt"));
+        assert!(!read.status.success() && read.stdout.is_empty());
+        assert!(!sh("printf x > \"$1\"", &project.join("new.txt")).status.success());
+        assert!(!sh("printf x > \"$1\"", &scratch.join("new.txt")).status.success());
+        assert!(!sh("printf x > \"$1\"", &root.join("runtime/settings.json")).status.success());
+        assert!(!project.join("new.txt").exists() && !scratch.join("new.txt").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires authenticated agy with quota; sends one tiny model prompt"]
+    fn real_studio_structured_turn() {
+        let dir = std::env::temp_dir().join(format!("filigranas-agy-studio-real-{}", uuid::Uuid::new_v4()));
+        let scratch = dir.join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+        let schema = json!({"type":"object","additionalProperties":false,"required":["status"],"properties":{"status":{"type":"string","enum":["STUDIO-OK"]}}});
+        let prompt = studio_prompt("Prueba de Studio. No uses herramientas.", "Devuelve status STUDIO-OK.", &schema);
+        let result = studio_turn(&dir.join("managed"), &scratch, &[], &prompt, &schema, 90);
+        eprintln!("agy studio: {result:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+        assert_eq!(result.unwrap(), r#"{"status":"STUDIO-OK"}"#);
+    }
+
+    #[test]
+    fn structured_result_accepts_only_schema_output() {
+        let schema = json!({"type":"object","required":["variants"]});
+        assert_eq!(structured_result("```json\n{\"variants\":[]}\n```", &schema).unwrap(), r#"{"variants":[]}"#);
+        assert!(structured_result(r#"{"other":1}"#, &schema).unwrap_err().contains("variants"));
+        assert!(structured_result("hola", &schema).is_err());
+        assert!(structured_result("Individual quota reached. Resets in 130h", &schema).unwrap_err().contains("cuota"));
     }
 
     #[test]

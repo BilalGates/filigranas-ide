@@ -1,6 +1,8 @@
 mod acp;
 mod approval;
 mod attachments;
+#[cfg(all(debug_assertions, feature = "p0-acceptance"))]
+mod p0_acceptance;
 mod autoapprove;
 mod brain;
 mod brain_graph;
@@ -163,6 +165,8 @@ pub fn run() {
                 jev_gate: Default::default(),
                 chat_gate: Default::default(),
             });
+            #[cfg(all(debug_assertions, feature = "p0-acceptance"))]
+            p0_acceptance::start(app.handle().clone());
             tools::start_auto(app.handle().clone());
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {

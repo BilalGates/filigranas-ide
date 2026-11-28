@@ -225,6 +225,14 @@ pub fn before_turn(conn: &Connection, project: &str, session: Option<i64>) -> Cm
     }
     if let Some(id) = session {
         let s = db::session(conn, id).map_err(err)?.ok_or("sesión inexistente")?;
+        // Una subsesión (de un PM o de otra sesión) comparte la carpeta y la rama
+        // de su padre: no se une al reparto, pero invalida las pruebas del trabajo abierto.
+        if s.parent_session.is_some() || s.delegated_by_pm {
+            if let Some(work) = current(conn, project)?.filter(|w| w.state == "active") {
+                conn.execute("UPDATE work_sessions SET tests=NULL,evidence=NULL,reviewed_head=NULL WHERE id=?1", [work.id]).map_err(err)?;
+            }
+            return Ok(());
+        }
         if s.worktree.is_some() {
             let work_state: Option<(i64, String)> = conn.query_row(
                 "SELECT w.id,w.state FROM work_agents a JOIN work_sessions w ON w.id=a.work_id WHERE a.session_id=?1",
@@ -440,6 +448,18 @@ mod tests {
         std::fs::write(repo.join("feature.txt"), "resultado\n").unwrap();
         pr::value(repo, &["add", "feature.txt"]).unwrap();
         pr::value(repo, &["commit", "-qm", "feat: resultado compartido"]).unwrap();
+    }
+
+    #[test]
+    fn a_subsession_starts_while_its_parent_works_on_the_shared_checkout() {
+        let (_dir, project, mut conn) = fixture();
+        let parent = db::create_session(&conn, &project, "claude", "p", &["padre"]).unwrap();
+        start(&mut conn, &project, "Delegar en paralelo", "feat", "delegacion", false).unwrap();
+        let running = begin(&mut conn, &project, parent.id).unwrap();
+        let child = db::create_session(&conn, &project, "codex", "h", &["hija"]).unwrap();
+        db::set_session_parent(&conn, child.id, parent.id, Some("hija")).unwrap();
+        assert!(begin(&mut conn, &project, child.id).is_ok(), "la subsesión no debe chocar con el turno del padre");
+        runs::finish(&conn, running, "completed").unwrap();
     }
 
     #[test]

@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import Tools from '../Tools';
 import AppUpdates from '../appUpdates';
 import UsagePanel from '../Usage';
-import { jev, skills as skillsApi, tasks as taskApi, type CliUpdate, type JevStatus, type RuleStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
+import { deliveryAuto, jev, skills as skillsApi, tasks as taskApi, type AutomationPolicy, type AutomationStatus, type CliUpdate, type JevStatus, type RuleStatus, type SkillInfo, type SkillAssignment, type SkillRole, type Session, type Tool } from '../ipc';
 import { setLightTheme, shortcut, useUi } from '../ui';
 import { useProviderQuota } from '../usageStore';
 import { Icon } from './icons';
@@ -12,8 +12,8 @@ import { Root } from './kit';
 // Ajustes de Trama v2 con configuración real: cada opción indica dónde está
 // definida (global, proyecto o sesión). Lo que no existe en el núcleo no se
 // presenta como un control: se explica dónde se gestiona.
-type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'apariencia' | 'actualizaciones' | 'atajos';
-const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['actualizaciones', 'download', 'Actualizaciones'], ['atajos', 'grid', 'Atajos']];
+type Section = 'modelos' | 'skills' | 'permisos' | 'presupuestos' | 'agentes' | 'entrega' | 'apariencia' | 'actualizaciones' | 'atajos';
+const SECS: [Section, string, string][] = [['modelos', 'cube', 'Modelos y herramientas'], ['skills', 'facets', 'Skills y reglas'], ['permisos', 'shield', 'Permisos'], ['presupuestos', 'coin', 'Presupuestos'], ['agentes', 'agent', 'Agentes'], ['entrega', 'review', 'Entrega'], ['apariencia', 'sun', 'Movimiento y apariencia'], ['actualizaciones', 'download', 'Actualizaciones'], ['atajos', 'grid', 'Atajos']];
 const sc = (k: 'g' | 'p' | 's') => <span className={`scope ${k}`}>{{ g: 'global', p: 'proyecto', s: 'sesión' }[k]}</span>;
 
 export default function Settings({ agentSessions, project, projectName, tools, checking, autoUpdates, onRefreshTools, onLogin, usage, commands }: {
@@ -22,7 +22,11 @@ export default function Settings({ agentSessions, project, projectName, tools, c
 }) {
   const [sec, setSec] = useState<Section>(() => { try { return (localStorage.getItem('filigranas.ajustes') as Section) || 'skills'; } catch { return 'skills'; } });
   useEffect(() => {
-    const open = () => setSec('actualizaciones');
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<Section | undefined>).detail;
+      const valid = detail && SECS.some(([id]) => id === detail);
+      setSec(valid ? detail : 'actualizaciones');
+    };
     window.addEventListener('settings-section', open);
     return () => window.removeEventListener('settings-section', open);
   }, []);
@@ -59,6 +63,7 @@ export default function Settings({ agentSessions, project, projectName, tools, c
           </>}
           {sec === 'presupuestos' && <Budget usage={usage} />}
           {sec === 'agentes' && <Agents key={project} project={project} projectName={projectName} agentSessions={agentSessions} />}
+          {sec === 'entrega' && <EntregaAutomationSettings key={project ?? 'none'} project={project} projectName={projectName} />}
           {sec === 'apariencia' && <Look />}
           {sec === 'actualizaciones' && <AppUpdates />}
           {sec === 'atajos' && <>
@@ -224,6 +229,192 @@ function Agents({ project, projectName, agentSessions }: { project: string | nul
         </select>
       </div>)}
     {error && <p className="mut2" role="status">{error}</p>}
+  </>;
+}
+
+function EntregaAutomationSettings({ project, projectName }: { project: string | null; projectName: string | null }) {
+  const [status, setStatus] = useState<AutomationStatus | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!project) {
+      setStatus(null);
+      return;
+    }
+    let active = true;
+    deliveryAuto.status(project).then(
+      (res) => { if (active) setStatus(res); },
+      (e) => { if (active) setError(String(e)); },
+    );
+    return () => { active = false; };
+  }, [project]);
+
+  const updatePolicy = async (patch: Partial<AutomationPolicy>) => {
+    if (!project || !status) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await deliveryAuto.savePolicy(project, {
+        ...status.policy,
+        ...patch,
+        requireExplicitMerge: true,
+      });
+      setStatus({ ...status, policy: next });
+      setNotice('Política de automatización guardada para este proyecto.');
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <h2 className="vt">Entrega y automatización</h2>
+    <p className="lead">
+      Configura el grado de automatización de Entrega por proyecto. El Project Manager coordina y los agentes ejecutan; el merge en remoto exige siempre aprobación humana explícita.
+    </p>
+    {!project ? (
+      <p className="mut2">Abre un proyecto para configurar su política de automatización de Entrega.</p>
+    ) : !status ? (
+      <p className="mut2">Cargando política de automatización de {projectName ?? 'este proyecto'}…</p>
+    ) : <>
+      {error && <p className="mut2" role="alert">{error}</p>}
+      {notice && <p className="mut2" role="status">{notice}</p>}
+
+      {!status.pmDelegationReady && status.pmBlockedReason && (
+        <div className="srow">
+          <div>
+            <div className="t"><Icon name="lock" size={12} /> Compuerta del Project Manager</div>
+            <div className="d">{status.pmBlockedReason}</div>
+          </div>
+          <span className="chip amber">bloqueada</span>
+        </div>
+      )}
+
+      <div className="srow">
+        <div>
+          <div className="t">Modo de automatización {sc('p')}</div>
+          <div className="d">
+            {status.policy.mode === 'manual' && 'Manual: Entrega muestra estado, logs y diagnósticos; toda acción es manual.'}
+            {status.policy.mode === 'assisted' && 'Asistido: detecta fallos de CI/revisión y prepara planes pendientes de confirmación.'}
+            {status.policy.mode === 'auto' && 'Automático: delega correcciones al PM dentro del límite de reintentos y ejecuta limpieza segura post-merge.'}
+          </div>
+        </div>
+        <div className="seg" role="radiogroup" aria-label="Modo de automatización de Entrega">
+          {([['manual', 'Manual'], ['assisted', 'Asistido'], ['auto', 'Automático']] as const).map(([m, label]) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={status.policy.mode === m}
+              className={status.policy.mode === m ? 'on' : ''}
+              disabled={saving}
+              onClick={() => void updatePolicy({ mode: m })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Diagnóstico de fallos CI y revisión {sc('p')}</div>
+          <div className="d">Analiza logs y hallazgos de GitHub de forma sanitizada</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={status.policy.allowAutoDiagnose}
+          disabled={saving}
+          aria-label="Diagnosticar fallos de CI y revisión"
+          onChange={(e) => void updatePolicy({ allowAutoDiagnose: e.target.checked })}
+        />
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Delegar correcciones al Project Manager {sc('p')}</div>
+          <div className="d">El PM asigna la corrección a agentes ejecutores sin editar código directamente</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={status.policy.allowAutoFix}
+          disabled={saving || !status.pmDelegationReady}
+          aria-label="Delegar correcciones al Project Manager"
+          onChange={(e) => void updatePolicy({ allowAutoFix: e.target.checked })}
+        />
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Commits atómicos con Larry tras verificación {sc('p')}</div>
+          <div className="d">Agrupa y confirma cambios verificados conservando los hooks de Git</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={status.policy.allowAutoCommit}
+          disabled={saving || !status.pmDelegationReady}
+          aria-label="Crear commits atómicos con Larry"
+          onChange={(e) => void updatePolicy({ allowAutoCommit: e.target.checked })}
+        />
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Actualización de PR mediante push autorizado {sc('p')}</div>
+          <div className="d">Publica las correcciones en la misma rama de la PR sin cambiar el checkout</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={status.policy.allowAutoPush}
+          disabled={saving || !status.pmDelegationReady}
+          aria-label="Actualizar PR mediante push autorizado"
+          onChange={(e) => void updatePolicy({ allowAutoPush: e.target.checked })}
+        />
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Limpieza segura post-merge {sc('p')}</div>
+          <div className="d">Archiva y limpia ramas y worktrees solo tras confirmar estado MERGED</div>
+        </div>
+        <input
+          type="checkbox"
+          checked={status.policy.allowAutoCleanup}
+          disabled={saving}
+          aria-label="Limpieza segura post-merge"
+          onChange={(e) => void updatePolicy({ allowAutoCleanup: e.target.checked })}
+        />
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Límite de reintentos por PR {sc('p')}</div>
+          <div className="d">Número máximo de ciclos de corrección deduplicados por PR y SHA</div>
+        </div>
+        <select
+          className="in"
+          style={{ width: 72 }}
+          value={status.policy.maxRetries}
+          disabled={saving}
+          aria-label="Límite de reintentos por PR"
+          onChange={(e) => void updatePolicy({ maxRetries: Number(e.target.value) })}
+        >
+          {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+
+      <div className="srow">
+        <div>
+          <div className="t">Integración en remoto (Merge) {sc('g')}</div>
+          <div className="d">Exige siempre aprobación humana explícita vinculada al SHA de cabecera</div>
+        </div>
+        <span className="chip mint"><Icon name="lock" size={11} /> siempre manual</span>
+      </div>
+    </>}
   </>;
 }
 

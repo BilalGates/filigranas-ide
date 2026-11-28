@@ -10,6 +10,7 @@ mod chat;
 mod claude;
 mod cli;
 mod codex;
+mod composer;
 mod containers;
 mod db;
 mod delegate;
@@ -175,6 +176,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(main_webview_only(tauri::generate_handler![
+            composer::composer_settings,
+            composer::composer_configure,
+            composer::composer_usage,
+            composer::composer_suggest,
+            composer::composer_improve,
+            composer::composer_cancel,
             updates::update_status,
             updates::update_check,
             updates::update_download,

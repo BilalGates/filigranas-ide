@@ -6,7 +6,7 @@ import { ConversationCard } from './ConversationCards';
 import { AgDot, sessionAgents, useAgentsActivity } from './kit';
 import { Icon } from './icons';
 
-const HEIGHT = 120;
+const HEIGHT = 140;
 const COLORS: Record<string, string> = {
   done: 'var(--mint)', running: 'var(--violet)', waiting_approval: 'var(--amber)',
   blocked: 'var(--coral)', verifying: 'var(--skyhi)', failed: 'var(--coral)',
@@ -62,7 +62,7 @@ export default function ConversationPlan({ items, limit, onOpen }: { items: Task
     }
     const last = Math.max(1, ...columns.keys());
     return new Map([...columns].flatMap(([level, group]) => group.map((task, i) => [task.id, {
-      task, x: 24 + (width - 48) * level / last, y: HEIGHT * (i + 1) / (group.length + 1),
+      task, x: Math.min(100, width / 4) + Math.max(0, width - Math.min(200, width / 2)) * level / last, y: HEIGHT * (i + 1) / (group.length + 1),
     }] as const)));
   }, [items, width]);
 

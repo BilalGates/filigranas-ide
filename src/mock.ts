@@ -3,7 +3,9 @@
 // Tauri; los datos viven en memoria y se pierden al recargar.
 import { mockIPC } from '@tauri-apps/api/mocks';
 import { emit } from '@tauri-apps/api/event';
-import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, LocalService, Project, WorkSession, Workspace } from './ipc';
+import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entry, GithubLoginStatus, Group, HealthRun, LocalService, Project, TaskPlan, WorkSession, Workspace } from './ipc';
+
+const mockPlans: TaskPlan[] = [];
 
 const ROOT = '/Users/demo/repositorios';
 
@@ -613,8 +615,21 @@ mockIPC(
       case 'tasks_list':
         // kaza queda sin tareas para revisar los estados vacíos
         return rel(a.project) === 'kaza' ? [] : mockTasks();
+      case 'task_plan_create': {
+        const { title, goal, criteria } = a.input;
+        if (!title.trim() || [...title.trim()].length > 110 || !goal.trim() || !criteria.trim()) return fail('Plan no válido');
+        const id = mockPlans.length + 1;
+        const now = Math.floor(Date.now() / 1000);
+        mockPlans.push({ progress: { total: 0, done: 0 }, id, project: a.project, title: title.trim(), goal: goal.trim(), criteria: criteria.trim(), createdAt: now, updatedAt: now });
+        void emit('tasks-changed');
+        return id;
+      }
+      case 'task_plans_list':
+        return mockPlans.filter(p => p.project === a.project);
+      case 'task_plan_detail':
+        return mockPlans.find(p => p.project === a.project && p.id === a.plan) ?? fail('El plan no pertenece al proyecto');
       case 'task_flow':
-        return rel(a.project) === 'kaza' ? { tasks: [], runs: {} } : { tasks: mockTasks(), runs: { 2: mockRuns(2) } };
+        return { plans: mockPlans.filter(p => p.project === a.project), tasks: rel(a.project) === 'kaza' ? [] : mockTasks(), runs: rel(a.project) === 'kaza' ? {} : { 2: mockRuns(2) } };
       case 'task_runs':
         return mockRuns(Number(a.task));
       case 'health_list':
@@ -933,9 +948,9 @@ console.info('[filigranas] núcleo simulado activo');
 // Tareas de ejemplo solo para el modo navegador (desarrollo y pruebas visuales).
 function mockTasks() {
   const now = Date.now();
-  const base = { parentId: null, goal: '', criteria: '', risk: 'medio', verification: 'pruebas', tests: null, waitingFor: [] as number[], sessions: [] as unknown[] };
+  const base = { planId: null, prompt: null, agent: null, role: null, parentId: null, goal: '', criteria: '', risk: 'medio', verification: 'pruebas', tests: null, waitingFor: [] as number[], sessions: [] as unknown[] };
   const t = (id: number, title: string, status: string, priority: string, dependencies: number[], extra: Record<string, unknown> = {}) =>
-    ({ ...base, id, title, status, priority, dependencies, createdAt: now - id * 3600e3, updatedAt: now - id * 600e3, ...extra });
+    ({ ...base, phase: status === 'waiting_approval' ? 'pending' : status === 'backlog' || status === 'ready' ? 'pending' : status === 'review' ? 'verifying' : status, id, title, status, priority, dependencies, createdAt: now - id * 3600e3, updatedAt: now - id * 600e3, ...extra });
   return [
     t(1, 'Esquema de la cola de reintentos', 'done', 'high', [], { goal: 'Tabla y migración de la cola.' }),
     t(2, 'Worker de reintentos con backoff', 'running', 'high', [1], { goal: 'Reintentar envíos con espera exponencial.', criteria: 'Reintenta 5 veces y registra el fallo.', sessions: [{ id: 1, name: 'sesión 1', engine: 'codex', branch: 'ide/reintentos', worktree: null, baseCommit: null, closed: false, github: null }] }),
@@ -966,7 +981,7 @@ function mockHealth(): HealthRun[] {
 
 function mockRuns(task: number) {
   if (task !== 2) return [];
-  return [{ id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],
+  return [{ error: null, waitingPermissions: 0, attempt: null, prompt: null, result: null, dispatchedMs: null, id: 11, sessionId: 1, provider: 'codex', model: 'gpt-6-sol', startedMs: Date.now() - 900e3, durationMs: null, outcome: 'running', retry: false, inputTokens: 18200, cachedInputTokens: 9000, outputTokens: 2100, costEstimateUsd: null, quotaShort: null, quotaLong: null, contextTokens: 41000, memory: [],
     routing: { source: 'jev', reason: 'Cambio acotado con pruebas existentes', effort: 'medio', recommendedEffort: 'medio', confidence: 0.82, model: 'gpt-6-sol', inputTokens: null, outputTokens: null, costEstimateUsd: null, durationMs: null, complexity: 'media', review: null, context: null } }];
 }
 

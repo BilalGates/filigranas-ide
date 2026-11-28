@@ -22,7 +22,7 @@ export async function runBrowser(){
  // Actual splitter keyboard events, then Workspace compact/restore.
  const splitter=document.querySelector('[aria-label="Divisor entre Workspace y herramienta"]');assert(splitter,'splitter');
  for(const key of ['ArrowLeft','ArrowLeft','ArrowRight','End','Home','Enter']){splitter.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));report.geometry.push(await geometry(uno.path));}
- button('Minimizar Workspace').click();report.geometry.push(await geometry(uno.path));
+ button('Ocultar chat').click();report.geometry.push(await geometry(uno.path));
  report.compactControls=[...document.querySelectorAll('button')].filter(b=>b.getClientRects().length).map(b=>({aria:b.getAttribute('aria-label'),title:b.title}));
  await selectProject(dos);await openAddress('http://localhost:3000/other');report.navigation.push(await loaded(dos.path,'http://localhost:3000/other'));
  await selectProject(uno);const restored=await loaded(uno.path,'http://localhost:3000/two');assert(restored.canGoBack,'preserved history');report.restored=restored;

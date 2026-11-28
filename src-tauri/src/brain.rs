@@ -88,7 +88,7 @@ fn entry(r: &Row<'_>) -> rusqlite::Result<Entry> {
     })
 }
 
-fn known_secret(text: &str) -> bool {
+pub(crate) fn known_secret(text: &str) -> bool {
     let upper = text.to_ascii_uppercase();
     let markers = ["-----BEGIN ", "PRIVATE KEY-----", "AUTHORIZATION: BEARER "];
     if upper.contains(markers[0]) && upper.contains(markers[1]) || upper.contains(markers[2]) {
@@ -246,6 +246,81 @@ fn recall(conn: &Connection, project: &str, task: i64, text: &str) -> CmdResult<
         result.push(row.map_err(err)?);
     }
     Ok(result)
+}
+
+pub(crate) struct ComposerMemory {
+    pub kind: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// Recupera hasta `limit` recuerdos vigentes y autorizados (`share = 1`) del
+/// proyecto (o globales) relevantes para el Compositor inteligente.
+pub(crate) fn recall_for_composer(
+    conn: &Connection,
+    project: &str,
+    task: Option<i64>,
+    query: &str,
+    limit: usize,
+) -> CmdResult<Vec<ComposerMemory>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut picked: Vec<Entry> = Vec::new();
+    let mut seen: HashSet<i64> = HashSet::new();
+    if let Some(task_id) = task {
+        let mut exact = conn.prepare(&format!(
+            "SELECT {FIELDS} FROM brain_entries b
+             WHERE b.project=?1 AND b.task=?2 AND b.share=1
+               AND (b.valid_until IS NULL OR b.valid_until>unixepoch())
+             ORDER BY b.updated DESC,b.id DESC LIMIT ?3"
+        )).map_err(err)?;
+        for row in exact.query_map(params![project, task_id, limit as i64], entry).map_err(err)? {
+            let item = row.map_err(err)?;
+            if let Some(id) = item.draft.id {
+                seen.insert(id);
+            }
+            picked.push(item);
+        }
+    }
+    let remaining = limit.saturating_sub(picked.len());
+    let terms = keywords(&query.chars().take(600).collect::<String>(), false);
+    if remaining > 0 && !terms.is_empty() {
+        let mut related = conn.prepare(&format!(
+            "SELECT {FIELDS} FROM brain_search JOIN brain_entries b ON b.id=brain_search.rowid
+             WHERE (b.project=?1 OR b.project IS NULL) AND b.task IS NULL AND b.share=1
+               AND (b.valid_until IS NULL OR b.valid_until>unixepoch()) AND brain_search MATCH ?2
+             ORDER BY b.project IS NULL, bm25(brain_search,5,1,2),b.updated DESC,b.id DESC LIMIT ?3"
+        )).map_err(err)?;
+        for row in related.query_map(params![project, terms, remaining as i64], entry).map_err(err)? {
+            let item = row.map_err(err)?;
+            if item.draft.id.is_none_or(|id| seen.insert(id)) {
+                picked.push(item);
+            }
+        }
+    }
+    let remaining = limit.saturating_sub(picked.len());
+    if remaining > 0 {
+        // Decisiones/restricciones/preferencias recientes del proyecto (autorizadas).
+        let mut recent = conn.prepare(&format!(
+            "SELECT {FIELDS} FROM brain_entries b
+             WHERE b.project=?1 AND b.task IS NULL AND b.share=1
+               AND b.kind IN ('decision','constraint','preference')
+               AND (b.valid_until IS NULL OR b.valid_until>unixepoch())
+             ORDER BY b.updated DESC,b.id DESC LIMIT ?2"
+        )).map_err(err)?;
+        for row in recent.query_map(params![project, remaining as i64], entry).map_err(err)? {
+            let item = row.map_err(err)?;
+            if item.draft.id.is_none_or(|id| seen.insert(id)) {
+                picked.push(item);
+            }
+        }
+    }
+    Ok(picked.into_iter().take(limit).map(|item| ComposerMemory {
+        kind: item.draft.kind,
+        title: item.draft.title,
+        body: item.draft.body,
+    }).collect())
 }
 
 impl Entry {

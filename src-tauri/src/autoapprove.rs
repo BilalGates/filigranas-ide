@@ -279,7 +279,7 @@ pub fn evaluate(mode: Mode, cwd: &Path, kind: Kind, paths: &[String], command: O
 }
 
 /// Compatibilidad booleana simple para callers/tests existentes.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub fn approves(mode: Mode, cwd: &Path, kind: Kind, paths: &[String]) -> bool {
     matches!(evaluate(mode, cwd, kind, paths, None), PolicyDecision::Allow)
 }

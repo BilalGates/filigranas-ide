@@ -36,6 +36,11 @@ impl Mode {
         }
     }
 
+    /// Orden de permisividad: Solo lectura < Con autorización < Automático < Control total.
+    fn rank(self) -> u8 {
+        match self { Self::ReadOnly => 0, Self::Ask => 1, Self::Auto => 2, Self::Full => 3 }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ReadOnly => "readonly",
@@ -100,6 +105,12 @@ impl Modes {
         let _ = self.set(Scope::Session(child), mode);
     }
 
+    /// Baja el modo de una sesión a `limit` si es más permisivo.
+    pub fn cap(&self, session: i64, limit: Mode) -> CmdResult<()> {
+        if self.get(session).rank() > limit.rank() { self.set(Scope::Session(session), limit)?; }
+        Ok(())
+    }
+
     fn set(&self, scope: Scope, mode: Mode) -> CmdResult<()> {
         let mut modes = self.0.lock().map_err(err)?;
         modes.insert(scope, mode);
@@ -108,116 +119,111 @@ impl Modes {
 }
 
 /// Comandos catastróficos bloqueados en todos los modos por política superior.
+/// Se buscan también dentro de comillas o de un `sh -c`, porque no se aprueban nunca.
 pub fn is_catastrophic_command(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
-    let compact = lower.split_whitespace().collect::<Vec<_>>().join(" ");
-    let targets_root_or_home = compact.contains("rm -rf / ")
-        || compact.ends_with("rm -rf /")
-        || compact.contains("rm -rf /*")
-        || compact.contains("rm -rf ~")
-        || compact.contains("rm -fr / ")
-        || compact.ends_with("rm -fr /")
-        || compact.contains("rm -fr /*")
-        || compact.contains("rm -fr ~");
-    targets_root_or_home
-        || compact.contains("mkfs.")
+    let lower = cmd.to_lowercase().replace(['\'', '"', '\\'], " ");
+    let compact = format!(" {} ", lower.split_whitespace().collect::<Vec<_>>().join(" "));
+    let wipe = ["rm -rf", "rm -fr", "rm -r -f", "rm -f -r"].iter().any(|rm| {
+        ["/ ", "/* ", "~ ", "~/ ", "$home ", "${home} ", "$home/ "].iter().any(|target| compact.contains(&format!("{rm} {target}")))
+    });
+    wipe
+        || compact.contains("mkfs")
         || compact.contains("diskutil erase")
         || compact.contains("dd if=") && compact.contains("of=/dev/")
         || compact.contains(":(){")
-        || compact.starts_with("shutdown ")
-        || compact == "shutdown"
-        || compact == "reboot"
+        || compact.contains(" shutdown ")
+        || compact.contains(" reboot ")
 }
 
-/// Operaciones reservadas al flujo explícito de Entrega o destructivas sobre Git.
-/// Requieren confirmación explícita incluso en Full Control.
-pub fn protected_operation_reason(cmd: &str) -> Option<&'static str> {
-    let compact = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
-    // Tokeniza segmentos separados por &&, ||, ; o | para detectar subcomandos reales.
-    for seg in compact.split([';', '|']).flat_map(|s| s.split("&&")) {
-        let s = seg.trim();
-        let tokens: Vec<&str> = s.split_whitespace().map(|t| t.trim_matches(['\'', '"'])).collect();
-        if tokens.is_empty() {
-            continue;
-        }
-        // Ignora prefijos de entorno o `env` / `cd`.
-        let mut i = 0;
-        while i < tokens.len() && (tokens[i].contains('=') || tokens[i] == "env") {
-            i += 1;
-        }
-        let rest = &tokens[i..];
-        if rest.is_empty() {
-            continue;
-        }
-        let program = Path::new(rest[0]).file_name().and_then(|p| p.to_str()).unwrap_or(rest[0]);
-        if matches!(program, "command" | "builtin" | "env" | "nohup" | "time" | "nice" | "rm" | "rmdir" | "unlink" | "sudo" | "sh" | "bash" | "zsh" | "python" | "python3" | "node" | "eval" | "exec" | "find" | "xargs" | "perl" | "ruby" | "osascript" | "powershell" | "pwsh" | "cmd") {
-            return Some("Borrado, privilegios o ejecución indirecta requieren autorización específica.");
-        }
-        if program == "git" {
-            // Salta flags globales como `-C <dir>`.
-            let mut j = 1;
-            while j < rest.len() {
-                if rest[j] == "-c" || rest[j] == "-C" || rest[j] == "--git-dir" || rest[j] == "--work-tree" {
-                    j += 2;
-                } else if rest[j].starts_with('-') {
-                    j += 1;
-                } else {
-                    break;
-                }
-            }
-            if let Some(&sub) = rest.get(j) {
-                match sub {
-                    "push" => return Some("git push requiere autorización explícita (usa Entrega para publicar con confirmación de SHA)."),
-                    "merge" | "rebase" | "restore" | "checkout" | "switch" | "config" => return Some("Esta operación Git requiere autorización específica para conservar ramas, cambios y configuración."),
-                    "reset" if rest[j + 1..].contains(&"--hard") => {
-                        return Some("git reset --hard es destructivo y requiere confirmación explícita.");
-                    }
-                    "clean" if rest[j + 1..].iter().any(|t| t.starts_with('-') && t.contains('f')) => {
-                        return Some("git clean -f elimina archivos sin seguimiento y requiere confirmación explícita.");
-                    }
-                    "branch" if rest[j + 1..].contains(&"-D") => {
-                        return Some("git branch -D fuerza el borrado de una rama y requiere confirmación explícita.");
-                    }
-                    _ => {}
-                }
-            }
-        }
-        if program == "gh" && rest.get(1) == Some(&"pr") && matches!(rest.get(2), Some(&"merge" | &"close")) {
-            return Some("Integrar o cerrar una Pull Request en GitHub requiere aprobación humana explícita.");
-        }
-    }
-    None
+/// Un comando sin metacaracteres de shell: un único programa con argumentos
+/// literales. Cualquier otra forma (saltos de línea, `;`, `&`, `|`, redirecciones,
+/// subshells, variables, comillas, escapes) no se puede razonar sin ejecutarla.
+fn simple_tokens(cmd: &str) -> Option<Vec<&str>> {
+    if cmd.trim().is_empty() || cmd.chars().any(|c| "\n\r;|&><`$(){}[]*?!#~\\\"'".contains(c)) { return None; }
+    Some(cmd.split_whitespace().collect())
 }
 
-/// Lista conservadora. No interpreta shell ni ejecuta código para clasificarlo.
-/// Scripts de proyecto (test/build) son autorización de ejecución, no solo lectura.
-pub fn is_readonly_command(cmd: &str) -> bool {
-    if cmd.is_empty() || cmd.chars().any(|c| "\n\r;|&><`$(){}\\\"'".contains(c)) { return false; }
-    let t: Vec<_> = cmd.split_whitespace().collect();
-    let Some(bin) = t.first() else { return false };
-    match *bin {
-        "pwd" => t.len() == 1,
-        "ls" | "cat" | "head" | "tail" | "wc" | "rg" | "grep" | "file" | "stat" =>
+/// Consultas que no escriben ni ejecutan código del proyecto.
+fn is_query(t: &[&str]) -> bool {
+    match t.first().copied() {
+        Some("pwd") => t.len() == 1,
+        Some("ls" | "cat" | "head" | "tail" | "wc" | "rg" | "grep" | "file" | "stat") =>
             !t.iter().skip(1).any(|v| v.starts_with('-') &&
                 (v.contains("pre") || v.contains("hostname") || v.contains("files-with") || v.contains("follow"))),
-        "git" => t.len() >= 2 && matches!(t[1], "status" | "rev-parse" | "ls-files" | "merge-base")
-            && !t.iter().any(|v| v.starts_with("--output") || v.starts_with("--config")),
         _ => false,
     }
 }
 
+/// Consultas de Git sin opciones globales (`-c`, `-C`, alias…). Ejecutan la
+/// configuración local del repositorio (p. ej. `core.fsmonitor`), así que no
+/// entran en Solo lectura.
+fn is_git_query(t: &[&str]) -> bool {
+    t.first() == Some(&"git") && t.len() >= 2
+        && matches!(t[1], "status" | "diff" | "log" | "show" | "rev-parse" | "ls-files" | "merge-base" | "blame")
+        && !t.iter().any(|v| v.starts_with("--output") || v.starts_with("--config") || v.starts_with("--ext-diff") || v.starts_with("--exec"))
+}
+
+/// Verificación local: ejecuta scripts del proyecto dentro de su carpeta.
+fn is_project_check(t: &[&str]) -> bool {
+    matches!(t, ["pnpm" | "npm", "test" | "build" | "typecheck" | "lint" | "check"]
+        | ["cargo", "test" | "check" | "clippy" | "build", ..])
+}
+
+/// Lista positiva de Control total: comandos simples cuyo efecto queda en la
+/// carpeta del proyecto. Publicar, integrar, borrar, cambiar de rama o de
+/// configuración, la red y los intérpretes siguen preguntando.
+fn is_full_command(t: &[&str]) -> bool {
+    is_query(t) || is_git_query(t) || is_project_check(t)
+        || matches!(t.first().copied(), Some("mkdir" | "touch" | "cp" | "mv"))
+        || matches!(t, ["git", "add", ..] | ["pnpm" | "npm" | "cargo", "fmt" | "install" | "ci" | "run", ..] | ["cargo", "doc", ..])
+        || matches!(t, ["gh", "pr" | "issue" | "run", "view" | "list" | "status" | "checks" | "diff", ..])
+}
+
+pub fn is_readonly_command(cmd: &str) -> bool {
+    simple_tokens(cmd).is_some_and(|t| is_query(&t))
+}
+
 pub fn is_auto_safe_command(cmd: &str) -> bool {
-    if is_readonly_command(cmd) { return true; }
-    // Estos scripts pueden escribir dentro del proyecto: Auto los autoriza como
-    // política de ejecución local, y nunca como consultas de Solo lectura.
-    if cmd.chars().any(|c| "\n\r;|&><`$(){}\\\"'".contains(c)) { return false; }
-    let t: Vec<_> = cmd.split_whitespace().collect();
-    matches!(t.as_slice(), ["pnpm" | "npm", "test" | "build" | "typecheck" | "lint" | "check"]
-        | ["cargo", "test" | "check" | "clippy" | "build"])
+    simple_tokens(cmd).is_some_and(|t| is_query(&t) || is_git_query(&t) || is_project_check(&t))
+}
+
+/// Por qué un comando necesita confirmación, para mostrarlo al usuario.
+pub fn protected_operation_reason(cmd: &str) -> Option<&'static str> {
+    let Some(t) = simple_tokens(cmd) else {
+        return Some("El comando combina órdenes, redirecciones, variables o comillas: Filigranas no puede comprobar su alcance sin ejecutarlo.");
+    };
+    match t.as_slice() {
+        ["git", "push", ..] | ["git", "send-pack", ..] => Some("Publicar requiere autorización explícita (usa Entrega para publicar con confirmación de SHA)."),
+        ["git", ..] if !is_git_query(&t) && t.get(1) != Some(&"add") => Some("Esta operación Git requiere autorización para conservar ramas, historial y configuración."),
+        ["gh", ..] if !is_full_command(&t) => Some("Las operaciones de escritura en GitHub requieren aprobación humana explícita."),
+        [program, ..] if !is_full_command(&t) => Some(match Path::new(program).file_name().and_then(|p| p.to_str()).unwrap_or(program) {
+            "rm" | "rmdir" | "unlink" => "Borrar archivos requiere autorización específica.",
+            "sudo" | "su" | "doas" => "Elevar privilegios requiere autorización específica.",
+            "curl" | "wget" | "ssh" | "scp" | "rsync" | "nc" => "El acceso a red requiere autorización específica.",
+            _ => "El comando está fuera de la lista de operaciones que Filigranas aprueba sola.",
+        }),
+        _ => None,
+    }
+}
+
+/// Archivos que controlan Git, los agentes o la ejecución de herramientas.
+/// Editarlos cambia lo que harán después órdenes ya aprobadas.
+fn guards_execution(cwd: &Path, path: &str, strict: bool) -> bool {
+    let raw = Path::new(path);
+    let rel = raw.strip_prefix(cwd).unwrap_or(raw);
+    let parts: Vec<String> = rel.components().filter_map(|c| match c { Component::Normal(s) => s.to_str().map(str::to_lowercase), _ => None }).collect();
+    let agents = parts.iter().any(|p| matches!(p.as_str(), ".git" | ".claude" | ".codex" | ".agents" | ".mcp.json" | ".gitmodules" | ".husky" | ".githooks"));
+    let name = parts.last().map(String::as_str).unwrap_or("");
+    let build = name == "package.json" || name == "build.rs" || name == "cargo.toml" || name == "makefile" || name == ".npmrc"
+        || name.starts_with(".env") || name.contains(".config.") || name == "tauri.conf.json"
+        || parts.first().is_some_and(|p| p == ".github" || p == ".vscode");
+    agents || (strict && build)
 }
 
 /// Evalúa la decisión de permisos efectiva para cualquier proveedor (Claude, Codex, ACP).
 pub fn evaluate(mode: Mode, cwd: &Path, kind: Kind, paths: &[String], command: Option<&str>) -> PolicyDecision {
+    let ask = |origin: &'static str, reason: &str| PolicyDecision::Ask { origin, reason: Some(reason.into()) };
+    let deny = |reason: &str| PolicyDecision::DenyPolicy { origin: "modo Solo lectura", reason: reason.into() };
     if let Some(cmd) = command {
         if is_catastrophic_command(cmd) {
             return PolicyDecision::DenyPolicy {
@@ -225,68 +231,50 @@ pub fn evaluate(mode: Mode, cwd: &Path, kind: Kind, paths: &[String], command: O
                 reason: "Operación destructiva bloqueada por política superior de Filigranas.".into(),
             };
         }
-        if let Some(reason) = protected_operation_reason(cmd) {
-            if mode == Mode::ReadOnly {
-                return PolicyDecision::DenyPolicy {
-                    origin: "modo Solo lectura",
-                    reason: format!("Bloqueado en Solo lectura: {reason}"),
-                };
-            }
-            return PolicyDecision::Ask {
-                origin: "protección de proyecto",
-                reason: Some(reason.into()),
-            };
-        }
     }
-
     if !paths.iter().all(|p| inside(cwd, p)) && mode != Mode::ReadOnly {
-        return PolicyDecision::Ask { origin: "alcance del proyecto", reason: Some("La ruta sale de la carpeta autorizada.".into()) };
+        return ask("alcance del proyecto", "La ruta sale de la carpeta autorizada.");
     }
-    if matches!(mode, Mode::Auto | Mode::Full) && kind == Kind::Exec {
-        if let Some(command) = command {
-            let outside = command.split_whitespace().skip(1).map(|t| t.trim_matches(['\"', '\'']))
-                .any(|t| (t.starts_with('/') || t.starts_with("../") || t.starts_with('~')) && !inside(cwd,t));
-            if outside { return PolicyDecision::Ask { origin:"alcance del proyecto", reason:Some("El comando incluye una ruta fuera del alcance autorizado.".into()) }; }
+    if kind == Kind::Exec {
+        let Some(cmd) = command else {
+            return if mode == Mode::ReadOnly { deny("Solo lectura no admite órdenes sin texto verificable.") }
+                else { ask("política de Filigranas", "El proveedor no ha informado la orden exacta; requiere una decisión humana.") };
+        };
+        if let Some(tokens) = simple_tokens(cmd) {
+            let outside = tokens.iter().skip(1).filter(|t| !t.starts_with('-') || t.contains('='))
+                .map(|t| t.split_once('=').map_or(*t, |(_, v)| v))
+                .any(|t| !inside(cwd, t));
+            if outside && mode != Mode::ReadOnly {
+                return ask("alcance del proyecto", "El comando incluye una ruta fuera del alcance autorizado.");
+            }
         }
     }
     match mode {
         Mode::ReadOnly => match kind {
             Kind::Read => PolicyDecision::Allow,
             Kind::Exec if command.is_some_and(is_readonly_command) => PolicyDecision::Allow,
-            Kind::Edit => PolicyDecision::DenyPolicy {
-                origin: "modo Solo lectura",
-                reason: "La sesión está en modo Solo lectura: no se permiten modificaciones de archivos.".into(),
-            },
-            Kind::Exec | Kind::Other => PolicyDecision::DenyPolicy {
-                origin: "modo Solo lectura",
-                reason: "La sesión está en modo Solo lectura: solo se permiten consultas e investigación sin escritura.".into(),
-            },
+            Kind::Edit => deny("La sesión está en modo Solo lectura: no se permiten modificaciones de archivos."),
+            Kind::Exec | Kind::Other => deny("La sesión está en modo Solo lectura: solo se permiten consultas e investigación sin escritura."),
         },
-        Mode::Ask => PolicyDecision::Ask {
-            origin: "Filigranas (Con autorización)",
-            reason: None,
-        },
-        Mode::Auto => match kind {
-            Kind::Read if paths.iter().all(|p| inside(cwd, p)) => PolicyDecision::Allow,
-            Kind::Edit if !paths.is_empty() && paths.iter().all(|p| inside(cwd, p)) => PolicyDecision::Allow,
-            Kind::Exec if paths.iter().all(|p| inside(cwd, p)) && command.is_some_and(is_auto_safe_command) => PolicyDecision::Allow,
-            Kind::Edit => PolicyDecision::Ask {
-                origin: "política Automático",
-                reason: Some("La ruta sale de la carpeta autorizada del proyecto.".into()),
-            },
-            Kind::Exec => PolicyDecision::Ask {
-                origin: "política Automático",
-                reason: Some("Comando fuera de la política automática segura (lectura, build, lint y tests locales).".into()),
-            },
-            _ => PolicyDecision::Ask {
-                origin: "política Automático",
-                reason: Some("Requiere confirmación según la política Automático.".into()),
-            },
-        },
-        Mode::Full if kind == Kind::Edit && paths.is_empty() => PolicyDecision::Ask {
-            origin: "alcance del proyecto", reason:Some("El proveedor no ha informado las rutas del cambio; no se puede autorizar su alcance.".into())
-        },
-        Mode::Full => PolicyDecision::Allow,
+        Mode::Ask => PolicyDecision::Ask { origin: "Filigranas (Con autorización)", reason: None },
+        Mode::Auto | Mode::Full => {
+            let full = mode == Mode::Full;
+            let origin = if full { "política Control total" } else { "política Automático" };
+            match kind {
+                Kind::Read => PolicyDecision::Allow,
+                Kind::Edit if paths.is_empty() => ask("alcance del proyecto", "El proveedor no ha informado las rutas del cambio; no se puede autorizar su alcance."),
+                Kind::Edit if paths.iter().any(|p| guards_execution(cwd, p, !full)) =>
+                    ask(origin, "El archivo controla Git, los agentes o la ejecución de herramientas; su cambio requiere confirmación."),
+                Kind::Edit => PolicyDecision::Allow,
+                Kind::Exec => {
+                    let cmd = command.unwrap_or_default();
+                    let allowed = if full { simple_tokens(cmd).is_some_and(|t| is_full_command(&t)) } else { is_auto_safe_command(cmd) };
+                    if allowed { PolicyDecision::Allow }
+                    else { ask(origin, protected_operation_reason(cmd).unwrap_or("Comando fuera de la política automática (lectura, build, lint y tests locales).")) }
+                }
+                Kind::Other => ask(origin, "Herramienta sin clasificar: requiere confirmación."),
+            }
+        }
     }
 }
 
@@ -305,7 +293,11 @@ pub fn inside(cwd: &Path, path: &str) -> bool {
     let mut clean = PathBuf::new();
     for part in joined.components() {
         match part {
-            Component::ParentDir => { if !clean.pop() { return false; } }
+            // `..` actúa sobre el destino real: un enlace simbólico se resuelve antes de subir.
+            Component::ParentDir => {
+                if let Ok(real) = std::fs::canonicalize(&clean) { clean = real; }
+                if !clean.pop() { return false; }
+            }
             Component::CurDir => {}
             other => clean.push(other),
         }
@@ -367,17 +359,12 @@ pub fn codex_request(method: &str, params: &Value) -> (Kind, Vec<String>, Option
             (Kind::Edit, paths, None)
         }
         "item/commandExecution/requestApproval" => {
-            let cmd = params["command"]
-                .as_str()
-                .map(str::to_owned)
-                .or_else(|| {
-                    params["parsedCmd"].as_array().map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    })
-                });
+            // Solo una orden normal se puede evaluar. `writeStdin`, `humanCommand`
+            // o una orden ausente quedan sin texto y siempre llegan al usuario.
+            let plain = params["kind"].as_str().is_none_or(|k| k == "command");
+            let cmd = params["command"].as_str().map(str::to_owned)
+                .or_else(|| params["command"].as_array().map(|arr| arr.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")))
+                .filter(|_| plain);
             let paths = params["cwd"].as_str().map(|s| vec![s.to_string()]).unwrap_or_default();
             (Kind::Exec, paths, cmd)
         }
@@ -420,12 +407,24 @@ pub fn acp_request(tool_call: &Value) -> (Kind, Vec<String>, Option<String>) {
     (kind, paths, command)
 }
 
+/// Subsesiones de una sesión, a cualquier profundidad.
+fn descendants(conn: &rusqlite::Connection, id: i64) -> CmdResult<Vec<i64>> {
+    let mut stmt = conn.prepare("WITH RECURSIVE d(id) AS (SELECT id FROM sessions WHERE parent_session=?1
+        UNION SELECT s.id FROM sessions s JOIN d ON s.parent_session=d.id) SELECT id FROM d").map_err(err)?;
+    let rows = stmt.query_map([id], |r| r.get(0)).map_err(err)?;
+    rows.collect::<Result<_, _>>().map_err(err)
+}
+
 #[tauri::command]
 pub fn session_permission_mode(state: State<AppState>, id: Option<i64>, project: Option<String>, mode: String) -> CmdResult<String> {
     let parsed = Mode::parse(&mode).ok_or("nivel de permisos no válido")?;
     match (id, project) {
         (Some(id), maybe_project) => {
             state.permissions.set(Scope::Session(id), parsed)?;
+            // Una subsesión ya creada nunca queda con más permisos que su padre.
+            for child in descendants(&*state.db.lock().map_err(err)?, id)? {
+                state.permissions.cap(child, parsed)?;
+            }
             // Si es el PM de Claude del proyecto, sincroniza también el ámbito de proyecto
             // para que las delegaciones y cambios de motor PM hereden exactamente este modo.
             let is_pm_project = {
@@ -495,9 +494,10 @@ mod tests {
         let dir = tmp();
         let inside_file = dir.join("src/new.rs").to_string_lossy().into_owned();
 
-        // Solo lectura: permite lectura y git status, deniega escritura/comandos mutantes por política.
+        // Solo lectura: permite lecturas y consultas sin Git (Git ejecuta su configuración local).
         assert_eq!(evaluate(Mode::ReadOnly, &dir, Kind::Read, std::slice::from_ref(&inside_file), None), PolicyDecision::Allow);
-        assert_eq!(evaluate(Mode::ReadOnly, &dir, Kind::Exec, &[], Some("git status")), PolicyDecision::Allow);
+        assert_eq!(evaluate(Mode::ReadOnly, &dir, Kind::Exec, &[], Some("ls src")), PolicyDecision::Allow);
+        assert!(matches!(evaluate(Mode::ReadOnly, &dir, Kind::Exec, &[], Some("git status")), PolicyDecision::DenyPolicy { .. }));
         assert!(matches!(evaluate(Mode::ReadOnly, &dir, Kind::Edit, std::slice::from_ref(&inside_file), None), PolicyDecision::DenyPolicy { .. }));
         assert!(matches!(evaluate(Mode::ReadOnly, &dir, Kind::Exec, &[], Some("touch a.txt")), PolicyDecision::DenyPolicy { .. }));
 
@@ -514,7 +514,9 @@ mod tests {
 
         // Full Control: aprueba operaciones normales sin preguntar, pero protege push/merge/destructivos.
         assert_eq!(evaluate(Mode::Full, &dir, Kind::Edit, &[inside_file], None), PolicyDecision::Allow);
-        assert_eq!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("npm install && pnpm test")), PolicyDecision::Allow);
+        assert_eq!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("npm install")), PolicyDecision::Allow);
+        assert_eq!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("git add src")), PolicyDecision::Allow);
+        assert!(matches!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("npm install && pnpm test")), PolicyDecision::Ask { .. }));
         assert!(matches!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("git push origin main")), PolicyDecision::Ask { .. }));
         assert!(matches!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("git merge feat/x")), PolicyDecision::Ask { .. }));
         assert!(matches!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some("git reset --hard HEAD~1")), PolicyDecision::Ask { .. }));
@@ -556,5 +558,78 @@ mod tests {
         modes.set(Scope::Session(42), Mode::ReadOnly).unwrap();
         modes.inherit(42, 43);
         assert_eq!(modes.get(43), Mode::ReadOnly);
+        modes.set(Scope::Session(44), Mode::Full).unwrap();
+        modes.cap(44, Mode::ReadOnly).unwrap();
+        assert_eq!(modes.get(44), Mode::ReadOnly);
+        modes.cap(43, Mode::Full).unwrap();
+        assert_eq!(modes.get(43), Mode::ReadOnly, "cap nunca amplía");
+        let conn = crate::db::open(Path::new(":memory:")).unwrap();
+        let p = crate::db::create_session(&conn, "/r", "claude", "a", &["p"]).unwrap();
+        let c = crate::db::create_session(&conn, "/r", "codex", "b", &["c"]).unwrap();
+        let g = crate::db::create_session(&conn, "/r", "claude", "c", &["g"]).unwrap();
+        crate::db::set_session_parent(&conn, c.id, p.id, None).unwrap();
+        crate::db::set_session_parent(&conn, g.id, c.id, None).unwrap();
+        assert_eq!(descendants(&conn, p.id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn full_and_auto_never_approve_rewritten_or_out_of_scope_commands() {
+        let dir = tmp();
+        for cmd in ["true\ngit push origin main", "(git push origin main)", "echo $(git push origin main)", "true & git push origin main",
+            "if true; then git push; fi", "git -c alias.p=push p origin main", "git send-pack origin main", "gh -R o/r pr merge 1",
+            "gh api -X PUT repos/o/r/pulls/1/merge", "\\rm -rf src", "git branch -d --force main", "cd .. && touch escaped.txt",
+            "echo x >~/.zshrc", "cp secret $HOME/x", "git commit -m x", "git checkout main", "rm src", "curl https://example.com",
+            "python3 -c print", "awk BEGIN", "make", "npx something", "cp a /etc/x", "mv a ../b", "git status --output=/tmp/x"] {
+            for mode in [Mode::Full, Mode::Auto] {
+                assert!(matches!(evaluate(mode, &dir, Kind::Exec, &[], Some(cmd)), PolicyDecision::Ask { .. } | PolicyDecision::DenyPolicy { .. }), "{mode:?} aprobó {cmd:?}");
+            }
+        }
+        for cmd in ["/bin/zsh -lc 'rm -rf /'", "rm -rf $HOME", "rm -rf ~", "sh -c \"rm -fr /*\""] {
+            assert!(matches!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some(cmd)), PolicyDecision::DenyPolicy { .. }), "{cmd:?}");
+        }
+        // Lo que sí aprueba Control total: comandos simples dentro del proyecto.
+        for cmd in ["cargo test -p x", "pnpm build", "mkdir src/nuevo", "cp src/a.rs src/b.rs", "git diff", "gh pr view 3"] {
+            assert_eq!(evaluate(Mode::Full, &dir, Kind::Exec, &[], Some(cmd)), PolicyDecision::Allow, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn edits_that_change_future_execution_need_confirmation() {
+        let dir = tmp();
+        let p = |rel: &str| dir.join(rel).to_string_lossy().into_owned();
+        for rel in [".git/config", ".claude/settings.json", ".codex/config.toml", ".mcp.json", ".git/hooks/pre-push"] {
+            for mode in [Mode::Auto, Mode::Full] {
+                assert!(matches!(evaluate(mode, &dir, Kind::Edit, &[p(rel)], None), PolicyDecision::Ask { .. }), "{mode:?} {rel}");
+            }
+        }
+        // Automático tampoco cambia manifiestos ni scripts que ejecutan sus tests y builds.
+        for rel in ["package.json", "src-tauri/build.rs", "Cargo.toml", "vite.config.ts", ".github/workflows/ci.yml", ".env"] {
+            assert!(matches!(evaluate(Mode::Auto, &dir, Kind::Edit, &[p(rel)], None), PolicyDecision::Ask { .. }), "{rel}");
+            assert_eq!(evaluate(Mode::Full, &dir, Kind::Edit, &[p(rel)], None), PolicyDecision::Allow, "{rel}");
+        }
+        assert_eq!(evaluate(Mode::Auto, &dir, Kind::Edit, &[p("src/main.rs")], None), PolicyDecision::Allow);
+    }
+
+    #[test]
+    fn codex_requests_without_a_plain_command_always_reach_the_user() {
+        let dir = tmp();
+        for params in [json!({ "command": null }), json!({ "kind": "humanCommand", "command": "ls" }), json!({ "kind": "writeStdin" })] {
+            let (kind, _, cmd) = codex_request("item/commandExecution/requestApproval", &params);
+            assert!(cmd.is_none());
+            assert!(matches!(evaluate(Mode::Full, &dir, kind, &[], cmd.as_deref()), PolicyDecision::Ask { .. }));
+        }
+        let (_, _, cmd) = codex_request("item/commandExecution/requestApproval", &json!({ "command": ["cargo", "test"] }));
+        assert_eq!(cmd.as_deref(), Some("cargo test"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_segments_are_resolved_after_following_links() {
+        let dir = tmp();
+        let outside = tmp();
+        std::fs::create_dir_all(outside.join("deep")).unwrap();
+        std::os::unix::fs::symlink(outside.join("deep"), dir.join("link")).unwrap();
+        assert!(!inside(&dir, "link/../x.txt"));
+        assert!(inside(&dir, "src/../x.txt"));
     }
 }

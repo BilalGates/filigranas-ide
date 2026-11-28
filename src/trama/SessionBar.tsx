@@ -11,8 +11,8 @@ export type PermissionMode = 'readonly' | 'ask' | 'auto' | 'full';
 const MODES: { id: PermissionMode; label: string; icon: string; text: string }[] = [
   { id: 'readonly', label: 'Solo lectura', icon: 'lock', text: 'Consultas sin modificaciones. Las escrituras se rechazan por política.' },
   { id: 'ask', label: 'Con autorización', icon: 'lock', text: 'Cada petición del agente te llega para aprobarla o rechazarla.' },
-  { id: 'auto', label: 'Automático', icon: 'shield', text: 'Autoriza lecturas, ediciones y test/build locales según la política del proyecto. Otras operaciones requieren confirmación.' },
-  { id: 'full', label: 'Full control', icon: 'unlock', text: 'Autoriza operaciones en el alcance del proyecto. Publicación, merge, operaciones destructivas y ampliaciones de alcance conservan su aprobación específica. El PM solo coordina.' },
+  { id: 'auto', label: 'Automático', icon: 'shield', text: 'Aprueba lecturas, ediciones dentro del proyecto y tests o builds locales. Los cambios en Git, en la configuración de los agentes, en manifiestos o scripts de build y cualquier otra orden te llegan para aprobarlos.' },
+  { id: 'full', label: 'Full control', icon: 'unlock', text: 'Aprueba ediciones y órdenes simples dentro del proyecto. Publicar, integrar, borrar, cambiar de rama, la red, los intérpretes y las órdenes compuestas siguen pidiendo tu aprobación.' },
 ];
 const KEY = (scope: string) => `filigranas.permisos.${scope}`;
 const BRANCH_CHANGED_EVENT = 'filigranas:branch-changed';

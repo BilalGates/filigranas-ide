@@ -335,7 +335,10 @@ impl Claude {
                 },
             ])
             .args(["--append-system-prompt", &prompt]);
+        // Solo lectura y el PM no cargan servidores MCP de la configuración personal:
+        // sus herramientas no pasarían por la política de Filigranas.
         if is_pm { cmd.args(["--tools", "", "--strict-mcp-config"]); }
+        else if readonly { cmd.arg("--strict-mcp-config"); }
         if can_delegate {
             cmd.args(["--mcp-config", r#"{"mcpServers":{"filigranas":{"type":"sdk","name":"filigranas"}}}"#]);
         }

@@ -391,7 +391,7 @@ impl Codex {
                         match crate::autoapprove::evaluate(mode, std::path::Path::new(&cwd), kind, &paths, command.as_deref()) {
                             crate::autoapprove::PolicyDecision::Allow => {
                                 let _ = rpc.respond(id, json!({ "decision": "accept" }));
-                                Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method }), request_id: None }
+                                Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": { "command": command } }), request_id: None }
                             }
                             crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } => {
                                 let _ = rpc.respond(id, json!({ "decision": "decline" }));

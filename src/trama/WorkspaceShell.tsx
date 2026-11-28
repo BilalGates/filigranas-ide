@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Icon } from './icons';
-import { AgDot, Sigil, type Agent } from './kit';
+import { type Agent } from './kit';
 import {
+  canSplitWorkspace,
   computeLayoutGeometry,
+  resizeWorkspaceFromDelta,
+  splitterKeyTargetPx,
   TOOL_MAP,
   type LayoutGeometry,
   type ShellState,
@@ -22,122 +25,88 @@ type Props = {
   compactInfo: CompactWorkspaceInfo;
   browserMounted: boolean;
   workspace: (geometry: LayoutGeometry) => ReactNode;
-  compactExplorer?: ReactNode;
-  compactExplorerOpen?: boolean;
-  onToggleCompactExplorer?: () => void;
-  onCloseCompactExplorer?: () => void;
   tool: ReactNode;
   browserLayer: ReactNode;
   onResize: (targetPx: number, availableWidth: number) => void;
   onResetRatio: () => void;
-  onMinimizeWorkspace: () => void;
-  onRestoreWorkspace: () => void;
-  onCloseTool: () => void;
+  onRecoverWorkspace: (availableWidth: number) => void;
+  onFocusWorkspace?: () => void;
+  onGeometryChange?: (geometry: LayoutGeometry) => void;
 };
 
-function WorkspaceCompactRail({
+function WorkspaceDockTab({
+  buttonRef,
   info,
-  autoCompacted,
-  explorerOpen,
-  onToggleExplorer,
-  onRestore,
-  onCloseTool,
+  fitsSplit,
+  toolLabel,
+  onRecover,
 }: {
+  buttonRef: RefObject<HTMLButtonElement | null>;
   info: CompactWorkspaceInfo;
-  autoCompacted: boolean;
-  explorerOpen: boolean;
-  onToggleExplorer?: () => void;
-  onRestore: () => void;
-  onCloseTool: () => void;
+  fitsSplit: boolean;
+  toolLabel: string | null;
+  onRecover: () => void;
 }) {
-  const recover = () => {
-    if (autoCompacted) onCloseTool();
-    else onRestore();
-  };
-  const statusLabel = info.waitingCount > 0
+  const hasWarn = info.waitingCount > 0;
+  const hasLive = !hasWarn && info.workingCount > 0;
+  const statusText = hasWarn
     ? `${info.waitingCount} permiso${info.waitingCount === 1 ? '' : 's'} pendiente${info.waitingCount === 1 ? '' : 's'}`
-    : info.workingCount > 0
+    : hasLive
       ? `${info.workingCount} agente${info.workingCount === 1 ? '' : 's'} trabajando`
-      : 'En reposo';
+      : info.conversationName;
+  const actionNote = !fitsSplit && toolLabel ? ` (cierra ${toolLabel})` : '';
+  const fullLabel = `Mostrar chat · ${statusText}${actionNote}`;
 
   return (
-    <aside className="ws-compact" aria-label="Workspace minimizado">
-      {onToggleExplorer && (
-        <button
-          type="button"
-          className={`ws-compact-nav-btn${explorerOpen ? ' is-on' : ''}`}
-          onClick={onToggleExplorer}
-          aria-label={explorerOpen ? 'Cerrar explorador de proyectos y conversaciones' : 'Abrir explorador de proyectos y conversaciones'}
-          aria-expanded={explorerOpen}
-          title="Proyectos y conversaciones"
-        >
-          <Icon name="sidebar" size={15} />
-        </button>
+    <button
+      ref={buttonRef}
+      type="button"
+      className={`ws-dock-tab${hasWarn ? ' is-warn' : ''}${hasLive ? ' is-live' : ''}`}
+      onClick={onRecover}
+      aria-label={fullLabel}
+      title={fullLabel}
+    >
+      <span className="ws-dock-chev" aria-hidden="true">
+        <Icon name="back" size={13} />
+      </span>
+      <span className="ws-dock-ico" aria-hidden="true">
+        <Icon name="chat" size={14} />
+      </span>
+      {hasWarn ? (
+        <span className="ws-dock-badge" aria-hidden="true">{info.waitingCount}</span>
+      ) : (
+        <>
+          {hasLive && <span className="ws-dock-live" aria-hidden="true" />}
+          <span className="ws-dock-lbl" aria-hidden="true">Chat</span>
+        </>
       )}
-      <button
-        type="button"
-        className="ws-compact-btn"
-        onClick={recover}
-        aria-label={`Recuperar Workspace · ${info.conversationName} · ${statusLabel}`}
-        title={autoCompacted ? `Volver a Workspace (${info.conversationName})` : `Restaurar Workspace (${info.conversationName})`}
-      >
-        <span className="ws-compact-top">
-          {info.projectName ? (
-            <span className="ws-compact-sigil"><Sigil name={info.projectName} /></span>
-          ) : (
-            <span className="ws-compact-icon"><Icon name="chat" size={15} /></span>
-          )}
-          <span className="ws-compact-expand" aria-hidden="true">
-            <Icon name="chev" size={12} />
-          </span>
-        </span>
-
-        <span className="ws-compact-status">
-          {info.activeAgent ? (
-            <span className="tv"><AgDot a={info.activeAgent} s={12} /></span>
-          ) : (
-            <span className="ws-compact-idle-dot" aria-hidden="true" />
-          )}
-          {info.waitingCount > 0 && (
-            <span className="ws-compact-badge is-warn" title={statusLabel}>
-              {info.waitingCount}
-            </span>
-          )}
-          {info.waitingCount === 0 && info.workingCount > 0 && (
-            <span className="ws-compact-badge is-live" title={statusLabel}>
-              {info.workingCount}
-            </span>
-          )}
-        </span>
-
-        <span className="ws-compact-label">{info.conversationName}</span>
-      </button>
-    </aside>
+    </button>
   );
 }
 
 /**
- * Contenedor centralizado de distribución: WorkspacePane (permanente y siempre
- * montado) + divisor central + ToolPane (solo la herramienta activa).
+ * Contenedor centralizado de distribución: ToolPane a la izquierda + divisor
+ * central + WorkspacePane permanente a la derecha (o lengüeta en el borde
+ * derecho cuando el chat está oculto o la herramienta maximizada).
  */
 export default function WorkspaceShell({
   state,
   compactInfo,
   browserMounted,
   workspace,
-  compactExplorer,
-  compactExplorerOpen = false,
-  onToggleCompactExplorer,
-  onCloseCompactExplorer,
   tool,
   browserLayer,
   onResize,
   onResetRatio,
-  onMinimizeWorkspace,
-  onRestoreWorkspace,
-  onCloseTool,
+  onRecoverWorkspace,
+  onFocusWorkspace,
+  onGeometryChange,
 }: Props) {
   const shellRef = useRef<HTMLDivElement>(null);
+  const wsPaneRef = useRef<HTMLDivElement>(null);
+  const dockTabRef = useRef<HTMLButtonElement>(null);
+  const activeInPaneRef = useRef(false);
+  const recoveringFromDockRef = useRef(false);
   const [availableWidth, setAvailableWidth] = useState(() =>
     typeof window !== 'undefined' ? Math.max(320, window.innerWidth - 56) : 1384,
   );
@@ -166,23 +135,49 @@ export default function WorkspaceShell({
   const geometry = computeLayoutGeometry(state, availableWidth);
   const workspaceHidden =
     geometry.effectiveMode === 'maximized' || geometry.effectiveMode === 'compact';
+  const wasHiddenRef = useRef(workspaceHidden);
+
+  // Traslada el foco entre «Ocultar chat»/compositor y la lengüeta para no perderlo en nodos ocultos/desmontados.
+  useLayoutEffect(() => {
+    const wasHidden = wasHiddenRef.current;
+    wasHiddenRef.current = workspaceHidden;
+    if (!wasHidden && workspaceHidden) {
+      if (activeInPaneRef.current) {
+        activeInPaneRef.current = false;
+        dockTabRef.current?.focus({ preventScroll: true });
+      }
+      return;
+    }
+    if (wasHidden && !workspaceHidden && recoveringFromDockRef.current) {
+      recoveringFromDockRef.current = false;
+      const hideBtn = wsPaneRef.current?.querySelector<HTMLButtonElement>('.ws-hide-chat');
+      if (hideBtn && hideBtn.offsetParent !== null) {
+        hideBtn.focus({ preventScroll: true });
+      } else {
+        onFocusWorkspace?.();
+      }
+    }
+  }, [workspaceHidden, onFocusWorkspace]);
+
+  useEffect(() => {
+    onGeometryChange?.(geometry);
+  }, [
+    onGeometryChange,
+    geometry.effectiveMode,
+    geometry.collapseWorkspaceSidebar,
+    geometry.workspaceWidthPx,
+    geometry.toolWidthPx,
+    geometry.autoCompacted,
+  ]);
 
   if (!workspaceHidden && geometry.workspaceWidthPx > 0) {
     lastWorkspaceWidth.current = geometry.workspaceWidthPx;
   }
 
-  useEffect(() => {
-    if (!compactExplorerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseCompactExplorer?.();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [compactExplorerOpen, onCloseCompactExplorer]);
-
   const activeTool: ToolId | null = state.activeTool;
   const toolSpec = activeTool ? TOOL_MAP[activeTool] : null;
   const keepToolPaneMounted = Boolean(toolSpec || browserMounted);
+  const fitsSplit = canSplitWorkspace(availableWidth);
 
   const workspaceStyle = workspaceHidden
     ? { width: `${lastWorkspaceWidth.current}px` }
@@ -197,33 +192,18 @@ export default function WorkspaceShell({
       data-shell-mode={geometry.effectiveMode}
       data-active-tool={activeTool ?? ''}
     >
-      {geometry.effectiveMode === 'compact' && (
-        <WorkspaceCompactRail
-          info={compactInfo}
-          autoCompacted={geometry.autoCompacted}
-          explorerOpen={compactExplorerOpen}
-          onToggleExplorer={compactExplorer ? onToggleCompactExplorer : undefined}
-          onRestore={onRestoreWorkspace}
-          onCloseTool={onCloseTool}
-        />
-      )}
-
-      {geometry.effectiveMode === 'compact' && compactExplorerOpen && compactExplorer && (
-        <>
-          <div className="ws-compact-backdrop" onClick={onCloseCompactExplorer} aria-hidden="true" />
-          <div className="ws-compact-drawer" role="region" aria-label="Explorador en Workspace compacto">
-            {compactExplorer}
+      {keepToolPaneMounted && (
+        <section
+          className={`tool-pane${toolSpec ? ` is-${geometry.effectiveMode}` : ' is-dormant'}`}
+          aria-label={toolSpec ? `Herramienta ${toolSpec.label}` : undefined}
+          aria-hidden={!toolSpec || undefined}
+        >
+          <div className="tool-body">
+            {toolSpec && tool}
+            {browserMounted && browserLayer}
           </div>
-        </>
+        </section>
       )}
-
-      <div
-        className={`ws-pane${workspaceHidden ? ' is-hidden' : ''}`}
-        style={workspaceStyle}
-        aria-hidden={workspaceHidden || undefined}
-      >
-        {workspace(geometry)}
-      </div>
 
       {geometry.showSplitter && (
         <div
@@ -247,7 +227,8 @@ export default function WorkspaceShell({
           onPointerMove={(e) => {
             if (!dragRef.current) return;
             const delta = e.clientX - dragRef.current.startX;
-            onResize(dragRef.current.startWidth + delta, availableWidth);
+            const next = resizeWorkspaceFromDelta(state, dragRef.current.startWidth, delta, availableWidth);
+            if (next.workspacePx != null) onResize(next.workspacePx, availableWidth);
           }}
           onPointerUp={(e) => {
             if (!dragRef.current) return;
@@ -263,48 +244,47 @@ export default function WorkspaceShell({
           }}
           onDoubleClick={onResetRatio}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowLeft') {
-              e.preventDefault();
-              onResize(geometry.workspaceWidthPx - 24, availableWidth);
-            } else if (e.key === 'ArrowRight') {
-              e.preventDefault();
-              onResize(geometry.workspaceWidthPx + 24, availableWidth);
-            } else if (e.key === 'Home') {
-              e.preventDefault();
-              onResize(geometry.minWorkspacePx, availableWidth);
-            } else if (e.key === 'End') {
-              e.preventDefault();
-              onResize(geometry.maxWorkspacePx, availableWidth);
-            } else if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               onResetRatio();
+              return;
             }
+            const target = splitterKeyTargetPx(geometry, e.key);
+            if (target == null) return;
+            e.preventDefault();
+            onResize(target, availableWidth);
           }}
         />
       )}
 
-      {keepToolPaneMounted && (
-        <section
-          className={`tool-pane${toolSpec ? ` is-${geometry.effectiveMode}` : ' is-dormant'}${toolSpec && geometry.effectiveMode === 'split' ? ' has-ws-min' : ''}`}
-          aria-label={toolSpec ? `Herramienta ${toolSpec.label}` : undefined}
-          aria-hidden={!toolSpec || undefined}
-        >
-          {toolSpec && geometry.effectiveMode === 'split' && (
-            <button
-              type="button"
-              className="tool-ws-min"
-              onClick={onMinimizeWorkspace}
-              aria-label="Minimizar Workspace"
-              title="Minimizar Workspace a columna compacta"
-            >
-              <Icon name="sidebar" size={14} />
-            </button>
-          )}
-          <div className="tool-body">
-            {toolSpec && tool}
-            {browserMounted && browserLayer}
-          </div>
-        </section>
+      <div
+        ref={wsPaneRef}
+        className={`ws-pane${workspaceHidden ? ' is-hidden' : ''}`}
+        style={workspaceStyle}
+        aria-hidden={workspaceHidden || undefined}
+        onFocusCapture={() => {
+          if (!workspaceHidden) activeInPaneRef.current = true;
+        }}
+        onBlurCapture={(e) => {
+          if (!workspaceHidden && !e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            activeInPaneRef.current = false;
+          }
+        }}
+      >
+        {workspace(geometry)}
+      </div>
+
+      {workspaceHidden && (
+        <WorkspaceDockTab
+          buttonRef={dockTabRef}
+          info={compactInfo}
+          fitsSplit={fitsSplit}
+          toolLabel={toolSpec?.label ?? null}
+          onRecover={() => {
+            recoveringFromDockRef.current = true;
+            onRecoverWorkspace(availableWidth);
+          }}
+        />
       )}
     </div>
   );

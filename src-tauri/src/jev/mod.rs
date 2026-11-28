@@ -612,9 +612,159 @@ pub fn assign_provider(conn: &Connection, session: i64, parent: &str, trace: &Tr
     Ok(())
 }
 
+#[derive(Default, Debug, Clone)]
+pub struct ComposerClassification {
+    pub used_jev: bool,
+    pub next_action: Option<String>,
+    pub generation_tier: Option<String>,
+    pub confidence: Option<f64>,
+    pub model: Option<String>,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cost_estimate_usd: Option<f64>,
+    pub reason: Option<String>,
+}
+
+const COMPOSER_ACTIONS: [&str; 10] = [
+    "approve_plan",
+    "fix_audit",
+    "fix_ci",
+    "resolve_blocker",
+    "verify_and_review",
+    "prepare_commit",
+    "prepare_pr",
+    "continue_task",
+    "resume_work",
+    "none",
+];
+
+const COMPOSER_TIERS: [&str; 3] = ["local", "light_model", "skip"];
+
+fn composer_request_body(model: &str, signals: &Value) -> Value {
+    json!({
+        "model": model,
+        "state": signals,
+        "questions": {
+            "next_action": {
+                "type": "choice",
+                "instructions": "Classify the most helpful next user intent in a multi-agent IDE based only on structured workflow signals. Choose none if there is no clear next step.",
+                "criteria": {
+                    "approve_plan": "The Project Manager just presented a plan waiting for user approval to begin delegation.",
+                    "fix_audit": "Code health or audit reported open findings or errors that need remediation and re-audit.",
+                    "fix_ci": "An open Pull Request has failing CI checks that should be diagnosed and fixed.",
+                    "resolve_blocker": "A task or session is blocked, failed, paused, or waiting on dependencies.",
+                    "verify_and_review": "Implementation finished or files changed and tests or independent review are still pending.",
+                    "prepare_commit": "Implementation is verified with local changes ready to ask Larry for a commit.",
+                    "prepare_pr": "Clean branch with verified commits ready to review and open or update a Pull Request.",
+                    "continue_task": "Open tasks or active work remain and a normal next-step follow-up applies.",
+                    "resume_work": "User resumed a prior conversation or project with pending context.",
+                    "none": "No clear or useful next suggestion applies right now."
+                }
+            },
+            "generation_tier": {
+                "type": "choice",
+                "instructions": "Decide whether a fast deterministic local suggestion suffices, a lightweight LLM is needed for conversation-specific wording, or no suggestion should be shown.",
+                "criteria": {
+                    "local": "Structured workflow state cleanly determines the next instruction without LLM prose.",
+                    "light_model": "Recent conversation context has nuance that benefits from a fast lightweight LLM.",
+                    "skip": "No suggestion should be shown to avoid noise."
+                }
+            }
+        }
+    })
+}
+
+pub(crate) fn classify_composer_with(
+    settings: &Settings,
+    signals: &Value,
+    evaluate: impl FnOnce(&Value) -> Result<Value, &'static str>,
+) -> ComposerClassification {
+    let mut out = ComposerClassification::default();
+    let Some(model) = settings.model.as_deref().filter(|m| valid_model(m)) else {
+        out.reason = Some("unconfigured".into());
+        return out;
+    };
+    if settings.mode == Mode::Local {
+        out.reason = Some("local_mode".into());
+        return out;
+    }
+    let answer = match evaluate(&composer_request_body(model, signals)) {
+        Ok(value) => value,
+        Err(reason) => {
+            out.reason = Some(reason.into());
+            return out;
+        }
+    };
+    out.model = answer["model"].as_str().filter(|m| valid_model(m)).map(str::to_owned);
+    out.input_tokens = answer["usage"]["input_tokens"].as_u64();
+    out.output_tokens = answer["usage"]["output_tokens"].as_u64();
+    out.cost_estimate_usd = out.model.as_deref().zip(out.input_tokens).and_then(|(m, i)| estimate_usd(m, i));
+    if out.model.is_none() {
+        out.reason = Some(Failure::InvalidResponse.code().into());
+        return out;
+    }
+    let next = &answer["answers"]["next_action"];
+    let conf = next["confidence"].as_f64().filter(|n| (0.0..=1.0).contains(n));
+    out.confidence = conf;
+    out.next_action = advice(&answer, "next_action", &COMPOSER_ACTIONS);
+    out.generation_tier = advice(&answer, "generation_tier", &COMPOSER_TIERS);
+    if out.next_action.is_some() || out.generation_tier.is_some() {
+        out.used_jev = true;
+    } else {
+        out.reason = Some("confidence".into());
+    }
+    out
+}
+
+/// Clasifica la situación del Compositor inteligente usando únicamente el
+/// contrato oficial `Choice` de TypeSafe y las credenciales personales del usuario.
+/// Nunca envía texto libre, código, rutas ni secretos.
+pub fn classify_composer(state: &AppState, signals: &Value) -> ComposerClassification {
+    let gate = state.jev_gate.try_lock();
+    let saved = match state.db.lock().ok().and_then(|conn| settings(&conn).ok()) {
+        Some(s) => s,
+        None => return ComposerClassification { reason: Some("db".into()), ..Default::default() },
+    };
+    classify_composer_with(&saved, signals, |body| {
+        let _gate = gate.map_err(|_| "busy")?;
+        let key = credential::read(false).ok_or("credential")?;
+        if !reserve(&state.db).map_err(|_| "budget")? {
+            return Err("budget");
+        }
+        typesafe::evaluate(&key, saved.timeout_secs.min(4), body).map_err(Failure::code)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composer_classification_uses_the_choice_contract_and_falls_back_locally() {
+        let settings = Settings { mode: Mode::Active, model: Some("jev-latest".into()), ..Settings::default() };
+        let signals = json!({ "event": "turn_end", "audit_errors": "few" });
+        let mut sent = Value::Null;
+        let out = classify_composer_with(&settings, &signals, |body| {
+            sent = body.clone();
+            Ok(json!({ "model": "jev-1.14.0", "usage": { "input_tokens": 90, "output_tokens": 4 }, "answers": {
+                "next_action": { "type": "choice", "choice": "fix_audit", "confidence": 0.9 },
+                "generation_tier": { "type": "choice", "choice": "local", "confidence": 0.8 } } }))
+        });
+        assert_eq!(sent["questions"]["next_action"]["type"], "choice");
+        assert_eq!(sent["state"], signals, "solo viajan las señales categóricas");
+        assert!(out.used_jev);
+        assert_eq!((out.next_action.as_deref(), out.generation_tier.as_deref()), (Some("fix_audit"), Some("local")));
+        let unsure = classify_composer_with(&settings, &signals, |_| Ok(json!({ "model": "jev-1.14.0", "answers": {
+            "next_action": { "type": "choice", "choice": "fix_audit", "confidence": 0.3 } } })));
+        assert!(!unsure.used_jev && unsure.next_action.is_none());
+        let invented = classify_composer_with(&settings, &signals, |_| Ok(json!({ "model": "jev-1.14.0", "answers": {
+            "next_action": { "type": "choice", "choice": "merge_now", "confidence": 0.99 } } })));
+        assert!(invented.next_action.is_none());
+        let offline = classify_composer_with(&settings, &signals, |_| Err("unavailable"));
+        assert_eq!(offline.reason.as_deref(), Some("unavailable"));
+        let local = classify_composer_with(&Settings { mode: Mode::Local, ..settings }, &signals, |_| unreachable!());
+        assert_eq!(local.reason.as_deref(), Some("local_mode"));
+    }
 
     #[test]
     fn usage_counts_all_reported_tokens_and_detects_unpriced_usage() {

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  canSplitWorkspace,
   closeTool,
   COMPACT_RAIL_PX,
   computeLayoutGeometry,
@@ -13,13 +14,17 @@ import {
   onProjectSelected,
   openTool,
   persistShellState,
+  recoverWorkspaceFromHidden,
   resetWorkspaceRatio,
   resizeWorkspace,
+  resizeWorkspaceFromDelta,
   resolveStartupShell,
   restoreSplit,
   restoreWorkspace,
   SPLITTER_PX,
+  stepWorkspaceSplitter,
   toggleMaximizeTool,
+  toggleSidebarShortcut,
   toggleTool,
   TOOLS,
   type StorageLike,
@@ -138,17 +143,19 @@ test('maximizar, restaurar dividida, minimizar Workspace y recuperar conservan p
   const geoRestored = computeLayoutGeometry(state, available);
   assert.equal(geoRestored.workspaceWidthPx, 520);
 
-  // Minimizar Workspace lo reduce a la columna compacta de 64 px.
+  // Ocultar Workspace lo repliega a 0 px (sin carril) y la herramienta ocupa todo el ancho.
+  assert.equal(COMPACT_RAIL_PX, 0);
   state = minimizeWorkspace(state);
   assert.equal(state.mode, 'compact');
   const geoCompact = computeLayoutGeometry(state, available);
   assert.equal(geoCompact.effectiveMode, 'compact');
-  assert.equal(geoCompact.workspaceWidthPx, COMPACT_RAIL_PX);
-  assert.equal(geoCompact.toolWidthPx, available - COMPACT_RAIL_PX);
+  assert.equal(geoCompact.workspaceWidthPx, 0);
+  assert.equal(geoCompact.toolWidthPx, available);
 
-  // Recuperar Workspace devuelve vista dividida.
+  // Recuperar Workspace devuelve vista dividida con la proporción conservada.
   state = restoreWorkspace(state);
   assert.equal(state.mode, 'split');
+  assert.equal(state.workspaceRatio, savedRatio);
 
   // Desde maximizado, restoreSplit siempre recupera split.
   state = maximizeTool(minimizeWorkspace(state));
@@ -218,4 +225,92 @@ test('la cabecera marca la disposición visible, no solo la preferida', () => {
   // Observación acompaña a la conversación aunque se prefiera Código.
   assert.equal(visibleDisposition('code', true, true), 'split');
   assert.equal(visibleDisposition('chat', true, true), 'chat');
+});
+
+test('divisor invertido con Workspace a la derecha: arrastre, flechas, Home y End', () => {
+  const available = 1440 - 56;
+  let state = openTool(onProjectSelected(createInitialShellState(false)), 'flow');
+  const initialGeo = computeLayoutGeometry(state, available);
+
+  // Arrastrar hacia la izquierda (delta negativo) ensancha el chat a la derecha.
+  state = resizeWorkspaceFromDelta(state, initialGeo.workspaceWidthPx, -120, available);
+  assert.equal(state.workspacePx, initialGeo.workspaceWidthPx + 120);
+
+  // Arrastrar hacia la derecha (delta positivo) estrecha el chat.
+  state = resizeWorkspaceFromDelta(state, state.workspacePx!, 60, available);
+  assert.equal(state.workspacePx, initialGeo.workspaceWidthPx + 60);
+
+  // Teclado invertido: ArrowLeft ensancha, ArrowRight estrecha, Home maximiza chat, End minimiza chat.
+  const geoNow = computeLayoutGeometry(state, available);
+  const left = stepWorkspaceSplitter(state, geoNow, 'ArrowLeft', available)!;
+  assert.equal(left.workspacePx, geoNow.workspaceWidthPx + 24);
+  const right = stepWorkspaceSplitter(state, geoNow, 'ArrowRight', available)!;
+  assert.equal(right.workspacePx, geoNow.workspaceWidthPx - 24);
+  const home = stepWorkspaceSplitter(state, geoNow, 'Home', available)!;
+  assert.equal(home.workspacePx, geoNow.maxWorkspacePx);
+  const end = stepWorkspaceSplitter(state, geoNow, 'End', available)!;
+  assert.equal(end.workspacePx, geoNow.minWorkspacePx);
+  const reset = stepWorkspaceSplitter(home, geoNow, 'Enter', available)!;
+  assert.equal(reset.workspaceRatio, DEFAULT_WORKSPACE_RATIO);
+  assert.equal(reset.workspacePx, null);
+});
+
+test('recuperación predecible desde oculto manual y autocompactado', () => {
+  const wide = 1440 - 56;
+  const narrow = 700;
+  const base = openTool(onProjectSelected(createInitialShellState(false)), 'inicio');
+
+  // Ocultado a mano en ventana ancha -> recupera split.
+  const manualWide = recoverWorkspaceFromHidden(minimizeWorkspace(base), wide);
+  assert.equal(manualWide.activeTool, 'inicio');
+  assert.equal(manualWide.mode, 'split');
+
+  // Ocultado a mano y luego ventana estrechada -> cierra la herramienta para mostrar el chat.
+  const manualNarrow = recoverWorkspaceFromHidden(minimizeWorkspace(base), narrow);
+  assert.equal(manualNarrow.activeTool, null);
+  assert.equal(manualNarrow.mode, 'workspace');
+
+  // Autocompactado por falta de espacio y recuperado aún en ventana estrecha -> cierra la herramienta.
+  const autoNarrow = recoverWorkspaceFromHidden(base, narrow);
+  assert.equal(autoNarrow.activeTool, null);
+  assert.equal(autoNarrow.mode, 'workspace');
+
+  // Autocompactado y luego ventana ensanchada -> restaura split sin perder la herramienta.
+  const autoWidened = recoverWorkspaceFromHidden(minimizeWorkspace(base), wide);
+  assert.equal(autoWidened.activeTool, 'inicio');
+  assert.equal(autoWidened.mode, 'split');
+
+  // Maximizado -> recupera split conservando workspaceRatio, o cierra herramienta si no cabe.
+  const custom = resizeWorkspace(base, 500, wide);
+  const savedRatio = custom.workspaceRatio;
+  const fromMaxWide = recoverWorkspaceFromHidden(maximizeTool(custom), wide);
+  assert.equal(fromMaxWide.activeTool, 'inicio');
+  assert.equal(fromMaxWide.mode, 'split');
+  assert.equal(fromMaxWide.workspaceRatio, savedRatio);
+
+  const fromCompactMaxWide = recoverWorkspaceFromHidden(maximizeTool(minimizeWorkspace(custom)), wide);
+  assert.equal(fromCompactMaxWide.mode, 'split');
+
+  const fromMaxNarrow = recoverWorkspaceFromHidden(maximizeTool(custom), narrow);
+  assert.equal(fromMaxNarrow.activeTool, null);
+  assert.equal(fromMaxNarrow.mode, 'workspace');
+
+  // Umbral exacto de canSplitWorkspace (340 + 440 + 8 = 788 px).
+  assert.equal(canSplitWorkspace(787), false);
+  assert.equal(canSplitWorkspace(788), true);
+});
+
+test('⌘B alterna el cajón cuando el ancho colapsa la barra y también si el cajón se abrió con noSide manual', () => {
+  const narrowOpen = toggleSidebarShortcut({ collapseByWidth: true, noSide: false, drawerOpen: false });
+  assert.deepEqual(narrowOpen, { noSide: false, drawerOpen: true });
+  const narrowClose = toggleSidebarShortcut({ collapseByWidth: true, noSide: false, drawerOpen: true });
+  assert.deepEqual(narrowClose, { noSide: false, drawerOpen: false });
+
+  // Ventana ancha: ⌘B oculta la barra -> «Explorador» abre el cajón -> otro ⌘B cierra el cajón (sin reabrir la barra fija).
+  const wideHide = toggleSidebarShortcut({ collapseByWidth: false, noSide: false, drawerOpen: false });
+  assert.deepEqual(wideHide, { noSide: true, drawerOpen: false });
+  const closeManualDrawer = toggleSidebarShortcut({ collapseByWidth: false, noSide: true, drawerOpen: true });
+  assert.deepEqual(closeManualDrawer, { noSide: true, drawerOpen: false });
+  const wideShow = toggleSidebarShortcut({ collapseByWidth: false, noSide: true, drawerOpen: false });
+  assert.deepEqual(wideShow, { noSide: false, drawerOpen: false });
 });

@@ -75,7 +75,7 @@ export default function ChipMenu({ label, value, options, onChange, disabled, ti
 
   return (
     <div className={`cm${className ? ` ${className}` : ''}`} ref={root}>
-      <button ref={trigger} type="button" className={`chip cm-trigger${open ? ' is-open' : ''}`} aria-label={`${label}: ${current?.label ?? value}`}
+      <button ref={trigger} type="button" className={`chip cm-trigger${open ? ' is-open' : ''}`} aria-label={current || value ? `${label}: ${current?.label ?? value}` : label}
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} disabled={disabled} title={title}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => { if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !open) { e.preventDefault(); setOpen(true); } }}>

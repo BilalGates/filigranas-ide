@@ -1,12 +1,16 @@
 import { createPortal } from 'react-dom';
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { chats, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
+import { chats, composer as composerApi, type Change, type ChatAttachment, type CItem, type Decision } from './ipc';
+import { acceptResult, assistMessages, canSuggest, ghostKey, isCurrent } from './composerAssist';
+import { useComposerSettings } from './composerStore';
 import { ConversationArchitecture, ConversationChange } from './trama/ConversationCards';
 import ConversationPlan, { ConversationTeam, useConversationTasks, type ConversationWorkflow } from './trama/ConversationPlan';
 import { useDelegatedPermissions } from './trama/pendingPermissions';
 import { StDot } from './trama/kit';
 import { Icon } from './trama/icons';
-import { readArchitecture } from './trama/conversationContent';
+import { createCodeComponents, FlowContext } from './trama/codeBlock';
+import { MarkdownBody } from './trama/markdown';
+import { copyToClipboard } from './trama/clipboard';
 import { beep, shortcut } from './ui';
 import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from './chatAttachments';
 
@@ -14,8 +18,8 @@ import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from '
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
 // pintan igual.
 
-// Atajos de la vista visible: la conversación oculta (hidden) no responde.
-const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
+// Atajos de la vista visible: la conversación oculta (hidden) o en un panel inactivo no responde.
+const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null && !el.closest('.ws-cell.is-inactive');
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', minimal: 'mínimo', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
@@ -83,49 +87,26 @@ export type Ask = {
   decide: (d: Decision) => void;
 };
 
-function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-  }
-  return fallbackCopy(text);
-}
-
-function fallbackCopy(text: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    try {
-      const el = document.createElement('textarea');
-      el.value = text;
-      el.style.position = 'fixed';
-      el.style.opacity = '0';
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      resolve();
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
 function CopyButton({ text, label = 'Copiar', compact }: { text: string; label?: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const timer = useRef<number | null>(null);
   useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
   const onCopy = () => {
     if (!text) return;
+    setCopyError(false);
     copyToClipboard(text).then(() => {
       setCopied(true);
       if (timer.current != null) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setCopied(false), 1800);
-    }, () => {});
+    }, () => { setCopied(false); setCopyError(true); });
   };
   return (
     <button
       type="button"
       className={`co-copy${compact ? ' is-compact' : ''}${copied ? ' is-done' : ''}`}
-      aria-label={copied ? 'Copiado' : label}
-      title={copied ? 'Copiado' : label}
+      aria-label={copyError ? 'No se pudo copiar' : copied ? 'Copiado' : label}
+      title={copyError ? 'No se pudo copiar' : copied ? 'Copiado' : label}
       onClick={onCopy}
     >
       {copied ? (
@@ -141,32 +122,24 @@ function CopyButton({ text, label = 'Copiar', compact }: { text: string; label?:
   );
 }
 
-function inlineProse(text: string) {
-  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).map((part, i) => {
-    if (i % 2 === 0) return part;
-    return part.startsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <code key={i}>{part.slice(1, -1)}</code>;
-  });
-}
+const codeComponents = createCodeComponents(ConversationArchitecture, CopyButton);
 
-/** Conserva los bloques de código y reconoce las cadenas de arquitectura. */
-function Prose({ text, onOpenFlow }: { text: string; onOpenFlow?: () => void }) {
-  return text.split(/^```/m).map((part, i) => {
-    if (i % 2 === 0) return part.trim() && <p key={i} className="co-text">{inlineProse(part.trim())}</p>;
-    const firstLine = part.indexOf('\n');
-    const lang = firstLine >= 0 ? part.slice(0, firstLine).trim() : '';
-    const body = (firstLine < 0 ? part : part.slice(firstLine + 1)).trimEnd();
-    const architecture = lang === 'mermaid' ? readArchitecture(body) : null;
-    if (architecture) return <ConversationArchitecture key={i} data={architecture} onOpen={onOpenFlow} />;
-    return (
-      <div key={i} className="co-code-wrap">
-        <div className="co-code-bar">
-          <span className="co-code-lang">{lang || 'bloque'}</span>
-          <CopyButton text={body} label="Copiar bloque" />
-        </div>
-        <pre className="co-code">{body}</pre>
-      </div>
-    );
-  });
+export function Prose({ text, onOpenFlow, streaming = false }: { text: string; onOpenFlow?: () => void; streaming?: boolean }) {
+  const [rendered, setRendered] = useState(text);
+  const latest = useRef(text);
+  latest.current = text;
+  useEffect(() => {
+    if (!streaming || text.length < 8000) {
+      setRendered(text);
+      return;
+    }
+    const timer = window.setInterval(() => setRendered(latest.current), 1000);
+    return () => window.clearInterval(timer);
+  }, [streaming, text.length < 8000, text.length < 8000 ? text : null]);
+  const source = !streaming || text.length < 8000 ? text : rendered;
+  return <FlowContext.Provider value={onOpenFlow}>
+    <div className="co-text co-markdown"><MarkdownBody source={source} components={codeComponents} /></div>
+  </FlowContext.Provider>;
 }
 
 type LogProps = {
@@ -177,6 +150,7 @@ type LogProps = {
   project: string;
   onDiff: (c: Change) => void;
   workflow?: ConversationWorkflow;
+  streaming?: boolean;
   /** Avisos al final: cargando, vacío, errores. */
   children?: ReactNode;
 };
@@ -184,7 +158,7 @@ type LogProps = {
 /** Lista de mensajes que sigue el final salvo que el usuario haya subido. */
 const ACTION = new Set<string | undefined>(['commandExecution', 'dynamicToolCall', 'mcpToolCall']);
 
-export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children }: LogProps) {
+export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children, streaming = false }: LogProps) {
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -195,6 +169,16 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
     const el = log.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items, asks, snapshot, delegated.length]);
+  useLayoutEffect(() => {
+    const el = log.current;
+    const content = el?.firstElementChild;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   const plan = workflow && snapshot && <ConversationPlan {...snapshot} onOpen={workflow.onOpenFlow} />;
   const afterArchitecture = workflow && snapshot && <ConversationTeam items={snapshot.items} {...workflow} />;
@@ -207,6 +191,10 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
     if (item.type === 'agentMessage' && item.text?.includes('```mermaid')) lastArchitecture ??= item.id;
   }
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
+  let activeMessage = -1;
+  if (streaming) for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type === 'agentMessage') { activeMessage = i; break; }
+  }
 
   // El atajo se corresponde con la acción marcada en cada tarjeta.
   useEffect(() => {
@@ -250,7 +238,7 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
             </details>;
           }
           return <Fragment key={it.id}>
-            <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
+            <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow} streaming={index === activeMessage}
               plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
             {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
           </Fragment>;
@@ -288,9 +276,9 @@ export function ConversationObservation({ target, items, agent, project, onDiff 
   );
 }
 
-function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
+function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached, streaming }: {
   it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void;
-  onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean;
+  onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean; streaming?: boolean;
 }) {
   switch (it.type) {
     case 'userMessage': {
@@ -301,7 +289,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
           <div className="co-by">tú</div>
           <Prose text={text} />
           {attachments.length > 0 && <MessageAttachments items={attachments} />}
-          {text.trim() && <div className="co-msg-tools"><CopyButton text={text.trim()} label="Copiar mensaje" compact /></div>}
+          {text.trim() && <div className="co-msg-tools"><CopyButton text={text} label="Copiar mensaje" compact /></div>}
         </div>
       );
     }
@@ -317,9 +305,9 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
         <div className="co-msg is-agent">
           <div className="co-by-row">
             <span className="co-by">{it.by ?? agent}</span>
-            {it.text?.trim() && <CopyButton text={it.text.trim()} label="Copiar respuesta" compact />}
+            {it.text?.trim() && <CopyButton text={it.text} label="Copiar respuesta" compact />}
           </div>
-          <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} />
+          <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} streaming={streaming} />
         </div>
       );
     case 'reasoning':
@@ -380,7 +368,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
     case 'mcpToolCall':
       return (
         <div className="co-aside co-tool">
-          <span className={`co-status is-${it.status}`}>·</span> {it.server ? `${it.server}.${it.tool}` : it.tool}
+          <span className={`co-status is-${it.status}`}>·</span> {it.server ? `${it.server}.${it.tool}` : it.tool ?? ''}
         </div>
       );
     default:
@@ -467,13 +455,20 @@ type ComposerProps = {
   onInterrupt: () => void;
   placeholder: string;
   draftKey: string;
+  /** Contexto del Compositor inteligente: sin él, la caja se comporta como siempre. */
+  assist?: ComposerAssist;
 };
+
+export type ComposerAssist = { project: string; session: number | null; task: number | null; items: CItem[] };
 
 const drafts = new Map<string, string>();
 type DraftAttachment = { kind: 'file'; file: File } | { kind: 'link'; url: string };
 const draftAttachments = new Map<string, DraftAttachment[]>();
 const queues = new Map<string, Queued<DraftAttachment>[]>();
 let queueSeq = 0;
+// Sugerencias descartadas con Escape y conversaciones ya retomadas, por borrador.
+const dismissedGhosts = new Map<string, Set<string>>();
+const resumed = new Set<string>();
 const FILE_LIMIT = 10 * 1024 * 1024;
 const BATCH_LIMIT = 20 * 1024 * 1024;
 const IMAGE_LIMIT = 5_000_000;
@@ -499,13 +494,15 @@ function encodeAttachment(item: DraftAttachment): Promise<ChatAttachment> {
 }
 
 /** Caja de mensaje con selector unificado, modo de trabajo, ↩ para enviar y ⌘. para interrumpir. */
-export function Composer({ disabled, running, efforts = [], effort = '', onEffort, model, topExtra, extra, context, permission, onSend, onInterrupt, placeholder, draftKey }: ComposerProps) {
+export function Composer({ disabled, running, efforts = [], effort = '', onEffort, model, topExtra, extra, context, permission, onSend, onInterrupt, placeholder, draftKey, assist }: ComposerProps) {
   const area = useRef<HTMLTextAreaElement>(null);
+  const ghostEl = useRef<HTMLDivElement>(null);
   const fitArea = () => {
     const el = area.current;
     if (!el) return;
     el.style.height = '0px';
-    const next = Math.min(el.scrollHeight, 220);
+    const ghostHeight = !el.value && ghostEl.current ? ghostEl.current.scrollHeight : 0;
+    const next = Math.min(Math.max(el.scrollHeight, ghostHeight), 220);
     el.style.height = `${Math.max(next, 28)}px`;
     el.style.overflowY = el.scrollHeight > 220 ? 'auto' : 'hidden';
   };
@@ -533,6 +530,22 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [queue, setQueueState] = useState<Queued<DraftAttachment>[]>(() => queues.get(draftKey) ?? []);
   const [queuePaused, setQueuePaused] = useState(false);
+  // Compositor inteligente: sugerencia provisional y mejora de prompts.
+  const assistSettings = useComposerSettings();
+  const assistOn = !!assist && !!assistSettings?.enabled;
+  const [ghost, setGhostState] = useState<string | null>(null);
+  const [improving, setImproving] = useState(false);
+  const [original, setOriginal] = useState<string | null>(null);
+  const [assistNote, setAssistNote] = useState<string | null>(null);
+  const ghostId = useId();
+  const ghostRef = useRef<string | null>(null);
+  const ask = useRef(0);
+  const live = useRef({ assist, draftKey, running, disabled, attachments: 0 });
+  live.current = { assist, draftKey, running, disabled, attachments: attachments.length };
+  const setGhost = (text: string | null) => {
+    ghostRef.current = text;
+    setGhostState(text);
+  };
   const queueRef = useRef(queue);
   const setQueue = (items: Queued<DraftAttachment>[]) => {
     queueRef.current = items;
@@ -618,6 +631,9 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
     const el = area.current;
     const text = el?.value.trim();
     if (!el || text === undefined || (!text && !attachments.length) || disabled) return;
+    if (ghostRef.current) dropGhost();
+    setOriginal(null);
+    setAssistNote(null);
     // En marcha (o con cola pendiente), el mensaje espera y sale al terminar el turno.
     if (running || queueRef.current.length || busy.current) {
       if (!running && !queueRef.current.length) return;
@@ -653,6 +669,130 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
         setSubmitting(false);
       });
   };
+
+  const scopeOf = (a: ComposerAssist) => ({ project: a.project, scope: live.current.draftKey, session: a.session, task: a.task, messages: assistMessages(a.items) });
+  const dropGhost = () => {
+    ask.current++;
+    if (ghostRef.current) setGhost(null);
+    if (live.current.assist) composerApi.cancel(live.current.draftKey).catch(() => {});
+  };
+  const requestGhost = (event: 'turn_end' | 'resume') => {
+    const { assist: a, draftKey: key, running: now, disabled: off, attachments: files } = live.current;
+    const el = area.current;
+    if (!a || !el || !canSuggest({ value: el.value, attachments: files, queued: queueRef.current.length, running: now, disabled: off, busy: busy.current })) return;
+    const token = { scope: key, seq: ++ask.current };
+    composerApi.suggest({ ...scopeOf(a), event }).then((suggestion) => {
+      if (!isCurrent(token, { scope: live.current.draftKey, seq: ask.current }) || queueRef.current.length || busy.current) return;
+      const text = acceptResult(suggestion?.text, { value: area.current?.value ?? '', dismissed: dismissedGhosts.get(token.scope) ?? new Set(), running: live.current.running });
+      if (text) setGhost(text);
+    }, () => {});
+  };
+  // Sustituye todo el texto conservando el deshacer nativo (⌘Z).
+  const replaceText = (text: string) => {
+    const el = area.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+    if (!document.execCommand('insertText', false, text) || el.value !== text) el.value = text;
+    if (el.value) drafts.set(draftKey, el.value);
+    else drafts.delete(draftKey);
+    el.setSelectionRange(el.value.length, el.value.length);
+    fitArea();
+  };
+  const acceptGhost = () => {
+    const text = ghostRef.current;
+    if (!text) return;
+    ask.current++;
+    setGhost(null);
+    replaceText(text);
+  };
+  const dismissGhost = () => {
+    const text = ghostRef.current;
+    if (!text) return;
+    const seen = dismissedGhosts.get(draftKey) ?? new Set<string>();
+    seen.add(text);
+    dismissedGhosts.set(draftKey, seen);
+    dropGhost();
+  };
+  const improvePrompt = () => {
+    const a = live.current.assist, el = area.current;
+    if (!a || !el || improving || disabled) return;
+    const text = el.value.trim();
+    if (!text) {
+      setAssistNote('Escribe primero la instrucción que quieres mejorar.');
+      return;
+    }
+    const key = draftKey;
+    setImproving(true);
+    setAssistNote(null);
+    composerApi.improve({ ...scopeOf(a), text })
+      .then((result) => {
+        const current = area.current;
+        // Si el usuario siguió escribiendo o cambió de conversación, se descarta.
+        if (live.current.draftKey !== key || !current || current.value.trim() !== text) return;
+        if (result.text.trim() === text) {
+          setAssistNote('El prompt ya era preciso.');
+          return;
+        }
+        setOriginal(current.value);
+        replaceText(result.text);
+      }, (e) => { if (live.current.draftKey === key) setAssistNote(String(e)); })
+      .finally(() => setImproving(false));
+  };
+  const restoreOriginal = () => {
+    if (original == null) return;
+    replaceText(original);
+    setOriginal(null);
+  };
+
+  // Fin de turno: sugerencia con un respiro para que llegue el último mensaje.
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    const ended = wasRunning.current && !running;
+    wasRunning.current = running;
+    if (running) {
+      if (ghostRef.current) dropGhost();
+      return;
+    }
+    if (!ended || !assistOn || !assistSettings?.suggestions) return;
+    const key = draftKey;
+    const timer = window.setTimeout(() => { if (live.current.draftKey === key) requestGhost('turn_end'); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [running, assistOn, assistSettings?.suggestions]);
+  // Conversación anterior: una sugerencia para retomarla, una vez por sesión de la app.
+  const hasHistory = (assist?.items.length ?? 0) > 0;
+  useEffect(() => {
+    if (!assistOn || !assistSettings?.suggestions || !assistSettings.resume || !hasHistory || resumed.has(draftKey)) return;
+    const timer = window.setTimeout(() => {
+      resumed.add(draftKey);
+      if (ghostRef.current) return; // no pisa una sugerencia ya visible
+      requestGhost('resume');
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [draftKey, assistOn, hasHistory, assistSettings?.suggestions, assistSettings?.resume]);
+  useEffect(() => {
+    if (!assistOn && ghostRef.current) setGhost(null);
+  }, [assistOn]);
+  // Al cambiar de conversación o proyecto se descarta lo pendiente del anterior.
+  useEffect(() => () => {
+    ask.current++;
+    ghostRef.current = null;
+    setGhostState(null);
+    setOriginal(null);
+    setAssistNote(null);
+    if (live.current.assist) {
+      composerApi.cancel(draftKey).catch(() => {});
+      composerApi.cancel(`improve:${draftKey}`).catch(() => {});
+    }
+  }, [draftKey]);
+  useLayoutEffect(() => {
+    const el = area.current, g = ghostEl.current;
+    if (el && g) {
+      const cs = getComputedStyle(el);
+      Object.assign(g.style, { padding: cs.padding, fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing });
+    }
+    fitArea();
+  }, [ghost]);
 
   // Al terminar el turno sale lo encolado. Tras un envío desde la cola se
   // espera a ver el turno nuevo en marcha antes de mandar el resto.
@@ -691,6 +831,9 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
       e.preventDefault();
       onEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]);
       beep('tick');
+    } else if (e.code === 'KeyI' && e.shiftKey && assistOn && root.current?.contains(document.activeElement)) {
+      e.preventDefault();
+      improvePrompt();
     } else if (e.code === 'KeyM' && !e.shiftKey) {
       const pick = root.current?.querySelector<HTMLElement>('.co-model select, .co-model button');
       if (pick) {
@@ -707,6 +850,9 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
       const el = area.current;
       if (!text || !el || !shown(root.current)) return;
       const next = el.value.trim() ? `${el.value.trimEnd()}\n\n${text}` : text;
+      ask.current++;
+      ghostRef.current = null;
+      setGhostState(null);
       el.value = next;
       drafts.set(draftKey, next);
       fitArea();
@@ -764,6 +910,9 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
           {attachMenu && <div className="menu co-attach-menu" id={menuId}>
             <button className="menu-item" type="button" onClick={() => { fileInput.current?.click(); setAttachMenu(false); }}>Adjuntar imágenes o archivos</button>
             <button className="menu-item" type="button" onClick={() => { setAttachMenu(false); setLink(''); }}>Añadir enlace</button>
+            {assistOn && <button className="menu-item" type="button" disabled={improving || !assistSettings?.ai}
+              title={assistSettings?.ai ? 'Reformula el texto con el contexto del proyecto, sin enviarlo' : 'Activa la generación con IA en Ajustes › Compositor inteligente'}
+              onClick={() => { setAttachMenu(false); improvePrompt(); }}>Mejorar prompt <span className="kbd">{shortcut('⌘⇧I')}</span></button>}
           </div>}
         </div>
         {attachments.length > 0 && (
@@ -798,17 +947,23 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
         </form>
       )}
       {attachmentError && <p className="co-attachment-error" role="alert">{attachmentError}</p>}
+      {assistNote && <p className="co-assist-note" role="status">{assistNote}</p>}
+      <div className="co-field">
       <textarea
         ref={area}
         defaultValue={drafts.get(draftKey) ?? ''}
         onChange={(e) => {
           const value = e.currentTarget.value;
+          if (ghostRef.current) dropGhost();
+          if (assistNote) setAssistNote(null);
+          if (!value.trim()) setOriginal(null);
           if (value) drafts.set(draftKey, value);
           else drafts.delete(draftKey);
           fitArea();
         }}
         aria-label="Mensaje"
-        placeholder={running ? 'trabajando… lo que envíes quedará en cola' : placeholder}
+        aria-describedby={ghost ? ghostId : undefined}
+        placeholder={ghost ? '' : running ? 'trabajando… lo que envíes quedará en cola' : placeholder}
         rows={1}
         disabled={disabled}
         onPaste={(e) => {
@@ -818,6 +973,15 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
           addFiles(files);
         }}
         onKeyDown={(e) => {
+          // Con sugerencia visible: Tab la acepta y Escape la descarta.
+          const action = ghostKey({ key: e.key, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey, isComposing: e.nativeEvent.isComposing }, ghostRef.current, e.currentTarget.value);
+          if (action) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (action === 'accept') acceptGhost();
+            else dismissGhost();
+            return;
+          }
           // ↩ envía; ⇧↩ hace salto de línea. Mientras un IME compone, ↩ confirma el texto.
           if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
@@ -825,11 +989,20 @@ export function Composer({ disabled, running, efforts = [], effort = '', onEffor
           }
         }}
       />
+      {ghost && (
+        <div className="co-ghost" ref={ghostEl} id={ghostId}>
+          {ghost}<span className="co-ghost-key" aria-hidden="true">tab</span>
+          <span className="sr-only"> Sugerencia. Tab para aceptarla, Escape para descartarla.</span>
+        </div>
+      )}
+      </div>
       <div className="co-compose-bar">
         <div className="co-compose-opts">
           {model && <span className="co-model">{model}</span>}
           {permission}
           {extra}
+          {improving && <span className="co-connecting" role="status">mejorando…</span>}
+          {original != null && <button type="button" className="co-btn co-restore" title="Recuperar el texto anterior a la mejora" onClick={restoreOriginal}>↺ original</button>}
         </div>
         {running && (
           <button className="send is-queue" aria-label="Poner en cola" title={shortcut('poner en cola · ↩')} onClick={send} disabled={disabled}>

@@ -248,6 +248,10 @@ fn window(value: &Value, key: &str, minutes: Option<i64>, scale: f64) -> Option<
 }
 
 impl Quota {
+    pub fn exhausted(&self) -> bool {
+        self.short.is_some_and(|(p, _)| p >= 99.5) || self.long.is_some_and(|(p, _)| p >= 99.5)
+    }
+
     pub fn codex(limits: &Value) -> Self {
         Self { short: window(&limits["primary"], "usedPercent", None, 1.0),
             long: window(&limits["secondary"], "usedPercent", None, 1.0) }

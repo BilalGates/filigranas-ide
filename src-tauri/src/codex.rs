@@ -190,6 +190,142 @@ impl Codex {
         Ok(self.shared.lock().map_err(err)?.low_text_models.clone())
     }
 
+    /// Indica si la cuota conocida de Codex está agotada.
+    pub fn quota_exhausted(&self) -> bool {
+        self.shared.lock().map(|sh| sh.quota.exhausted()).unwrap_or(false)
+    }
+
+    /// Elige el modelo rápido más apropiado del catálogo de Codex (evitando
+    /// modelos pesados cuando exista una variante mini/spark/fast).
+    fn pick_lightweight_model(&self, requested: Option<&str>) -> Option<String> {
+        if let Some(m) = requested.map(str::trim).filter(|m| !m.is_empty()) {
+            return Some(m.to_string());
+        }
+        let sh = self.shared.lock().ok()?;
+        let prefer = |m: &str| {
+            let l = m.to_ascii_lowercase();
+            l.contains("mini") || l.contains("spark") || l.contains("nano") || l.contains("flash") || l.contains("fast")
+        };
+        sh.low_text_models.iter().find(|m| prefer(m)).cloned()
+            .or_else(|| sh.low_text_models.first().cloned())
+    }
+
+    /// Turno ligero y cancelable en un hilo efímero de solo lectura con esfuerzo
+    /// `low` y salida estructurada JSON. Nunca crea sesiones visibles ni toca disco.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_lightweight(
+        &self,
+        app: &AppHandle,
+        cwd: &str,
+        instructions: &str,
+        prompt: &str,
+        schema: Value,
+        model: Option<&str>,
+        limit: Duration,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> CmdResult<crate::composer::LightReply> {
+        use std::sync::atomic::Ordering;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelado".into());
+        }
+        let _execution = crate::updates::Execution::enter()?;
+        let rpc = self.rpc(app)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelado".into());
+        }
+        let chosen_model = self.pick_lightweight_model(model);
+        let mut thread_args = json!({
+            "cwd": cwd,
+            "sandbox": "read-only",
+            "approvalPolicy": "never",
+            "developerInstructions": instructions,
+            "ephemeral": true,
+        });
+        if let Some(m) = &chosen_model {
+            thread_args["model"] = json!(m);
+        }
+        let res = rpc.request("thread/start", thread_args, SHORT)?;
+        let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        let mut reported_model = res["model"].as_str().map(str::to_string).or(chosen_model);
+        let (tx, rx) = channel();
+        self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let deadline = std::time::Instant::now() + limit;
+        let result = (|| {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelado".into());
+            }
+            let started = rpc.request(
+                "turn/start",
+                json!({
+                    "threadId": thread,
+                    "effort": "low",
+                    "outputSchema": schema,
+                    "input": [{ "type": "text", "text": prompt, "text_elements": [] }]
+                }),
+                SHORT,
+            )?;
+            let turn = started.pointer("/turn/id").and_then(Value::as_str).unwrap_or("").to_string();
+            let mut last = String::new();
+            let mut input_tokens: Option<u64> = None;
+            let mut output_tokens: Option<u64> = None;
+            loop {
+                if cancel.load(Ordering::Relaxed) {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Duration::from_secs(3));
+                    return Err("cancelado".into());
+                }
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Duration::from_secs(3));
+                    return Err(format!("codex no respondió en {} s", limit.as_secs()));
+                }
+                match rx.recv_timeout(left.min(Duration::from_millis(120))) {
+                    Ok((method, params)) => match method.as_str() {
+                        "model/selected" => {
+                            if let Some(m) = params["model"].as_str() {
+                                reported_model = Some(m.to_string());
+                            }
+                        }
+                        "model/rerouted" => {
+                            if let Some(m) = params["toModel"].as_str() {
+                                reported_model = Some(m.to_string());
+                            }
+                        }
+                        "thread/tokenUsage/updated" => {
+                            let u = runs::Usage::codex(&params["tokenUsage"]["last"]);
+                            if let Some(i) = u.input { input_tokens = Some(i as u64); }
+                            if let Some(o) = u.output { output_tokens = Some(o as u64); }
+                        }
+                        "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
+                            last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
+                        }
+                        "turn/completed" => {
+                            if let Some(e) = params.pointer("/turn/error/message").and_then(Value::as_str) {
+                                return Err(e.to_string());
+                            }
+                            return Ok(crate::composer::LightReply {
+                                text: last,
+                                provider: "codex".into(),
+                                model: reported_model,
+                                input_tokens,
+                                output_tokens,
+                                cost_usd: None,
+                            });
+                        }
+                        _ => {}
+                    },
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("codex cerró la conexión".into());
+                    }
+                }
+            }
+        })();
+        if let Ok(mut sh) = self.shared.lock() {
+            sh.waiters.remove(&thread);
+        }
+        result
+    }
+
     /// Turno único en un hilo efímero de solo lectura, con salida JSON según
     /// `schema`. Devuelve el texto final del agente. Para tareas internas
     /// del IDE como proponer commits.

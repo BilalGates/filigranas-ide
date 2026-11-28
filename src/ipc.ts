@@ -411,6 +411,29 @@ export const jev = {
   statusbar: () => invoke<JevStatusbar>('jev_statusbar'),
   configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
+// Compositor inteligente: sugerencias y mejora de prompts (nunca envía nada).
+export type ComposerSettings = {
+  enabled: boolean;
+  suggestions: boolean;
+  ai: boolean;
+  jev: boolean;
+  resume: boolean;
+  provider: 'auto' | 'claude' | 'codex';
+  model: string | null;
+  dailyLimit: number;
+};
+export type ComposerMessage = { role: 'user' | 'assistant'; text: string };
+export type ComposerSuggestion = { text: string; source: string; action: string };
+export type ComposerUsage = { calls: number; limit: number; local: number; inputTokens: number; outputTokens: number; costUsd: number | null; providers: [string, number][] };
+export type ComposerScope = { project: string; scope: string; session: number | null; task: number | null; messages: ComposerMessage[] };
+export const composer = {
+  settings: () => invoke<ComposerSettings>('composer_settings'),
+  configure: (settings: ComposerSettings) => invoke<ComposerSettings>('composer_configure', { settings }),
+  usage: () => invoke<ComposerUsage>('composer_usage'),
+  suggest: (request: ComposerScope & { event: 'turn_end' | 'resume' }) => invoke<ComposerSuggestion | null>('composer_suggest', { request }),
+  improve: (request: ComposerScope & { text: string }) => invoke<{ text: string; provider: string; model: string | null }>('composer_improve', { request }),
+  cancel: (scope: string) => invoke<void>('composer_cancel', { scope }),
+};
 export const tasks = {
   list: (project: string) => invoke<Task[]>('tasks_list', { project }),
   flow: (project: string) => invoke<{ tasks: Task[]; runs: Record<number, TaskRun[]> }>('task_flow', { project }),

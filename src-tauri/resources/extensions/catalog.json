@@ -1,0 +1,1382 @@
+{
+ "version": 1,
+ "extensions": [
+  {
+   "id": "ponytail",
+   "name": "Ponytail",
+   "version": "5.3.3",
+   "kind": "skill",
+   "description": "Cambio mínimo que resuelve la tarea completa: YAGNI, reutilización y sin abstracciones no pedidas.",
+   "source": {
+    "repo": "DietrichGebert/ponytail",
+    "license": "MIT",
+    "path": "",
+    "commit": "ebd8654c2c627f721eb8f9c0d1bd4090a29f9e10"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "senior",
+    "junior",
+    "auditor"
+   ],
+   "taskKinds": [
+    "implementacion",
+    "correccion",
+    "refactorizacion",
+    "revision"
+   ],
+   "defaultPolicy": "mandatory",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 1200,
+   "incompatible": [],
+   "optional": false,
+   "guard": "La simplificación nunca elimina validaciones, seguridad, pruebas ni requisitos funcionales. Los hooks, statusline, registro de tareas y webhook de Ponytail no se instalan.",
+   "criteria": "Diff acotado al encargo, sin dependencias ni abstracciones nuevas injustificadas.",
+   "evidence": {
+    "kind": "diff",
+    "detail": "Estadísticas del diff de la sesión y revisión de alcance por un auditor."
+   },
+   "files": [
+    {
+     "path": "skills/ponytail/SKILL.md",
+     "sha256": "9badd22a32e19cb884e46dfa8d3aae82bb81dfa5484105b8b4f0262df823a509",
+     "size": 3496,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/ponytail-review/SKILL.md",
+     "sha256": "33fe4ebe22a460924e5d4a261e223df22e409cc94ab76182bee9fb91a3ef022e",
+     "size": 5143,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "fb1bc6909ac3ef82d5c22106e32ef682b0cff66788fa915fb9b53b15c9d2f3ab",
+     "size": 1071,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 874
+  },
+  {
+   "id": "grim-prompter",
+   "name": "Grim Prompter",
+   "version": "2a94457",
+   "kind": "skill",
+   "description": "Modelado de amenazas: fronteras de confianza, STRIDE, riesgos, controles y mitigaciones con evidencia en el código.",
+   "source": {
+    "repo": "jmanico/grim-prompter",
+    "license": "MIT",
+    "path": "",
+    "commit": "2a94457c7bc63ffbc4a44ea50ae645ab8cee26bf"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "security",
+    "architect"
+   ],
+   "taskKinds": [
+    "threat_model"
+   ],
+   "defaultPolicy": "mandatory",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 1500,
+   "incompatible": [],
+   "optional": false,
+   "guard": "El informe no es una certificación de seguridad. Cada amenaza cita archivo y línea reales.",
+   "criteria": "Informe con fronteras de confianza, amenazas priorizadas y mitigaciones, enlazado al código.",
+   "evidence": {
+    "kind": "report",
+    "glob": "threat",
+    "codeRefs": true,
+    "detail": "Informe Markdown nuevo con referencias archivo:línea que existen en la revisión."
+   },
+   "files": [
+    {
+     "path": "skills/threat-model/SKILL.md",
+     "sha256": "c4176085b664460a9365e0fd7d786cbff499835678c1d744c703f4230185eaaa",
+     "size": 5352,
+     "kind": "entry"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "4e34094caee63d43009a2e2c611f59f9b349407f1afe392b82cb0e6908ee9cbc",
+     "size": 1074,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 1338
+  },
+  {
+   "id": "egm",
+   "name": "Elephant-Goldfish",
+   "version": "46933754",
+   "kind": "flow",
+   "description": "Especificación por un Elephant con contexto y revisión por Goldfish independientes desde contextos nuevos.",
+   "source": {
+    "repo": "google/elephant-goldfish-model",
+    "license": "Apache-2.0",
+    "path": "",
+    "commit": "46933754e63c0424daa9c270d7e0734245d79560"
+   },
+   "providers": {
+    "claude": "adapted",
+    "codex": "adapted",
+    "agy": "adapted"
+   },
+   "roles": [
+    "pm",
+    "architect",
+    "auditor2"
+   ],
+   "taskKinds": [
+    "planificacion",
+    "arquitectura",
+    "revision_independiente"
+   ],
+   "defaultPolicy": "automatic",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 5000,
+   "incompatible": [],
+   "optional": false,
+   "loadEntry": false,
+   "guard": "Adaptado al motor de Filigranas: los Goldfish son subsesiones `delegar` nuevas con rol auditor2 que reciben solo la ruta del artefacto y los criterios. No uses subagentes internos. Las personas de revisión y los estándares están en los recursos.",
+   "criteria": "Especificación escrita, al menos dos revisiones independientes y documento de resolución de hallazgos.",
+   "evidence": {
+    "kind": "egm",
+    "detail": "Especificación, ≥2 subsesiones auditor2 completadas y resolución."
+   },
+   "files": [
+    {
+     "path": "skills/egm-draft/SKILL.md",
+     "sha256": "4e8dbe707a1dccbbb73c9d4a7d3e93548a8569fa3b2b09f3d59b5699d10364bc",
+     "size": 17578,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/egm-review/SKILL.md",
+     "sha256": "97504ffb02193bb8405d609565cc6134f10708149334b45137bbc9d82ceec4ce",
+     "size": 13420,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/egm-resolve/SKILL.md",
+     "sha256": "fe12b8712f88b51780d817e6c8f0ac5e7a29961ee111d0fd19bfc2f738d2f531",
+     "size": 8541,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/bootstrap_orchestrator.md",
+     "sha256": "5c2fa484754f8d582669500d16d5728fe95daff8bd964f8e7f09142c6a666bfc",
+     "size": 1706,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/codebase_details.md",
+     "sha256": "d80db07e449b57b3b3776d1401cca72a54b6b65a0ab218b86f9064ee4b8167bc",
+     "size": 4683,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/comprehension.md",
+     "sha256": "974f4972f717dc7b102a9b1407b3a625749149f2ae905727241e919f43cc3fa5",
+     "size": 4748,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/design_critic.md",
+     "sha256": "cee6294735ce2bd4fea19245852b6eb07cbe8ede7e72a4bfc829f586e4a39d0f",
+     "size": 3843,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/implementation_readiness.md",
+     "sha256": "1f6aa61cfe7cb86dc94943ab3b3fd339e5baba533937198fd10edb06dfa64e8f",
+     "size": 3929,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/inventive_catalyst.md",
+     "sha256": "e766638298dfa42859172df62d1c0a4faa9ade143bcfc92837b5843a684e1da4",
+     "size": 7355,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/structural.md",
+     "sha256": "f0d4fe6faee4e388366b7d653fe353a9b09f45ca1bf5dae29280e351cda7da87",
+     "size": 3954,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/style.md",
+     "sha256": "9330780622baaef8dc683ea78efb3ff8e4583e3dde7ab6092b84df50e8c9ea58",
+     "size": 4879,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/synthesizer.md",
+     "sha256": "44d1288c03ec829acafd8af0226ce1d0603f4cf04e9f8438b5b36a451be8f8b6",
+     "size": 4860,
+     "kind": "resource"
+    },
+    {
+     "path": "agents/zoom_out.md",
+     "sha256": "adc9d7b7db4c304866e61d5e5e446502231abe188ce64656939305e07ae7995f",
+     "size": 4903,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/README.md",
+     "sha256": "109c89969542dd5919c3f50f1bcf569c7668a505bff10439044135526e1a6b01",
+     "size": 887,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/document_standards/feature-spec-standard.md",
+     "sha256": "8e9821e7bfd7c074dd1cec7ba02e3ea09a3fd32e35b91a1463a37c1ee3b9d6a4",
+     "size": 1659,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/document_standards/heilmeier-standard.md",
+     "sha256": "a23bc354a5651bd00d817409a72ebcb7536c249e2038c13255ce89f49f138174",
+     "size": 1155,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/document_standards/implementation-readiness-standard.md",
+     "sha256": "49ef3a44228a14c774ec606477293be6467b232a9e4af9e031a3cad64ed87642",
+     "size": 1654,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/document_standards/re-implementation-standard.md",
+     "sha256": "421aacbf5e9a0d4c5b794edfa4cac333f8cc67bc4cf0e3717efcad4f827e6e46",
+     "size": 1535,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/document_standards/zoom-out-standard.md",
+     "sha256": "0a01013bd363a8d744f8372b65495892360d7339e4e35c767003ae38f48e6799",
+     "size": 2884,
+     "kind": "resource"
+    },
+    {
+     "path": "resources/execution_instructions.md",
+     "sha256": "268462ff295605a350435221f009f863b1bef352a1bfdcd8278692af17ba31f9",
+     "size": 7831,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+     "size": 11358,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 4394
+  },
+  {
+   "id": "unslop",
+   "name": "Unslop",
+   "version": "620163e",
+   "kind": "skill",
+   "description": "Revisa interfaces con aspecto genérico de IA y corrige jerarquía, espaciado, color, tipografía y detalles.",
+   "source": {
+    "repo": "heydamir/unslop",
+    "license": "CC-BY-4.0",
+    "path": "",
+    "commit": "620163eedb3529d9cd23a3994ed8d287d06f760d"
+   },
+   "attribution": "Unslop por Damir Sokolovsky (heydamir/unslop), CC BY 4.0.",
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "designer"
+   ],
+   "taskKinds": [
+    "auditoria_visual"
+   ],
+   "defaultPolicy": "automatic",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 8500,
+   "incompatible": [],
+   "optional": false,
+   "guard": "Respeta la identidad visual del proyecto, sus regiones protegidas y las decisiones aprobadas por el usuario; propón cambios, no los impongas.",
+   "criteria": "Diagnóstico visual y comparación de capturas antes y después.",
+   "evidence": {
+    "kind": "captures",
+    "detail": "Capturas de Studio posteriores al turno y diagnóstico."
+   },
+   "files": [
+    {
+     "path": "skills/unslop/SKILL.md",
+     "sha256": "54e74d73afedb70dd556495f03a13ab7a5724b948cad20c3c7452684f3cb65e9",
+     "size": 32059,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/unslop/references/effects.md",
+     "sha256": "ded4f679e22843a8f68860e6cda0396fa8b8fa27202400e08337143b485c86a4",
+     "size": 4864,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs.md",
+     "sha256": "12a70ce17d574914ea69eb0809e5a9605de044df1b66619159c6d0b38d6b8353",
+     "size": 2458,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs/beacon-engraving.webp",
+     "sha256": "44e7680e9c944f03c8fe45df999bdf74077a106925a8189eebf89e751e306e5b",
+     "size": 569124,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs/meadow-3d.webp",
+     "sha256": "84f526b68021a06fc6d32f162406fab6cc8074da1ef76d2ae4530e1b58219b14",
+     "size": 286608,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs/story-dashboard-frames.webp",
+     "sha256": "cfbf837e40b7626d5a5789dbce54f5c197aab303aa350d13a042048310717137",
+     "size": 187334,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs/unslop-dashboard-after.webp",
+     "sha256": "48067794f86b43dab20515b3810f245d67bff05d10bfa83c0f5885bee93cea52",
+     "size": 74724,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/refs/unslop-hero-after.webp",
+     "sha256": "92b2d796c5b6116a2039f5ca2b0f3edf700c92b41846b11b9501a4e32f72af6e",
+     "size": 223664,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/rtl.md",
+     "sha256": "d33ad69324e2b7c27107185f3fc99e50ba0f7f81b7c67c4e4f53e59cd5802be4",
+     "size": 7073,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/signs.md",
+     "sha256": "ed051b2ed17758145ff5563a3b20fbc9203380f882130b1f25bf6c2e22b69120",
+     "size": 8711,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/tokens.md",
+     "sha256": "b8beace96055e8097ff5a788b874e290393de56eff946bc1c650cc445e8965c2",
+     "size": 6633,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/unslop/references/visuals.md",
+     "sha256": "7247da579d2d95ace1e051b867c757bd1e05aa02f3ab8dea0ead4cd4bf14d7d7",
+     "size": 8306,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+     "size": 18657,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 8014
+  },
+  {
+   "id": "ui-skills",
+   "name": "UI Skills",
+   "version": "49289ef",
+   "kind": "skill",
+   "description": "Calidad de implementación frontend: base de UI, accesibilidad, rendimiento de animaciones y mejoras.",
+   "source": {
+    "repo": "ibelick/ui-skills",
+    "license": "MIT",
+    "path": "",
+    "commit": "49289efa4ce27c3c174f9c90731c6ce4013830eb"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "designer",
+    "senior",
+    "junior",
+    "auditor"
+   ],
+   "taskKinds": [
+    "frontend"
+   ],
+   "defaultPolicy": "automatic",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 2200,
+   "incompatible": [],
+   "optional": false,
+   "criteria": "Implementación accesible y sin regresiones de interacción o animación.",
+   "evidence": {
+    "kind": "diff",
+    "detail": "Cambios frontend en el diff y verificación de accesibilidad."
+   },
+   "files": [
+    {
+     "path": "skills/baseline-ui/SKILL.md",
+     "sha256": "fea3322f36d58fdafafce2aef56e4556dd2ac7b20876b7dff7d8be7f25fa597f",
+     "size": 3419,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/fixing-accessibility/SKILL.md",
+     "sha256": "549261e8a53b53a1a20c0ddbf736821e5fc0876ad82eee76e0efab8e9ee9dadf",
+     "size": 4718,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/fixing-motion-performance/SKILL.md",
+     "sha256": "0a2d654902bc04263ce68c8c02967ef03f17b482e855360a5463211d99d7baa9",
+     "size": 5565,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/improve-ui/SKILL.md",
+     "sha256": "fa2ac808f6d9dab7bb3620880b014d2c18e227e5b006102856038096e573e69a",
+     "size": 7830,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/improve-ui/references/plan-template.md",
+     "sha256": "8faca7a14659a7f951d3b89fb730a43a4ce99966cc00481bf83d82b90f34b868",
+     "size": 1590,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "c615621c4cc1676ccde194e7a01b6469ba477780251bd71e007fc473a49c2c2b",
+     "size": 1072,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 2034
+  },
+  {
+   "id": "ui-ux-pro-max",
+   "name": "UI UX Pro Max",
+   "version": "11ca2b3",
+   "kind": "skill",
+   "description": "Dirección visual, sistema de diseño, tipografía, paletas y composición con un buscador local de estilos.",
+   "source": {
+    "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+    "license": "MIT",
+    "path": "",
+    "commit": "11ca2b3bdd555649f278ee348c32a9302b24dcf1"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "designer"
+   ],
+   "taskKinds": [
+    "diseno"
+   ],
+   "defaultPolicy": "automatic",
+   "permissions": [
+    "context",
+    "exec:python3"
+   ],
+   "budgetTokens": 4600,
+   "incompatible": [],
+   "optional": false,
+   "guard": "Complementa las decisiones del usuario. El buscador `scripts/search.py` es Python local: ejecútalo solo con la aprobación de la sesión y desde la carpeta de recursos indicada.",
+   "criteria": "Dirección visual justificada: paleta, tipografía, composición y sistema de componentes.",
+   "evidence": {
+    "kind": "report",
+    "glob": "design",
+    "codeRefs": false,
+    "detail": "Documento de dirección visual o sistema de diseño en el proyecto."
+   },
+   "files": [
+    {
+     "path": ".claude/skills/ui-ux-pro-max/SKILL.md",
+     "sha256": "39a82568d06b2555ad248afa7dfd035ed991c5d8bd23ae53460bf955da3af967",
+     "size": 17960,
+     "kind": "entry"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/core.py",
+     "sha256": "c8cbb05e1156e61e6cf3f9974f58a81e9bbe502147d6bda11d3213c5fab07e13",
+     "size": 46654,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/design_system.py",
+     "sha256": "b2beb2379832e98f744e81ca4322d523e78f12ac899ea9991a394e16a15ee71d",
+     "size": 81908,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/preview.py",
+     "sha256": "ca34658b15afea5eeabeb19d09a6d7a11f3067ef43a6cc27deaa6f48f1b271fc",
+     "size": 20012,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/reasoning_contract.py",
+     "sha256": "b8bac1af82aa280d3e06f00aabaeac4337e632996b07fed874e2b6ee6e9c5913",
+     "size": 5824,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/search.py",
+     "sha256": "d6ae5b3421ff9fb7fde20c817d83b0b89feb557ebb9201d9effe2b3e3e8d89fc",
+     "size": 14207,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/scripts/validate_data.py",
+     "sha256": "78afcf554f71644cf6c2c5201fba6fded1c77c4a8e362376cf4826720374ae65",
+     "size": 52683,
+     "kind": "executable"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/app-interface.csv",
+     "sha256": "331e7cf2c0b222d80c566c5f255c63cb339f65bfd02e471a720f28e4864a9f08",
+     "size": 11046,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/catalog-summary.json",
+     "sha256": "d4ca4bdd69182bd45a55a4689ea85a5e64cec2db24de7b179c9463fb01717314",
+     "size": 2392,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/charts.csv",
+     "sha256": "80045f5793cbeca3b1373831851c992444a38967960cbba900c1472f1420e978",
+     "size": 23682,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/colors.csv",
+     "sha256": "f14cc97bc4c3527e6181b2ec3231704271249ca4ad56dcaa9bf562ab795a3dd7",
+     "size": 38488,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/data-provenance.json",
+     "sha256": "4b5069b0956d5c8148c1d575f1cb6a50ebaaa8b04289429a057a51e68d35b861",
+     "size": 47776,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/google-font-licenses.json",
+     "sha256": "35688523f2955795caa1a47c53b83099e60c1708461476f9cc3a050cf3b0148a",
+     "size": 433127,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/google-fonts.csv",
+     "sha256": "1c8c3b2ea1faf6a1012da463756def8b3889db33f2226f0343bb4daa80307d03",
+     "size": 747241,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/icons.csv",
+     "sha256": "50816c6012030178195a16ee481ebf58b47bd985d70e8ec58886cc83f6eddafc",
+     "size": 57945,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/landing.csv",
+     "sha256": "9a2edd3bb676c2a58f00ade7a062e285222d4297bfd847c8d5b056f0dbbf52d0",
+     "size": 25449,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/motion.csv",
+     "sha256": "be9a538ffc34027019f0da77a64395d53520d17a43d3591a4a4d5d069b1ccffa",
+     "size": 21235,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/phosphor-icons-upstream.json",
+     "sha256": "2399325233b277b5c97a80e6a5e8941154f5d057beee4e7613db87c87d700236",
+     "size": 823933,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/products.csv",
+     "sha256": "2b78d254f0fe0cc137ee811df280215c257868df24d2041264624d01f747f511",
+     "size": 78382,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/react-performance.csv",
+     "sha256": "3d925802539abac5afeb63ae8aa1960b7229ad271b3a47caed40ab2d97ad0734",
+     "size": 15080,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/angular.csv",
+     "sha256": "704be83f2bad30c7e6de01afb113ffa01e0c458762f48b7102f31ba2367b5553",
+     "size": 19863,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/astro.csv",
+     "sha256": "2c2f55fadaafc05e04cc321c8194a1a28b656e6757fe2ba316f41b16428299c6",
+     "size": 14591,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/avalonia.csv",
+     "sha256": "442fca14675a020683473e7e49f08abb27b9df0765c80efe54aef61f1a4ac258",
+     "size": 27327,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/flutter.csv",
+     "sha256": "64dba0ac17349f28bce517a0f5f48c54d9ed2e487ec0c0258303463b382f41a0",
+     "size": 14192,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+     "sha256": "d05a581d20af57b8ca0104a6d31d90a07c437d500662a96c3029fc2f9a4678ee",
+     "size": 16551,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/javafx.csv",
+     "sha256": "2e819b8d5abdd23ad4dae0991650fdb57af497aabd68b37463aa9c442944c869",
+     "size": 33577,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+     "sha256": "699de218b286948eaec7d15767b6e1350ee299167e49bf476d82e3ff58724e0a",
+     "size": 12295,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/laravel.csv",
+     "sha256": "854ea4daa5fc61292d22235ad33b49ba3fe22423c3de8d3cb03758ffed3b59f9",
+     "size": 20163,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/nextjs.csv",
+     "sha256": "ecd2c27b2ea0127d203ae726060efcdd7335b5e83f96b99e4f3befbbfeebd5a4",
+     "size": 18687,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+     "sha256": "9c0179d559abe39ad63b958b54cb29c82be1dd20706430476096ea8967bfa328",
+     "size": 32292,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+     "sha256": "3d9b54ed2d151bd9c86e9e5609b8a6f88a00c4c52fa601a30af96c49b2c4d176",
+     "size": 23014,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/pyside6-qss.csv",
+     "sha256": "95c9f067dc6b250ea0b0eb6175ec41fc1e366524d6971202a4b71267518ea238",
+     "size": 32178,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/react-native.csv",
+     "sha256": "ba31dd9c0c04da6bc02a74448bf121f9c0728ae5ba3b4d47b487778b0a1135b5",
+     "size": 14049,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/react.csv",
+     "sha256": "4dd176a9787e5c6306b5df94158d75955adcdc6edab41ce5286641a5842303c1",
+     "size": 21166,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/shadcn.csv",
+     "sha256": "e56cfde5b74907836ac3582a4779d5b7f3d206a702ab81b8669a1b668c3eeb51",
+     "size": 23184,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/svelte.csv",
+     "sha256": "f6e379ba802941ba26b01d4ffbe3cd39120f2587659a1d93851c707f66bc13db",
+     "size": 15078,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/swiftui.csv",
+     "sha256": "bdd9231ff3ad658f4e7c063e1eb49df2fd09ac8d90631a86df899b39833b9623",
+     "size": 15323,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/threejs.csv",
+     "sha256": "155d583b9c64da0df4b6c6cb060c02eab222505e0734d6353da02c9e2b5d982b",
+     "size": 46769,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/uno.csv",
+     "sha256": "a0474363e4225b5367214d5675fd3e075f137026f9500f0d04357882ef4f6d48",
+     "size": 30091,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/uwp.csv",
+     "sha256": "c409f08c1fbba1f1029f1acaa554e7b4471cc85517a5751c9f2e62465badcd5c",
+     "size": 24692,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/vue.csv",
+     "sha256": "b655f1ebb9dff2652d15981f31b1784c8a6d4759efd2815a14f3088257569f95",
+     "size": 12813,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/winui.csv",
+     "sha256": "e676dc1c13ee6c205c40b0746f1335150a346c7a49a0616d2545bc3d2c930c85",
+     "size": 27890,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/stacks/wpf.csv",
+     "sha256": "9781a9950b20333637b30a02e498b7efca21b618a3eeb8665836f3ac6e974da7",
+     "size": 24158,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/styles.csv",
+     "sha256": "a9b6cadbd1cb9e7cb8398a3b445e0691d01e42ed5e5efa60a5d0c08c99c8100d",
+     "size": 152958,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/typography.csv",
+     "sha256": "321fc446e89024488ebae96dda93efc4d2307bd8bddb240857ad51364f6782c8",
+     "size": 49997,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/ui-reasoning.csv",
+     "sha256": "60b8b1a0fc426d65c8d536fbd348e89e6c6484ab9cb54ddbcfe85b4339d960f9",
+     "size": 78979,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/data/ux-guidelines.csv",
+     "sha256": "03b89ae5e237ab2f23a2e9a7ecebd5d70e42776341d0d7eb7302393fbd79c26a",
+     "size": 41929,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/references/pro-rules.md",
+     "sha256": "d28442d61c310b49c054a4ea736f89fb3008beebdbbc38c4b3a540b8f7fadf23",
+     "size": 10909,
+     "kind": "resource"
+    },
+    {
+     "path": ".claude/skills/ui-ux-pro-max/references/quick-reference.md",
+     "sha256": "ede37ffbdd543eb56c4ca328155d395fef979b3bf3e9c25581123c5cb46fdb65",
+     "size": 27369,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "738f69dfa83db5c347c678fb9d90e560877059f0de93a327c39001bff92dc014",
+     "size": 1075,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 4490
+  },
+  {
+   "id": "logo-design",
+   "name": "Logo Design",
+   "version": "e9eaddc",
+   "kind": "skill",
+   "description": "Identidad y logotipos SVG: brief, conceptos, variantes, favicons y comprobaciones de legibilidad.",
+   "source": {
+    "repo": "kaankiziltug/logo-design-skill",
+    "license": "MIT",
+    "path": "",
+    "commit": "e9eaddc07895575253d6663320354a708f53e955"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "graphic"
+   ],
+   "taskKinds": [
+    "logo"
+   ],
+   "defaultPolicy": "mandatory",
+   "permissions": [
+    "context",
+    "exec:python3"
+   ],
+   "budgetTokens": 4500,
+   "incompatible": [],
+   "optional": false,
+   "guard": "No reutilices logotipos ni marcas de terceros como diseños propios; las referencias gráficas tienen licencias propias.",
+   "criteria": "SVG válidos con variantes y comprobación de legibilidad a tamaño pequeño.",
+   "evidence": {
+    "kind": "files",
+    "ext": "svg",
+    "detail": "Archivos SVG nuevos con viewBox válido."
+   },
+   "files": [
+    {
+     "path": "skills/logo-design/SKILL.md",
+     "sha256": "65ec4bd58732e8cc11e244724e8666de78764b973f6d3b03b233904639cf47c6",
+     "size": 17630,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/logo-design/scripts/build_catalog.py",
+     "sha256": "b15384e3807fe0f913a100f6ac72320497e34e36dfbf6fd1e82a9274e2ec40f1",
+     "size": 11463,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/concept_sheet.py",
+     "sha256": "b7fe519c276f9f161fb1d8a96e5b320724c15309f7a446fd64722ab5cefeab3b",
+     "size": 7715,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/export_variants.py",
+     "sha256": "2c57ab378db8e4bc323b9627da6628c28a332d73b420632e07eecf7236719046",
+     "size": 12891,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/presentation_board.py",
+     "sha256": "f0939ed40ce800f85ef54c4934d5da78f01987e63a42650c482808cc35d5049c",
+     "size": 33426,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/preview_sheet.py",
+     "sha256": "ef1b6b8dac1d41c7db2b52a43b939ba73bc006a3c27a97845eb1db215e5bcd7b",
+     "size": 14986,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/render_png.py",
+     "sha256": "f6083837ff3edf4c6006ce119d379b3ac0fcd7cd6db07b99b613e0060bd43c21",
+     "size": 16665,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/search_library.py",
+     "sha256": "da5e0b0a87678c92d055ff98721df04d327ca8d24ee03a8efbf56fdaa87c66e1",
+     "size": 10205,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/svg_audit.py",
+     "sha256": "b002c9dd6a26f80a5dfd4a4b48ace172edc4b13229e09e7e17fa4a4d07c0bde0",
+     "size": 13792,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/scripts/svglib.py",
+     "sha256": "18cfab3bfde4a94a1bcae27a96bcc7b99fa1320e344ebf8a9cb914347247261c",
+     "size": 20557,
+     "kind": "executable"
+    },
+    {
+     "path": "skills/logo-design/references/color.md",
+     "sha256": "d1118d401b9ada111ba2402fe55035118780c928fd8be616b0a4940dc0d65299",
+     "size": 8627,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/critique.md",
+     "sha256": "fcddb803542c21adcc13cfdc0c9f399de377ff931173898a2ed6c114585ced0b",
+     "size": 4014,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/discovery-brief.md",
+     "sha256": "2a5713518116765d673fe1a753843db24c9849d6a1eb678c6209120d8bb032da",
+     "size": 10178,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/identity-system.md",
+     "sha256": "1b0c800f5b85cb727d284d51c42c5783934638ee6585c989740c1ead0ffefdfa",
+     "size": 8993,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/library-guide.md",
+     "sha256": "2d7dbba98115b695607402a4f36152d4d170eba4345030580a0829037025e9aa",
+     "size": 10665,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/mark-types.md",
+     "sha256": "8b3d994165bff278ba8df93a11544df731d8ee8c01b191c123c79fb996815ec3",
+     "size": 11336,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/presentation-delivery.md",
+     "sha256": "b004fe0833942e94249e511f3b04de6ccde7e5cb7a1245b9c3ecd2da3abe4244",
+     "size": 8391,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/principles.md",
+     "sha256": "6c60bb73fb977361f42e80f51f61a58c3f4bd1c69ace56f4fdbcbd743a4b74aa",
+     "size": 14423,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/process.md",
+     "sha256": "6687f8820eeff041411272c74507bf91084d6198a6835605e76d9c25dd2deb7f",
+     "size": 8075,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/redesign.md",
+     "sha256": "99ad53dd73d4754ff74e0caef178a924c877901eb6ec4aae4a1a7d3a4c219c07",
+     "size": 4404,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/svg-construction.md",
+     "sha256": "6ae70e4a5ea4e045a8f9be55a6052b0841d6221dc8fbebd7e39bd86425789afb",
+     "size": 10766,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/testing-checklist.md",
+     "sha256": "23a8a6a58f0bab759a2dd1d72700aff5c24fa3fc99fd382c3fb5d2603b504bf9",
+     "size": 4899,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/typography.md",
+     "sha256": "f6373a47336a5bb6a2ab88993868f7ab74ab158b21635ec422ba8fd30541f19c",
+     "size": 8614,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/logo-design/references/visual-techniques.md",
+     "sha256": "af420957e1750e9ca0c01c4d0ad9c8d3458ad53ef3581dac956c14a15f883197",
+     "size": 15013,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "f68cc121d7f856ec3f48993c5082960f267bd752acea4e2f694408ef55d6cfdd",
+     "size": 1069,
+     "kind": "resource"
+    },
+    {
+     "path": "TRADEMARKS.md",
+     "sha256": "ab18040350a507ad0f6e246ffc0cae00f38b5c933a4c62a27d8d5ee898e1325d",
+     "size": 1121,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 4407
+  },
+  {
+   "id": "pixelfx",
+   "name": "PixelFX",
+   "version": "5294518",
+   "kind": "skill",
+   "description": "Efectos de pixel art y animaciones de sprites con la librería pixelfx (244 efectos).",
+   "source": {
+    "repo": "patch-gg/pixelfx",
+    "license": "MIT",
+    "path": "",
+    "commit": "5294518ce7c72e48b6100a744596e0acf57f2826"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "direct",
+    "agy": "direct"
+   },
+   "roles": [
+    "graphic"
+   ],
+   "taskKinds": [
+    "efectos"
+   ],
+   "defaultPolicy": "manual",
+   "permissions": [
+    "context",
+    "exec:node",
+    "network:npm"
+   ],
+   "budgetTokens": 3100,
+   "incompatible": [],
+   "optional": true,
+   "dependencies": [
+    "Node 18+ en el proyecto; ffmpeg opcional"
+   ],
+   "guard": "Solo para el proyecto del encargo. No lo incorpores al renderizado de Filigranas. Instalar la librería en el proyecto requiere aprobación.",
+   "criteria": "Efecto generado y renderizado en el proyecto.",
+   "evidence": {
+    "kind": "tools",
+    "names": [
+     "pixelfx",
+     "render.mjs",
+     "tools/"
+    ],
+    "detail": "Invocaciones reales de las herramientas de pixelfx."
+   },
+   "files": [
+    {
+     "path": "skills/pixelfx/SKILL.md",
+     "sha256": "b8210917cf4218fbc7d64a07ec4eed4b7888981df3a0224a4681f3547e0f09c5",
+     "size": 12121,
+     "kind": "entry"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "0a77565a50c3462831244452f129c38d2adc4fd07897cbeba8adc943f958604e",
+     "size": 1093,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 3030
+  },
+  {
+   "id": "agent-reach",
+   "name": "Agent Reach",
+   "version": "8d9ecc1",
+   "kind": "tool",
+   "description": "Lectura de fuentes externas (GitHub, web, YouTube, Reddit y otras) con el CLI agent-reach.",
+   "source": {
+    "repo": "Panniantong/Agent-Reach",
+    "license": "MIT",
+    "path": "",
+    "commit": "8d9ecc1f5521fe7d223cde782aaa4005695e2671"
+   },
+   "providers": {
+    "claude": "partial",
+    "codex": "partial",
+    "agy": "partial"
+   },
+   "roles": [
+    "researcher"
+   ],
+   "taskKinds": [
+    "investigacion"
+   ],
+   "defaultPolicy": "manual",
+   "permissions": [
+    "context",
+    "exec:agent-reach",
+    "network"
+   ],
+   "budgetTokens": 2200,
+   "incompatible": [],
+   "optional": true,
+   "dependencies": [
+    "CLI `agent-reach` instalado por el usuario"
+   ],
+   "guard": "Usa solo los canales que el usuario haya configurado con sus propias credenciales. No eludas restricciones de acceso ni ejecutes `login` o instalaciones por tu cuenta.",
+   "criteria": "Fuentes recuperadas realmente y citadas.",
+   "evidence": {
+    "kind": "tools",
+    "names": [
+     "agent-reach"
+    ],
+    "detail": "Invocaciones del CLI agent-reach en el turno."
+   },
+   "files": [
+    {
+     "path": "agent_reach/skill/SKILL_en.md",
+     "sha256": "b5a7a034a116b39ebb292afebfab34cb4bb8f8397c9ee789dfdb20c189e75727",
+     "size": 8608,
+     "kind": "entry"
+    },
+    {
+     "path": "agent_reach/skill/references/capabilities.md",
+     "sha256": "36105d4686493e67eb2f6d7cb47479e06bef6fbfe7159f08d3a6b64314b1cd79",
+     "size": 3431,
+     "kind": "resource"
+    },
+    {
+     "path": "agent_reach/skill/references/maintenance.md",
+     "sha256": "316585c8837f3e12fd88cb1769cf9b00eed9c83c2fc70f46a6dcb791012121e1",
+     "size": 1621,
+     "kind": "resource"
+    },
+    {
+     "path": "agent_reach/skill/references/sessions.md",
+     "sha256": "2b15b340db21838680659b4694a419f6799036e49ddb4b8042e7b893a4dbadd3",
+     "size": 3870,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "e94c131ac1c2f78cfd8f7e69da354c0ff58e4e54071697703d56856c036de402",
+     "size": 1067,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 2152
+  },
+  {
+   "id": "claude-code-setup",
+   "name": "Claude Code Setup",
+   "version": "1.0.0",
+   "kind": "plugin",
+   "description": "Analiza el repositorio y recomienda hooks, skills, MCP y subagentes de Claude Code.",
+   "source": {
+    "repo": "anthropics/claude-plugins-official",
+    "license": "Apache-2.0",
+    "path": "plugins/claude-code-setup/",
+    "commit": "0fbfda5a91f4adc311daca25acc99132f40f0b6e"
+   },
+   "providers": {
+    "claude": "direct",
+    "codex": "none",
+    "agy": "none"
+   },
+   "roles": [
+    "researcher"
+   ],
+   "taskKinds": [
+    "config_repo"
+   ],
+   "defaultPolicy": "automatic",
+   "permissions": [
+    "context"
+   ],
+   "budgetTokens": 2800,
+   "incompatible": [],
+   "optional": false,
+   "guard": "Solo recomendaciones revisables por el usuario: no modifiques configuraciones, hooks ni MCP.",
+   "criteria": "Informe de recomendaciones con su motivo.",
+   "evidence": {
+    "kind": "report",
+    "glob": "recomend",
+    "codeRefs": false,
+    "detail": "Informe de recomendaciones en el proyecto."
+   },
+   "files": [
+    {
+     "path": "skills/claude-automation-recommender/SKILL.md",
+     "sha256": "441c57e26f0931b64dd085deaad9213c4e3efea27d916dd7443cd33c7e338227",
+     "size": 10995,
+     "kind": "entry"
+    },
+    {
+     "path": "skills/claude-automation-recommender/references/hooks-patterns.md",
+     "sha256": "7b6e91b53aa0f1ed471fd66e177de17a88c1d6620ce95f5c8e8cdfebd20d939e",
+     "size": 6316,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/claude-automation-recommender/references/mcp-servers.md",
+     "sha256": "0f62bf84869d7e982e5dc15ebc789bb4734175b7d7b824051548c615ba79aa97",
+     "size": 8292,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/claude-automation-recommender/references/plugins-reference.md",
+     "sha256": "6570ff4c853253b3f15fb62e5d540cbf0ce3371936437791dde8fb53b7d444f3",
+     "size": 3016,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/claude-automation-recommender/references/skills-reference.md",
+     "sha256": "b4b57d953526a07146d5757ca5332034b9b4b4eeba839e4bb08111398c94556f",
+     "size": 9612,
+     "kind": "resource"
+    },
+    {
+     "path": "skills/claude-automation-recommender/references/subagent-templates.md",
+     "sha256": "7f9a107d8619ff96fea07d5a17da31b269cec0ee343e5a9ff643c0d6cb4ba944",
+     "size": 5049,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+     "size": 11358,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 2748
+  },
+  {
+   "id": "statspai",
+   "name": "StatsPAI",
+   "version": "943f4a0",
+   "kind": "mcp",
+   "description": "Estadística, econometría e inferencia causal con resultados estructurados mediante el paquete y el MCP de StatsPAI.",
+   "source": {
+    "repo": "brycewang-stanford/StatsPAI",
+    "license": "MIT",
+    "path": "",
+    "commit": "943f4a0d1320bdb563dfff5656c45b58571f4d37"
+   },
+   "providers": {
+    "claude": "partial",
+    "codex": "partial",
+    "agy": "partial"
+   },
+   "roles": [
+    "data"
+   ],
+   "taskKinds": [
+    "estadistica"
+   ],
+   "defaultPolicy": "manual",
+   "permissions": [
+    "context",
+    "exec:python3",
+    "network:pip"
+   ],
+   "budgetTokens": 2800,
+   "incompatible": [],
+   "optional": true,
+   "dependencies": [
+    "Entorno virtual del proyecto con `statspai` instalado por el usuario"
+   ],
+   "guard": "No instales dependencias globales. Valida supuestos estadísticos y declara las limitaciones.",
+   "criteria": "Resultados estructurados obtenidos con StatsPAI y supuestos verificados.",
+   "evidence": {
+    "kind": "tools",
+    "names": [
+     "statspai"
+    ],
+    "detail": "Invocaciones reales de statspai (CLI, Python o MCP)."
+   },
+   "files": [
+    {
+     "path": "src/statspai/agent/_skill/SKILL.md",
+     "sha256": "98652fd173b2be0f8ff90fb1d71a87c871447e347d7c2ca194aba13e38fa7b0d",
+     "size": 10849,
+     "kind": "entry"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/common-mistakes.md",
+     "sha256": "dc515e38d27b321f0afbba4e3ddbb8b997eec4f4b7cc8f6a7e0fe2b352b12677",
+     "size": 16168,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/export.md",
+     "sha256": "bcaae4143b17ec8d7eadbdd2100656616f82043a3502a4229df119a9105f3271",
+     "size": 15267,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/mcp-and-cli.md",
+     "sha256": "0ba1241891ef7036ba97c69dd365375e3300179e9c0084b53f5cac16e7758edb",
+     "size": 12112,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/method-catalog.md",
+     "sha256": "5d3176e445b31cf93968769e719459eb339a164bc117d39190ec02ea4d2cbec1",
+     "size": 10050,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/modern-methods.md",
+     "sha256": "87740ef7ac541c1f293af3584cb93a72db15c1965b1af76ab3637792e7e9bbb8",
+     "size": 9274,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/operating-loop.md",
+     "sha256": "6c7fe0675564896d2090d3dd13349253fb67a2343a54876de9988eee37f92089",
+     "size": 15369,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/pipeline-econ.md",
+     "sha256": "50d3a838199eb20317483c0b4ed40771b67165806f0fb3b35dba193d80ee0726",
+     "size": 64199,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/pipeline-epi.md",
+     "sha256": "9eebd214cb41b4b43dc2c77c78dccbfad253bdd605f8c1095354175e876c36f6",
+     "size": 13981,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/pipeline-ml-causal.md",
+     "sha256": "44645279ad4dab62cb000a84a6af9cc4de22fd1e1ec23b9b7e49ec006f3b073b",
+     "size": 12363,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/quick-path.md",
+     "sha256": "8288f8b005b49e78ec459bb27b1498b4e4a279c689d8ed242f8d2a2f4ee728ee",
+     "size": 3803,
+     "kind": "resource"
+    },
+    {
+     "path": "src/statspai/agent/_skill/references/verified-skeleton.md",
+     "sha256": "e73886190d5d3d02bbf70c19fb1dbc2a0318b918a1f05c5ecd0502ff769f7987",
+     "size": 3893,
+     "kind": "resource"
+    },
+    {
+     "path": "LICENSE",
+     "sha256": "0877df2b199d1ddfe51d7a9a98a1a52b4db979e3ad10a233bb3b848b69148e0c",
+     "size": 1067,
+     "kind": "resource"
+    }
+   ],
+   "entryTokens": 2712
+  }
+ ]
+}

@@ -7,6 +7,8 @@ import type { BrainGraphData, BrainGraphFilter, BrainEntry, BrainInference, Entr
 
 const mockPlans: TaskPlan[] = [];
 
+import extensionCatalog from '../src-tauri/resources/extensions/catalog.json';
+
 const ROOT = '/Users/demo/repositorios';
 
 const files: Record<string, string> = {
@@ -750,6 +752,49 @@ mockIPC(
         if (a.enabled == null) mockSkillAssignments.delete(key); else mockSkillAssignments.set(key, a.enabled);
         return null;
       }
+      case 'extensions_list':
+        return extensionCatalog.extensions.map(mockExtension);
+      case 'extensions_install': case 'extensions_update':
+        mockExtState.set(a.id, mockExtState.get(a.id) ?? { enabled: true, approved: [] });
+        mockExtLog.unshift({ at: Math.floor(Date.now() / 1000), ext: a.id, action: 'install', detail: 'simulada en el navegador' });
+        return null;
+      case 'extensions_approve': { const st = mockExtState.get(a.id); if (!st) return fail('extensión no instalada'); st.approved = a.permissions; return null; }
+      case 'extensions_enable': { const st = mockExtState.get(a.id); if (!st) return fail('extensión no instalada'); st.enabled = a.enabled; return null; }
+      case 'extensions_uninstall': mockExtState.delete(a.id); return null;
+      case 'extensions_rollback': return fail('no hay versión anterior');
+      case 'extensions_import': return fail('Importar necesita la app de escritorio de Filigranas');
+      case 'extensions_log': return mockExtLog;
+      case 'extensions_policies':
+        return extensionCatalog.extensions.flatMap((x) => mockSkillRoles.map((role) => { const [policy, source] = mockPolicy(x, role, a.project); return { ext: x.id, role, policy, source }; }));
+      case 'extensions_set_policy': {
+        const key = JSON.stringify([a.project ?? '', a.role ?? '', a.ext]);
+        if (a.policy == null) mockExtPolicies.delete(key); else mockExtPolicies.set(key, a.policy);
+        return null;
+      }
+      case 'capabilities_settings': return { budget: a.budget ?? 12000, personal: a.personal ?? 'direct' };
+      case 'capabilities_session': {
+        const session = mockSessions.find((item) => item.id === a.session);
+        const role = session?.skillRole ?? 'senior';
+        const requested = [...(mockRequests.get(a.session) ?? new Map()).entries()];
+        const choices = extensionCatalog.extensions.flatMap((x) => {
+          const [policy] = mockPolicy(x, role, session?.project ?? null);
+          const origin = requested.find(([id]) => id === x.id)?.[1];
+          if (!origin && policy !== 'mandatory' && policy !== 'automatic') return [];
+          if (!origin && !(role === 'senior' && x.taskKinds.includes('implementacion'))) return [];
+          const st = mockExtState.get(x.id);
+          return [{ id: x.id, name: x.name, version: x.version, commit: x.source.commit, policy, origin: origin ?? (policy === 'mandatory' ? 'politica' : 'automatica'), state: st ? 'selected' : 'blocked', reason: st ? `política ${policy}` : 'no instalada', tokens: x.entryTokens }];
+        });
+        return { kind: null, kindOrigin: null, requested, preview: { role, kind: role === 'senior' ? 'implementacion' : null, kindOrigin: `rol ${role}`, choices, warnings: [] } };
+      }
+      case 'capabilities_request': {
+        const map = mockRequests.get(a.session) ?? new Map<string, string>();
+        if (a.on) map.set(a.ext, 'usuario'); else map.delete(a.ext);
+        mockRequests.set(a.session, map);
+        return null;
+      }
+      case 'capabilities_set_kind': return null;
+      case 'capabilities_runs': return [];
+      case 'capabilities_verify': return null;
       case 'skills_set_session_role': {
         const session = mockSessions.find((item) => item.id === a.session && item.project === a.project);
         if (!session) fail('Sesión desconocida');
@@ -987,13 +1032,32 @@ function mockRuns(task: number) {
 
 const mockSkillCatalog = [
   { name: 'implement', description: 'Implementa un encargo con pruebas.', roles: ['senior', 'junior'] },
-  { name: 'design-loop', description: 'Bucle de diseño con capturas.', roles: ['designer', 'senior'] },
-  { name: 'debug', description: 'Diagnóstico de problemas.', roles: ['senior', 'junior'] },
-  { name: 'research', description: 'Investigación y fuentes.', roles: ['pm', 'researcher'] },
-  { name: 'code-review', description: 'Revisión de código.', roles: ['auditor', 'auditor2'] },
-  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.', roles: ['pm'] },
+  { name: 'design-loop', description: 'Bucle de diseño con capturas.', roles: ['designer', 'graphic'] },
+  { name: 'debug', description: 'Diagnóstico de problemas.', roles: ['senior', 'junior', 'verifier'] },
+  { name: 'research', description: 'Investigación y fuentes.', roles: ['researcher'] },
+  { name: 'code-review', description: 'Revisión de código.', roles: ['auditor', 'auditor2', 'security'] },
+  { name: 'github-flow', description: 'Flujo de trabajo en GitHub.', roles: [] as string[] },
 ];
-const mockSkillRoles = ['pm', 'researcher', 'designer', 'senior', 'junior', 'auditor', 'auditor2'];
+const mockSkillRoles = ['pm', 'researcher', 'architect', 'designer', 'graphic', 'senior', 'junior', 'security', 'auditor', 'auditor2', 'verifier', 'data'];
+// Extensiones del catálogo real en memoria: en el navegador no se descarga nada.
+type MockExt = (typeof extensionCatalog.extensions)[number];
+const mockExtState = new Map<string, { enabled: boolean; approved: string[] }>();
+const mockExtPolicies = new Map<string, string>();
+const mockExtLog: { at: number; ext: string; action: string; detail: string | null }[] = [];
+const mockRequests = new Map<number, Map<string, string>>();
+const sensitive = (x: MockExt) => x.permissions.filter((p) => p !== 'context');
+function mockExtension(x: MockExt) {
+  const st = mockExtState.get(x.id);
+  return { ...x, installed: !!st, enabled: st?.enabled ?? false, approved: st?.approved ?? [], pendingApproval: st ? sensitive(x).filter((p) => !st.approved.includes(p)) : [], updateAvailable: null, canRollback: false, error: null, inCatalog: true };
+}
+function mockPolicy(x: MockExt, role: string, project: string | null): [string, string] {
+  for (const [scope, label] of [[project, 'proyecto'], ['', 'global']] as const) {
+    if (scope == null) continue;
+    const own = mockExtPolicies.get(JSON.stringify([scope, role, x.id]));
+    if (own) return [own, label];
+  }
+  return [x.roles.includes(role) ? x.defaultPolicy : 'manual', 'manifiesto'];
+}
 const mockSkillAssignments = new Map<string, boolean>();
 
 const mockDesign = {

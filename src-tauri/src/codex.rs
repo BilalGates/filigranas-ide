@@ -27,9 +27,9 @@ const LONG: Duration = Duration::from_secs(120);
 
 fn instructions(direct: bool, rules: &str) -> String {
     if direct {
-        return format!("Eres un ejecutor Codex en una conversación directa. Trabaja en esta sesión y sigue las instrucciones del proyecto.\n\n{rules}");
+        return format!("{}\nEres un ejecutor Codex en una conversación directa. Trabaja en esta sesión, sigue las instrucciones del proyecto y deja commit, push, merge y rebase a Larry y al usuario.\n\n{rules}", crate::capabilities::POLICIES);
     }
-    format!("{}\n\n{rules}", include_str!("../resources/coordinadores/politica.md"))
+    format!("{}\n\n{}", include_str!("../resources/coordinadores/politica.md"), crate::capabilities::POLICIES)
 }
 
 fn retire_persona() -> Value {
@@ -440,6 +440,7 @@ impl Codex {
                                 state.tracker.finished(*id, None);
                                 crate::claude::notify_subsession(&handle, *id);
                             }
+                            "item/started" => crate::capabilities::observe_codex(&handle, *id, &method, &params),
                             "item/agentMessage/delta" => {
                                 if let Some(delta) = params["delta"].as_str() {
                                     state.tracker.chunk(*id, delta);
@@ -884,7 +885,7 @@ pub(crate) fn send_prepared(app: &AppHandle, path: &str, direct: Option<&db::Ses
         let run = runs::begin_prepared(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task, Some(prepared))?;
         let input = runs::task_input(&tx, run, path, task, previous, text)?;
         let input = crate::chat::with_context(&tx, path, session_id, run, input)?;
-        let input = crate::skills::with_catalog(app, &tx, path, session_id, input)?;
+        let input = crate::capabilities::turn_context(app, &tx, path, session_id, run, input)?;
         runs::quota(&tx, run, quota).map_err(err)?;
         runs::usage(&tx, run, runs::Usage { model: model.clone(), ..Default::default() }).map_err(err)?;
         if let Some(session) = direct {

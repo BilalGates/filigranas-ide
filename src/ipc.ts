@@ -781,7 +781,7 @@ export const design = {
   import: (project: string, screen: number, png: string, note: string) => invoke<number>('design_import', { project, screen, png, note }),
   review: (project: string, screen: number, review: { shot: number; baseline: number | null; revision: number; approve: boolean; confirmed: boolean }) =>
     invoke<void>('design_review', { project, screen, review }),
-  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean; references: number[]; component: string | null }) =>
+  send: (project: string, brief: { session: number; screen: number; shot: number; region: DesignRegion; request: string; compare: boolean; confirmed: boolean; references: number[]; component: string | null; phase?: 'direccion' | 'identidad' | 'implementacion' | 'revision' | 'efectos' }) =>
     invoke<void>('design_send', { project, brief }),
 };
 
@@ -827,7 +827,7 @@ export const brain = {
 export type BrainLinkKind = 'depende' | 'refina' | 'sustituye' | 'contradice' | 'relacionado';
 export type BrainLink = { id: number | null; from: number; to: number; kind: BrainLinkKind; note: string; created?: number };
 export type SkillInfo = { name: string; description: string };
-export type SkillRole = 'pm' | 'researcher' | 'designer' | 'senior' | 'junior' | 'auditor' | 'auditor2';
+export type SkillRole = 'pm' | 'researcher' | 'designer' | 'senior' | 'junior' | 'auditor' | 'auditor2' | 'architect' | 'graphic' | 'security' | 'verifier' | 'data';
 export type SkillAssignment = { skill: string; role: SkillRole; enabled: boolean; inherited: boolean };
 export type RuleStatus = { agentsFile: boolean; copiedTrafficRule: boolean; linksTrafficReference: boolean };
 export const skills = {
@@ -838,6 +838,55 @@ export const skills = {
     invoke<void>('skills_set_assignment', { project, skill, role, enabled }),
   setSessionRole: (project: string, session: number, role: SkillRole) =>
     invoke<void>('skills_set_session_role', { project, session, role }),
+};
+
+export type CapabilityPolicy = 'mandatory' | 'automatic' | 'manual' | 'disabled';
+export type ExtensionFile = { path: string; sha256: string; size: number; kind: 'entry' | 'resource' | 'executable' };
+export type Extension = {
+  id: string; name: string; version: string; kind: string; description: string;
+  source: { repo: string; license: string; path: string; commit: string; ref?: string };
+  attribution?: string | null; providers: Record<string, 'direct' | 'adapted' | 'partial' | 'none'>;
+  roles: SkillRole[]; taskKinds: string[]; defaultPolicy: CapabilityPolicy; permissions: string[];
+  dependencies: string[]; budgetTokens: number; incompatible: string[]; optional: boolean; guard?: string | null;
+  criteria: string; evidence: { kind: string; detail: string }; files: ExtensionFile[]; entryTokens: number;
+  installed: boolean; enabled: boolean; approved: string[]; pendingApproval: string[];
+  updateAvailable: string | null; canRollback: boolean; error: string | null; inCatalog: boolean;
+};
+export type ExtensionPolicyCell = { ext: string; role: SkillRole; policy: CapabilityPolicy; source: string };
+export type ExtensionLogEntry = { at: number; ext: string; action: string; detail: string | null };
+export type CapabilityChoice = { id: string; name: string; version: string; commit: string; policy: CapabilityPolicy; origin: string; state: string; reason: string; tokens: number };
+export type CapabilitySession = {
+  kind: string | null; kindOrigin: string | null; requested: [string, string][];
+  preview: { role: SkillRole; kind: string | null; kindOrigin: string; choices: CapabilityChoice[]; warnings: string[] };
+};
+export type CapabilityUsage = {
+  runId: number; ext: string; name: string; version: string | null; commit: string | null; policy: CapabilityPolicy; origin: string;
+  state: 'selected' | 'blocked' | 'skipped' | 'failed' | 'loaded' | 'evidenced' | 'verified'; reason: string | null;
+  kind: string | null; role: SkillRole | null; tokens: number | null; evidence: string[]; tools: string[]; verification: string | null; stale: boolean;
+};
+export const TASK_KINDS = ['implementacion', 'correccion', 'refactorizacion', 'revision', 'threat_model', 'arquitectura', 'planificacion', 'revision_independiente', 'diseno', 'frontend', 'auditoria_visual', 'logo', 'efectos', 'investigacion', 'config_repo', 'estadistica', 'verificacion'] as const;
+export const extensions = {
+  list: () => invoke<Extension[]>('extensions_list'),
+  install: (id: string) => invoke<void>('extensions_install', { id }),
+  update: (id: string) => invoke<void>('extensions_update', { id }),
+  import: (source: string, reference: string | null, subpath: string | null) => invoke<string>('extensions_import', { source, reference, subpath }),
+  approve: (id: string, permissions: string[]) => invoke<void>('extensions_approve', { id, permissions }),
+  enable: (id: string, enabled: boolean) => invoke<void>('extensions_enable', { id, enabled }),
+  rollback: (id: string) => invoke<void>('extensions_rollback', { id }),
+  uninstall: (id: string) => invoke<void>('extensions_uninstall', { id }),
+  log: () => invoke<ExtensionLogEntry[]>('extensions_log'),
+  policies: (project: string | null) => invoke<ExtensionPolicyCell[]>('extensions_policies', { project }),
+  setPolicy: (project: string | null, role: SkillRole | null, ext: string, policy: CapabilityPolicy | null) =>
+    invoke<void>('extensions_set_policy', { project, role, ext, policy }),
+  settings: (budget: number | null, personal: 'direct' | 'all' | null) =>
+    invoke<{ budget: number; personal: 'direct' | 'all' }>('capabilities_settings', { budget, personal }),
+};
+export const capabilities = {
+  session: (session: number, text: string | null) => invoke<CapabilitySession>('capabilities_session', { session, text }),
+  request: (session: number, ext: string, on: boolean) => invoke<void>('capabilities_request', { session, ext, on }),
+  setKind: (session: number, kind: string | null) => invoke<void>('capabilities_set_kind', { session, kind }),
+  runs: (runs: number[]) => invoke<CapabilityUsage[]>('capabilities_runs', { runs }),
+  verify: (run: number, ext: string, verdict: 'passed' | 'failed', note: string | null) => invoke<void>('capabilities_verify', { run, ext, verdict, note }),
 };
 
 export type ServiceForm = { id: string | null; name: string; command: string; port: number | null };

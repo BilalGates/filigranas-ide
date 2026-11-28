@@ -445,6 +445,8 @@ type ComposerProps = {
   model?: ReactNode;
   /** Chips de contexto en la fila superior junto a «+» y los adjuntos (p. ej. tarea vinculada). */
   topExtra?: ReactNode;
+  /** Entradas adicionales del menú «+» (p. ej. capacidades de la tarea). */
+  attachExtra?: (close: () => void) => ReactNode;
   /** Indicadores auxiliares en la barra inferior (estado de conexión…). */
   extra?: ReactNode;
   /** Fila sobre la caja: dónde trabaja la sesión (carpeta, rama, motor). */

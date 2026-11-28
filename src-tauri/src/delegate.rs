@@ -14,12 +14,10 @@ use crate::{claude, db, err, AppState, CmdResult};
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
 pub const TOOLS_VERSION: i64 = 6;
 
-const ENGINES: [(&str, &str); 5] = [
+const ENGINES: [(&str, &str); 3] = [
     ("claude", "claude code"),
     ("codex", "codex"),
-    ("opencode", "opencode"),
     ("agy", "antigravity"),
-    ("devin", "devin"),
 ];
 const WAIT_DEFAULT: u64 = 300;
 const WAIT_MAX: u64 = 900;
@@ -91,7 +89,9 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
                 "properties": {
                     "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto = Jev elige entre proveedores disponibles; claude = Anthropic, codex = OpenAI, agy = Antigravity de Google; opencode y devin son motores anteriores" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
-                    "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills del ejecutor. Por defecto senior." },
+                    "rol": { "type": "string", "enum": ["researcher", "architect", "designer", "graphic", "senior", "junior", "security", "auditor", "auditor2", "verifier", "data"], "description": "Rol del ejecutor. Por defecto senior." },
+                    "tipo": { "type": "string", "enum": ["implementacion", "correccion", "refactorizacion", "revision", "threat_model", "arquitectura", "planificacion", "revision_independiente", "diseno", "frontend", "auditoria_visual", "logo", "efectos", "investigacion", "config_repo", "estadistica", "verificacion"], "description": "Tipo de trabajo. Filigranas lo usa para resolver las capacidades obligatorias y automáticas." },
+                    "capacidades": { "type": "array", "items": { "type": "string" }, "description": "Opcional. Identificadores de extensiones pedidas expresamente (p. ej. agent-reach, statspai, pixelfx)." },
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
                     "objetivo": { "type": "string", "description": "Objetivo separado del prompt literal." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
@@ -300,6 +300,18 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
     }
 }
 
+/// `tipo` y `capacidades` de una delegación, validados antes de crear la subsesión.
+fn capability_args(args: &Value) -> CmdResult<(Option<String>, Vec<String>)> {
+    let kind = args["tipo"].as_str().map(str::to_owned);
+    if let Some(k) = &kind {
+        if !crate::capabilities::KINDS.contains(&k.as_str()) {
+            return Err(format!("tipo de trabajo desconocido: {k}"));
+        }
+    }
+    let requested = args["capacidades"].as_array().map(|items| items.iter().map(|v| v.as_str().map(str::to_owned).ok_or("cada capacidad debe ser un identificador")).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_default();
+    Ok((kind, requested))
+}
+
 /// Both PM providers use this path: independent task, plan and linked session.
 fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, parent_task: Option<i64>, args: &Value) -> CmdResult<String> {
     let state=app.state::<AppState>();
@@ -310,11 +322,13 @@ fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, pare
     let goal=args["objetivo"].as_str().filter(|g|!g.trim().is_empty()).unwrap_or(prompt);
     let role=args["rol"].as_str().unwrap_or("senior");
     if !["researcher","designer","senior","junior","auditor","auditor2"].contains(&role) { return Err("rol ejecutor no válido".into()); }
+    let (kind,capabilities)=capability_args(args)?;
     let (chosen,route)=crate::jev::provider_choice(&state,requested,crate::skills::Role::from_key(Some(role)))?;
     let engine=chosen.as_str();
     let task={let mut conn=state.db.lock().map_err(err)?;crate::tasks::delegation(&mut conn,project,parent_task,&title,goal,prompt,engine,role)?};
     let session=claude::create_pm_subsession(app,project,parent,engine,Some(&title),Some(crate::skills::Role::from_key(Some(role))),Some(task))?;
     crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,&parent.map(crate::runs::session_scope).unwrap_or_else(|| project.to_owned()),&route)?;
+    crate::capabilities::assign(&*state.db.lock().map_err(err)?,session.id,kind.as_deref(),&capabilities,if parent.is_some(){"sesión padre"}else{"pm"})?;
     if let Some(paths)=args["archivos"].as_array() {
         let paths=paths.iter().map(|p|p.as_str().map(str::to_owned).ok_or("ruta no válida")).collect::<Result<Vec<_>,_>>()?;
         let conn=state.db.lock().map_err(err)?;
@@ -456,6 +470,10 @@ mod tests {
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
+        let kinds: Vec<&str> = arr[0]["inputSchema"]["properties"]["tipo"]["enum"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(kinds, crate::capabilities::KINDS);
+        assert!(capability_args(&json!({"tipo": "inventado"})).is_err());
+        assert_eq!(capability_args(&json!({"tipo": "logo", "capacidades": ["pixelfx"]})).unwrap(), (Some("logo".into()), vec!["pixelfx".to_string()]));
         assert_eq!(derive_title(Some("  Investigar auth "), "tarea"), "Investigar auth");
         assert_eq!(derive_title(None, "\nPrimera línea\nSegunda"), "Primera línea");
     }

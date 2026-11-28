@@ -427,6 +427,17 @@ fn propose(conn: &Connection, project: &str, mut draft: Draft) -> CmdResult<i64>
         params![project,draft.title.trim()], |row| row.get(0)).map_err(err)
 }
 
+/// Propuesta pendiente de aprobación con la evidencia verificada de una
+/// capacidad. Solo guarda el resumen y la procedencia, nunca el contenido de la extensión.
+pub(crate) fn propose_evidence(conn: &Connection, project: &str, run: i64, task: Option<i64>, title: &str, body: &str, source: &str) -> CmdResult<i64> {
+    let clip = |text: &str, max: usize| text.chars().filter(|c| !c.is_control() || *c == '\n').take(max).collect::<String>();
+    propose(conn, project, Draft {
+        id: None, version: None, global: false, task, kind: "evidence".into(),
+        title: clip(title, 160).replace('\n', " "), body: clip(body, 1200), source: clip(source, 400).replace('\n', " "),
+        source_task: None, source_run: Some(run), share: false, valid_until: None,
+    })
+}
+
 fn inference_draft(conn: &Connection, project: &str, id: i64) -> CmdResult<Draft> {
     let raw: String = conn.query_row("SELECT draft FROM brain_inferences WHERE id=?1 AND project=?2",
         params![id,project], |row| row.get(0)).optional().map_err(err)?

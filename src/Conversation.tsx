@@ -6,7 +6,9 @@ import ConversationPlan, { ConversationTeam, useConversationTasks, type Conversa
 import { useDelegatedPermissions } from './trama/pendingPermissions';
 import { StDot } from './trama/kit';
 import { Icon } from './trama/icons';
-import { readArchitecture } from './trama/conversationContent';
+import { createCodeComponents, FlowContext } from './trama/codeBlock';
+import { MarkdownBody } from './trama/markdown';
+import { copyToClipboard } from './trama/clipboard';
 import { beep, shortcut } from './ui';
 import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from './chatAttachments';
 
@@ -14,8 +16,8 @@ import { splitAttachments, takeBatch, type Queued, type ShownAttachment } from '
 // agentes: cada motor traduce sus mensajes a `CItem` y a `Ask`, y aquí se
 // pintan igual.
 
-// Atajos de la vista visible: la conversación oculta (hidden) no responde.
-const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null;
+// Atajos de la vista visible: la conversación oculta (hidden) o en un panel inactivo no responde.
+const shown = (el: HTMLElement | null) => !!el && el.offsetParent !== null && !el.closest('.ws-cell.is-inactive');
 const mod = (e: KeyboardEvent) => e.metaKey || e.ctrlKey;
 
 export const EFFORT_LABEL: Record<string, string> = { auto: 'automático', minimal: 'mínimo', low: 'bajo', medium: 'medio', high: 'alto', xhigh: 'muy alto', max: 'máximo' };
@@ -83,49 +85,26 @@ export type Ask = {
   decide: (d: Decision) => void;
 };
 
-function copyToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-  }
-  return fallbackCopy(text);
-}
-
-function fallbackCopy(text: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    try {
-      const el = document.createElement('textarea');
-      el.value = text;
-      el.style.position = 'fixed';
-      el.style.opacity = '0';
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      resolve();
-    } catch (err) {
-      reject(err);
-    }
-  });
-}
-
 function CopyButton({ text, label = 'Copiar', compact }: { text: string; label?: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const timer = useRef<number | null>(null);
   useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
   const onCopy = () => {
     if (!text) return;
+    setCopyError(false);
     copyToClipboard(text).then(() => {
       setCopied(true);
       if (timer.current != null) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => setCopied(false), 1800);
-    }, () => {});
+    }, () => { setCopied(false); setCopyError(true); });
   };
   return (
     <button
       type="button"
       className={`co-copy${compact ? ' is-compact' : ''}${copied ? ' is-done' : ''}`}
-      aria-label={copied ? 'Copiado' : label}
-      title={copied ? 'Copiado' : label}
+      aria-label={copyError ? 'No se pudo copiar' : copied ? 'Copiado' : label}
+      title={copyError ? 'No se pudo copiar' : copied ? 'Copiado' : label}
       onClick={onCopy}
     >
       {copied ? (
@@ -141,32 +120,24 @@ function CopyButton({ text, label = 'Copiar', compact }: { text: string; label?:
   );
 }
 
-function inlineProse(text: string) {
-  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/).map((part, i) => {
-    if (i % 2 === 0) return part;
-    return part.startsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : <code key={i}>{part.slice(1, -1)}</code>;
-  });
-}
+const codeComponents = createCodeComponents(ConversationArchitecture, CopyButton);
 
-/** Conserva los bloques de código y reconoce las cadenas de arquitectura. */
-function Prose({ text, onOpenFlow }: { text: string; onOpenFlow?: () => void }) {
-  return text.split(/^```/m).map((part, i) => {
-    if (i % 2 === 0) return part.trim() && <p key={i} className="co-text">{inlineProse(part.trim())}</p>;
-    const firstLine = part.indexOf('\n');
-    const lang = firstLine >= 0 ? part.slice(0, firstLine).trim() : '';
-    const body = (firstLine < 0 ? part : part.slice(firstLine + 1)).trimEnd();
-    const architecture = lang === 'mermaid' ? readArchitecture(body) : null;
-    if (architecture) return <ConversationArchitecture key={i} data={architecture} onOpen={onOpenFlow} />;
-    return (
-      <div key={i} className="co-code-wrap">
-        <div className="co-code-bar">
-          <span className="co-code-lang">{lang || 'bloque'}</span>
-          <CopyButton text={body} label="Copiar bloque" />
-        </div>
-        <pre className="co-code">{body}</pre>
-      </div>
-    );
-  });
+export function Prose({ text, onOpenFlow, streaming = false }: { text: string; onOpenFlow?: () => void; streaming?: boolean }) {
+  const [rendered, setRendered] = useState(text);
+  const latest = useRef(text);
+  latest.current = text;
+  useEffect(() => {
+    if (!streaming || text.length < 8000) {
+      setRendered(text);
+      return;
+    }
+    const timer = window.setInterval(() => setRendered(latest.current), 1000);
+    return () => window.clearInterval(timer);
+  }, [streaming, text.length < 8000, text.length < 8000 ? text : null]);
+  const source = !streaming || text.length < 8000 ? text : rendered;
+  return <FlowContext.Provider value={onOpenFlow}>
+    <div className="co-text co-markdown"><MarkdownBody source={source} components={codeComponents} /></div>
+  </FlowContext.Provider>;
 }
 
 type LogProps = {
@@ -177,6 +148,7 @@ type LogProps = {
   project: string;
   onDiff: (c: Change) => void;
   workflow?: ConversationWorkflow;
+  streaming?: boolean;
   /** Avisos al final: cargando, vacío, errores. */
   children?: ReactNode;
 };
@@ -184,7 +156,7 @@ type LogProps = {
 /** Lista de mensajes que sigue el final salvo que el usuario haya subido. */
 const ACTION = new Set<string | undefined>(['commandExecution', 'dynamicToolCall', 'mcpToolCall']);
 
-export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children }: LogProps) {
+export function ConversationLog({ items, asks, agent, project, onDiff, workflow, children, streaming = false }: LogProps) {
   const log = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -195,6 +167,16 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
     const el = log.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [items, asks, snapshot, delegated.length]);
+  useLayoutEffect(() => {
+    const el = log.current;
+    const content = el?.firstElementChild;
+    if (!el || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   const plan = workflow && snapshot && <ConversationPlan {...snapshot} onOpen={workflow.onOpenFlow} />;
   const afterArchitecture = workflow && snapshot && <ConversationTeam items={snapshot.items} {...workflow} />;
@@ -207,6 +189,10 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
     if (item.type === 'agentMessage' && item.text?.includes('```mermaid')) lastArchitecture ??= item.id;
   }
   const rel = (p: string) => (p.startsWith(project + '/') ? p.slice(project.length + 1) : p);
+  let activeMessage = -1;
+  if (streaming) for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type === 'agentMessage') { activeMessage = i; break; }
+  }
 
   // El atajo se corresponde con la acción marcada en cada tarjeta.
   useEffect(() => {
@@ -250,7 +236,7 @@ export function ConversationLog({ items, asks, agent, project, onDiff, workflow,
             </details>;
           }
           return <Fragment key={it.id}>
-            <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow}
+            <ItemView it={it} agent={agent} rel={rel} onDiff={onDiff} onOpenFlow={onOpenFlow} streaming={index === activeMessage}
               plan={it.id === lastPlan ? plan : undefined} attached={it.type === 'fileChange' && items[index - 1]?.type === 'agentMessage'} />
             {(it.id === lastArchitecture || (!lastArchitecture && it.id === lastPlan)) && afterArchitecture}
           </Fragment>;
@@ -288,9 +274,9 @@ export function ConversationObservation({ target, items, agent, project, onDiff 
   );
 }
 
-function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
+function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached, streaming }: {
   it: CItem; agent: string; rel: (p: string) => string; onDiff: (c: Change) => void;
-  onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean;
+  onOpenFlow?: () => void; plan?: ReactNode; attached?: boolean; streaming?: boolean;
 }) {
   switch (it.type) {
     case 'userMessage': {
@@ -301,7 +287,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
           <div className="co-by">tú</div>
           <Prose text={text} />
           {attachments.length > 0 && <MessageAttachments items={attachments} />}
-          {text.trim() && <div className="co-msg-tools"><CopyButton text={text.trim()} label="Copiar mensaje" compact /></div>}
+          {text.trim() && <div className="co-msg-tools"><CopyButton text={text} label="Copiar mensaje" compact /></div>}
         </div>
       );
     }
@@ -317,9 +303,9 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
         <div className="co-msg is-agent">
           <div className="co-by-row">
             <span className="co-by">{it.by ?? agent}</span>
-            {it.text?.trim() && <CopyButton text={it.text.trim()} label="Copiar respuesta" compact />}
+            {it.text?.trim() && <CopyButton text={it.text} label="Copiar respuesta" compact />}
           </div>
-          <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} />
+          <Prose text={it.text ?? ''} onOpenFlow={onOpenFlow} streaming={streaming} />
         </div>
       );
     case 'reasoning':
@@ -380,7 +366,7 @@ function ItemView({ it, agent, rel, onDiff, onOpenFlow, plan, attached }: {
     case 'mcpToolCall':
       return (
         <div className="co-aside co-tool">
-          <span className={`co-status is-${it.status}`}>·</span> {it.server ? `${it.server}.${it.tool}` : it.tool}
+          <span className={`co-status is-${it.status}`}>·</span> {it.server ? `${it.server}.${it.tool}` : it.tool ?? ''}
         </div>
       );
     default:

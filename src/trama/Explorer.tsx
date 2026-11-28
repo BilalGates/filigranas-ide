@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { api, type Project, type Session, type Workspace } from '../ipc';
 import { ENGINE_LABEL } from '../Session';
@@ -6,6 +6,8 @@ import { shortcut, useUi } from '../ui';
 import { Icon } from './icons';
 import { AgDot, Sigil, sessionAgents, type Agent } from './kit';
 import type { ActiveSelection } from './workspaceContext';
+import { MAX_PANES, paneKey, type PaneRef } from './conversationPanes';
+import { cancelPaneDrag, startPaneDrag } from './paneDrag';
 
 const COLLAPSED_GROUPS_KEY = 'filigranas.collapsed';
 const EXPANDED_PROJECTS_KEY = 'filigranas.explorer.expanded';
@@ -48,6 +50,14 @@ function compactTask(text: string | null | undefined, max = 38): string | null {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/** Conversaciones en pantalla y apertura en un panel nuevo. */
+export type ExplorerPanes = {
+  keys: ReadonlySet<string>;
+  multi: boolean;
+  full: boolean;
+  onOpen: (ref: PaneRef) => void;
+};
+
 export type ExplorerProps = {
   ws: Workspace;
   selection: ActiveSelection;
@@ -61,6 +71,7 @@ export type ExplorerProps = {
   onStartPm: (projectPath: string) => void;
   onHidePm: (projectPath: string) => void;
   onCloseSession: (id: number) => void;
+  panes?: ExplorerPanes;
   onUpdate: (p: Promise<Workspace>) => void;
   onProjectView: (path: string, tab: 'files' | 'git' | 'containers') => void;
   onProjectTerminal: (path: string) => void;
@@ -88,6 +99,7 @@ export default function Explorer({
   onStartPm,
   onHidePm,
   onCloseSession,
+  panes,
   onUpdate,
   onProjectView,
   onProjectTerminal,
@@ -96,6 +108,7 @@ export default function Explorer({
   className = '',
 }: ExplorerProps) {
   const { activity } = useUi();
+  useEffect(() => () => cancelPaneDrag(), []);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => loadBoolMap(COLLAPSED_GROUPS_KEY));
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => loadStringSet(EXPANDED_PROJECTS_KEY, project));
   const [menuProject, setMenuProject] = useState<string | null>(null);
@@ -263,6 +276,7 @@ export default function Explorer({
                       }}
                       onHidePm={() => onHidePm(p.path)}
                       onCloseSession={onCloseSession}
+                      panes={panes}
                       onUpdate={onUpdate}
                       onError={onError}
                       onView={(tab) => onProjectView(p.path, tab)}
@@ -355,6 +369,7 @@ function ProjectNode({
   onStartPm,
   onHidePm,
   onCloseSession,
+  panes,
   onUpdate,
   onError,
   onView,
@@ -379,6 +394,7 @@ function ProjectNode({
   onStartPm: () => void;
   onHidePm: () => void;
   onCloseSession: (id: number) => void;
+  panes?: ExplorerPanes;
   onUpdate: (p: Promise<Workspace>) => void;
   onError: (message: string) => void;
   onView: (tab: 'files' | 'git' | 'containers') => void;
@@ -455,6 +471,30 @@ function ProjectNode({
   }
 
   const isPmSelected = selection?.kind === 'pm' && selection.project === p.path;
+  const pmRef: PaneRef = { kind: 'pm', project: p.path };
+
+  // Paneles: ⌘/Ctrl+clic o el botón abren la conversación en un panel nuevo; también se arrastra.
+  const onScreen = (ref: PaneRef) => !!panes?.keys.has(paneKey(ref));
+  const rowProps = (ref: PaneRef, label: string) => ({
+    onClick: (e: ReactMouseEvent) => {
+      if ((e.metaKey || e.ctrlKey) && panes && !panes.full) panes.onOpen(ref);
+      else onSelectSession(ref);
+    },
+    onPointerDown: panes ? (e: ReactPointerEvent<HTMLElement>) => startPaneDrag(e, ref, label) : undefined,
+  });
+  const paneMark = (ref: PaneRef) => (panes?.multi && onScreen(ref) ? ' is-in-pane' : '');
+  const paneButton = (ref: PaneRef, label: string) => panes && !onScreen(ref) && (
+    <button
+      type="button"
+      className="thread-pane"
+      aria-label={`Abrir ${label} en un panel nuevo`}
+      title={panes.full ? `Ya hay ${MAX_PANES} paneles en pantalla: quita uno para abrir otro` : shortcut('Abrir en un panel nuevo · ⌘clic o arrastrar')}
+      disabled={panes.full}
+      onClick={() => panes.onOpen(ref)}
+    >
+      <Icon name="split" size={11} />
+    </button>
+  );
 
   const renderSubitem = (s: Session) => {
     const a = agents.find((x) => x.session === s.id);
@@ -463,13 +503,14 @@ function ProjectNode({
     const title = s.title?.trim() || compactTask(s.task) || s.name;
     const statusText = a.state === 'working' ? 'trabajando' : a.state === 'waiting' ? 'permiso' : a.state === 'done' ? 'terminada' : 'en espera';
     const meta = `${engineShort(s.engine)} · ${statusText}`;
+    const ref: PaneRef = { kind: 'session', sessionId: s.id, project: p.path };
     return (
       <div key={s.id} className="thread-wrap is-sub" role="treeitem" aria-selected={active}>
         <button
           type="button"
-          className={`thread thread-sub${active ? ' on' : ''}`}
+          className={`thread thread-sub${active ? ' on' : ''}${paneMark(ref)}`}
           aria-current={active || undefined}
-          onClick={() => onSelectSession({ kind: 'session', sessionId: s.id, project: p.path })}
+          {...rowProps(ref, title)}
           title={`${p.name} · ${title} (${meta})`}
         >
           <AgDot a={a} s={11} />
@@ -479,6 +520,7 @@ function ProjectNode({
           </span>
           {a.state === 'waiting' && <span className="chip amber tiny">permiso</span>}
         </button>
+        {paneButton(ref, title)}
         <button
           type="button"
           className="thread-x"
@@ -515,14 +557,15 @@ function ProjectNode({
             ? 'terminada'
             : compactTask(s.task) ?? s.branch ?? null;
     const meta = detail ? `${eng} · ${detail}` : eng;
+    const ref: PaneRef = { kind: 'session', sessionId: s.id, project: p.path };
     return (
       <div key={s.id} className="thread-branch" role="treeitem" aria-selected={active}>
         <div className="thread-wrap">
           <button
             type="button"
-            className={`thread exp-sess${active ? ' on' : ''}`}
+            className={`thread exp-sess${active ? ' on' : ''}${paneMark(ref)}`}
             aria-current={active || undefined}
-            onClick={() => onSelectSession({ kind: 'session', sessionId: s.id, project: p.path })}
+            {...rowProps(ref, label)}
             title={`${p.name} · ${label} (${meta})`}
           >
             <AgDot a={a} s={12} />
@@ -532,6 +575,7 @@ function ProjectNode({
             </span>
             {a.state === 'waiting' && <span className="chip amber tiny">permiso</span>}
           </button>
+          {paneButton(ref, label)}
           <button
             type="button"
             className="thread-x"
@@ -617,9 +661,9 @@ function ProjectNode({
               <div className="thread-wrap">
                 <button
                   type="button"
-                  className={`thread exp-sess${isPmSelected ? ' on' : ''}`}
+                  className={`thread exp-sess${isPmSelected ? ' on' : ''}${paneMark(pmRef)}`}
                   aria-current={isPmSelected || undefined}
-                  onClick={() => onSelectSession({ kind: 'pm', project: p.path })}
+                  {...rowProps(pmRef, 'Project manager')}
                   title={`${p.name} · Project manager (${pmEngine})`}
                 >
                   <AgDot a={pmAgent} s={12} />
@@ -629,6 +673,7 @@ function ProjectNode({
                   </span>
                   {pmAgent.state === 'waiting' && <span className="chip amber tiny">permiso</span>}
                 </button>
+                {paneButton(pmRef, 'Project manager')}
                 <button
                   type="button"
                   className="thread-x"

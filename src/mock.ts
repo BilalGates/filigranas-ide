@@ -59,8 +59,8 @@ const mockSessions: any[] = [
 ];
 const mockManagers = new Map<string, any>();
 let mockGithub: GithubLoginStatus | null = null;
-let sessionAnswer: ((decision: string) => void) | null = null;
-let pendingApproval: ((decision: string) => void) | null = null;
+const sessionAnswers = new Map<string, (decision: string) => void>();
+const pendingApprovals = new Map<string, (decision: string) => void>();
 const ptys = new Map<number, (data: string) => void>();
 const groups: Group[] = [
   { id: 1, name: 'asserta' },
@@ -333,6 +333,8 @@ mockIPC(
         const now = files[`${rel(a.project)}/${a.path}`] ?? '';
         return { old: now.replace('// valida antes de encolar\n', ''), new: now };
       }
+      case 'git_branch_inventory':
+        return { activeBranch: mockBranches.get(a.project) ?? 'main', headSha: '84ab176', defaultBranch: 'main', defaultRef: 'refs/heads/main', hasRemote: false, repository: null, branches: [] };
       case 'git_branches':
         return ['ide/tests-e27', 'main'];
       case 'git_switch':
@@ -462,7 +464,7 @@ mockIPC(
         void demoSession(a.id);
         return null;
       case 'session_respond':
-        sessionAnswer?.(a.decision);
+        sessionAnswers.get(a.requestId)?.(a.decision);
         return null;
       case 'session_interrupt':
         return null;
@@ -543,7 +545,7 @@ mockIPC(
         void demoTurn(a.text, a.session);
         return null;
       case 'coordinator_respond':
-        pendingApproval?.(a.decision);
+        pendingApprovals.get(String(a.requestId))?.(a.decision);
         return null;
       case 'codex_pin_model':
       case 'coordinator_interrupt':
@@ -856,10 +858,10 @@ async function demoTurn(text: string, session: number | null) {
   const cmd = { id: `c${n}`, type: 'commandExecution', command: 'pnpm test -- queue', status: 'inProgress', aggregatedOutput: null, exitCode: null };
   await ev('item/started', { item: cmd });
   const decision = await new Promise<string>((resolve) => {
-    pendingApproval = resolve;
-    void ev('item/commandExecution/requestApproval', { itemId: cmd.id, command: cmd.command, reason: 'ejecutar los tests necesita red para instalar dependencias' }, 7);
+    pendingApprovals.set(`approval-${session}-${n}`, resolve);
+    void ev('item/commandExecution/requestApproval', { itemId: cmd.id, command: cmd.command, reason: 'ejecutar los tests necesita red para instalar dependencias' }, `approval-${session}-${n}`);
   });
-  pendingApproval = null;
+  pendingApprovals.delete(`approval-${session}-${n}`);
   if (decision === 'decline') {
     await ev('item/completed', { item: { ...cmd, status: 'declined' } });
   } else {
@@ -884,14 +886,14 @@ async function demoSession(id: number) {
     await wait(40);
     await ev({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: word + ' ' } } });
   }
-  const n = Date.now();
+  const n = `${id}-${Date.now()}`;
   const path = `${ROOT}/bitacola/src/lib/autonomy.ts`;
   await ev({ type: 'assistant', message: { id: `m${n}`, content: [{ type: 'text', text: 'Voy a añadir el caso de política deshabilitada.' }, { type: 'tool_use', id: `t${n}`, name: 'Edit', input: { file_path: path } }] } });
   const decision = await new Promise<string>((resolve) => {
-    sessionAnswer = resolve;
+    sessionAnswers.set(`r${n}`, resolve);
     void ev({ type: 'control_request', request_id: `r${n}`, request: { subtype: 'can_use_tool', tool_name: 'Edit', input: { file_path: path }, tool_use_id: `t${n}` } });
   });
-  sessionAnswer = null;
+  sessionAnswers.delete(`r${n}`);
   const ok = decision !== 'decline';
   await ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `t${n}`, is_error: !ok, content: ok ? 'ok' : 'rechazado' }] } });
   await ev({ type: 'assistant', message: { id: `m${n}b`, content: [{ type: 'text', text: ok ? 'Hecho: la validación rechaza clientes sin política.' : 'Entendido, no toco el archivo.' }] } });

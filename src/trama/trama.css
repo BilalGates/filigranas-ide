@@ -185,7 +185,8 @@ html[data-motion='reducido'] .ws-pane {
 .ws-pane.is-hidden {
   position: absolute;
   inset-block: 0;
-  left: 0;
+  right: 0;
+  left: auto;
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
@@ -226,28 +227,34 @@ html[data-motion='reducido'] .ws-pane {
   width: auto;
 }
 
-/* En vista dividida estrecha, el cajón de conversaciones flota sin aplastar el chat. */
+/* En vista dividida estrecha, el cajón de conversaciones nace bajo la cabecera
+   para que el botón «Explorador» siga siendo clicable al cerrarlo. */
 .ws-drawer-backdrop {
   position: absolute;
-  inset: 0;
+  inset: 48px 0 0 0;
   z-index: 20;
   background: rgb(6 7 9 / 0.54);
   backdrop-filter: blur(2px);
 }
 .ws-inner.has-side-drawer > .sidebar {
   position: absolute;
-  inset-block: 0;
+  top: 48px;
+  bottom: 0;
   left: 0;
   z-index: 25;
-  width: min(260px, 82%);
+  width: min(268px, 86%);
   background: rgb(14 15 19 / 0.97);
+  border-top: 1px solid var(--line);
   border-right: 1px solid var(--line-2);
   box-shadow: 18px 0 44px -16px rgb(0 0 0 / 0.85);
   visibility: visible;
   pointer-events: auto;
 }
+html.is-light .ws-inner.has-side-drawer > .sidebar {
+  background: rgb(248 249 251 / 0.97);
+}
 
-/* Divisor central entre Workspace y herramienta acoplada */
+/* Divisor central entre herramienta acoplada y Workspace */
 .ws-splitter {
   flex: none;
   width: 8px;
@@ -272,161 +279,98 @@ html[data-motion='reducido'] .ws-pane {
   background: var(--skyhi);
 }
 
-/* Columna compacta de Workspace minimizado (recuperable en un clic + acceso al explorador) */
-.ws-compact {
-  flex: none;
-  width: 52px;
-  padding: 0;
-  border-right: 1px solid var(--line);
+/* Lengüeta fija en el borde derecho cuando el chat está oculto (Variante C) */
+.ws-dock-tab {
+  position: absolute;
+  top: 96px;
+  right: 0;
+  z-index: 40;
+  width: 32px;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  position: relative;
-  z-index: 26;
-}
-.ws-compact-nav-btn {
-  flex: none;
-  height: 44px;
-  width: 100%;
-  display: grid;
-  place-items: center;
-  color: var(--tx3);
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
-  transition: background 140ms var(--ease), color 140ms var(--ease);
-}
-.ws-compact-nav-btn:hover,
-.ws-compact-nav-btn:focus-visible,
-.ws-compact-nav-btn.is-on {
-  outline: none;
-  background: rgb(255 255 255 / 0.06);
-  color: var(--tx);
-}
-.ws-compact-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 24;
-  background: rgb(6 7 9 / 0.45);
-  backdrop-filter: blur(2px);
-}
-.ws-compact-drawer {
-  position: absolute;
-  inset-block: 0;
-  left: 52px;
-  z-index: 26;
-  width: min(272px, calc(100% - 64px));
-  display: flex;
-  background: rgba(11, 12, 15, 0.92);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  border-right: 1px solid var(--line-2);
-  border-top-right-radius: 9px;
-  border-bottom-right-radius: 9px;
-  box-shadow: 20px 0 48px -16px rgba(0, 0, 0, 0.85);
-  overflow: hidden;
-}
-.ws-compact-drawer > .sidebar.explorer-side {
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  margin: 0;
-  background: transparent;
-  border: 0;
-  display: flex;
-}
-.ws-compact-drawer > .sidebar.explorer-side .threads {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  background: none;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 5px;
+  border-radius: 10px 0 0 10px;
+  border: 1px solid var(--line-2);
   border-right: 0;
-}
-html.is-light .ws-compact-drawer {
-  background: color-mix(in srgb, var(--raised) 95%, transparent);
-}
-.ws-compact-btn {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 6px;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+  background: rgb(18 20 26 / 0.94);
+  box-shadow: -8px 8px 24px -10px rgb(0 0 0 / 0.85);
+  backdrop-filter: blur(14px);
   color: var(--tx2);
-  transition: background 150ms var(--ease), color 150ms var(--ease);
+  cursor: pointer;
+  transition: background 140ms var(--ease), color 140ms var(--ease), border-color 140ms var(--ease), transform 140ms var(--ease);
 }
-.ws-compact-btn:hover,
-.ws-compact-btn:focus-visible {
+.ws-dock-tab:hover,
+.ws-dock-tab:focus-visible {
   outline: none;
-  background: var(--hover);
-  box-shadow: none;
   color: var(--tx);
+  background: rgb(28 31 40 / 0.98);
+  border-color: var(--line3);
 }
-.ws-compact-top {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.ws-dock-tab:focus-visible {
+  outline: 1.5px solid var(--skyhi);
+  outline-offset: 2px;
 }
-.ws-compact-sigil {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  overflow: hidden;
-  display: block;
+.ws-dock-tab.is-live {
+  border-color: rgb(157 182 255 / 0.34);
 }
-.ws-compact-sigil canvas { width: 100%; height: 100%; display: block; }
-.ws-compact-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+.ws-dock-tab.is-warn {
+  background: rgb(42 29 14 / 0.96);
+  border-color: rgb(255 178 94 / 0.55);
+  color: #ffd7a6;
+}
+.ws-dock-tab.is-warn:hover,
+.ws-dock-tab.is-warn:focus-visible {
+  background: rgb(56 38 18 / 0.98);
+  border-color: var(--amber);
+}
+html.is-light .ws-dock-tab {
+  background: rgb(250 251 253 / 0.95);
+  box-shadow: -6px 8px 22px -10px rgb(10 14 24 / 0.22);
+}
+html.is-light .ws-dock-tab:hover,
+html.is-light .ws-dock-tab:focus-visible {
+  background: #ffffff;
+}
+html.is-light .ws-dock-tab.is-warn {
+  background: #fff4e4;
+  border-color: rgb(184 106 0 / 0.45);
+  color: #7c4500;
+}
+.ws-dock-chev,
+.ws-dock-ico {
   display: grid;
   place-items: center;
-  background: rgb(255 255 255 / 0.05);
-  box-shadow: inset 0 0 0 1px var(--line);
+  line-height: 1;
 }
-.ws-compact-expand {
-  color: var(--tx3);
-  display: grid;
-  place-items: center;
+.ws-dock-lbl {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
-.ws-compact-status {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.ws-compact-idle-dot {
-  width: 7px;
-  height: 7px;
+.ws-dock-live {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--tx4);
+  background: var(--skyhi);
+  box-shadow: 0 0 8px var(--skyhi);
 }
-.ws-compact-badge {
+html[data-motion='completo'] .ws-dock-live,
+html[data-motion='sin-ambiente'] .ws-dock-live {
+  animation: trBreath 2.6s ease-in-out infinite;
+}
+.ws-dock-badge {
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 99px;
   display: grid;
   place-items: center;
   font: 600 10px var(--mono);
-}
-.ws-compact-badge.is-warn { background: var(--amber); color: #161108; }
-.ws-compact-badge.is-live { background: rgb(157 182 255 / 0.18); color: var(--skyhi); box-shadow: inset 0 0 0 1px rgb(157 182 255 / 0.35); }
-.ws-compact-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--tx3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-height: 220px;
+  background: var(--amber);
+  color: #161108;
 }
 
 /* ToolPane acoplable (comparte el marco único de .ws-shell, sin cabecera de subventana) */
@@ -455,7 +399,7 @@ html.is-light .ws-compact-drawer {
   animation: none;
 }
 @keyframes wsToolIn {
-  from { opacity: 0; transform: translateX(10px); }
+  from { opacity: 0; transform: translateX(-10px); }
 }
 html[data-motion='reducido'] .tool-pane {
   animation: none;
@@ -463,51 +407,15 @@ html[data-motion='reducido'] .tool-pane {
 @media (prefers-reduced-motion: reduce) {
   .ws-pane { transition: none; }
   .tool-pane { animation: none; }
+  .ws-dock-tab { transition: none; }
 }
-/* Único control flotante y discreto para colapsar Workspace a columna compacta */
-.tool-ws-min {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  z-index: 40;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  color: var(--tx3);
-  background: rgb(14 15 19 / 0.56);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
-  backdrop-filter: blur(10px);
-  opacity: 0.72;
-  transition: opacity 140ms var(--ease), background 140ms var(--ease), color 140ms var(--ease), box-shadow 140ms var(--ease);
+/* Reserva un margen lateral derecho cuando la lengüeta está visible para
+   no tapar barras de scroll ni controles laterales en Inicio, Flow, Entrega y Git. */
+.tool-pane:is(.is-compact, .is-maximized) > .tool-body {
+  padding-right: 36px;
 }
-.tool-ws-min:hover,
-.tool-ws-min:focus-visible {
-  outline: none;
-  opacity: 1;
-  color: var(--tx);
-  background: rgb(26 28 34 / 0.84);
-  box-shadow: inset 0 0 0 1px var(--line-2);
-}
-html.is-light .tool-ws-min {
-  background: rgb(255 255 255 / 0.72);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
-}
-html.is-light .tool-ws-min:hover,
-html.is-light .tool-ws-min:focus-visible {
-  background: rgb(255 255 255 / 0.94);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.16);
-}
-/* Espacio reservado a la derecha en las cabeceras propias de cada vista cuando el botón flotante está visible */
-.tool-pane.has-ws-min .flowh,
-.tool-pane.has-ws-min .brainh,
-.tool-pane.has-ws-min .pipe,
-.tool-pane.has-ws-min .ent-head-top,
-.tool-pane.has-ws-min .studio-views,
-.tool-pane.has-ws-min .browser-bar,
-.tool-pane.has-ws-min .tool-containers {
-  padding-right: 48px;
+.tool-pane:is(.is-compact, .is-maximized) :is(.ent-insp, .insp) {
+  border-right: 1px solid var(--line);
 }
 .tool-body {
   flex: 1;

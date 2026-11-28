@@ -79,7 +79,8 @@ export const MIN_WORKSPACE_RATIO = 0.2;
 export const MAX_WORKSPACE_RATIO = 0.65;
 export const MIN_WORKSPACE_PX = 340;
 export const MIN_TOOL_PX = 440;
-export const COMPACT_RAIL_PX = 64;
+/** Sin carril lateral al ocultar Workspace: la herramienta ocupa todo el ancho y la lengüeta flota en el borde derecho. */
+export const COMPACT_RAIL_PX = 0;
 export const SPLITTER_PX = 8;
 /** Por debajo de este ancho de Workspace en dividida, se repliega su columna interna de hilos. */
 export const SIDEBAR_COLLAPSE_THRESHOLD_PX = 660;
@@ -242,6 +243,29 @@ export type LayoutGeometry = {
   autoCompacted: boolean;
 };
 
+/** Indica si el ancho disponible admite vista dividida entre herramienta y chat. */
+export function canSplitWorkspace(availableWidth: number): boolean {
+  const width = Math.max(320, Math.floor(availableWidth));
+  return width >= MIN_WORKSPACE_PX + MIN_TOOL_PX + SPLITTER_PX;
+}
+
+/**
+ * Recupera Workspace desde el estado oculto (compacto o maximizado) de forma
+ * predecible según el espacio disponible actual:
+ * - Si cabe la vista dividida, restaura `split` conservando `workspaceRatio`.
+ * - Si la ventana sigue siendo demasiado estrecha para dividida, cierra la
+ *   herramienta activa y deja Workspace al 100 %.
+ */
+export function recoverWorkspaceFromHidden(state: ShellState, availableWidth: number): ShellState {
+  if (!state.activeTool) {
+    return { ...state, mode: 'workspace', workspacePx: null };
+  }
+  if (canSplitWorkspace(availableWidth)) {
+    return restoreWorkspace(state);
+  }
+  return closeTool(state);
+}
+
 /**
  * Calcula medidas seguras para cualquier ancho de ventana (1600, 1440, 1280,
  * 1050 y el ancho mínimo 960), evitando paneles inutilizables o desbordamiento.
@@ -275,14 +299,13 @@ export function computeLayoutGeometry(state: ShellState, availableWidth: number)
     };
   }
 
-  const fitsSplit = width >= MIN_WORKSPACE_PX + MIN_TOOL_PX + SPLITTER_PX;
+  const fitsSplit = canSplitWorkspace(width);
 
   if (state.mode === 'compact' || !fitsSplit) {
-    const rail = Math.min(COMPACT_RAIL_PX, Math.max(48, width - 260));
     return {
       effectiveMode: 'compact',
-      workspaceWidthPx: rail,
-      toolWidthPx: Math.max(0, width - rail),
+      workspaceWidthPx: COMPACT_RAIL_PX,
+      toolWidthPx: Math.max(0, width - COMPACT_RAIL_PX),
       showSplitter: false,
       collapseWorkspaceSidebar: true,
       minWorkspacePx: MIN_WORKSPACE_PX,
@@ -313,6 +336,55 @@ export function computeLayoutGeometry(state: ShellState, availableWidth: number)
     maxWorkspacePx,
     autoCompacted: false,
   };
+}
+
+/**
+ * Con Workspace a la derecha, arrastrar el divisor a la izquierda (`deltaX < 0`)
+ * ensancha Workspace y arrastrarlo a la derecha (`deltaX > 0`) lo estrecha.
+ */
+export function resizeWorkspaceFromDelta(
+  state: ShellState,
+  startWidthPx: number,
+  deltaX: number,
+  availableWidth: number,
+): ShellState {
+  return resizeWorkspace(state, startWidthPx - deltaX, availableWidth);
+}
+
+/** Alterna el explorador con ⌘B: cierra el cajón si está abierto o alterna la barra. */
+export function toggleSidebarShortcut(current: {
+  collapseByWidth: boolean;
+  noSide: boolean;
+  drawerOpen: boolean;
+}): { noSide: boolean; drawerOpen: boolean } {
+  if (current.collapseByWidth || current.drawerOpen) {
+    return { noSide: current.noSide, drawerOpen: !current.drawerOpen };
+  }
+  return { noSide: !current.noSide, drawerOpen: false };
+}
+
+/** Devuelve el ancho objetivo al pulsar una tecla en el divisor (Workspace a la derecha). */
+export function splitterKeyTargetPx(
+  geometry: Pick<LayoutGeometry, 'workspaceWidthPx' | 'minWorkspacePx' | 'maxWorkspacePx'>,
+  key: string,
+): number | null {
+  if (key === 'ArrowLeft') return geometry.workspaceWidthPx + 24;
+  if (key === 'ArrowRight') return geometry.workspaceWidthPx - 24;
+  if (key === 'Home') return geometry.maxWorkspacePx;
+  if (key === 'End') return geometry.minWorkspacePx;
+  return null;
+}
+
+/** Resuelve teclado del divisor vertical con Workspace a la derecha. */
+export function stepWorkspaceSplitter(
+  state: ShellState,
+  geometry: Pick<LayoutGeometry, 'workspaceWidthPx' | 'minWorkspacePx' | 'maxWorkspacePx'>,
+  key: string,
+  availableWidth: number,
+): ShellState | null {
+  if (key === 'Enter' || key === ' ') return resetWorkspaceRatio(state);
+  const target = splitterKeyTargetPx(geometry, key);
+  return target == null ? null : resizeWorkspace(state, target, availableWidth);
 }
 
 export function resizeWorkspace(state: ShellState, targetPx: number, availableWidth: number): ShellState {

@@ -34,6 +34,7 @@ const G: Record<string, string> = {
   tools: '<circle class="n" cx="12" cy="12" r="2.4"/><path d="M12 3.5v4M12 16.5v4M3.5 12h4M16.5 12h4M6 6l2.8 2.8M15.2 15.2L18 18M18 6l-2.8 2.8M8.8 15.2L6 18"/>',
   sidebar: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M9.5 5v14"/><circle class="n" cx="6.5" cy="9" r="1.1"/>',
   panel: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M14.5 5v14"/><circle class="n" cx="17.5" cy="9" r="1.1"/>',
+  hideChat: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M15.5 5v14"/><path d="M8 9.5L11 12l-3 2.5"/><circle class="n" cx="18" cy="12" r="1.1"/>',
   gauge: '<path d="M4.5 17a7.5 7.5 0 0115 0"/><path d="M12 17l3.5-4.5"/><circle class="n" cx="12" cy="17" r="1.5"/>',
   globe: '<circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.5" ry="8"/><path d="M4 12h16"/><circle class="n" cx="12" cy="4" r="1.1"/>',
   search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>',

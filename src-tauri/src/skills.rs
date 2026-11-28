@@ -316,8 +316,8 @@ mod tests {
         let designer = methods(&db, "p", Role::Designer, Some(&root)).unwrap();
         let (_, text) = designer.iter().find(|(n, _)| *n == "design-loop").unwrap();
         assert!(!text.starts_with("---") && !text.contains("description:"));
-        let reference = root.join("design-loop/references/semaforo-macos.md");
-        assert!(text.contains(reference.to_str().unwrap()) && reference.is_file());
+        let references = root.join("design-loop").join("references");
+        assert!(text.contains(&format!("{}/semaforo-macos.md", references.display())) && references.join("semaforo-macos.md").is_file());
     }
 
     #[test]

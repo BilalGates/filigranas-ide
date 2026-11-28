@@ -393,7 +393,13 @@ mod tests {
         let first = lock_profile(&dir).unwrap();
         assert_eq!(lock_profile(&dir).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
         drop(first);
-        assert!(lock_profile(&dir).is_ok());
+        // Un hijo lanzado en paralelo por otra prueba puede heredar el descriptor
+        // entre fork y exec y retener el flock unos milisegundos.
+        let reopened = (0..50).find_map(|_| lock_profile(&dir).ok().or_else(|| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            None
+        }));
+        assert!(reopened.is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

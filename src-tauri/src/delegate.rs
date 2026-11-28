@@ -322,11 +322,13 @@ fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, pare
     let goal=args["objetivo"].as_str().filter(|g|!g.trim().is_empty()).unwrap_or(prompt);
     let role=args["rol"].as_str().unwrap_or("senior");
     if !["researcher","designer","senior","junior","auditor","auditor2"].contains(&role) { return Err("rol ejecutor no válido".into()); }
+    let (kind,capabilities)=capability_args(args)?;
     let (chosen,route)=crate::jev::provider_choice(&state,requested,crate::skills::Role::from_key(Some(role)))?;
     let engine=chosen.as_str();
     let task={let mut conn=state.db.lock().map_err(err)?;crate::tasks::delegation(&mut conn,project,parent_task,&title,goal,prompt,engine,role)?};
     let session=claude::create_pm_subsession(app,project,parent,engine,Some(&title),Some(crate::skills::Role::from_key(Some(role))),Some(task))?;
     crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,&parent.map(crate::runs::session_scope).unwrap_or_else(|| project.to_owned()),&route)?;
+    crate::capabilities::assign(&*state.db.lock().map_err(err)?,session.id,kind.as_deref(),&capabilities,if parent.is_some(){"sesión padre"}else{"pm"})?;
     if let Some(paths)=args["archivos"].as_array() {
         let paths=paths.iter().map(|p|p.as_str().map(str::to_owned).ok_or("ruta no válida")).collect::<Result<Vec<_>,_>>()?;
         let conn=state.db.lock().map_err(err)?;
@@ -468,6 +470,10 @@ mod tests {
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
+        let kinds: Vec<&str> = arr[0]["inputSchema"]["properties"]["tipo"]["enum"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(kinds, crate::capabilities::KINDS);
+        assert!(capability_args(&json!({"tipo": "inventado"})).is_err());
+        assert_eq!(capability_args(&json!({"tipo": "logo", "capacidades": ["pixelfx"]})).unwrap(), (Some("logo".into()), vec!["pixelfx".to_string()]));
         assert_eq!(derive_title(Some("  Investigar auth "), "tarea"), "Investigar auth");
         assert_eq!(derive_title(None, "\nPrimera línea\nSegunda"), "Primera línea");
     }

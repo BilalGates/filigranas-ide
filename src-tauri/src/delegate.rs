@@ -12,14 +12,12 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 4;
+pub const TOOLS_VERSION: i64 = 5;
 
-const ENGINES: [(&str, &str); 5] = [
+const ENGINES: [(&str, &str); 3] = [
     ("claude", "claude code"),
     ("codex", "codex"),
-    ("opencode", "opencode"),
     ("agy", "antigravity"),
-    ("devin", "devin"),
 ];
 const WAIT_DEFAULT: u64 = 300;
 const WAIT_MAX: u64 = 900;
@@ -35,9 +33,11 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "claude = Claude Code, codex = Codex, opencode = OpenCode, agy = Antigravity (Gemini), devin = Devin" },
+                    "agente": { "type": "string", "enum": ["claude", "codex", "agy"], "description": "claude = Claude Code, codex = Codex, agy = Antigravity (Gemini)" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
-                    "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills del ejecutor. Por defecto senior." },
+                    "rol": { "type": "string", "enum": ["researcher", "architect", "designer", "graphic", "senior", "junior", "security", "auditor", "auditor2", "verifier", "data"], "description": "Rol del ejecutor. Por defecto senior." },
+                    "tipo": { "type": "string", "enum": ["implementacion", "correccion", "refactorizacion", "revision", "threat_model", "arquitectura", "planificacion", "revision_independiente", "diseno", "frontend", "auditoria_visual", "logo", "efectos", "investigacion", "config_repo", "estadistica", "verificacion"], "description": "Tipo de trabajo. Filigranas lo usa para resolver las capacidades obligatorias y automáticas." },
+                    "capacidades": { "type": "array", "items": { "type": "string" }, "description": "Opcional. Identificadores de extensiones pedidas expresamente (p. ej. agent-reach, statspai, pixelfx)." },
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
@@ -106,8 +106,10 @@ pub fn claude_mcp_tools() -> Value {
                 "properties": {
                     "titulo": { "type": "string", "description": "Título breve de la subsesión visible en el panel «Conversaciones» (p. ej. «Investigar autenticación»)." },
                     "tarea": { "type": "string", "description": "Encargo completo y autocontenido: objetivo, contexto, archivos relevantes y qué resultado devolver." },
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "Motor que ejecutará la subsesión. Por defecto claude." },
-                    "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills de la subsesión. Por defecto senior." },
+                    "agente": { "type": "string", "enum": ["claude", "codex", "agy"], "description": "Motor que ejecutará la subsesión. Por defecto claude." },
+                    "rol": { "type": "string", "enum": ["researcher", "architect", "designer", "graphic", "senior", "junior", "security", "auditor", "auditor2", "verifier", "data"], "description": "Rol de la subsesión. Por defecto senior." },
+                    "tipo": { "type": "string", "enum": ["implementacion", "correccion", "refactorizacion", "revision", "threat_model", "arquitectura", "planificacion", "revision_independiente", "diseno", "frontend", "auditoria_visual", "logo", "efectos", "investigacion", "config_repo", "estadistica", "verificacion"], "description": "Tipo de trabajo. Filigranas lo usa para resolver las capacidades obligatorias y automáticas." },
+                    "capacidades": { "type": "array", "items": { "type": "string" }, "description": "Opcional. Identificadores de extensiones pedidas expresamente (p. ej. agent-reach, statspai, pixelfx)." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
                 },
                 "required": ["titulo", "tarea"],
@@ -234,7 +236,8 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
                 return Err("falta la tarea".into());
             }
             let title = derive_title(args["titulo"].as_str(), task);
-            let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
+            let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::parse(r).ok_or(format!("rol desconocido: {r}"))).transpose()?;
+            let (kind, requested) = capability_args(args)?;
             let paths = args["archivos"].as_array().map(|paths| {
                 paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()
             }).transpose()?;
@@ -250,6 +253,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             // Subsesión vinculada al Project Manager: funciona tanto con sesión de trabajo activa
             // como en tareas de investigación/revisión sin sesión de trabajo previa.
             let session = claude::create_pm_subsession(app, &project, None, engine, Some(&title), role, Some(task_id))?;
+            crate::capabilities::assign(&*state.db.lock().map_err(err)?, session.id, kind.as_deref(), &requested, "pm")?;
             if let Some(paths) = paths {
                 let conn = state.db.lock().map_err(err)?;
                 if crate::work::current(&conn, &project)?.is_some_and(|w| w.state != "finished") {
@@ -312,6 +316,18 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
     }
 }
 
+/// `tipo` y `capacidades` de una delegación, validados antes de crear la subsesión.
+fn capability_args(args: &Value) -> CmdResult<(Option<String>, Vec<String>)> {
+    let kind = args["tipo"].as_str().map(str::to_owned);
+    if let Some(k) = &kind {
+        if !crate::capabilities::KINDS.contains(&k.as_str()) {
+            return Err(format!("tipo de trabajo desconocido: {k}"));
+        }
+    }
+    let requested = args["capacidades"].as_array().map(|items| items.iter().map(|v| v.as_str().map(str::to_owned).ok_or("cada capacidad debe ser un identificador")).collect::<Result<Vec<_>, _>>()).transpose()?.unwrap_or_default();
+    Ok((kind, requested))
+}
+
 fn derive_title(explicit: Option<&str>, task: &str) -> String {
     let raw = explicit.map(str::trim).filter(|s| !s.is_empty()).unwrap_or_else(|| {
         task.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("Subsesión")
@@ -346,9 +362,11 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
                 return Err("falta la tarea".into());
             }
             let title = derive_title(args["titulo"].as_str(), task);
-            let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
+            let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::parse(r).ok_or(format!("rol desconocido: {r}"))).transpose()?;
+            let (kind, requested) = capability_args(args)?;
             let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
             let session = claude::create_subsession(app, parent_id, engine, Some(&title), role)?;
+            crate::capabilities::assign(&*state.db.lock().map_err(err)?, session.id, kind.as_deref(), &requested, "sesión padre")?;
             let prompt = format!("Encargo delegado desde «{}» ({title}):\n\n{task}", parent.name);
             if let Err(error) = claude::send_message(app, session.id, prompt, effort) {
                 return Ok(format!(
@@ -435,7 +453,15 @@ mod tests {
         assert_eq!(names, ["delegar", "estado_sesiones", "esperar_sesion", "continuar_sesion"]);
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(engines, ["claude", "codex", "opencode", "agy", "devin"]);
+        assert_eq!(engines, ["claude", "codex", "agy"]);
+        let props = &arr[0]["inputSchema"]["properties"];
+        let kinds: Vec<&str> = props["tipo"]["enum"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(kinds, crate::capabilities::KINDS);
+        let roles: Vec<&str> = props["rol"]["enum"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(roles.iter().all(|r| crate::skills::Role::parse(r).is_some()) && !roles.contains(&"pm"));
+        assert_eq!(roles.len(), crate::skills::ROLES.len() - 1);
+        assert!(capability_args(&json!({"tipo": "inventado"})).is_err());
+        assert_eq!(capability_args(&json!({"tipo": "logo", "capacidades": ["pixelfx"]})).unwrap(), (Some("logo".into()), vec!["pixelfx".to_string()]));
         assert_eq!(derive_title(Some("  Investigar auth "), "tarea"), "Investigar auth");
         assert_eq!(derive_title(None, "\nPrimera línea\nSegunda"), "Primera línea");
     }

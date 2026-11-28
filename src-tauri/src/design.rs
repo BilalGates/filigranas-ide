@@ -552,6 +552,22 @@ pub struct Brief {
     #[serde(default)]
     references: Vec<i64>,
     component: Option<String>,
+    /// Fase creativa de Studio; decide las capacidades visuales del turno.
+    #[serde(default)]
+    phase: Option<String>,
+}
+
+/// Tipo de trabajo de cada fase de Studio. Una comparación es una revisión estética.
+fn phase_kind(phase: Option<&str>, compare: bool) -> CmdResult<&'static str> {
+    Ok(match phase {
+        None if compare => "auditoria_visual",
+        None | Some("implementacion") => "frontend",
+        Some("direccion") => "diseno",
+        Some("identidad") => "logo",
+        Some("revision") => "auditoria_visual",
+        Some("efectos") => "efectos",
+        Some(other) => return Err(format!("fase de Studio desconocida: {other}")),
+    })
 }
 
 #[tauri::command]
@@ -596,11 +612,25 @@ pub async fn design_send(app: AppHandle, project: String, brief: Brief) -> CmdRe
         let text = format!(
             "{action}\nPantalla: {}\nRegión como porcentaje del ancho y alto: x={}, y={}, ancho={}, alto={}{component}{refs}\nRestricciones de diseño bloqueadas:\n{}\nEncargo:\n{}",
             screen.name,region.x,region.y,region.width,region.height,screen.constraints,brief.request.trim());
+        let kind = phase_kind(brief.phase.as_deref(), brief.compare)?;
         let images = pngs.into_iter().map(|png| ("image/png".to_owned(), png))
             .chain(references.into_iter().map(|(_, mime, bytes)| (mime, bytes)))
             .map(|(mime, bytes)| json!({"type":"image","source":{
                 "type":"base64","media_type":mime,"data":STANDARD.encode(bytes)}})).collect();
-        crate::claude::send_with_images(&app, brief.session, &text, images)
+        // El tipo de la fase solo rige este turno: se restaura el anterior al enviarlo.
+        let previous: Option<(Option<String>, String)> = {
+            let conn = state.db.lock().map_err(err)?;
+            let previous = conn.query_row("SELECT kind, origin FROM session_capabilities WHERE session_id=?1", [brief.session], |r| Ok((r.get(0)?, r.get(1)?))).ok();
+            crate::capabilities::assign(&conn, brief.session, Some(kind), &[], "Studio")?;
+            previous
+        };
+        let sent = crate::claude::send_with_images(&app, brief.session, &text, images);
+        let conn = state.db.lock().map_err(err)?;
+        match previous {
+            Some((kind, origin)) => { conn.execute("UPDATE session_capabilities SET kind=?2, origin=?3 WHERE session_id=?1", rusqlite::params![brief.session, kind, origin]).map_err(err)?; }
+            None => { conn.execute("DELETE FROM session_capabilities WHERE session_id=?1", [brief.session]).map_err(err)?; }
+        }
+        sent
     }).await.map_err(err)?
 }
 
@@ -608,6 +638,19 @@ pub async fn design_send(app: AppHandle, project: String, brief: Brief) -> CmdRe
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn studio_phases_map_to_visual_capabilities() {
+        assert_eq!(phase_kind(None, true).unwrap(), "auditoria_visual");
+        assert_eq!(phase_kind(None, false).unwrap(), "frontend");
+        assert_eq!(phase_kind(Some("direccion"), false).unwrap(), "diseno");
+        assert_eq!(phase_kind(Some("identidad"), false).unwrap(), "logo");
+        assert_eq!(phase_kind(Some("efectos"), false).unwrap(), "efectos");
+        assert!(phase_kind(Some("otra"), false).is_err());
+        for phase in ["direccion", "identidad", "implementacion", "revision", "efectos"] {
+            assert!(crate::capabilities::KINDS.contains(&phase_kind(Some(phase), false).unwrap()));
+        }
+    }
 
     fn png() -> Vec<u8> {
         let mut bytes = Vec::new();

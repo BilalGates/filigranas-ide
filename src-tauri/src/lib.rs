@@ -3,6 +3,7 @@ mod approval;
 mod attachments;
 mod autoapprove;
 mod brain;
+mod capabilities;
 mod brain_graph;
 mod brain_links;
 mod browser;
@@ -198,6 +199,23 @@ pub fn run() {
             skills::skills_assignments,
             skills::skills_set_assignment,
             skills::skills_set_session_role,
+            capabilities::extensions_list,
+            capabilities::extensions_install,
+            capabilities::extensions_import,
+            capabilities::extensions_approve,
+            capabilities::extensions_enable,
+            capabilities::extensions_update,
+            capabilities::extensions_rollback,
+            capabilities::extensions_uninstall,
+            capabilities::extensions_log,
+            capabilities::extensions_policies,
+            capabilities::extensions_set_policy,
+            capabilities::capabilities_session,
+            capabilities::capabilities_request,
+            capabilities::capabilities_set_kind,
+            capabilities::capabilities_runs,
+            capabilities::capabilities_verify,
+            capabilities::capabilities_settings,
             health::health_list,
             health::health_file,
             health::health_import,

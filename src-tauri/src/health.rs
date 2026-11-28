@@ -200,6 +200,25 @@ fn save(conn: &Connection, project: &str, session: Option<i64>, task: Option<i64
     tx.commit().map_err(err)
 }
 
+/// Hallazgo de un informe de capacidad (p. ej. Grim Prompter): ruta, línea,
+/// severidad y título de la sección. No se guarda el texto del informe.
+pub(crate) struct ReportFinding { pub path: String, pub line: u32, pub severity: &'static str, pub title: Option<String> }
+
+/// Registra en Entrega los hallazgos de un informe generado por una capacidad,
+/// vinculados a la revisión comprobada. El digest evita duplicados.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn import_report(conn: &Connection, project: &str, session: Option<i64>, task: Option<i64>, tool: &str, version: &str,
+    revision: Option<String>, digest: String, rows: Vec<ReportFinding>) -> CmdResult<()> {
+    let findings = rows.into_iter().map(|row| {
+        let mut item = finding(tool, Some(row.path), Some(row.line), "threat-model", row.severity);
+        item.title = row.title;
+        item
+    }).collect::<Vec<_>>();
+    let outcome = if findings.is_empty() { "passed" } else { "findings" };
+    save(conn, project, session, task, vec![Evidence { tool: tool.into(), version: Some(version.into()), source: "Informe de capacidad".into(),
+        revision: revision.as_deref().and_then(self::revision), digest: Some(digest), outcome, findings }])
+}
+
 fn scope(state: &AppState, project: &str, session: Option<i64>) -> CmdResult<(String, String, Option<i64>)> {
     let conn = state.db.lock().map_err(err)?;
     let project = project_path(&conn, project)?;

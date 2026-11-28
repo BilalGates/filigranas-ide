@@ -148,14 +148,16 @@ fn system_prompt(name: &str, rules: &str, is_subsession: bool) -> String {
     if is_subsession {
         format!(
             "Eres «{name}», una subsesión delegada dentro de Filigranas IDE. Ejecuta el encargo directamente sin delegar ni crear otras subsesiones y entrega un resultado claro, verificado y completo para la sesión padre. \
-Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
+Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{}\n{rules}",
+            crate::capabilities::POLICIES
         )
     } else {
         format!(
             "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
 Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. \
 Si necesitas delegar una subtarea o trabajar en paralelo, crea una subsesión visible de Filigranas con las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) en lugar de usar subagentes internos de Claude Code; las subsesiones aparecen en «Conversaciones» bajo esta sesión, pueden durar lo que necesiten y devuelven su resultado mediante `esperar_sesion`. \
-Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
+Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{}\n{rules}",
+            crate::capabilities::POLICIES
         )
     }
 }
@@ -293,9 +295,10 @@ impl Claude {
     /// se reinicia reanudando la misma conversación.
     fn proc(&self, app: &AppHandle, session: &db::Session, effort: Option<&str>) -> CmdResult<Input> {
         let state = app.state::<AppState>();
-        let (pinned_model, is_pm) = {
+        let (pinned_model, is_pm, isolate) = {
             let conn = state.db.lock().map_err(err)?;
-            (claude_model(&conn, session.id)?, crate::chat::is_pm(&conn, session.id).map_err(err)?)
+            (claude_model(&conn, session.id)?, crate::chat::is_pm(&conn, session.id).map_err(err)?,
+                crate::capabilities::personal_config(&conn) != "all")
         };
         let mut procs = self.procs.lock().map_err(err)?;
         if let Some(p) = procs.get(&session.id) {
@@ -313,7 +316,8 @@ impl Claude {
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
             format!(
-                "{policy}\n\nUsa exclusivamente las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) para delegar y supervisar subsesiones visibles; nunca uses subagentes internos de Claude Code ni herramientas directas de archivo o terminal.\n\n{rules}"
+                "{policy}\n\nUsa exclusivamente las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) para delegar y supervisar subsesiones visibles; nunca uses subagentes internos de Claude Code ni herramientas directas de archivo o terminal.\n\n{}",
+                crate::capabilities::POLICIES
             )
         } else {
             system_prompt(&session.name, rules, is_subsession)
@@ -332,6 +336,11 @@ impl Claude {
             .args(["--append-system-prompt", &prompt]);
         if can_delegate {
             cmd.args(["--mcp-config", r#"{"mcpServers":{"filigranas":{"type":"sdk","name":"filigranas"}}}"#]);
+        }
+        // El PM y las subsesiones no heredan CLAUDE.md, skills, plugins ni
+        // conectores personales: su contexto lo administra Filigranas.
+        if (is_pm || is_subsession) && isolate {
+            cmd.args(["--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands"]);
         }
         if transcript(&session.provider_session).is_some() {
             cmd.args(["--resume", &session.provider_session]);
@@ -370,6 +379,9 @@ impl Claude {
                     let _ = handle.emit("session", Event { id, msg: json!({ "type": "model_catalog", "models": models }) });
                 }
                 let active = active_run.lock().ok().and_then(|run| *run);
+                if active.is_some() {
+                    crate::capabilities::observe_claude(&handle, id, &msg);
+                }
                 if let Some(run) = active {
                     match msg["type"].as_str() {
                         Some("control_request") if msg.pointer("/request/subtype") == Some(&json!("can_use_tool")) =>
@@ -872,7 +884,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         let run = runs::begin(&tx, &session.project, &scope, &session.engine, (!is_pm).then_some(id), task)?;
         let input = runs::task_input(&tx, run, &session.project, task, previous, text)?;
         let input = crate::chat::with_context(&tx, &session.project, (!is_pm).then_some(id), run, input)?;
-        let input = crate::skills::with_catalog(app, &tx, &session.project, (!is_pm).then_some(id), input)?;
+        let input = crate::capabilities::turn_context(app, &tx, &session.project, (!is_pm).then_some(id), run, input)?;
         db::set_session_task(&tx, id, text).map_err(err)?;
         if session.paused.is_some() {
             db::set_session_paused(&tx, id, None).map_err(err)?;

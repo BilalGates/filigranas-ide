@@ -163,6 +163,7 @@ impl Acp {
                                 tracker_handle.state::<AppState>().tracker.chunk(id, text);
                             }
                         }
+                        crate::capabilities::observe_acp(&tracker_handle, id, update);
                         if update["sessionUpdate"] == "usage_update" {
                             crate::runs::on_active(&tracker_handle, id, |conn, run| crate::runs::usage(conn, run, crate::runs::Usage::acp(update)));
                         }
@@ -282,6 +283,11 @@ impl Acp {
     /// Envía el mensaje. El turno termina cuando responde `session/prompt`.
     pub fn send(&self, app: &AppHandle, state: &AppState, session: &db::Session, text: String, run: i64) -> CmdResult<()> {
         let (rpc, sid) = self.ensure(app, state, session)?;
+        // Antigravity no tiene system prompt: una sesión de proveedor nueva
+        // recibe las políticas aunque el turno se preparase con la anterior.
+        let text = if sid != session.provider_session {
+            crate::capabilities::acp_preamble(text, session.parent_session.is_some() || session.delegated_by_pm)
+        } else { text };
         let (id, handle, engine) = (session.id, app.clone(), session.engine.clone());
         let slot = self.slot(id)?;
         let model = slot.lock().map_err(err)?.as_ref().and_then(|p| {

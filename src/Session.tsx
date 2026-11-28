@@ -738,6 +738,7 @@ export default function Session({ session, project, hidden, switching, providerS
             context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} hidden={hidden} />}
             permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
             draftKey={manager ? `pm:${project}` : `session:${session.id}`}
+            assist={{ project, session: manager ? null : session.id, task: manager?.task?.id ?? null, items: [...history.items, ...items] }}
             disabled={switching === true}
             running={running}
             efforts={claudeEfforts}

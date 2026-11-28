@@ -831,6 +831,22 @@ mockIPC(
         return '2026-11-27T07:45:01.000Z database system is ready to accept connections\n2026-11-27T07:48:12.140Z checkpoint complete: wrote 12 buffers';
       case 'plugin:dialog|open':
         return ROOT;
+      // Compositor inteligente: respuestas deterministas para trabajar la interfaz.
+      case 'composer_settings':
+        return mockComposer;
+      case 'composer_configure':
+        mockComposer = a.settings;
+        return mockComposer;
+      case 'composer_usage':
+        return { calls: 0, limit: mockComposer.dailyLimit, local: 0, inputTokens: 0, outputTokens: 0, costUsd: null, providers: [] };
+      case 'composer_suggest':
+        return a.request.event === 'resume'
+          ? { text: 'Recupera el estado del último encargo, revisa las tareas pendientes y continúa desde donde dejamos el trabajo.', source: 'local', action: 'resume_work' }
+          : { text: 'Solicita a Larry que prepare el commit y comprueba que no se incluyen cambios ajenos al encargo.', source: 'local', action: 'prepare_commit' };
+      case 'composer_improve':
+        return { text: 'Delega la corrección de los hallazgos pendientes de la auditoría, ejecuta las pruebas afectadas y solicita una revisión independiente antes de preparar el commit.', provider: 'claude', model: 'claude-haiku-5-5' };
+      case 'composer_cancel':
+        return null;
       default:
         console.warn('[mock] comando sin simular:', cmd, args);
         return null;
@@ -873,6 +889,8 @@ async function demoTurn(text: string, session: number | null) {
   await ev('thread/tokenUsage/updated', { tokenUsage: { last: { inputTokens: 48200, cachedInputTokens: 31000, outputTokens: 2400 } } });
   await ev('turn/completed', { turn: { id: 't1', error: null } });
 }
+
+let mockComposer = { enabled: true, suggestions: true, ai: true, jev: false, resume: true, provider: 'auto', model: null, dailyLimit: 30 };
 
 const mockStashes: { name: string; subject: string }[] = [{ name: 'stash@{0}', subject: 'On main: prueba de la cola' }];
 

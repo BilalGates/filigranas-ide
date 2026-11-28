@@ -250,7 +250,7 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
     <section className="coach" aria-label={session ? 'Chat directo Codex' : 'Coordinador'} hidden={hidden}>
       {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
         agent={directName ?? 'Project manager'} project={session?.worktree ?? project} onDiff={onDiff} />}
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} workflow={hidden ? undefined : workflow}>
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={directName ?? 'Project manager'} project={project} onDiff={onDiff} workflow={hidden ? undefined : workflow} streaming={!!running}>
         {opening && !hasWork && <div className="muted" role="status">Abriendo el coordinador…</div>}
         {!opening && info && !history.items.length && items.length === 0 && <div className="co-empty">¿Qué hacemos?</div>}
         {history.error && <div className="co-error">{history.error}</div>}
@@ -270,6 +270,7 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
 
       <Composer
         draftKey={sessionId == null ? `pm:${project}` : `session:${sessionId}`}
+        assist={{ project, session: sessionId ?? null, task: task?.id ?? null, items: [...history.items, ...items] }}
         context={<SessionContext project={project} worktree={session?.worktree ?? null} branch={session?.branch ?? null} base={session?.base ?? null} hidden={hidden} />}
         permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
         disabled={!info || switching === true}

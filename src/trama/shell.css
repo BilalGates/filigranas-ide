@@ -787,15 +787,61 @@ html.is-light .review-token-number { color: #7b510c; }
 /* Trama usa JetBrains Mono, como el HTML aprobado. Monaco y el terminal
    declaran Iosevka en su propia configuración. */
 html:root { --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
-.ws-inner > .center .center-head { height: 48px; padding: 0 14px; gap: 11px; border-bottom: 0; }
+.ws-inner > .center .center-head {
+  position: relative;
+  z-index: 28;
+  height: 48px;
+  padding: 0 14px;
+  gap: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
 .ws-inner > .center .ch-name { font-size: 14px; font-weight: 600; }
 .ws-inner > .center .ch-meta { color: var(--tx2); }
-/* Centro estrecho: cede el texto y las acciones nunca se recortan. */
-.ws-inner > .center .center-head > :is(.ch-name, .ch-meta, .ch-state) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-@container (max-width: 360px) {
-  .ws-inner > .center .center-head { gap: 6px; padding: 0 8px; }
+/* Acciones explícitas de cabecera (Explorador y Ocultar chat). */
+.ws-inner > .center .center-head :is(.ws-side-toggle, .ws-hide-chat) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: row;
+  white-space: nowrap;
+  width: auto;
+  height: 28px;
+  padding: 0 9px;
+  gap: 6px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tx2);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px var(--line);
+  flex: none;
 }
-@container (max-width: 240px) {
+.ws-inner > .center .center-head :is(.ws-side-toggle, .ws-hide-chat):hover,
+.ws-inner > .center .center-head :is(.ws-side-toggle, .ws-hide-chat):focus-visible {
+  color: var(--tx);
+  background: rgb(255 255 255 / 0.08);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.ws-inner > .center .center-head .ws-side-toggle.is-on {
+  color: var(--tx);
+  background: rgb(157 182 255 / 0.14);
+  box-shadow: inset 0 0 0 1px rgb(157 182 255 / 0.38);
+}
+html.is-light .ws-inner > .center .center-head :is(.ws-side-toggle, .ws-hide-chat) {
+  background: rgb(0 0 0 / 0.04);
+}
+html.is-light .ws-inner > .center .center-head :is(.ws-side-toggle, .ws-hide-chat):hover {
+  background: rgb(0 0 0 / 0.08);
+}
+.ws-hide-short { display: none; }
+/* Centro estrecho: cede el texto secundario y las acciones nunca se recortan. */
+.ws-inner > .center .center-head > :is(.ch-name, .ch-meta, .ch-state) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 400px) {
+  .ws-inner > .center .center-head { gap: 7px; padding: 0 10px; }
+  .ws-inner > .center .center-head :is(.ch-meta, .ch-state, .ws-hide-long) { display: none; }
+  .ws-inner > .center .center-head .ws-hide-short { display: inline; }
+}
+@container (max-width: 700px) {
   .ws-inner > .center .center-head { flex-wrap: wrap; height: auto; min-height: 48px; }
 }
 .co-log { padding: 18px 0 28px; font-size: 13.5px; scrollbar-gutter: stable both-edges; }
@@ -861,6 +907,17 @@ html:root { --mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; }
 .co-compose .co-attachment-error { margin: 6px 12px 0; }
 .co-compose .co-queue { margin: 0; padding: 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .co-compose textarea { font-size: 13.5px; height: 28px; min-height: 28px; max-height: 220px; padding: 4px 10px; line-height: 1.45; overflow-y: hidden; }
+/* Compositor inteligente: sugerencia provisional con la misma tipografía que el texto. */
+.co-field { position: relative; }
+.co-ghost { position: absolute; inset: 0 0 auto 0; pointer-events: none; color: var(--tx3); white-space: pre-wrap; overflow-wrap: anywhere; animation: co-ghost-in 180ms var(--ease) both; }
+.co-ghost-key { display: inline-block; margin-inline-start: 8px; padding: 0 5px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12); font-family: var(--mono, inherit); font-size: 10px; line-height: 15px; vertical-align: 1px; color: var(--tx3); opacity: 0.8; }
+html.is-light .co-ghost-key { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.14); }
+.co-ghost .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.co-assist-note { margin: 6px 12px 0; color: var(--tx3); font-size: 11.5px; }
+.co-restore { font-size: 11px; }
+@keyframes co-ghost-in { from { opacity: 0; } to { opacity: 1; } }
+html[data-motion="reducido"] .co-ghost { animation: none; }
+@media (prefers-reduced-motion: reduce) { .co-ghost { animation: none; } }
 .co-compose-bar { margin: 0; padding: 4px 8px 7px; gap: 6px; }
 .co-connecting { color: var(--tx3); font-size: 11px; padding-inline: 4px; white-space: nowrap; }
 .send { border-radius: 5px !important; width: 26px; height: 26px; }
@@ -1932,3 +1989,102 @@ html .tv .flow-limit input.in {
   height: 26px;
   padding: 0 7px;
 }
+
+/* Lectura del Markdown del chat, con los colores y la escala del sistema. */
+.co-markdown { white-space: normal; overflow-wrap: anywhere; }
+.co-markdown > :first-child { margin-top: 0; }
+.co-markdown > :last-child { margin-bottom: 0; }
+.co-markdown p { margin: 0 0 var(--sp2); white-space: pre-line; }
+.co-markdown :is(ul, ol) { margin: var(--sp2) 0 var(--sp2); padding-inline-start: 1.6em; }
+.co-markdown li { margin: var(--sp1) 0; }
+.co-markdown li > :is(ul, ol) { margin-block: var(--sp1); }
+.co-markdown :is(h1, h2, h3, h4, h5, h6) { margin: var(--sp4) 0 var(--sp2); color: var(--tx); line-height: 1.3; }
+.co-markdown :is(h1, h2) { font-size: var(--fs-l); }
+.co-markdown :is(h3, h4, h5, h6) { font-size: var(--fs-m); }
+.co-markdown :not(pre) > code { padding: 0.1em 0.3em; border-radius: var(--r-m); background: var(--raised); color: var(--violet); }
+.co-markdown blockquote { margin: var(--sp2) 0; padding-inline-start: var(--sp3); border-inline-start: 2px solid var(--line-2); color: var(--tx2); }
+.co-markdown table { display: block; overflow-x: auto; border-collapse: collapse; margin: var(--sp2) 0; }
+.co-markdown :is(th, td) { padding: 0.4em 0.7em; border: 1px solid var(--line-2); text-align: left; }
+.co-markdown th { background: var(--raised); }
+.co-markdown a { color: var(--skyhi); text-decoration: underline; }
+.co-markdown pre { white-space: pre; overflow-x: auto; }
+
+html.is-light .co-markdown :not(pre) > code { color: var(--tx); }
+html.is-light .co-markdown a { color: var(--skyhi); }
+
+/* ── Varias conversaciones en pantalla (Workspace) ─────────────────── */
+/* Con un panel, la celda no genera caja: la vista es la de siempre. */
+.ws-cell { display: contents; }
+.ws-cell[hidden] { display: none !important; }
+.main-view.is-panes { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); padding: 0 10px 10px; }
+.main-view.is-panes > .ws-cell { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: 8px; background: rgb(255 255 255 / 0.012); box-shadow: inset 0 0 0 1px var(--line-2); transition: box-shadow var(--d2, 140ms) ease; }
+.main-view.is-panes > .ws-cell.is-active { box-shadow: inset 0 0 0 1px rgb(157 182 255 / 0.5), 0 0 0 3px rgb(157 182 255 / 0.07); }
+.main-view.is-panes > .ws-cell[data-slot="0"] { grid-area: 1 / 1; }
+.main-view.is-panes > .ws-cell[data-slot="1"] { grid-area: 1 / 3; }
+.main-view.is-panes > .ws-cell[data-slot="2"] { grid-area: 3 / 1; }
+.main-view.is-panes > .ws-cell[data-slot="3"] { grid-area: 3 / 3; }
+.main-view.is-panes[data-panes="3"][data-pane-mode="grid"] > .ws-cell[data-slot="2"] { grid-column: 1 / -1; }
+.main-view.is-panes[data-pane-mode="maximized"] > .ws-cell[data-slot],
+.main-view.is-panes[data-pane-mode="tabs"] > .ws-cell[data-slot] { grid-area: auto; grid-column: 1; }
+.main-view.is-panes[data-pane-mode="tabs"] { grid-template-rows: auto minmax(0, 1fr); }
+.main-view.is-panes[data-pane-mode="tabs"] > .ws-cell[data-slot] { grid-row: 2; }
+
+.ws-pane-head { display: flex; align-items: center; gap: 8px; flex: none; height: 34px; padding: 0 4px 0 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; white-space: nowrap; color: var(--tx3); }
+.ws-pane-head .dot { flex: none; }
+.ws-pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--tx2); }
+.ws-pane-head[data-active] .ws-pane-name { color: var(--tx); }
+.ws-pane-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--tx3); }
+.ws-pane-head .ch-state { flex: none; font-size: 11.5px; }
+.ws-pane-actions { display: flex; flex: none; gap: 2px; }
+.ws-pane-actions .tb-btn { width: 24px; height: 24px; }
+.ws-pane-actions .tb-btn[aria-pressed="true"] { color: var(--tx); background: var(--press); }
+/* La barra de la sesión (pausar, contexto, relevar) se aloja en la cabecera del panel. */
+.main-view.is-panes > .ws-cell > .coach > .co-head { position: absolute; top: 0; right: 60px; z-index: 2; height: 34px; padding: 0 0 0 8px; background: inherit; }
+
+/* Dentro de un panel el hilo y el compositor usan todo el ancho disponible. */
+.ws-inner > .center .main-view.is-panes .co-log { padding-inline-start: 0; padding-top: 12px; scrollbar-gutter: stable; }
+.ws-inner > .center .main-view.is-panes .co-log-inner { width: 100%; max-width: 760px; margin-inline: auto; padding-inline: 14px; }
+.ws-inner > .center .main-view.is-panes .co-compose,
+.ws-inner > .center .main-view.is-panes .sb-context { width: calc(100% - 20px); max-width: 760px; margin-inline: auto; }
+.ws-inner > .center .main-view.is-panes .co-compose { margin-bottom: 10px; }
+.main-view.is-panes .welcome h1 { font-size: 28px; }
+
+.ws-divider { position: relative; z-index: 3; touch-action: none; outline: none; }
+.ws-divider.is-col { grid-column: 2; grid-row: 1 / -1; cursor: col-resize; }
+.ws-divider.is-row { grid-row: 2; grid-column: 1 / -1; cursor: row-resize; }
+.main-view[data-panes="3"] > .ws-divider.is-col { grid-row: 1; }
+.ws-divider::after { content: ''; position: absolute; border-radius: 2px; background: transparent; transition: background var(--d2, 140ms) ease; }
+.ws-divider.is-col::after { inset: 8px 2px; }
+.ws-divider.is-row::after { inset: 2px 8px; }
+.ws-divider:hover::after, .ws-divider:focus-visible::after, html[data-resizing] .ws-divider:active::after { background: rgb(157 182 255 / 0.55); }
+
+.ws-pane-tabs { grid-row: 1; grid-column: 1; display: flex; gap: 2px; min-width: 0; padding: 0 0 6px; overflow-x: auto; scrollbar-width: none; }
+.ws-pane-tab { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 220px; height: 26px; padding: 0 10px; border-radius: 6px; color: var(--tx3); font-size: 12px; }
+.ws-pane-tab:hover { background: var(--hover); color: var(--tx); }
+.ws-pane-tab[aria-pressed="true"] { color: var(--tx); background: var(--press); box-shadow: inset 0 0 0 1px var(--line-2); }
+.ws-pane-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Añadir panel: mismo control segmentado que Cambios/Archivos. */
+.ws-panes { display: flex; flex: none; }
+.ws-panes .cm-trigger { height: 22px; padding: 0 6px 0 8px; gap: 4px; border-radius: 6px; background: transparent; box-shadow: none; color: var(--tx3); }
+.ws-panes .cm-trigger:hover:not(:disabled), .ws-panes .cm-trigger.is-open { color: var(--tx); background: rgb(255 255 255 / 0.09); }
+.ws-panes .cm-trigger:disabled { opacity: 0.45; }
+.ws-panes .cm-value:empty { display: none; }
+.ws-panes .cm-menu { min-width: 280px; }
+
+/* Explorador: abrir en un panel nuevo y conversaciones en pantalla. */
+.threads-side .thread-wrap .thread-pane { position: absolute; top: 50%; right: 33px; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 5px; display: grid; place-items: center; color: var(--tx3); opacity: 0; }
+.explorer-side .exp-children .thread-wrap .thread-pane { right: 30px; }
+.threads-side .thread-wrap:hover .thread-pane, .threads-side .thread-pane:focus-visible { opacity: 1; }
+.threads-side .thread-pane:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); color: var(--tx); }
+.threads-side .thread-pane:disabled { cursor: default; }
+.threads-side .thread-wrap:hover .thread-pane:disabled { opacity: 0.35; }
+.explorer-side .exp-children .thread-wrap:has(.thread-pane):is(:hover, :focus-within) > .exp-sess,
+.threads-side .thread-wrap.is-sub:has(.thread-pane):is(:hover, :focus-within) > .thread-sub { padding-right: 52px; }
+.threads-side .thread.is-in-pane:not(.on) { box-shadow: inset 2px 0 0 rgb(157 182 255 / 0.45); }
+
+/* Arrastre de una conversación hacia los paneles. */
+html[data-pane-drag], html[data-pane-drag] * { cursor: grabbing !important; user-select: none !important; }
+.pane-drag-ghost { position: fixed; top: 0; left: 0; z-index: 1000; max-width: 260px; padding: 5px 10px; border-radius: 6px; background: var(--raised); box-shadow: var(--pop, 0 8px 24px rgb(0 0 0 / 0.45)), inset 0 0 0 1px rgb(157 182 255 / 0.4); color: var(--tx); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.ws-pane-drop { position: absolute; z-index: 4; display: grid; place-items: center; border-radius: 8px; background: rgb(157 182 255 / 0.08); box-shadow: inset 0 0 0 2px rgb(157 182 255 / 0.55); pointer-events: none; }
+.ws-pane-drop > span { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; background: var(--raised); color: var(--tx); font-size: 12.5px; box-shadow: var(--pop, 0 8px 24px rgb(0 0 0 / 0.45)); }

@@ -671,7 +671,7 @@ export default function Session({ session, project, hidden, switching, providerS
       </> : <>
       {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
         agent={session.name} project={session.worktree ?? project} onDiff={openDiff} />}
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff} workflow={hidden ? undefined : workflow}>
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff} workflow={hidden ? undefined : workflow} streaming={running}>
         {history.error && <div className="co-error">{history.error}</div>}
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}
@@ -738,6 +738,7 @@ export default function Session({ session, project, hidden, switching, providerS
             context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} hidden={hidden} />}
             permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
             draftKey={manager ? `pm:${project}` : `session:${session.id}`}
+            assist={{ project, session: manager ? null : session.id, task: manager?.task?.id ?? null, items: [...history.items, ...items] }}
             disabled={switching === true}
             running={running}
             efforts={claudeEfforts}

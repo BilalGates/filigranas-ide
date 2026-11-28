@@ -154,7 +154,7 @@ Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las i
         format!(
             "Eres «{name}», un agente ejecutor dentro de Filigranas IDE. El usuario o el coordinador del proyecto te encargan tareas concretas. \
 Trabaja en la carpeta de la sesión y responde en español. Da prioridad a las instrucciones vigentes de ese proyecto sobre las skills incluidas, dentro de los permisos del entorno. \
-Si necesitas delegar una subtarea o trabajar en paralelo, crea una subsesión visible de Filigranas con las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) en lugar de usar subagentes internos de Claude Code; las subsesiones aparecen en «Conversaciones» bajo esta sesión, pueden durar lo que necesiten y devuelven su resultado mediante `esperar_sesion`. \
+Si necesitas delegar una subtarea o trabajar en paralelo, crea una subsesión visible de Filigranas con las herramientas MCP de `filigranas` (`catalogo_proveedores`, `delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) en lugar de usar subagentes internos de Claude Code; las subsesiones aparecen en «Conversaciones» bajo esta sesión, pueden durar lo que necesiten y devuelven su resultado mediante `esperar_sesion`. \
 Deja commit, push, merge y rebase a las acciones de Larry y del usuario.\n\n{rules}"
         )
     }
@@ -313,7 +313,7 @@ impl Claude {
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
             format!(
-                "{policy}\n\nUsa exclusivamente las herramientas MCP de `filigranas` (`delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) para delegar y supervisar subsesiones visibles; nunca uses subagentes internos de Claude Code ni herramientas directas de archivo o terminal.\n\n{rules}"
+                "{policy}\n\nUsa exclusivamente las herramientas MCP de `filigranas` (`catalogo_proveedores`, `delegar`, `estado_sesiones`, `esperar_sesion`, `continuar_sesion`) para delegar y supervisar subsesiones visibles; nunca uses subagentes internos de Claude Code ni herramientas directas de archivo o terminal.\n\n{rules}"
             )
         } else {
             system_prompt(&session.name, rules, is_subsession)
@@ -587,6 +587,16 @@ pub fn create_pm_subsession(
     if parent.as_ref().is_some_and(|p| p.parent_session.is_some() || p.delegated_by_pm) {
         return Err("una subsesión no puede crear otras subsesiones".into());
     }
+    if let Some(task) = task_id.filter(|_| parent.as_ref().is_none_or(|p| p.worktree.is_none())) {
+        let created = new_session(app,project,engine,Some(task),skill_role)?.session;
+        let conn = state.db.lock().map_err(err)?;
+        db::set_session_delegated_by_pm(&conn,created.id,parent.as_ref().map(|p|p.id),title).map_err(err)?;
+        let saved = db::session(&conn,created.id).map_err(err)?.ok_or("no se guardó la delegación")?;
+        drop(conn);
+        if let Some(parent) = &parent { state.permissions.inherit(parent.id,saved.id); }
+        else { state.permissions.inherit_project(project,saved.id); }
+        return Ok(saved);
+    }
     let provider = match engine {
         "claude" => uuid::Uuid::new_v4().to_string(),
         "codex" => String::new(),
@@ -606,7 +616,7 @@ pub fn create_pm_subsession(
             crate::skills::assign_session(&tx, s.id, role)?;
         }
         if let Some(tid) = task_id {
-            let _ = tasks::link(&tx, project, tid, s.id);
+            tasks::link(&tx, project, tid, s.id)?;
         }
         if let Some(p) = &parent {
             if let (Some(wt), Some(br)) = (&p.worktree, &p.branch) {
@@ -656,6 +666,16 @@ pub fn create_subsession(
     let parent = open_session(&state, parent_id)?;
     if parent.parent_session.is_some() {
         return Err("una subsesión no puede crear otras subsesiones".into());
+    }
+    if crate::chat::is_pm(&*state.db.lock().map_err(err)?,parent_id).map_err(err)? {
+        let task_id = {
+            let mut conn = state.db.lock().map_err(err)?;
+            match runs::task_for_thread(&conn,&runs::session_scope(parent_id)).map_err(err)? {
+                Some(id) => id,
+                None => tasks::delegated(&mut conn,&parent.project,title.unwrap_or("Encargo delegado del Project manager"))?,
+            }
+        };
+        return create_pm_subsession(app,&parent.project,Some(parent_id),engine,title,skill_role,Some(task_id));
     }
     let provider = match engine {
         "claude" => uuid::Uuid::new_v4().to_string(),
@@ -780,6 +800,25 @@ pub fn new_session(app: &AppHandle, project: &str, engine: &str, task: Option<i6
     Ok(Created { session, notice })
 }
 
+#[tauri::command]
+pub async fn session_result(app: AppHandle, id: i64) -> CmdResult<String> {
+    crate::background_read(app.clone(),move |state| {
+        let session = open_session(state,id)?;
+        let tracked = state.tracker.get(id);
+        if !tracked.last.is_empty() { return Ok(tracked.last); }
+        if crate::acp::ENGINES.contains(&session.engine.as_str()) {
+            return crate::acp::last_result(&*state.db.lock().map_err(err)?,id);
+        }
+        if session.engine == "codex" {
+            let history = state.codex.read_history(&app,&session.provider_session)?;
+            return Ok(crate::chat::codex_messages(&history).into_iter().rev().find(|i|i["type"]=="agentMessage")
+                .and_then(|i|i["text"].as_str().map(str::to_owned)).unwrap_or_default());
+        }
+        Ok(read_history(&session.provider_session)?.into_iter().rev().filter(|e|e["type"]=="assistant")
+            .find_map(|e|e.pointer("/message/content").and_then(serde_json::Value::as_array).map(|parts|parts.iter().filter_map(|p|p["text"].as_str()).collect::<Vec<_>>().join("\n"))).unwrap_or_default())
+    }).await
+}
+
 /// Conversación guardada, para pintarla al abrir la sesión. La de Claude
 /// Code se lee de su transcript; la de un agente ACP llega como eventos al
 /// cargar la sesión, así que aquí solo se arranca.
@@ -792,7 +831,7 @@ pub async fn session_history(app: AppHandle, id: i64) -> CmdResult<Vec<Value>> {
             return Ok(Vec::new()); // El historial llega mediante coordinator_open.
         }
         if session.engine != "claude" {
-            if session.provider_session.is_empty() {
+            if session.provider_session.is_empty() && session.engine != "agy" {
                 return Ok(Vec::new()); // sesión nueva: arranca con el primer mensaje
             }
             state.acp.attach(&app, &state, &session)?;
@@ -838,6 +877,9 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
     let gate = state.chat_gate.lock().map_err(err)?;
     let git_gate = state.publication.try_lock().map_err(|_| "hay una operación Git en curso; espera a que termine")?;
     let session = open_session(&state, id)?;
+    if session.engine == "agy" && message.text.trim_start().starts_with('/') {
+        return Err("Los comandos internos de Antigravity no se ejecutan desde Filigranas. Describe el encargo para mantener tareas y delegación bajo el control del IDE.".into());
+    }
     if expected_engine.is_some_and(|engine| engine != session.engine) {
         return Err("La sesión ha cambiado de proveedor. Vuelve a enviar desde la sesión actual.".into());
     }
@@ -886,7 +928,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
     let result = (|| {
         if session.engine != "claude" {
             message.retain_files();
-            return state.acp.send(app, &state, &session, input_text, run);
+            return state.acp.send(app, &state, &session, input_text, run, effort.as_deref());
         }
         if let Some(e) = &effort {
             db::set_session_effort(&*state.db.lock().map_err(err)?, id, e).map_err(err)?;
@@ -919,9 +961,9 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
 }
 
 #[tauri::command]
-pub fn session_interrupt(state: State<AppState>, id: i64) -> CmdResult<()> {
+pub fn session_interrupt(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
     if open_session(&state, id)?.engine != "claude" {
-        return state.acp.interrupt(id);
+        return state.acp.interrupt_bounded(&app,id);
     }
     state.claude.interrupt(id)
 }

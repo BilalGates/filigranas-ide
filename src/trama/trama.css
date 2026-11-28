@@ -1229,3 +1229,14 @@ html.is-light .ent-insp { background: rgb(247 248 250 / 0.85); }
     box-shadow: -16px 0 36px rgb(0 0 0 / 0.7);
   }
 }
+
+/* Execution providers share a neutral, compact used-consumption meter. */
+.statusbar .eng-usage .eng-btn .plogo { color: var(--tx2); flex: 0 0 14px; }
+.statusbar .eng-usage .eng-btn { gap: 5px; padding-inline: 4px; }
+.eng-usage .eng-btn .num { width: 33px; text-align: right; font-variant-numeric: tabular-nums; }
+.eng-meter { width: 36px; height: 3px; background: rgba(255,255,255,.09); overflow: hidden; }
+.eng-meter i { display: block; height: 100%; background: rgba(218,222,230,.65); }
+.eng-meter.is-unknown { background: repeating-linear-gradient(90deg,rgba(255,255,255,.13) 0 2px,transparent 2px 5px); }
+.eng-btn.is-near .eng-meter i { background: var(--warn); }
+
+.route .qdots i.warn { background: var(--amber); }

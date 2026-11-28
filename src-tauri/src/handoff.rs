@@ -95,7 +95,7 @@ fn stop(app: &AppHandle, state: &AppState, s: &db::Session) -> CmdResult<()> {
             }
         }
         "claude" => { let _ = state.claude.interrupt(s.id); }
-        _ => { let _ = state.acp.interrupt(s.id); }
+        _ => { let _ = state.acp.interrupt_bounded(app,s.id); }
     }
     Ok(())
 }
@@ -143,8 +143,8 @@ pub async fn session_handoff(app: AppHandle, id: i64, engine: String) -> CmdResu
         }
         // Conserva la reserva del origen hasta que Codex confirme la interrupción.
         stop(&app, &state, &from)?;
-        if from.engine == "codex" && crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
-            return Err("Codex aún está parando. Reintenta el relevo cuando termine el turno".into());
+        if crate::runs::session_active(&*state.db.lock().map_err(err)?, id).map_err(err)? {
+            return Err("El proveedor aún está parando. Reintenta el relevo cuando termine el turno".into());
         }
         state.claude.forget(id);
         state.acp.close(id)?;

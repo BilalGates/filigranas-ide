@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 4;
+pub const TOOLS_VERSION: i64 = 6;
 
 const ENGINES: [(&str, &str); 5] = [
     ("claude", "claude code"),
@@ -35,12 +35,12 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "claude = Claude Code, codex = Codex, opencode = OpenCode, agy = Antigravity (Gemini), devin = Devin" },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto = Jev elige entre proveedores disponibles; claude = Anthropic, codex = OpenAI, agy = Antigravity de Google; opencode y devin son motores anteriores" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
                     "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills del ejecutor. Por defecto senior." },
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
-                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
+                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo; Antigravity valida el valor contra su catálogo real y usa el nivel actual si se omite." }
                 },
                 "required": ["agente", "tarea"],
                 "additionalProperties": false
@@ -91,7 +91,11 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
                 "required": ["sesion"],
                 "additionalProperties": false
             }
-        }
+        }, {
+        "type":"function","name":"catalogo_proveedores",
+        "description":"Consulta disponibilidad, opciones reales de modelos/razonamiento, capacidades, cuota conocida y concurrencia de los proveedores. Solo coordinación; datos desconocidos permanecen null.",
+        "inputSchema":{"type":"object","properties":{},"additionalProperties":false}
+    }
     ])
 }
 
@@ -106,9 +110,9 @@ pub fn claude_mcp_tools() -> Value {
                 "properties": {
                     "titulo": { "type": "string", "description": "Título breve de la subsesión visible en el panel «Conversaciones» (p. ej. «Investigar autenticación»)." },
                     "tarea": { "type": "string", "description": "Encargo completo y autocontenido: objetivo, contexto, archivos relevantes y qué resultado devolver." },
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "Motor que ejecutará la subsesión. Por defecto claude." },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "Motor de ejecución; auto usa Jev y la política local antes de iniciar la tarea." },
                     "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills de la subsesión. Por defecto senior." },
-                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
+                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo; Antigravity valida el valor contra su catálogo real y usa el nivel actual si se omite." }
                 },
                 "required": ["titulo", "tarea"],
                 "additionalProperties": false
@@ -144,7 +148,11 @@ pub fn claude_mcp_tools() -> Value {
                 "required": ["sesion", "tarea"],
                 "additionalProperties": false
             }
-        }
+        }, {
+        "name":"catalogo_proveedores",
+        "description":"Consulta disponibilidad, opciones reales de modelos/razonamiento, capacidades, cuota conocida y concurrencia de los proveedores. Solo coordinación; datos desconocidos permanecen null.",
+        "inputSchema":{"type":"object","properties":{},"additionalProperties":false}
+    }
     ])
 }
 
@@ -200,8 +208,10 @@ fn describe(state: &AppState, s: &db::Session, max: usize) -> String {
     if let (Some(b), Some(w)) = (&s.branch, &s.worktree) {
         line.push_str(&format!(" · rama {b} en {w}{}", if s.integrated.is_some() { " (integrada)" } else { "" }));
     }
-    if !t.last.trim().is_empty() {
-        line.push_str(&format!("\nÚltima respuesta:\n{}", clip(t.last.trim(), max)));
+    let durable = state.db.lock().ok().and_then(|conn| crate::acp::last_result(&conn, s.id).ok()).unwrap_or_default();
+    let last = if t.last.trim().is_empty() { durable.as_str() } else { t.last.as_str() };
+    if !last.trim().is_empty() {
+        line.push_str(&format!("\nÚltima respuesta:\n{}", clip(last.trim(), max)));
     }
     line
 }
@@ -224,9 +234,10 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
     let state = app.state::<AppState>();
     let project = db::project_for_thread(&*state.db.lock().map_err(err)?, thread).map_err(err)?.ok_or("este hilo no pertenece a ningún proyecto del IDE")?;
     match tool {
+        "catalogo_proveedores" => crate::providers::overview(&state),
         "delegar" => {
             let engine = args["agente"].as_str().unwrap_or("");
-            if !ENGINES.iter().any(|(id, _)| *id == engine) {
+            if engine != "auto" && !ENGINES.iter().any(|(id, _)| *id == engine) {
                 return Err(format!("agente desconocido: {engine}"));
             }
             let task = args["tarea"].as_str().unwrap_or("").trim();
@@ -235,10 +246,12 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             }
             let title = derive_title(args["titulo"].as_str(), task);
             let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
+            let (chosen, route) = crate::jev::provider_choice(&state,engine,role.unwrap_or_default())?;
+            let engine = chosen.as_str();
             let paths = args["archivos"].as_array().map(|paths| {
                 paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()
             }).transpose()?;
-            let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
+            let effort = matches!(engine, "claude" | "codex" | "agy").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
             let task_id = {
                 let mut conn = state.db.lock().map_err(err)?;
                 match crate::runs::task_for_thread(&conn, thread).map_err(err)? {
@@ -250,6 +263,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
             // Subsesión vinculada al Project Manager: funciona tanto con sesión de trabajo activa
             // como en tareas de investigación/revisión sin sesión de trabajo previa.
             let session = claude::create_pm_subsession(app, &project, None, engine, Some(&title), role, Some(task_id))?;
+            crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,thread,&route)?;
             if let Some(paths) = paths {
                 let conn = state.db.lock().map_err(err)?;
                 if crate::work::current(&conn, &project)?.is_some_and(|w| w.state != "finished") {
@@ -336,9 +350,10 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
     }
     let project = parent.project.clone();
     match tool {
+        "catalogo_proveedores" => crate::providers::overview(&state),
         "delegar" => {
-            let engine = args["agente"].as_str().filter(|s| !s.is_empty()).unwrap_or("claude");
-            if !ENGINES.iter().any(|(id, _)| *id == engine) {
+            let engine = args["agente"].as_str().filter(|s| !s.is_empty()).unwrap_or("auto");
+            if engine != "auto" && !ENGINES.iter().any(|(id, _)| *id == engine) {
                 return Err(format!("agente desconocido: {engine}"));
             }
             let task = args["tarea"].as_str().unwrap_or("").trim();
@@ -347,8 +362,11 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
             }
             let title = derive_title(args["titulo"].as_str(), task);
             let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
-            let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
+            let (chosen, route) = crate::jev::provider_choice(&state,engine,role.unwrap_or_default())?;
+            let engine = chosen.as_str();
+            let effort = matches!(engine, "claude" | "codex" | "agy").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
             let session = claude::create_subsession(app, parent_id, engine, Some(&title), role)?;
+            crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,&crate::runs::session_scope(parent_id),&route)?;
             let prompt = format!("Encargo delegado desde «{}» ({title}):\n\n{task}", parent.name);
             if let Err(error) = claude::send_message(app, session.id, prompt, effort) {
                 return Ok(format!(
@@ -414,7 +432,7 @@ mod tests {
     fn specs_are_valid_function_tools() {
         let specs = specs();
         let names: Vec<&str> = specs.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["delegar", "asignar_archivos", "continuar_sesion", "estado_sesiones", "esperar_sesion"]);
+        assert_eq!(names, ["delegar", "asignar_archivos", "continuar_sesion", "estado_sesiones", "esperar_sesion", "catalogo_proveedores"]);
         for t in specs.as_array().unwrap() {
             assert_eq!(t["type"], json!("function"));
             assert_eq!(t["inputSchema"]["type"], json!("object"));
@@ -432,10 +450,10 @@ mod tests {
         let tools = claude_mcp_tools();
         let arr = tools.as_array().unwrap();
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["delegar", "estado_sesiones", "esperar_sesion", "continuar_sesion"]);
+        assert_eq!(names, ["delegar", "estado_sesiones", "esperar_sesion", "continuar_sesion", "catalogo_proveedores"]);
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(engines, ["claude", "codex", "opencode", "agy", "devin"]);
+        assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
         assert_eq!(derive_title(Some("  Investigar auth "), "tarea"), "Investigar auth");
         assert_eq!(derive_title(None, "\nPrimera línea\nSegunda"), "Primera línea");
     }

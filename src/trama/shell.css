@@ -1075,13 +1075,7 @@ html.is-light .app > .titlebar { background: transparent; }
 .eng-btn .num { font-family: var(--mono); color: var(--tx2); }
 .eng-btn.is-near .num { color: var(--amber); }
 .eng-mark { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.eng-mark.claude { background: #ffc27a; }
-.eng-mark.codex { background: #8fc4ff; }
 .eng-btn .dot { width: 7px; height: 7px; }
-.eng-dots { display: inline-flex; gap: 2px; }
-.eng-dots i { width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 255, 255, 0.16); }
-.eng-dots i.on { background: var(--tx2); }
-.eng-dots i.low { background: var(--amber); }
 .eng-pop { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 60; width: 340px; max-height: min(560px, calc(100vh - 120px)); overflow: auto; white-space: normal; padding: 13px; font: 12.5px var(--ui); color: var(--tx); animation: trPop var(--d1) var(--ease); }
 .eng-pop header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .eng-pop h2 { margin: 0; font-size: 15px; font-weight: 600; }

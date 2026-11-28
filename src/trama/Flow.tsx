@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc';
+import { sessions as sessionApi, tasks as taskApi, type Session, type Task, type TaskRun } from '../ipc';
 import { PRIORITY as PRIO, STATUS } from './taskMeta';
 import TaskForm from './TaskForm';
 import { useUi } from '../ui';
@@ -17,7 +17,7 @@ const PRIORITY = PRIO as Record<string, string>;
 type Lens = 'exec' | 'deps' | 'list';
 type FStatus = 'done' | 'running' | 'waiting' | 'blocked' | 'backlog';
 type FTask = { id: string; num: number | null; title: string; status: FStatus; label: string; agent: string; deps: string[]; lvl: number; prio: string; model: string | null; real: Task | null; goal: string; progress?: number; files?: string };
-type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; context?: string | null; event?: string };
+type FRun = { task: string; at: number; provider: string; model: string | null; outcome: string; reason: string | null; complexity: string | null; confidence: number | null; effort: string | null; source: 'local' | 'shadow' | 'jev' | null; tokens: number | null; duration: number | null; cost?: number | null; routerModel?: string | null; routerCost?: number | null; context?: string | null; event?: string };
 const ROUTING_SOURCE = { jev: 'Jev', shadow: 'Jev en modo sombra', local: 'reglas locales' };
 type DemoDecision = { scores: [string, number][]; cost: string; escalation?: string };
 type FModel = { agents: Agent[]; tasks: FTask[]; runs: FRun[]; demo: boolean; decisions?: Record<string, DemoDecision> };
@@ -32,13 +32,13 @@ function realModel(tasks: Task[], runs: Record<number, TaskRun[]>, agents: Agent
   const base = tasks.map((t) => {
     const s = t.sessions.find((x) => !x.closed && lanes.has(x.id));
     const r = runs[t.id]?.[0];
-    return { id: String(t.id), num: t.id, title: t.title, status: FS[t.status] ?? 'backlog', label: STATUS[t.status] ?? t.status, agent: s ? lanes.get(s.id)! : 'none', deps: t.dependencies.map(String), lvl: 0, prio: PRIORITY[t.priority] ?? t.priority, model: r?.routing?.model ?? r?.model ?? null, real: t, goal: t.goal };
+    return { id: String(t.id), num: t.id, title: t.title, status: FS[t.status] ?? 'backlog', label: STATUS[t.status] ?? t.status, agent: s ? lanes.get(s.id)! : 'none', deps: t.dependencies.map(String), lvl: 0, prio: PRIORITY[t.priority] ?? t.priority, model: r?.model ?? r?.routing?.executionModel ?? null, real: t, goal: t.goal };
   });
   const lv = dependencyLevels(base);
   base.forEach((t) => (t.lvl = lv.get(t.id) ?? 0));
   const flat: FRun[] = Object.entries(runs).flatMap(([id, list]) => list.map((r) => ({
-    task: id, at: r.startedMs, provider: r.provider, model: r.routing?.model ?? r.model, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
-    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs, cost: r.routing?.costEstimateUsd ?? r.costEstimateUsd, context: r.routing?.eventAdvice ?? r.routing?.context,
+    task: id, at: r.startedMs, provider: r.provider, model: r.model ?? r.routing?.executionModel ?? null, outcome: r.outcome, reason: r.routing?.reason ?? null, complexity: r.routing?.complexity ?? null,
+    confidence: r.routing?.confidence ?? null, effort: r.routing?.effort ?? null, source: r.routing?.source ?? null, tokens: r.inputTokens, duration: r.durationMs, cost: r.costEstimateUsd, routerModel: r.routing?.model, routerCost: r.routing?.costEstimateUsd, context: r.routing?.eventAdvice ?? r.routing?.context,
   })));
   const used = new Set(base.map((t) => t.agent));
   const lanesShown = agents.filter((a) => a.id === 'pm' || used.has(a.id) || a.state !== 'idle');
@@ -487,6 +487,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
       <div className="sec">
         <div className="row" style={{ marginBottom: 6 }}><StDot st={ST2AG[t.status]} h={a.h} s={14} /><span className="mono mut2">{t.num != null ? `#${t.num}` : t.id}</span><span className={`chip s-${t.status}`}>{t.label}</span><span className="grow" /><button className="tbtn" onClick={() => onSel(null)} aria-label="Quitar selección"><Icon name="close" size={13} /></button></div>
         <h3>{t.title}</h3>
+        {a.session != null && <DelegatedReport session={sessions.find((s) => s.id === a.session)} outcome={runs[0]?.outcome} />}
         {t.goal && <p className="mut2" style={{ margin: '4px 0 0', lineHeight: 1.5 }}>{t.goal}</p>}
         <div className="col" style={{ marginTop: 10, gap: 8 }}>
           {t.status === 'waiting' && <div className="perm compact"><div className="row"><Icon name="lock" size={14} /><b>Falta un permiso</b></div><div className="row">{a.session != null || a.id === 'pm' ? <button className="btn sm warn" onClick={() => onOpenSession(a.session ?? 'coach')}>Ver la petición</button> : <span className="mut2">Ábrela desde la sesión de la tarea.</span>}</div></div>}
@@ -499,6 +500,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
               <button className="btn sm" disabled={blocked} onClick={() => onAuto(t.real!)}><Icon name="agent" size={12} /> PM</button>
               <button className="btn sm ghost" disabled={blocked} onClick={() => onDirect('codex', t.real!.id)}>Codex</button>
               <button className="btn sm ghost" disabled={blocked} onClick={() => onDirect('claude', t.real!.id)}>Claude</button>
+              <button className="btn sm ghost" disabled={blocked} onClick={() => onDirect('agy', t.real!.id)}>Antigravity</button>
               {(() => {
                 const free = sessions.filter((s) => !t.real!.sessions.some((l) => l.id === s.id));
                 return free.length > 0 && <select className="in flow-link" aria-label="Vincular una sesión abierta" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onLink(t.real!.id, id); }}>
@@ -537,6 +539,8 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
         {last && <dl className="kv" style={{ marginTop: 10 }}>
           {!decision && <><dt>Origen</dt><dd>{last.source ? ROUTING_SOURCE[last.source] : 'Sin registrar'}</dd></>}
           <dt>Confianza</dt><dd>{last.confidence != null ? `${Math.round(last.confidence * 100)}%` : '—'}</dd>
+          {last.routerModel && <><dt>Modelo de Jev</dt><dd>{last.routerModel}</dd></>}
+          {last.routerCost != null && <><dt>Coste de enrutamiento</dt><dd>{last.routerCost} USD</dd></>}
           {last.effort && <><dt>Esfuerzo</dt><dd>{last.effort}</dd></>}
           {(decision || last.cost != null) && <><dt>Coste</dt><dd>{decision?.cost ?? `${last.cost?.toLocaleString('es-ES', { maximumSignificantDigits: 3 })} USD`}</dd></>}
           {decision?.escalation && <><dt>Escalado</dt><dd>{decision.escalation}</dd></>}
@@ -553,7 +557,7 @@ function Inspector({ m, sel, onSel, onOpenSession, onEditTask, onAuto, onDirect,
 function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel: (id: string) => void }) {
   const svg = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(600);
-  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null);
+  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null), agy = useProviderQuota('agy', null);
   useEffect(() => { const ro = new ResizeObserver(([e]) => setW(e.contentRect.width)); if (svg.current) ro.observe(svg.current); return () => ro.disconnect(); }, []);
   const day = new Date(); day.setHours(0, 0, 0, 0);
   const runs = (m?.runs ?? []).filter((r) => r.at >= day.getTime() || m?.demo).sort((a, b) => a.at - b.at);
@@ -565,7 +569,7 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
   const color = (r: FRun) => Object.entries(M).find(([k]) => `${r.model ?? r.provider}`.toLowerCase().includes(k))?.[1] ?? '#ccc';
   const ticks = Array.from({ length: 5 }, (_, i) => t0 + (m?.demo ? 10 * 60000 * i : ((t1 - t0) * i) / 4));
   const q = (label: string, quota: ReturnType<typeof useProviderQuota>) => quota.windows.length
-    ? quota.windows.map((win) => { const left = Math.max(0, 100 - win.percent); return <div key={label + win.label} className="qrow"><span>{label} {win.label}</span><span className="qdots">{Array.from({ length: 20 }, (_, i) => <i key={i} className={i < left / 5 ? (left >= 70 ? 'h' : 'f') : ''} />)}</span><span className="mono">{Math.round(left)}%</span></div>; })
+    ? quota.windows.map((win) => { const used = Math.max(0, Math.min(100, win.percent)); return <div key={label + win.label} className="qrow"><span>{label} {win.label}</span><span className="qdots">{Array.from({ length: 20 }, (_, i) => <i key={i} className={i < used / 5 ? (used >= 90 ? 'warn' : 'f') : ''} />)}</span><span className="mono">{Math.round(used)}%</span></div>; })
     : [<div key={label} className="qrow"><span>{label}</span><span className="qdots unk">{Array.from({ length: 20 }, (_, i) => <i key={i} />)}</span><span className="mut2">desconocida</span></div>];
   return (
     <div className="route">
@@ -584,7 +588,22 @@ function Route({ m, sel, onSel }: { m: FModel | null; sel: string | null; onSel:
             </g>); })}
         </svg>
       </div>
-      <div className="quota"><span className="lab">Cuota disponible</span>{q('Codex', codex)}{q('Claude', claude)}</div>
+      <div className="quota"><span className="lab">Consumo utilizado</span>{q('Claude', claude)}{q('Codex', codex)}{q('Antigravity', agy)}</div>
     </div>
   );
+}
+
+function DelegatedReport({ session, outcome }: { session: Session | undefined; outcome?: string }) {
+  const [result, setResult] = useState<string | null>(null);
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    sessionApi.result(session.id).then((text) => { if (active) setResult(text); }, () => { if (active) setResult(null); });
+    return () => { active = false; };
+  }, [session?.id, outcome]);
+  if (!session) return null;
+  return <div className="col" style={{ gap: 5, marginTop: 8 }}>
+    {session.task && <details><summary>Encargo delegado</summary><pre className="mono" style={{ whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{session.task}</pre></details>}
+    {result && <details><summary>Último informe registrado</summary><pre className="mono" style={{ whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }}>{result}</pre></details>}
+  </div>;
 }

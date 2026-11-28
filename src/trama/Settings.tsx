@@ -176,7 +176,7 @@ function RuleDuplicates({ project }: { project: string | null }) {
 }
 
 function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
-  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null);
+  const codex = useProviderQuota('codex', null, false), claude = useProviderQuota('claude', null), agy = useProviderQuota('agy', null);
   const [jv, setJv] = useState<JevStatus | null>(null);
   useEffect(() => { jev.status().then(setJv, () => setJv(null)); }, []);
   const q = (label: string, x: ReturnType<typeof useProviderQuota>) => x.windows.length ? x.windows.map((w) => (
@@ -185,7 +185,7 @@ function Budget({ usage }: { usage: Parameters<typeof UsagePanel>[0] }) {
   return <>
     <h2 className="vt">Presupuestos</h2>
     <p className="lead">Solo se muestran cifras que el sistema conoce. Lo desconocido se indica como tal.</p>
-    {q('Codex', codex)}{q('Claude', claude)}
+    {q('Claude', claude)}{q('Codex', codex)}{q('Antigravity', agy)}
     <div className="srow"><div><div className="t">Jev {sc('g')}</div><div className="d">{jv ? `Modo ${jv.settings.mode === 'local' ? 'local' : jv.settings.mode === 'shadow' ? 'sombra' : 'activo'} · política ${jv.settings.policy === 'economy' ? 'económica' : jv.settings.policy === 'quality' ? 'calidad' : 'equilibrada'}` : 'Sin estado'}</div></div><span className="chip">en Modelos y herramientas</span></div>
     <div className="tr-settings-card" style={{ marginTop: 14 }}><UsagePanel {...usage} surface="settings" /></div>
   </>;

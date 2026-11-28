@@ -288,7 +288,9 @@ export type SessionEvent = { id: number; msg: any };
 /** Opción editable de un agente ACP (modelo o nivel de razonamiento). */
 export type AcpOption = { id: string; name: string; category: string; currentValue: string; options: { value: string; name: string }[] };
 
-export type ChatEngine = 'codex' | 'claude';
+export type ChatEngine = import('./providers').ExecutionProvider;
+export type ProviderHealth = { id: string; connected: boolean | null; observedAt: number; message: string; config: AcpOption[] | null; capabilities: unknown; quotaModel: string | null; quotaObservedAt: number | null };
+export const providers = { health: () => invoke<ProviderHealth[]>('provider_health') };
 
 export const chats = {
   pm: (project: string) => invoke<Session | null>('chat_pm', { project }),
@@ -313,6 +315,7 @@ export const sessions = {
   createSubsession: (parentId: number, engine: string, title: string | null = null, skillRole: SkillRole | null = null) =>
     invoke<Session>('session_create_subsession', { parentId, engine, title, skillRole }),
   history: (id: number) => invoke<any[]>('session_history', { id }),
+  result: (id: number) => invoke<string>('session_result', { id }),
   send: (id: number, text: string, effort: string | null, task: number | null, attachments: ChatAttachment[], expectedEngine: string) => invoke<void>('session_send', { id, text, effort, task, attachments, expectedEngine }),
   interrupt: (id: number) => invoke<void>('session_interrupt', { id }),
   respond: (requestId: string, decision: Decision) => invoke<void>('session_respond', { requestId, decision }),
@@ -387,6 +390,8 @@ export type TaskRun = {
     context: string | null;
     eventAdvice: string | null;
     executionModel: string | null;
+    selectedProvider?: string | null;
+    candidates?: string[] | null;
   } | null;
 };
 export type JevSettings = {

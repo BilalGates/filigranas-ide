@@ -1,4 +1,6 @@
 mod acp;
+mod providers;
+mod antigravity;
 mod approval;
 mod attachments;
 mod autoapprove;
@@ -164,6 +166,7 @@ pub fn run() {
                 chat_gate: Default::default(),
             });
             tools::start_auto(app.handle().clone());
+            acp::start_reaper(app.handle().clone());
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
                     eprintln!("no se pudo observar {root}: {e}");
@@ -175,6 +178,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(main_webview_only(tauri::generate_handler![
+            providers::provider_catalog,
+            providers::provider_health,
             updates::update_status,
             updates::update_check,
             updates::update_download,
@@ -300,6 +305,7 @@ pub fn run() {
             claude::session_create,
             claude::session_create_subsession,
             claude::session_history,
+            claude::session_result,
             claude::session_send,
             claude::session_interrupt,
             claude::session_respond,
@@ -377,6 +383,7 @@ pub fn run() {
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(state) = app.try_state::<AppState>() {
                     state.services.shutdown();
+                    state.acp.shutdown();
                 }
             }
         });

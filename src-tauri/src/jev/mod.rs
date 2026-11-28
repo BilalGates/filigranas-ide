@@ -217,7 +217,8 @@ pub async fn jev_euro_rate() -> CmdResult<f64> {
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS jev_attempts (at INTEGER NOT NULL DEFAULT (unixepoch()));
+        "CREATE TABLE IF NOT EXISTS provider_assignments (session_id INTEGER PRIMARY KEY REFERENCES sessions(id), parent_scope TEXT NOT NULL, trace TEXT NOT NULL);
+         CREATE TABLE IF NOT EXISTS jev_attempts (at INTEGER NOT NULL DEFAULT (unixepoch()));
          CREATE INDEX IF NOT EXISTS jev_attempts_at ON jev_attempts(at);
          CREATE TABLE IF NOT EXISTS jev_ambiguous_runs (
            run_id INTEGER PRIMARY KEY REFERENCES task_runs(id) ON DELETE CASCADE
@@ -327,6 +328,10 @@ pub struct Trace {
     event_advice: Option<String>,
     lightweight: bool,
     pub execution_model: Option<String>,
+    #[serde(default)]
+    selected_provider: Option<String>,
+    #[serde(default)]
+    candidates: Option<Vec<String>>,
 }
 
 fn best_effort(available: &[String], target: usize, floor: usize) -> Option<String> {
@@ -541,6 +546,69 @@ pub fn preserve_baseline(conn: &Connection, thread: &str, model: &str) -> rusqli
 pub fn record(conn: &Connection, run: i64, trace: &Trace) -> CmdResult<()> {
     let data = serde_json::to_string(trace).map_err(err)?;
     conn.execute("INSERT INTO jev_routes(run_id,data) VALUES(?1,?2)", params![run, data]).map_err(err)?;
+    Ok(())
+}
+
+/// Route only before creating an execution. No task contents or paths leave the
+/// IDE. A failed or partially executed turn is never replayed by this router.
+pub fn provider_choice(state: &AppState, requested: &str, role: crate::skills::Role) -> CmdResult<(String, Trace)> {
+    use rusqlite::OptionalExtension;
+    let mut trace = Trace { source:"local".into(), reason:Some("Proveedor elegido explícitamente por el coordinador".into()), ..Trace::default() };
+    if requested != "auto" { trace.selected_provider = Some(requested.into()); return Ok((requested.into(),trace)); }
+    let (settings, mut candidates) = {
+        let conn = state.db.lock().map_err(err)?;
+        let mut candidates = Vec::new();
+        for provider in &crate::providers::PROVIDERS {
+            let health = crate::providers::health(&conn,provider.id);
+            if health.connected != Some(true) || crate::providers::now()-health.observed_at > 1800 { continue; }
+            let active: u32 = conn.query_row("SELECT count(*) FROM task_runs WHERE provider=?1 AND ended_ms IS NULL",[provider.id],|r|r.get(0)).map_err(err)?;
+            if active >= crate::providers::concurrency_limit(&conn,provider.id) { continue; }
+            let last: Option<(String,Option<i64>)> = conn.query_row("SELECT outcome,ended_ms FROM task_runs WHERE provider=?1 ORDER BY id DESC LIMIT 1",[provider.id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(err)?;
+            let previous_quota = last.as_ref().is_some_and(|(outcome,_)|outcome=="paused_quota") || health.quota_model.is_some();
+            let recent_quota = health.quota_observed_at.is_some_and(|at|crate::providers::now()-at<1800)
+                || last.as_ref().is_some_and(|(outcome,ended)|outcome=="paused_quota" && ended.is_some_and(|at|crate::providers::now()*1000-at<1_800_000));
+            if recent_quota { continue; }
+            let latest: i64 = conn.query_row("SELECT coalesce(max(id),0) FROM task_runs WHERE provider=?1",[provider.id],|r|r.get(0)).map_err(err)?;
+            candidates.push((provider.id.to_owned(),active,latest,health.config,previous_quota));
+        }
+        (settings(&conn).map_err(err)?,candidates)
+    };
+    candidates.sort_by_key(|(_,active,latest,_,previous_quota)|(*previous_quota,*active,*latest));
+    let mut selected = candidates.first().map(|v|v.0.clone()).ok_or("No hay proveedores autenticados, con estado reciente y capacidad disponible. Comprueba Modelos y herramientas.")?;
+    trace.reason = Some("Selección local entre proveedores conectados: menor ocupación y rotación por último uso; costes y cuotas no informados permanecen desconocidos".into());
+    if settings.mode != Mode::Local {
+        if let Some(model) = settings.model.as_deref().filter(|m| valid_model(m)) {
+            let remote = (|| -> Result<Value,&'static str> {
+                let _gate = state.jev_gate.try_lock().map_err(|_|"busy")?;
+                let key = credential::read(false).ok_or("credential")?;
+                if !reserve(&state.db).map_err(|_|"budget")? { return Err("budget"); }
+                let criteria: serde_json::Map<String,Value> = candidates.iter().map(|(id,active,_,config,_)| (id.clone(),json!({"activeExecutions":active,"modelOptions":config,"cost":"unknown","remainingQuota":"unknown"}).to_string().into())).collect();
+                let body = json!({"model":model,"state":{"role":role,"policy":settings.policy},"questions":{"provider":{"type":"choice","instructions":"Choose an eligible execution provider for this role. Compare reported capabilities and load. Do not assume a provider or vendor is always superior; costs and quotas are unknown unless reported.","criteria":criteria}}});
+                typesafe::evaluate(&key,settings.timeout_secs,&body).map_err(Failure::code)
+            })();
+            match remote {
+                Ok(answer) => {
+                    let allowed: Vec<_> = candidates.iter().map(|v|v.0.as_str()).collect();
+                    if let Some(choice) = advice(&answer,"provider",&allowed) {
+                        trace.model = answer["model"].as_str().filter(|m|valid_model(m)).map(str::to_owned);
+                        trace.input_tokens = answer["usage"]["input_tokens"].as_u64();
+                        trace.output_tokens = answer["usage"]["output_tokens"].as_u64();
+                        trace.confidence = answer["answers"]["provider"]["confidence"].as_f64();
+                        if settings.mode == Mode::Active { selected = choice; trace.source = "jev".into(); trace.reason=Some("Selección de proveedor recomendada por Jev y validada contra los candidatos disponibles".into()); }
+                        else { trace.source = "shadow".into(); trace.reason=Some(format!("Jev recomendó {choice}; modo sombra conserva la selección local")); }
+                    } else { trace.reason = Some("Respuesta de proveedor inválida o de confianza insuficiente; se aplica selección local".into()); }
+                }
+                Err(reason) => trace.reason = Some(format!("Jev no disponible ({reason}); selección local antes de ejecutar")),
+            }
+        }
+    }
+    trace.selected_provider = Some(selected.clone());
+    trace.candidates = Some(candidates.into_iter().map(|v|v.0).collect());
+    Ok((selected,trace))
+}
+
+pub fn assign_provider(conn: &Connection, session: i64, parent: &str, trace: &Trace) -> CmdResult<()> {
+    conn.execute("INSERT INTO provider_assignments(session_id,parent_scope,trace) VALUES(?1,?2,?3)",rusqlite::params![session,parent,serde_json::to_string(trace).map_err(err)?]).map_err(err)?;
     Ok(())
 }
 

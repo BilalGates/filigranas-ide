@@ -335,9 +335,9 @@ fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, pare
     let title=derive_title(args["titulo"].as_str(),prompt);
     let goal=args["objetivo"].as_str().filter(|g|!g.trim().is_empty()).unwrap_or(prompt);
     let role=args["rol"].as_str().unwrap_or("senior");
-    if !["researcher","designer","senior","junior","auditor","auditor2"].contains(&role) { return Err("rol ejecutor no válido".into()); }
+    let parsed_role=executor_role(role)?;
     let (kind,capabilities)=capability_args(args)?;
-    let (chosen,route)=crate::jev::provider_choice(&state,requested,crate::skills::Role::from_key(Some(role)))?;
+    let (chosen,route)=crate::jev::provider_choice(&state,requested,parsed_role)?;
     let engine=chosen.as_str();
     let task={let mut conn=state.db.lock().map_err(err)?;crate::tasks::delegation(&mut conn,project,parent_task,&title,goal,prompt,engine,role)?};
     let session=claude::create_pm_subsession(app,project,parent,engine,Some(&title),Some(crate::skills::Role::from_key(Some(role))),Some(task))?;
@@ -353,6 +353,10 @@ fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, pare
     crate::tasks::changed(app);
     Ok(format!("Tarea #{task} · sesión #{} · {title} · {}. {}. Usa esperar_sesion {{\"sesion\":\"{}\"}}.",session.id,label(engine),
         match result {Ok(())=>"Encargo enviado".into(),Err(error)=>format!("Inicio fallido, prompt conservado: {error}")},session.id))
+}
+
+fn executor_role(key: &str) -> CmdResult<crate::skills::Role> {
+    crate::skills::Role::parse(key).filter(|r| *r != crate::skills::Role::Pm).ok_or("rol ejecutor no válido".into())
 }
 
 fn derive_title(explicit: Option<&str>, task: &str) -> String {
@@ -497,6 +501,13 @@ mod tests {
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
+        let roles=arr[0]["inputSchema"]["properties"]["rol"]["enum"].as_array().unwrap();
+        for role in crate::skills::ROLES.into_iter().filter(|r| *r != crate::skills::Role::Pm) {
+            assert!(roles.iter().any(|r| r==role.key()));
+            assert_eq!(executor_role(role.key()).unwrap(),role);
+        }
+        assert!(executor_role("pm").is_err());
+        assert!(executor_role("inventado").is_err());
         let kinds: Vec<&str> = arr[0]["inputSchema"]["properties"]["tipo"]["enum"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(kinds, crate::capabilities::KINDS);
         assert!(capability_args(&json!({"tipo": "inventado"})).is_err());

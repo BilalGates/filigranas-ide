@@ -10,6 +10,9 @@ const GITHUB = 'M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6
 const PATHS: Record<string, string> = { codex: OPENAI, claude: CLAUDE, gh: GITHUB, github: GITHUB };
 
 export default function ProviderLogo({ engine, size = 13 }: { engine: string; size?: number }) {
+  // Official Google Antigravity symbol, https://antigravity.google/ (2026-11-28).
+  // The outline is rendered in currentColor to share Filigranas' neutral palette.
+  if (engine === 'agy') return <svg className="plogo is-agy" width={size} height={size} viewBox="20 24 140 132" fill="currentColor" aria-hidden="true"><path d="M144.248 149.062C151.748 154.688 162.998 150.938 152.685 140.625C121.748 110.625 128.31 28.125 89.8727 28.125C51.4352 28.125 57.9977 110.625 27.0602 140.625C15.8102 151.875 27.9977 154.688 35.4977 149.062C64.5602 129.375 62.6852 94.6875 89.8727 94.6875C117.06 94.6875 115.185 129.375 144.248 149.062Z" /></svg>;
   const path = PATHS[engine];
   if (path) {
     return (

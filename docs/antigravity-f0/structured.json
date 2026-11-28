@@ -1,0 +1,35 @@
+{
+  "exit_code": 0,
+  "result": {
+    "conversation_id": "77305296-ea11-463e-bd73-20c9ef91665f",
+    "status": "SUCCESS",
+    "response": "```json\n{\n  \"status\": \"F0-STRUCTURED-OK\"\n}\n```\n{\"status\":\"F0-STRUCTURED-OK\"}\n",
+    "duration_seconds": 4.216155,
+    "num_turns": 2,
+    "structured_output": {
+      "status": "F0-STRUCTURED-OK"
+    },
+    "json_schema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "F0-STRUCTURED-OK"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "usage": {
+      "input_tokens": 13036,
+      "output_tokens": 42,
+      "thinking_tokens": 0,
+      "cache_read_tokens": 8831,
+      "total_tokens": 13078
+    }
+  }
+}

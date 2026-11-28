@@ -43,7 +43,7 @@ const SPECS: [Spec; 6] = [
     Spec { id: "codex", name: "Codex", role: "coordinador y Larry", status: Some(&["login", "status"]), login: Some("codex login"), update: Some(&["update"]) },
     Spec { id: "claude", name: "Claude Code", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("claude auth login"), update: Some(&["update"]) },
     Spec { id: "opencode", name: "OpenCode", role: "agente ejecutor", status: Some(&["auth", "list"]), login: Some("opencode auth login"), update: Some(&["upgrade"]) },
-    Spec { id: "agy", name: "Antigravity", role: "agente ejecutor", status: None, login: Some("agy"), update: Some(&["update"]) },
+    Spec { id: "agy", name: "Antigravity", role: "agente ejecutor", status: None, login: Some("agy acp --login"), update: Some(&["update"]) },
     // Sin orden de actualización confirmada.
     Spec { id: "devin", name: "Devin", role: "agente ejecutor", status: Some(&["auth", "status"]), login: Some("devin auth login"), update: None },
     Spec { id: "gh", name: "GitHub", role: "publicar ramas y PR", status: Some(&["auth", "status", "--hostname", "github.com", "--active"]), login: None, update: None },
@@ -178,13 +178,22 @@ fn check(spec: &Spec) -> Tool {
 
 /// Comprueba en paralelo las CLI del panel Herramientas.
 #[tauri::command]
-pub async fn tools_status() -> CmdResult<Vec<Tool>> {
-    tauri::async_runtime::spawn_blocking(|| {
+pub async fn tools_status(app: AppHandle) -> CmdResult<Vec<Tool>> {
+    tauri::async_runtime::spawn_blocking(move || {
         let handles: Vec<_> = SPECS.iter()
-            .filter(|s| matches!(s.id, "codex" | "claude" | "gh"))
-            .map(|s| std::thread::spawn(move || check(s)))
+            .filter(|s| matches!(s.id, "codex" | "claude" | "agy" | "gh"))
+            .map(|s| { let app = app.clone(); std::thread::spawn(move || {
+                let mut tool = check(s);
+                if s.id == "agy" && tool.installed {
+                    if let Ok(health) = crate::providers::diagnose(&app) { tool.logged_in = health.connected; tool.detail = format!("{} · {}",tool.detail,health.message); }
+                } else if matches!(s.id,"claude"|"codex"|"agy") {
+                    let old = crate::providers::health(&*app.state::<AppState>().db.lock().map_err(err)?,s.id);
+                    let _ = crate::providers::observe(&app,crate::providers::Health{id:s.id.into(),connected:if tool.installed { tool.logged_in } else {Some(false)},observed_at:crate::providers::now(),..old});
+                }
+                Ok::<_,String>(tool)
+            }) })
             .collect();
-        handles.into_iter().map(|h| h.join().map_err(|_| "falló una comprobación".to_string())).collect()
+        handles.into_iter().map(|h| h.join().map_err(|_| "falló una comprobación".to_string())?).collect()
     })
     .await
     .map_err(err)?

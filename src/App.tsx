@@ -905,6 +905,11 @@ export default function App() {
     if (!current || switching !== null) return;
     const path = current.path;
     const id = activeSession?.id ?? null;
+    if (id !== null && (engine === 'agy' || activeSession?.engine === 'agy')) {
+      if (engine === activeSession?.engine) return;
+      newSession(engine);
+      return;
+    }
     setSwitching(id ?? path);
     chats.switchEngine(path, id, engine).then(
       (session) => {
@@ -933,7 +938,7 @@ export default function App() {
   const toggleUsage = () => {
     setUsageOpen(false);
     setGithubOpen(false);
-    setEngineOpen((open) => open ? null : usageEngine === 'claude' ? 'claude' : 'codex');
+    setEngineOpen((open) => open ? null : usageEngine === 'agy' ? 'agy' : usageEngine === 'claude' ? 'claude' : 'codex');
   };
   const toggleSidebar = () => {
     const next = toggleSidebarShortcut({
@@ -1153,9 +1158,10 @@ export default function App() {
         : { name: current.name, meta: 'Workspace', tag: null, state: null };
 
   const chatEngine = activeSession?.engine ?? (view === 'coach' && hasPm && pmReady ? pmEngine : null);
-  const providerSwitch: ProviderSwitch | undefined = (chatEngine === 'codex' || chatEngine === 'claude')
+  const providerSwitch: ProviderSwitch | undefined = (chatEngine === 'codex' || chatEngine === 'claude' || chatEngine === 'agy')
     ? {
         engine: chatEngine,
+        manager: view === 'coach',
         disabled: switching !== null || !!centerTitle?.state,
         title: centerTitle?.state ? 'Interrumpe el turno o espera a que termine para cambiar de proveedor' : 'Cambiar de proveedor',
         onChange: (value) => changeEngine(value),

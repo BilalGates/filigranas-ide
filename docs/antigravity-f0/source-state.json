@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-28",
+  "base": "7988c91",
+  "audited_checkout": "/Users/bilalwriach/repositorios/filigranas-ide",
+  "existing_changes_not_modified": [
+    {
+      "status": " M",
+      "path": "src-tauri/src/git_ops.rs",
+      "sha256": "7aabee3923638c6429d3c4ad9b291a49577f74256201d9af92c957d450ba64cf"
+    },
+    {
+      "status": " M",
+      "path": "src/App.tsx",
+      "sha256": "b1c562413d95b69f8dde035eec3af301be750747913ebf1d8125d3a415757975"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/Entrega.tsx",
+      "sha256": "c059af416931dd0c905bc65c0b12b976a5ffecf1050c3d5aee2a5f542e57c922"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/Settings.tsx",
+      "sha256": "e73ad0f8a1948ee7f4f9db0b38509d313aedeb8c260ac29ecb9acfe2af86399e"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/AuditsView.tsx",
+      "sha256": "c644e29a4e8f782ac46527736b0124ffb073e144437bea7ab169da32edfc7ac6"
+    },
+    {
+      "status": " D",
+      "path": "src/trama/entrega/AutomationView.tsx",
+      "sha256": null
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/BranchExplorer.tsx",
+      "sha256": "9a86f3461c35ce50b6130f63124260b95868f7b595e7197e1168573868ed048c"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/ChangeTree.tsx",
+      "sha256": "f02d5946866357725d7133d562f261d93d633412c907e499de2ae4e86792b3e5"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/ChecksView.tsx",
+      "sha256": "ca91b590d5476650a8de6615014dc68cbf381a5cbef1e9a5d03b2fe96113fae4"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/CommitsView.tsx",
+      "sha256": "bdf2c0a884cbf170b9ae804a07b4ffb150308572439404cde313bd8296e2f300"
+    },
+    {
+      "status": " D",
+      "path": "src/trama/entrega/ContextInspector.tsx",
+      "sha256": null
+    },
+    {
+      "status": " D",
+      "path": "src/trama/entrega/DeliveryHeader.tsx",
+      "sha256": null
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/PullRequestView.tsx",
+      "sha256": "92dcb81dbc76029212cfb1a56cba72c0fe7c692a2d55250afcf798987c8842e4"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/entrega/entregaStore.ts",
+      "sha256": "c98de18e956241a5a897edfc0116970c86d01abf6286b61d7f724bbce642f4ec"
+    },
+    {
+      "status": " M",
+      "path": "src/trama/trama.css",
+      "sha256": "249c4d6e76e2263ff9f6f2e95d92ac6bf72abd51ad808c4c81a71959d6e83b12"
+    },
+    {
+      "status": " M",
+      "path": "tests/entrega.test.ts",
+      "sha256": "b3497cfd230583b51f4458a1c99cdedc84ac5a7406a92b779c87b6f47da057fd"
+    },
+    {
+      "status": "??",
+      "path": "src/trama/entrega/CommitGraph.tsx",
+      "sha256": "5b02d140cb96a59256daabb88c4a2bf0b85347b546189eac8914010350d1cc9b"
+    },
+    {
+      "status": "??",
+      "path": "src/trama/entrega/StageAgentsView.tsx",
+      "sha256": "0069be8523aaa428e9851ca4e9884531b3e70ad64677cabcc8407cb50fc19b9f"
+    },
+    {
+      "status": "??",
+      "path": "src/trama/entrega/StageTasksView.tsx",
+      "sha256": "1b564a536cb42dc2a8f208cd1d723f114f69bcc41e74369be5f93503f1bf7991"
+    },
+    {
+      "status": "??",
+      "path": "src/trama/entrega/TimelineHeader.tsx",
+      "sha256": "1f7be1b21a3a6164cba361fe0f0394c91fd4af704889e156070fdefdb83ef99b"
+    },
+    {
+      "status": "??",
+      "path": "src/trama/entrega/commitGraphLayout.ts",
+      "sha256": "9498f43f8d2020154ad22ff5150d0a80d7831acbdb274655a51735646db1f1cf"
+    }
+  ],
+  "evidence_branch": "audit/antigravity-f0"
+}

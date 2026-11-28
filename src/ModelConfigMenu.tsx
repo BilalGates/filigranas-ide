@@ -1,9 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ChatEngine } from './ipc';
 import ProviderLogo from './ProviderLogo';
+import { EXECUTION_PROVIDERS } from './providers';
 
 export type ProviderSwitch = {
   engine: ChatEngine;
+  manager?: boolean;
   disabled: boolean;
   title: string;
   onChange: (engine: ChatEngine) => void;
@@ -53,11 +55,6 @@ type Props = {
   disabled?: boolean;
   title?: string;
 };
-
-const PROVIDERS: { value: ChatEngine; label: string; vendor: string }[] = [
-  { value: 'codex', label: 'Codex', vendor: 'OpenAI' },
-  { value: 'claude', label: 'Claude Code', vendor: 'Anthropic' },
-];
 
 // Mantiene abierto el panel aunque cambiar de proveedor desmonte y vuelva a montar la vista del chat.
 const openMenus = new Set<string>();
@@ -191,7 +188,7 @@ export default function ModelConfigMenu({
                 {switching && <span className="mcm-status">Cambiando…</span>}
               </div>
               <div className="mcm-providers" role="radiogroup" aria-label="Proveedor" title={provider.disabled ? provider.title : undefined}>
-                {PROVIDERS.map((p) => {
+                {EXECUTION_PROVIDERS.filter((p) => !provider?.manager || p.projectManager).map((p) => {
                   const selected = provider.engine === p.value;
                   return (
                     <button

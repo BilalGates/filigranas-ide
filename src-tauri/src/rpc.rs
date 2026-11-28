@@ -18,7 +18,7 @@ pub enum Incoming {
 }
 
 pub struct Rpc {
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: Mutex<Option<Box<dyn Write + Send>>>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     next: AtomicU64,
     alive: AtomicBool,
@@ -26,7 +26,7 @@ pub struct Rpc {
     jsonrpc: bool,
 }
 
-const CLOSED: &str = "codex app-server se ha cerrado";
+const CLOSED: &str = "el proceso del proveedor se ha cerrado";
 
 impl Rpc {
     /// Arranca el hilo lector. `on` recibe notificaciones y peticiones del
@@ -47,7 +47,7 @@ impl Rpc {
         jsonrpc: bool,
     ) -> Arc<Rpc> {
         let rpc = Arc::new(Rpc {
-            writer: Mutex::new(Box::new(writer)),
+            writer: Mutex::new(Some(Box::new(writer))),
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
             alive: AtomicBool::new(true),
@@ -78,13 +78,18 @@ impl Rpc {
             (None, Some(id)) => {
                 let Some(tx) = id.as_u64().and_then(|id| self.pending.lock().ok()?.remove(&id)) else { return };
                 let res = match msg.get("error") {
-                    Some(e) => Err(e.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| e.to_string())),
+                    Some(e) => Err(format!("{}{}", e.get("code").and_then(Value::as_i64).map(|code| format!("[{code}] ")).unwrap_or_default(), e.get("message").and_then(Value::as_str).unwrap_or("error del proveedor"))),
                     None => Ok(msg.get_mut("result").map(Value::take).unwrap_or(Value::Null)),
                 };
                 let _ = tx.send(res);
             }
             _ => {}
         }
+    }
+
+    /// Close stdin so ACP can save its conversation before the process exits.
+    pub fn close_input(&self) {
+        if let Ok(mut writer) = self.writer.lock() { writer.take(); }
     }
 
     pub fn alive(&self) -> bool {
@@ -99,6 +104,7 @@ impl Rpc {
         let mut line = serde_json::to_string(&msg).map_err(err)?;
         line.push('\n');
         let mut w = self.writer.lock().map_err(err)?;
+        let w = w.as_mut().ok_or(CLOSED)?;
         w.write_all(line.as_bytes()).and_then(|_| w.flush()).map_err(|e| format!("{CLOSED}: {e}"))
     }
 
@@ -120,7 +126,7 @@ impl Rpc {
             if let Ok(mut p) = self.pending.lock() {
                 p.remove(&id);
             }
-            Err(format!("codex no respondió a {method}"))
+            Err(format!("el proveedor no respondió a {method}"))
         })
     }
 
@@ -200,7 +206,7 @@ pub(crate) mod tests {
         std::thread::sleep(Duration::from_millis(10));
         assert_eq!(rpc.request("rapida", Value::Null, SHORT).unwrap(), json!("rapida"));
         assert_eq!(slow.join().unwrap().unwrap(), json!("lenta"));
-        assert_eq!(rpc.request("falla", Value::Null, SHORT).unwrap_err(), "no");
+        assert_eq!(rpc.request("falla", Value::Null, SHORT).unwrap_err(), "[1] no");
 
         let seen: Vec<String> = (0..3).map(|_| seen_rx.recv_timeout(SHORT).unwrap()).collect();
         assert_eq!(seen[0], r#"aviso {"n":1}"#);
@@ -218,7 +224,7 @@ pub(crate) mod tests {
                 closed_tx.send(()).unwrap();
             }
         });
-        assert_eq!(rpc.request("x", Value::Null, Duration::from_millis(30)).unwrap_err(), "codex no respondió a x");
+        assert_eq!(rpc.request("x", Value::Null, Duration::from_millis(30)).unwrap_err(), "el proveedor no respondió a x");
         let waiting = {
             let rpc = rpc.clone();
             std::thread::spawn(move || rpc.request("y", Value::Null, SHORT))
@@ -244,7 +250,7 @@ pub(crate) mod tests {
         let rpc = Rpc::start(rx, tx, |_, _| {});
         assert!(rpc.request("slow", Value::Null, Duration::from_millis(5)).unwrap_err().contains("no respondió"));
         assert!(rpc.pending.lock().unwrap().is_empty());
-        assert_eq!(rpc.request("next", Value::Null, Duration::from_secs(1)).unwrap_err(), "credentials expired");
+        assert_eq!(rpc.request("next", Value::Null, Duration::from_secs(1)).unwrap_err(), "[401] credentials expired");
         assert!(rpc.pending.lock().unwrap().is_empty());
     }
 }

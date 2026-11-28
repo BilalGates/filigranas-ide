@@ -1,0 +1,49 @@
+{
+  "build": {
+    "logSha256": "6ae53f615cc855d2599d388db75c995f6e62886cb53cfbef166b8612dabd8601",
+    "results": [
+      "✓ built in 2.21s"
+    ]
+  },
+  "frontend-tests": {
+    "logSha256": "2e12956057b49a4b018873c7520f5971a4058e3af68d3bbf0ecf638fdeb6a6a3",
+    "results": [
+      "ℹ tests 55",
+      "ℹ pass 55",
+      "ℹ fail 0"
+    ]
+  },
+  "rust-tests": {
+    "logSha256": "56754eb1a8cd67f846b47e57a07a7f264ef1f9a8c036d7d6341352141b7a4456",
+    "results": [
+      "test result: ok. 168 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 6.42s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "clippy": {
+    "logSha256": "9247332d508c185f95673ee7e8f6bdb5bc1965e31548f4c34058e7a97e11a18b",
+    "results": [
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.31s"
+    ]
+  },
+  "sandbox-tests": {
+    "logSha256": "2768632bbc2807198d8695b229ab23f52bd580a918c79c9b7136268a8e51c776",
+    "results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 179 filtered out; finished in 0.10s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "mcp-tests": {
+    "logSha256": "fa8fd5ce6f53411c48c2c308cbd22efb03c464c26eea5cdbd0ac704dc803ee73",
+    "results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 179 filtered out; finished in 1.76s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "lastNativeRebuild": {
+    "passed": false,
+    "reason": "No space left on device while writing query cache",
+    "capture": "Prior successfully built native acceptance binary, same isolated identifier and SQLite profile; no app installed"
+  }
+}

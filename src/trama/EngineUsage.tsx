@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { tasks as taskApi, type Session, type TaskRun } from '../ipc';
 import { useUi } from '../ui';
 import { percentLabel, useProviderQuota, type QuotaWindow } from '../usageStore';
+import ProviderLogo from '../ProviderLogo';
 import { Icon } from './icons';
 import { pmActivityKey } from './workspaceContext';
 
-// Uso por motor en la barra de estado: un botón para Claude y otro para Codex.
-// Cada uno muestra su cuota restante, las sesiones abiertas y trabajando, y
+// Uso por motor: tres símbolos neutros y consumo utilizado.
+// Cada uno muestra su ventana representativa, las sesiones abiertas y trabajando, y
 // el trabajo registrado en las ejecuciones de tareas del proyecto.
-export type Engine = 'claude' | 'codex';
-const NAME: Record<Engine, string> = { claude: 'Claude', codex: 'Codex' };
+export type Engine = import('../providers').ExecutionProvider;
+const NAME: Record<Engine, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity' };
 const tokens = new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 });
 const when = new Intl.DateTimeFormat('es-ES', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -26,7 +27,7 @@ export default function EngineUsage({ project, projectName, sessions, pmEngine, 
 }) {
   return (
     <div className="eng-usage">
-      {(['claude', 'codex'] as Engine[]).map((e) => (
+      {(['claude', 'codex', 'agy'] as Engine[]).map((e) => (
         <EngineButton key={e} engine={e} project={project} projectName={projectName} sessions={sessions} pm={hasPm && pmEngine === e}
           open={open === e} onToggle={() => onOpen(open === e ? null : e)} onClose={() => onOpen(null)} onSession={onSession} onSettings={onSettings} />
       ))}
@@ -55,24 +56,27 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
     document.addEventListener('pointerdown', out); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); };
   }, [open, onClose]);
-  const left = quota.remaining;
+  const used = quota.used;
   return (
     <div className="eng-wrap" ref={root}>
       <button ref={trigger} aria-label={`Uso de ${NAME[engine]}`} className={`status-action eng-btn${open ? ' is-on' : ''}${quota.near ? ' is-near' : ''}`} onClick={onToggle} aria-expanded={open}
-        title={`${NAME[engine]} · ${left == null ? 'cuota desconocida' : `${percentLabel(left)} restante`}${live ? ` · ${live} trabajando` : ''}`}>
-        {live > 0 ? <span className="dot is-trabajando" /> : waiting > 0 ? <span className="dot is-permiso" /> : <span className={`eng-mark ${engine}`} />}
-        <span>{NAME[engine]}</span>
-        <span className="eng-dots" aria-hidden="true">{Array.from({ length: 10 }, (_, i) => <i key={i} className={left != null && i < Math.round(left / 10) ? (left <= 15 ? 'low' : 'on') : ''} />)}</span>
-        <span className="num">{quota.exhausted ? 'agotada' : left == null ? '—' : percentLabel(left)}</span>
+        title={`${NAME[engine]} · ${quota.status}${used == null ? '' : ` · ${percentLabel(used)} utilizado · ${quota.representative?.label ?? 'ventana informada'}`}${live ? ` · ${live} trabajando` : ''}`}>
+        <ProviderLogo engine={engine} size={14} />
+        <span className={`eng-meter${used == null ? ' is-unknown' : ''}`} aria-hidden="true">{used != null && <i style={{ width: `${Math.max(0, Math.min(100, used))}%` }} />}</span>
+        <span className="num">{used == null ? '—' : percentLabel(used)}</span>
       </button>
       {open && (
         <section className="eng-pop" role="dialog" aria-label={`Uso de ${NAME[engine]}`}>
-          <header><span className={`eng-mark ${engine}`} /><h2>{NAME[engine]}</h2><span className="grow" /><button className="icon" onClick={() => { onClose(); trigger.current?.focus(); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
+          <header><ProviderLogo engine={engine} size={15} /><h2>{NAME[engine]}</h2><span className="grow" /><button className="icon" onClick={() => { onClose(); trigger.current?.focus(); }} aria-label="Cerrar"><Icon name="close" size={12} /></button></header>
           <div className="eng-sec">
-            <div className="eng-lab">Cuota restante</div>
-            {quota.exhausted && <div className="usage-limit" role="status">Cuota del plan agotada</div>}
+            <div className="eng-lab">Consumo utilizado</div>
+            {quota.representative && <p className="eng-note">Indicador principal: {quota.representative.label}, la ventana informada con mayor consumo.</p>}
+            <p className="eng-note" role="status">{quota.provider?.message || quota.status}</p>
+            {quota.stale && <p className="eng-note">Datos desactualizados · última observación {quota.observedAt ? when.format(quota.observedAt * 1000) : 'sin fecha informada'}</p>}
+            {quota.provider?.quotaModel && <p className="eng-note">Modelo afectado: {quota.provider.quotaModel}. Las demás cuotas no están confirmadas.</p>}
+            {quota.exhausted && <div className="usage-limit" role="status">{engine === 'agy' ? 'Cuota agotada en el último modelo utilizado' : 'Cuota del plan agotada'}</div>}
             {quota.windows.length ? quota.windows.map((w) => <Window key={w.label} w={w} />)
-              : <p className="eng-note">{quota.loading ? 'Consultando cuota…' : engine === 'claude' ? 'Claude informa de su cuota al responder a un mensaje.' : 'La CLI todavía no ha informado de la cuota.'}</p>}
+              : <p className="eng-note">{quota.loading ? 'Consultando cuota…' : engine === 'claude' ? 'Claude informa de su cuota al responder a un mensaje.' : engine === 'agy' ? 'La CLI no ha proporcionado una cuota agregada verificable. Contexto y tokens se registran por separado.' : 'La CLI todavía no ha informado de la cuota.'}</p>}
           </div>
           <div className="eng-sec">
             <div className="eng-lab">Ahora{projectName ? ` en ${projectName}` : ''}</div>
@@ -94,12 +98,12 @@ function EngineButton({ engine, project, projectName, sessions, pm, open, onTogg
 }
 
 function Window({ w }: { w: QuotaWindow }) {
-  const remaining = Math.max(0, Math.min(100, 100 - w.percent));
+  const used = Math.max(0, Math.min(100, w.percent));
   return (
     <div className="uso-row" title={w.resetsAt ? `Se renueva el ${when.format(w.resetsAt * 1000)}` : undefined}>
       <span>{w.label}</span>
-      <span className="bar" aria-hidden="true"><i style={{ width: `${remaining}%` }} className={remaining <= 10 ? 'is-hot' : undefined} /></span>
-      <span className="num">{percentLabel(remaining)}</span>
+      <span className="bar" aria-hidden="true"><i style={{ width: `${used}%` }} className={used >= 90 ? 'is-hot' : undefined} /></span>
+      <span className="num">{percentLabel(used)}</span>
     </div>
   );
 }
@@ -121,20 +125,20 @@ function Worked({ project, engine }: { project: string; engine: Engine }) {
   }, [project]);
   const since = Date.now() - 7 * 86400000;
   const mine = (runs ?? []).filter((r) => r.provider === engine && r.startedMs >= since);
-  const byModel = new Map<string, { n: number; tin: number; tout: number; ms: number }>();
+  const byModel = new Map<string, { n: number; tin: number; tout: number; ms: number; known: number }>();
   for (const r of mine) {
-    const k = r.model ?? r.routing?.model ?? 'modelo predeterminado';
-    const v = byModel.get(k) ?? { n: 0, tin: 0, tout: 0, ms: 0 };
-    v.n++; v.tin += r.inputTokens ?? 0; v.tout += r.outputTokens ?? 0; v.ms += r.durationMs ?? 0;
+    const k = r.model ?? r.routing?.executionModel ?? 'modelo no informado';
+    const v = byModel.get(k) ?? { n: 0, tin: 0, tout: 0, ms: 0, known: 0 };
+    v.n++; if (r.inputTokens != null || r.outputTokens != null) v.known++; v.tin += r.inputTokens ?? 0; v.tout += r.outputTokens ?? 0; v.ms += r.durationMs ?? 0;
     byModel.set(k, v);
   }
-  const total = [...byModel.values()].reduce((a, v) => ({ n: a.n + v.n, tin: a.tin + v.tin, tout: a.tout + v.tout, ms: a.ms + v.ms }), { n: 0, tin: 0, tout: 0, ms: 0 });
+  const total = [...byModel.values()].reduce((a, v) => ({ n: a.n + v.n, tin: a.tin + v.tin, tout: a.tout + v.tout, ms: a.ms + v.ms, known: a.known + v.known }), { n: 0, tin: 0, tout: 0, ms: 0, known: 0 });
   return (
     <div className="eng-sec">
       <div className="eng-lab">Trabajo registrado · 7 días</div>
       {runs === null ? <p className="eng-note">Leyendo ejecuciones…</p> : !mine.length ? <p className="eng-note">Ninguna ejecución de tareas con {NAME[engine]} en este proyecto.</p> : <>
-        <p className="eng-big"><b>{total.n}</b> {total.n === 1 ? 'ejecución' : 'ejecuciones'} · <b>{tokens.format(total.tin + total.tout)}</b> tokens{total.ms ? <> · <b>{Math.round(total.ms / 60000)}</b> min</> : null}</p>
-        <ul className="eng-models">{[...byModel.entries()].sort((a, b) => b[1].n - a[1].n).map(([m, v]) => <li key={m}><span className="mono">{m}</span><span className="grow" /><span>{v.n} · {tokens.format(v.tin + v.tout)} tokens</span></li>)}</ul>
+        <p className="eng-big"><b>{total.n}</b> {total.n === 1 ? 'ejecución' : 'ejecuciones'} · <b>{total.known ? tokens.format(total.tin + total.tout) : '—'}</b> {total.known === total.n ? 'tokens' : total.known ? 'tokens informados (subtotal)' : 'tokens no disponibles'}{total.ms ? <> · <b>{Math.round(total.ms / 60000)}</b> min</> : null}</p>
+        <ul className="eng-models">{[...byModel.entries()].sort((a, b) => b[1].n - a[1].n).map(([m, v]) => <li key={m}><span className="mono">{m}</span><span className="grow" /><span>{v.n} · {v.known ? `${tokens.format(v.tin + v.tout)} tokens${v.known < v.n ? ' (subtotal)' : ''}` : 'tokens no disponibles'}</span></li>)}</ul>
       </>}
       <p className="eng-note">Cuenta las ejecuciones de tareas; las conversaciones directas no registran tokens aquí.</p>
     </div>

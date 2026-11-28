@@ -48,12 +48,19 @@ fn retire_persona() -> Value {
 /// y jamás puede ejecutar comandos ni modificar archivos: todo trabajo técnico
 /// debe delegarse mediante herramientas dinámicas.
 fn thread_params(cwd: &str, direct: bool, rules: &str) -> Value {
-    json!({
+    let mut params = json!({
         "cwd": cwd,
-        "sandbox": if direct { "workspace-write" } else { "read-only" },
-        "approvalPolicy": "on-request",
+        "sandbox": "read-only",
+        "approvalPolicy": "untrusted",
         "developerInstructions": instructions(direct, rules),
-    })
+    });
+    if !direct {
+        params["config"] = json!({"features.shell_tool":false, "features.multi_agent":false,
+            "features.multi_agent_v2":false, "features.apps":false,
+            "features.browser_use":false, "features.computer_use":false,
+            "features.image_generation":false, "web_search":"disabled"});
+    }
+    params
 }
 
 fn is_pm_codex_thread(sessions: &HashMap<String, i64>, projects: &HashMap<String, String>, thread: &str) -> bool {
@@ -73,6 +80,8 @@ struct Shared {
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
     approvals: HashSet<String>,
+    /// Paths announced by the provider before a patch approval; never diffs.
+    patch_paths: HashMap<String, Vec<String>>,
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
     models: HashMap<String, String>,
@@ -299,6 +308,13 @@ impl Codex {
                             _ => {}
                         }
                     }
+                    if method == "item/started" || method == "item/fileChange/patchUpdated" {
+                        let item = params.get("item").unwrap_or(&params);
+                        if let (Some(id), Some(changes)) = (item["id"].as_str().or_else(|| params["itemId"].as_str()), item["changes"].as_array()) {
+                            let paths = changes.iter().flat_map(|c| [c["path"].as_str(),c.pointer("/kind/move_path").and_then(Value::as_str)]).flatten().map(str::to_owned).collect();
+                            sh.patch_paths.insert(format!("{thread}:{id}"),paths);
+                        }
+                    }
                     match method.as_str() {
                         "turn/started" => {
                             if let Some(turn) = params.pointer("/turn/id").and_then(Value::as_str) {
@@ -307,6 +323,7 @@ impl Codex {
                         }
                         "turn/completed" => {
                             sh.turns.remove(&thread);
+                            sh.patch_paths.retain(|key,_| !key.starts_with(&format!("{thread}:")));
                         }
                         // Resuelta por otra vía (p. ej. turno interrumpido).
                         "serverRequest/resolved" => {
@@ -362,12 +379,31 @@ impl Codex {
                         } else {
                             crate::autoapprove::Mode::Ask
                         };
-                        let full = mode == crate::autoapprove::Mode::Full;
-                        if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
-                            Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
-                        } else {
-                            sh.approvals.insert(id.to_string());
-                            Event { method, params, request_id: Some(id) }
+                        let cwd = sh.sessions.get(&thread).and_then(|sid| {
+                            let state = handle.state::<AppState>();
+                            let conn = state.db.lock().ok()?;
+                            db::session(&conn, *sid).ok().flatten().map(|s| s.worktree.unwrap_or(s.project))
+                        }).or_else(|| sh.projects.get(&thread).cloned()).unwrap_or_default();
+                        let (kind, mut paths, command) = crate::autoapprove::codex_request(&method, &params);
+                        if method == "item/fileChange/requestApproval" && paths.is_empty() {
+                            paths = sh.patch_paths.get(&format!("{thread}:{}", params["itemId"].as_str().unwrap_or(""))).cloned().unwrap_or_default();
+                        }
+                        match crate::autoapprove::evaluate(mode, std::path::Path::new(&cwd), kind, &paths, command.as_deref()) {
+                            crate::autoapprove::PolicyDecision::Allow => {
+                                let _ = rpc.respond(id, json!({ "decision": "accept" }));
+                                Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method }), request_id: None }
+                            }
+                            crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } => {
+                                let _ = rpc.respond(id, json!({ "decision": "decline" }));
+                                Event { method: "filigranas/policyDenied".into(), params: json!({ "threadId": thread, "origin": origin, "reason": reason }), request_id: None }
+                            }
+                            crate::autoapprove::PolicyDecision::Ask { origin, reason } => {
+                                let mut params = params;
+                                params["origin"] = json!(origin);
+                                if let Some(reason) = reason { params["reason"] = json!(reason); }
+                                sh.approvals.insert(id.to_string());
+                                Event { method, params, request_id: Some(id) }
+                            }
                         }
                     }
                 }
@@ -735,7 +771,12 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
     } else { (effort, model_override) };
     let inputs: Vec<_> = std::iter::once(json!({ "type": "text", "text": input, "text_elements": [] }))
         .chain(message.codex_images()).collect();
-    let mut params = json!({ "threadId": thread_id, "input": inputs });
+    // Keep mutations behind app-server approval requests even in Full Control.
+    // Filigranas resolves them through its policy; bypassing the CLI's gate
+    // would also bypass the PM, publication and destructive-operation guards.
+    let mut params = json!({ "threadId": thread_id, "input": inputs,
+        "approvalPolicy": "untrusted", "sandboxPolicy": {"type":"readOnly"}
+    });
     if let Some(e) = effort {
         params["effort"] = json!(e);
     }
@@ -859,6 +900,7 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     if !state.codex.shared.lock().map_err(err)?.approvals.remove(&request_id.to_string()) {
         return Err("esa petición ya no está pendiente".into());
     }
+    let decision = if decision == "acceptForSession" { "accept" } else { decision.as_str() };
     state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
 }
 
@@ -929,12 +971,12 @@ mod tests {
         let pm = thread_params("/r/p", false, crate::skills::RULES);
         assert_eq!(
             (pm["cwd"].as_str(), pm["sandbox"].as_str(), pm["approvalPolicy"].as_str()),
-            (Some("/r/p"), Some("read-only"), Some("on-request"))
+            (Some("/r/p"), Some("read-only"), Some("untrusted"))
         );
         let exec = thread_params("/r/p", true, crate::skills::RULES);
         assert_eq!(
             (exec["cwd"].as_str(), exec["sandbox"].as_str(), exec["approvalPolicy"].as_str()),
-            (Some("/r/p"), Some("workspace-write"), Some("on-request"))
+            (Some("/r/p"), Some("read-only"), Some("untrusted"))
         );
         let text = pm["developerInstructions"].as_str().unwrap();
         assert!(text.contains("Coordinación en Filigranas IDE"));

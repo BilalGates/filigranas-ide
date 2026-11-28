@@ -305,7 +305,8 @@ export type SessionCatalog = {
 
 export const sessions = {
   /** Nivel de permisos: con autorización, auto (dentro de la carpeta) o full control. */
-  permissionMode: (id: number | null, mode: 'ask' | 'auto' | 'full', project: string | null = null) =>
+  getPermissionMode: (id: number | null, project: string | null = null) => invoke<string>('session_get_permission_mode', { id, project }),
+  permissionMode: (id: number | null, mode: 'readonly' | 'ask' | 'auto' | 'full', project: string | null = null) =>
     invoke<string>('session_permission_mode', { id, project, mode }),
   catalog: (paths: string[]) => invoke<SessionCatalog>('session_catalog', { paths }),
   list: (project: string) => invoke<Session[]>('session_list', { project }),

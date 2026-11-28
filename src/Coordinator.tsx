@@ -122,7 +122,7 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
       if (method === 'filigranas/autoApproved') {
         const p = params?.params ?? {};
         const what = params?.request === 'item/fileChange/requestApproval' ? 'cambio de archivos' : p.command ? `orden «${String(p.command).slice(0, 120)}»` : 'orden';
-        return setAutoNotes((n) => [...n.slice(-19), `Aprobado automáticamente (full control): ${what}`]);
+        return setAutoNotes((n) => [...n.slice(-19), `Aprobado por la política de Filigranas: ${what}`]);
       }
       switch (method) {
         case 'thread/tokenUsage/updated':
@@ -161,6 +161,9 @@ export default function Coordinator({ project, hidden, switching, providerSwitch
           break;
         case 'item/commandExecution/outputDelta':
           patch(params.itemId, (it) => ({ ...it, aggregatedOutput: (it.aggregatedOutput ?? '') + params.delta }));
+          break;
+        case 'filigranas/policyDenied':
+          setError(`${params.origin}: ${params.reason}`);
           break;
         case 'serverRequest/resolved':
           setApprovals((a) => a.filter((x) => JSON.stringify(x.requestId) !== JSON.stringify(params.requestId)));

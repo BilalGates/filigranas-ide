@@ -304,6 +304,7 @@ pub fn run() {
             claude::session_interrupt,
             claude::session_respond,
             autoapprove::session_permission_mode,
+            autoapprove::session_get_permission_mode,
             claude::session_close,
             claude::session_set_option,
             claude::claude_chat_options,

@@ -97,7 +97,7 @@ function claudeAsk(msg: any): Pending {
     command: r.tool_name === 'Bash' ? r.input?.command : undefined,
     files: isEdit ? [r.input?.file_path ?? r.input?.notebook_path ?? ''] : undefined,
     detail: r.tool_name !== 'Bash' && !isEdit ? brief(r.input) || JSON.stringify(r.input, null, 2) : undefined,
-    reason: [r.decision_reason, r.description].find((x) => typeof x === 'string' && x.trim()),
+    reason: [r.origin, r.policy_reason, r.decision_reason, r.description].find((x) => typeof x === 'string' && x.trim()),
   };
 }
 
@@ -146,6 +146,7 @@ function acpAsk(msg: any): Pending {
     command: call.kind === 'execute' ? acpCommand(call) : undefined,
     files: acpPaths(call),
     detail: call.kind !== 'execute' && !acpPaths(call).length ? call.title : undefined,
+    reason: [msg.origin, msg.reason].filter(Boolean).join(' · ') || undefined,
   };
 }
 
@@ -211,7 +212,7 @@ export default function Session({ session, project, hidden, switching, providerS
   const [integrated, setIntegrated] = useState(!!session.integrated);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoNotes, setAutoNotes] = useState<string[]>([]);
-  const permission = usePermissionMode(session.id, null, manager ? `pm:${project}` : undefined, parentPermissionScope);
+  const permission = usePermissionMode(isCodex ? null : session.id, manager ? project : null, manager ? `pm:${project}` : undefined, parentPermissionScope);
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
@@ -387,6 +388,9 @@ export default function Session({ session, project, hidden, switching, providerS
           }
           break;
         }
+        case 'policy_denied':
+          setError(`${msg.origin}: ${msg.reason}`);
+          break;
         case 'permission':
           setPending((p) => [...p, acpAsk(msg)]);
           break;

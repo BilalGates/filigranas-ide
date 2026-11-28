@@ -44,7 +44,7 @@ fn explain(engine: &str, message: String) -> String {
 fn pick_option(options: &Value, decision: &str) -> Option<String> {
     let prefs: &[&str] = match decision {
         "accept" => &["allow_once", "allow_always"],
-        "acceptForSession" => &["allow_always", "allow_once"],
+        "acceptForSession" => &["allow_once", "allow_always"],
         "decline" => &["reject_once", "reject_always"],
         _ => &[],
     };
@@ -176,8 +176,14 @@ impl Acp {
                     }
                     // Nivel de permisos de la sesión: Filigranas puede aprobar por su cuenta.
                     let mode = tracker_handle.state::<AppState>().permissions.get(id);
-                    let (kind, paths) = crate::autoapprove::acp_request(&params["toolCall"]);
-                    if crate::autoapprove::approves(mode, &cwd, kind, &paths) {
+                    let (kind, paths, command) = crate::autoapprove::acp_request(&params["toolCall"]);
+                    let decision = crate::autoapprove::evaluate(mode, &cwd, kind, &paths, command.as_deref());
+                    if let crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } = &decision {
+                        let _ = rpc.respond(rid, json!({ "outcome": { "outcome": "cancelled" } }));
+                        on_emit(json!({ "type": "policy_denied", "origin": origin, "reason": reason }));
+                        return;
+                    }
+                    if decision == crate::autoapprove::PolicyDecision::Allow {
                         if let Some(option) = pick_option(&params["options"], "accept") {
                             let _ = rpc.respond(rid, json!({ "outcome": { "outcome": "selected", "optionId": option } }));
                             on_emit(json!({ "type": "auto_approved", "toolCall": params["toolCall"] }));
@@ -189,7 +195,11 @@ impl Acp {
                         p.insert(key.clone(), (id, rid, params["options"].clone()));
                     }
                     crate::runs::on_active(&tracker_handle, id, |conn, run| crate::runs::phase(conn, run, "waiting_approval"));
-                    on_emit(json!({ "type": "permission", "requestId": key, "toolCall": params["toolCall"], "options": params["options"] }));
+                    let (origin, reason) = match decision {
+                        crate::autoapprove::PolicyDecision::Ask { origin, reason } => (origin, reason),
+                        _ => ("CLI / proveedor", Some("El proveedor no ofrece aprobación puntual compatible con la política.".into())),
+                    };
+                    on_emit(json!({ "type": "permission", "requestId": key, "toolCall": params["toolCall"], "options": params["options"], "origin": origin, "reason": reason }));
                 }
                 Incoming::Closed => {
                     if let Ok(mut p) = pending.lock() {
@@ -394,7 +404,7 @@ mod tests {
             { "optionId": "r1", "kind": "reject_once" },
         ]);
         assert_eq!(pick_option(&options, "accept").as_deref(), Some("a1"));
-        assert_eq!(pick_option(&options, "acceptForSession").as_deref(), Some("a2"));
+        assert_eq!(pick_option(&options, "acceptForSession").as_deref(), Some("a1"));
         assert_eq!(pick_option(&options, "decline").as_deref(), Some("r1"));
         assert_eq!(pick_option(&options, "cancel"), None);
         // Si el agente no ofrece «siempre», vale una vez; sin rechazo, se cancela.

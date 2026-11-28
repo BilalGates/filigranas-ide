@@ -31,6 +31,15 @@ import { Modal } from './ui';
 const SUMMARY_LIMIT = 30;
 const REFRESH_TTL_MS = 30_000;
 
+// Inicio se desmonta al salir. Esta caché conserva los últimos datos para que,
+// al volver, la pantalla se pinte con la misma estructura y se refresque después
+// sin que las secciones aparezcan por fases ni cambie el orden de los proyectos.
+const homeCache: {
+  recentSessions: RecentSession[] | null;
+  backendActivity: HomeActivityItem[];
+  snaps: Record<string, HomeSummary>;
+} = { recentSessions: null, backendActivity: [], snaps: {} };
+
 function engineLabel(engine: string) {
   if (engine === 'claude') return 'Claude Code';
   if (engine === 'codex') return 'Codex';
@@ -87,13 +96,10 @@ export default function Home({
   onError: (e: string) => void;
 }) {
   const { activity } = useUi();
-  const [summaryState, setSummaryState] = useState<{ key: string; snaps: Record<string, HomeSummary> }>({
-    key: '',
-    snaps: {},
-  });
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
-  const [backendActivity, setBackendActivity] = useState<HomeActivityItem[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [allSnaps, setAllSnaps] = useState<Record<string, HomeSummary>>(() => homeCache.snaps);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>(() => homeCache.recentSessions ?? []);
+  const [backendActivity, setBackendActivity] = useState<HomeActivityItem[]>(() => homeCache.backendActivity);
+  const [loadingSessions, setLoadingSessions] = useState(() => homeCache.recentSessions === null);
 
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [showAllAttention, setShowAllAttention] = useState(false);
@@ -117,7 +123,13 @@ export default function Home({
 
   const pathsKey = useMemo(() => JSON.stringify(allPaths), [allPaths]);
   const summaryKey = useMemo(() => JSON.stringify([summaryPaths, project]), [summaryPaths, project]);
-  const snaps = summaryState.key === summaryKey ? summaryState.snaps : {};
+  // Mantiene los resúmenes previos mientras llegan los nuevos; solo se filtran
+  // los proyectos que ya no forman parte de la biblioteca.
+  const snaps = useMemo(() => {
+    const out: Record<string, HomeSummary> = {};
+    for (const path of summaryPaths) if (allSnaps[path]) out[path] = allSnaps[path];
+    return out;
+  }, [allSnaps, summaryPaths]);
 
   const shown = useRef(active);
   shown.current = active;
@@ -128,9 +140,12 @@ export default function Home({
     const paths: string[] = JSON.parse(pathsKey);
     const [sumPaths, focus]: [string[], string | null] = JSON.parse(summaryKey);
     if (!paths.length) {
+      homeCache.recentSessions = [];
+      homeCache.backendActivity = [];
+      homeCache.snaps = {};
       setRecentSessions([]);
       setBackendActivity([]);
-      setSummaryState({ key: summaryKey, snaps: {} });
+      setAllSnaps({});
       setLoadingSessions(false);
       return;
     }
@@ -153,13 +168,18 @@ export default function Home({
         ]);
         if (!alive || id !== revision) return;
         expiresAt = Date.now() + REFRESH_TTL_MS;
-        if (recentRes.status === 'fulfilled') setRecentSessions(recentRes.value);
-        if (actRes.status === 'fulfilled') setBackendActivity(actRes.value);
+        if (recentRes.status === 'fulfilled') {
+          homeCache.recentSessions = recentRes.value;
+          setRecentSessions(recentRes.value);
+        }
+        if (actRes.status === 'fulfilled') {
+          homeCache.backendActivity = actRes.value;
+          setBackendActivity(actRes.value);
+        }
         if (sumRes.status === 'fulfilled') {
-          setSummaryState({
-            key: summaryKey,
-            snaps: Object.fromEntries(sumRes.value.map((item) => [item.path, item])),
-          });
+          const next = Object.fromEntries(sumRes.value.map((item) => [item.path, item]));
+          homeCache.snaps = next;
+          setAllSnaps(next);
         }
       } finally {
         loading = false;

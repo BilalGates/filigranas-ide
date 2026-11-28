@@ -109,6 +109,36 @@ struct Event {
 }
 
 impl Acp {
+    pub fn delegation_models(&self, app: &AppHandle, state: &AppState, session: &db::Session) -> CmdResult<(String, Vec<crate::routing::Model>)> {
+        self.ensure(app, state, session)?;
+        let slot = self.slot(session.id)?;
+        let guard = slot.lock().map_err(err)?;
+        let config = &guard.as_ref().ok_or("la sesión no está en marcha")?.config;
+        let options = config.as_array().ok_or("el proveedor no informa opciones")?;
+        let model = options.iter().find(|o| o["category"] == "model").ok_or("el proveedor no ofrece selección de modelo")?;
+        let key = model["id"].as_str().ok_or("opción de modelo sin identificador")?.to_owned();
+        let efforts: Vec<String> = options.iter().find(|o| o["category"] == "thought_level")
+            .and_then(|o| o["options"].as_array()).into_iter().flatten()
+            .filter_map(|o| o["value"].as_str().map(str::to_owned)).collect();
+        let models = model["options"].as_array().into_iter().flatten().filter_map(|o| {
+            Some(crate::routing::Model { id: o["value"].as_str()?.to_owned(), efforts: efforts.clone(), current: o["value"] == model["currentValue"] })
+        }).collect();
+        Ok((key, models))
+    }
+
+    // Internal queue preparation only: the claimed run is already active.
+    pub fn apply_delegation_model(&self, app: &AppHandle, state: &AppState, session: &db::Session, key: &str, value: &str) -> CmdResult<()> {
+        self.ensure(app, state, session)?;
+        let slot = self.slot(session.id)?;
+        let mut guard = slot.lock().map_err(err)?;
+        let p = guard.as_mut().ok_or("la sesión no está en marcha")?;
+        if !allowed(&p.config, key, value) { return Err("el modelo delegado ya no está disponible".into()); }
+        let updated = p.rpc.request("session/set_config_option", json!({"sessionId":p.session_id,"configId":key,"value":value}), INIT)?;
+        if updated["configOptions"].is_array() { p.config = updated["configOptions"].clone(); }
+        db::set_session_option(&*state.db.lock().map_err(err)?, session.id, key, value).map_err(err)?;
+        store_history(state, session.id, &p.history, &p.config)
+    }
+
     fn admit(&self, state: &AppState, current: i64) -> CmdResult<()> {
         let limit = crate::providers::concurrency_limit(&*state.db.lock().map_err(err)?,"agy");
         let mut busy = 0;

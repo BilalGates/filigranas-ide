@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 6;
+pub const TOOLS_VERSION: i64 = 7;
 
 const ENGINES: [(&str, &str); 3] = [
     ("claude", "claude code"),
@@ -101,9 +101,11 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto (preferido) consulta Jev cuando hay una decisión real; fijar proveedor es selección explícita del llamante. claude = Claude Code, codex = Codex, agy = Antigravity" },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "agy"], "description": "auto (predeterminado) consulta Jev cuando hay una decisión real; fijar proveedor es selección explícita del llamante. claude = Claude Code, codex = Codex, agy = Antigravity" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
                     "rol": { "type": "string", "enum": ["researcher", "architect", "designer", "graphic", "senior", "junior", "security", "auditor", "auditor2", "verifier", "data"], "description": "Rol del ejecutor. Por defecto senior." },
+                    "nivel": { "type": "string", "enum": ["barato", "medio", "fuerte", "maximo"], "description": "Dificultad de esta tarea: buscar/resumir, implementación acotada, auditoría/diagnóstico difícil, arquitectura/seguridad. Si se omite se infiere del rol y tipo. No es una tarifa ni una garantía de cuota." },
+                    "modelo": { "type": "string", "description": "Opcional: ID exacto ofrecido por el catálogo del proveedor. Requiere agente explícito. Se valida antes de enviar el encargo; por ejemplo gpt-6.1-sol si está disponible." },
                     "tipo": { "type": "string", "enum": ["implementacion", "correccion", "refactorizacion", "revision", "threat_model", "arquitectura", "planificacion", "revision_independiente", "diseno", "frontend", "auditoria_visual", "logo", "efectos", "investigacion", "config_repo", "estadistica", "verificacion"], "description": "Tipo de trabajo. Filigranas lo usa para resolver las capacidades obligatorias y automáticas." },
                     "capacidades": { "type": "array", "items": { "type": "string" }, "description": "Opcional. Identificadores de extensiones pedidas expresamente (p. ej. agent-reach, statspai, pixelfx)." },
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
@@ -329,7 +331,7 @@ fn capability_args(args: &Value) -> CmdResult<(Option<String>, Vec<String>)> {
 /// Both PM providers use this path: independent task, plan and linked session.
 fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, parent_task: Option<i64>, args: &Value) -> CmdResult<String> {
     let state=app.state::<AppState>();
-    let requested=args["agente"].as_str().unwrap_or("claude");
+    let requested=args["agente"].as_str().unwrap_or("auto");
     if requested!="auto" && !ENGINES.iter().any(|(id,_)|*id==requested) { return Err("agente desconocido".into()); }
     let prompt=args["tarea"].as_str().filter(|p|!p.trim().is_empty()).ok_or("falta el encargo")?;
     let title=derive_title(args["titulo"].as_str(),prompt);
@@ -337,12 +339,15 @@ fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, pare
     let role=args["rol"].as_str().unwrap_or("senior");
     let parsed_role=executor_role(role)?;
     let (kind,capabilities)=capability_args(args)?;
+    let routing=crate::routing::Request::from_args(args)?;
+    if routing.modelo.is_some() && requested=="auto" { return Err("indica agente al solicitar un modelo concreto".into()); }
     let (chosen,route)=crate::jev::provider_choice(&state,requested,parsed_role)?;
     let engine=chosen.as_str();
     let task={let mut conn=state.db.lock().map_err(err)?;crate::tasks::delegation(&mut conn,project,parent_task,&title,goal,prompt,engine,role)?};
     let session=claude::create_pm_subsession(app,project,parent,engine,Some(&title),Some(crate::skills::Role::from_key(Some(role))),Some(task))?;
     crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,&parent.map(crate::runs::session_scope).unwrap_or_else(|| project.to_owned()),&route)?;
     crate::capabilities::assign(&*state.db.lock().map_err(err)?,session.id,kind.as_deref(),&capabilities,if parent.is_some(){"sesión padre"}else{"pm"})?;
+    db::set_session_option(&*state.db.lock().map_err(err)?,session.id,"pm-routing",&serde_json::to_string(&routing).map_err(err)?).map_err(err)?;
     if let Some(paths)=args["archivos"].as_array() {
         let paths=paths.iter().map(|p|p.as_str().map(str::to_owned).ok_or("ruta no válida")).collect::<Result<Vec<_>,_>>()?;
         let conn=state.db.lock().map_err(err)?;
@@ -500,7 +505,7 @@ mod tests {
         assert!(names.contains(&"catalogo_proveedores"));
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
+        assert_eq!(engines, ["auto", "claude", "codex", "agy"]);
         let roles=arr[0]["inputSchema"]["properties"]["rol"]["enum"].as_array().unwrap();
         for role in crate::skills::ROLES.into_iter().filter(|r| *r != crate::skills::Role::Pm) {
             assert!(roles.iter().any(|r| r==role.key()));

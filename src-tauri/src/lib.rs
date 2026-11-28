@@ -19,6 +19,7 @@ mod composer;
 mod containers;
 mod db;
 mod delegate;
+mod routing;
 mod delivery_auto;
 mod design;
 mod design_components;

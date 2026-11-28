@@ -291,6 +291,26 @@ impl Claude {
         self.procs.try_lock().map(|p| p.values().any(|p| p.alive.load(Ordering::SeqCst))).unwrap_or(true)
     }
 
+    pub fn cached_models(&self) -> CmdResult<Value> {
+        serde_json::to_value(&*self.models.lock().map_err(err)?).map_err(err)
+    }
+
+    pub fn delegation_models(&self, app: &AppHandle, session: &db::Session) -> CmdResult<Vec<crate::routing::Model>> {
+        self.proc(app, session, None)?;
+        // The initialization response arrives on the reader thread; no prompt is sent.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            let models = self.models.lock().map_err(err)?.clone();
+            if !models.is_empty() {
+                return Ok(models.into_iter().map(|m| crate::routing::Model {
+                    current: m.id == "default", id: m.id, efforts: EFFORTS.iter().map(|e| e.to_string()).collect(),
+                }).collect());
+            }
+            if std::time::Instant::now() >= deadline { return Err("Claude no ha informado su catálogo de modelos; reintenta la tarea".into()); }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+
     /// Proceso de la sesión con el esfuerzo pedido. Si el esfuerzo cambia,
     /// se reinicia reanudando la misma conversación.
     fn proc(&self, app: &AppHandle, session: &db::Session, effort: Option<&str>) -> CmdResult<Input> {

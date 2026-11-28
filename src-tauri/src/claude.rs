@@ -41,7 +41,7 @@ struct Proc {
     input: Input,
     effort: Option<String>,
     pinned_model: Option<String>,
-    readonly: bool,
+    tools_version: i64,
     alive: Arc<AtomicBool>,
 }
 
@@ -302,7 +302,7 @@ impl Claude {
         let mut procs = self.procs.lock().map_err(err)?;
         if let Some(p) = procs.get(&session.id) {
             let busy = state.tracker.get(session.id).running;
-            let same_options = p.readonly == readonly && p.pinned_model == pinned_model && (effort.is_none() || p.effort.as_deref() == effort);
+            let same_options = p.tools_version == crate::delegate::TOOLS_VERSION && p.pinned_model == pinned_model && (effort.is_none() || p.effort.as_deref() == effort);
             if p.alive.load(Ordering::SeqCst) && (busy || same_options) {
                 return Ok(p.input.clone());
             }
@@ -311,7 +311,7 @@ impl Claude {
 
         let rules = crate::skills::RULES;
         let is_subsession = session.parent_session.is_some() || session.delegated_by_pm;
-        let can_delegate = is_pm || !is_subsession;
+        let can_delegate = is_pm;
         let prompt = if is_pm {
             let policy = include_str!("../resources/coordinadores/politica.md");
             format!(
@@ -395,6 +395,7 @@ impl Claude {
                                 *active = None;
                             }
                             runs::record(&handle, |conn| {
+                                runs::result(conn,run,msg["result"].as_str(),(outcome!="completed").then(||msg.to_string()).as_deref()).map_err(err)?;
                                 runs::usage(conn, run, runs::Usage::claude(&msg)).map_err(err)?;
                                 runs::finish(conn, run, outcome).map_err(err)
                             });
@@ -466,6 +467,7 @@ impl Claude {
                         continue;
                     }
                     drop(requests);
+                    runs::on_active(&handle,id,|conn,run|runs::phase(conn,run,"waiting_approval"));
                     if is_subsession {
                         notify_subsession(&handle, id);
                     }
@@ -475,6 +477,7 @@ impl Claude {
                     crate::handoff::pause(&handle, id, &format!("cuota agotada: límite {window} de Claude"));
                 }
                 if msg["type"] == json!("result") {
+                    if let Ok(mut requests)=pending.lock() { requests.retain(|_,request|request.session!=id); }
                     handle.state::<AppState>().tracker.finished(id, msg["result"].as_str());
                     if is_subsession {
                         notify_subsession(&handle, id);
@@ -513,7 +516,7 @@ impl Claude {
         };
         write_line(&stdin, &json!({ "type": "control_request", "request_id": uuid::Uuid::new_v4().to_string(), "request": init_request }))?;
         let input = Input { stdin, run };
-        procs.insert(session.id, Proc { child, input: input.clone(), effort: effort.map(str::to_string), pinned_model, readonly, alive });
+        procs.insert(session.id, Proc { child, input: input.clone(), effort: effort.map(str::to_string), pinned_model, tools_version: crate::delegate::TOOLS_VERSION, alive });
         Ok(input)
     }
 }
@@ -625,7 +628,7 @@ pub fn create_pm_subsession(
             crate::skills::assign_session(&tx, s.id, role)?;
         }
         if let Some(tid) = task_id {
-            let _ = tasks::link(&tx, project, tid, s.id);
+            tasks::link(&tx, project, tid, s.id)?;
         }
         if let Some(p) = &parent {
             if let (Some(wt), Some(br)) = (&p.worktree, &p.branch) {
@@ -843,15 +846,38 @@ pub async fn session_send(app: AppHandle, id: i64, text: String, effort: Option<
 /// Envía un mensaje a la sesión, arrancando su proceso si hace falta.
 /// Bloquea mientras arranca: llamar fuera del hilo principal.
 pub fn send_message(app: &AppHandle, id: i64, text: String, effort: Option<String>) -> CmdResult<()> {
-    send_content(app, id, crate::attachments::Message::text(text), effort, Vec::new(), None, None)
+    crate::runs::enqueue_session(app,id,text,effort).map(|_|())
 }
 
 pub(crate) fn send_with_images(app: &AppHandle, id: i64, text: &str, images: Vec<Value>) -> CmdResult<()> {
     send_content(app, id, crate::attachments::Message::text(text.into()), None, images, None, None)
 }
 
-fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Message, effort: Option<String>,
-    mut images: Vec<Value>, pm_task: Option<i64>, expected_engine: Option<&str>,
+fn send_content(app: &AppHandle, id: i64, message: crate::attachments::Message, effort: Option<String>,
+    images: Vec<Value>, pm_task: Option<i64>, expected_engine: Option<&str>,
+) -> CmdResult<()> {
+    let state=app.state::<AppState>();
+    let session=open_session(&state,id)?;
+    if expected_engine.is_some_and(|engine|engine!=session.engine) { return Err("La sesión ha cambiado de proveedor. Vuelve a enviar desde la sesión actual.".into()); }
+    if !images.is_empty() && session.engine!="claude" { return Err("la sesión no admite capturas de diseño".into()); }
+    if session.engine=="codex" { return crate::codex::send_turn(app,&session.project,Some(&session),None,message,effort); }
+    let run={
+        let mut conn=state.db.lock().map_err(err)?;
+        let pm=crate::chat::is_pm(&conn,id).map_err(err)?;
+        let task=if pm {pm_task} else {tasks::linked(&conn,id).map_err(err)?};
+        let task=if task.is_none() && !pm {Some(tasks::delegation(&mut conn,&session.project,None,&message.text.lines().find(|l|!l.trim().is_empty()).unwrap_or("Encargo").chars().take(110).collect::<String>(),&message.text,&message.text,&session.engine,"senior")?)} else {task};
+        if !pm { if let Some(task)=task { tasks::link(&conn,&session.project,task,id)?; } }
+        runs::prepare(&conn,&session.project,&runs::session_scope(id),&session.engine,(!pm).then_some(id),task,&message.text,pm)?
+    };
+    let result=send_prepared_content(app,id,message,effort,images,pm_task,expected_engine,run);
+    if let Err(error)=&result { runs::record(app,|conn|runs::fail_start(conn,run,error).map_err(err)); }
+    tasks::changed(app);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_prepared_content(app: &AppHandle, id: i64, mut message: crate::attachments::Message, effort: Option<String>,
+    mut images: Vec<Value>, pm_task: Option<i64>, expected_engine: Option<&str>, prepared: i64,
 ) -> CmdResult<()> {
     let state = app.state::<AppState>();
     let gate = state.chat_gate.lock().map_err(err)?;
@@ -888,7 +914,7 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
         };
         let scope = runs::session_scope(id);
         let previous = runs::last_task(&tx, &scope).map_err(err)?;
-        let run = runs::begin(&tx, &session.project, &scope, &session.engine, (!is_pm).then_some(id), task)?;
+        let run = runs::begin_prepared(&tx, &session.project, &scope, &session.engine, (!is_pm).then_some(id), task,Some(prepared))?;
         let input = runs::task_input(&tx, run, &session.project, task, previous, text)?;
         let input = crate::chat::with_context(&tx, &session.project, (!is_pm).then_some(id), run, input)?;
         let input = crate::skills::with_catalog(app, &tx, &session.project, (!is_pm).then_some(id), input)?;
@@ -938,11 +964,13 @@ fn send_content(app: &AppHandle, id: i64, mut message: crate::attachments::Messa
 }
 
 #[tauri::command]
-pub fn session_interrupt(state: State<AppState>, id: i64) -> CmdResult<()> {
-    if open_session(&state, id)?.engine != "claude" {
-        return state.acp.interrupt(id);
+pub fn session_interrupt(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
+    let session=open_session(&state,id)?;
+    match session.engine.as_str() {
+        "codex"=>crate::codex::interrupt(&app,&session.provider_session),
+        "claude"=>state.claude.interrupt(id),
+        _=>state.acp.interrupt(id),
     }
-    state.claude.interrupt(id)
 }
 
 /// Respuesta de permiso de Claude Code para una decisión del usuario.
@@ -972,12 +1000,16 @@ pub fn session_respond(app: AppHandle, state: State<AppState>, request_id: Strin
     let p = procs.get(&claimed.session)
         .filter(|p| Arc::ptr_eq(&p.alive, &claimed.process) && p.alive.load(Ordering::SeqCst))
         .ok_or("el proceso que pidió el permiso ya no está en marcha")?;
-    write_line(
+    let sent=write_line(
         &p.input.stdin,
         &json!({ "type": "control_response", "response": { "subtype": "success",
             "request_id": claimed.provider_id, "response": permission(&claimed.request, &decision) } }),
-    )?;
+    );
     drop(procs);
+    if let Err(error)=sent {
+        state.claude.pending.lock().map_err(err)?.insert(request_id,claimed);
+        return Err(error);
+    }
     if state.claude.pending_for(claimed.session) == 0 {
         runs::on_active(&app, claimed.session, |conn, run| runs::phase(conn, run, "running"));
         notify_subsession(&app, claimed.session);

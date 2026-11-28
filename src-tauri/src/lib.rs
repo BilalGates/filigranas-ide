@@ -12,6 +12,7 @@ mod chat;
 mod claude;
 mod cli;
 mod codex;
+mod composer;
 mod containers;
 mod db;
 mod delegate;
@@ -74,6 +75,7 @@ pub(crate) struct AppState {
     pub permissions: autoapprove::Modes,
     pub sysmon: sysmon::Monitor,
     pub jev_gate: Mutex<()>,
+    pub flow_dispatch: Mutex<()>,
     pub chat_gate: Mutex<()>,
     // Se libera después de destruir los recursos del perfil.
     _profile_lock: std::fs::File,
@@ -163,10 +165,10 @@ pub fn run() {
                 permissions: Default::default(),
                 sysmon: Default::default(),
                 jev_gate: Default::default(),
+                flow_dispatch: Default::default(),
                 chat_gate: Default::default(),
             });
-            #[cfg(all(debug_assertions, feature = "p0-acceptance"))]
-            p0_acceptance::start(app.handle().clone());
+            runs::wake_queue(app.handle());
             tools::start_auto(app.handle().clone());
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -179,6 +181,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(main_webview_only(tauri::generate_handler![
+            composer::composer_settings,
+            composer::composer_configure,
+            composer::composer_usage,
+            composer::composer_suggest,
+            composer::composer_improve,
+            composer::composer_cancel,
             updates::update_status,
             updates::update_check,
             updates::update_download,
@@ -291,7 +299,12 @@ pub fn run() {
             work::work_prepare,
             work::work_resume,
             tasks::tasks_list,
+            tasks::task_plans_list,
+            tasks::task_plan_detail,
+            tasks::task_plan_create,
             tasks::task_flow,
+            runs::flow_enqueue,
+            runs::flow_cancel_run,
             tasks::task_save,
             tasks::task_link,
             tasks::task_runs,
@@ -401,7 +414,13 @@ mod tests {
         let first = lock_profile(&dir).unwrap();
         assert_eq!(lock_profile(&dir).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
         drop(first);
-        assert!(lock_profile(&dir).is_ok());
+        // Un hijo lanzado en paralelo por otra prueba puede heredar el descriptor
+        // entre fork y exec y retener el flock unos milisegundos.
+        let reopened = (0..50).find_map(|_| lock_profile(&dir).ok().or_else(|| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            None
+        }));
+        assert!(reopened.is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

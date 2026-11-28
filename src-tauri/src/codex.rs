@@ -79,9 +79,7 @@ struct Shared {
     /// Turno en marcha por hilo, para poder interrumpirlo.
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
-    approvals: HashSet<String>,
-    /// Paths announced by the provider before a patch approval; never diffs.
-    patch_paths: HashMap<String, Vec<String>>,
+    approvals: HashMap<String,String>,
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
     models: HashMap<String, String>,
@@ -99,6 +97,7 @@ enum Observation {
     Completed(String, String, &'static str, bool),
     Usage(String, String, runs::Usage),
     Phase(String, &'static str),
+    Result(String,Option<String>,String),
     Quota(runs::Quota),
     Closed,
 }
@@ -128,6 +127,13 @@ impl Observation {
                 }
                 Ok(())
             }
+            Self::Result(thread,turn,text) => {
+                let run=match turn { Some(turn)=>runs::for_turn(conn,&thread,&turn).map_err(err)?, None=>runs::active(conn,&thread)? };
+                // The last completed agent message is the final answer. Replayed items
+                // replace the same value rather than duplicating it; late turns cannot alter it.
+                if let Some(run)=run { runs::result(conn,run,Some(&text),None).map_err(err)?; }
+                Ok(())
+            }
             Self::Quota(quota) => runs::codex_quota(conn, quota).map_err(err),
             Self::Closed => runs::provider_closed(conn, "codex"),
         }
@@ -145,6 +151,8 @@ fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
     }
     let thread = params["threadId"].as_str()?.to_string();
     match event.method.as_str() {
+        "item/completed" if params["item"]["type"]=="agentMessage" =>
+            Some(Observation::Result(thread,params["turnId"].as_str().map(str::to_owned),params["item"]["text"].as_str().unwrap_or("").to_owned())),
         "turn/started" => Some(Observation::Started(thread, params.pointer("/turn/id")?.as_str()?.into())),
         "turn/completed" => {
             let turn = params.pointer("/turn/id")?.as_str()?;
@@ -173,7 +181,10 @@ fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
             let turn = params["turnId"].as_str()?;
             Some(Observation::Usage(thread, turn.into(), runs::Usage { model: Some(model.into()), ..Default::default() }))
         }
-        "serverRequest/resolved" => Some(Observation::Phase(thread, "running")),
+        "serverRequest/resolved" => {
+            let phase=if shared.approvals.values().any(|owner|owner==&thread) {"waiting_approval"} else {"running"};
+            Some(Observation::Phase(thread,phase))
+        },
         method if APPROVALS.contains(&method) => Some(Observation::Phase(thread, "waiting_approval")),
         _ => None,
     }
@@ -197,6 +208,142 @@ struct Event {
 impl Codex {
     pub fn jev_models(&self) -> CmdResult<Vec<String>> {
         Ok(self.shared.lock().map_err(err)?.low_text_models.clone())
+    }
+
+    /// Indica si la cuota conocida de Codex está agotada.
+    pub fn quota_exhausted(&self) -> bool {
+        self.shared.lock().map(|sh| sh.quota.exhausted()).unwrap_or(false)
+    }
+
+    /// Elige el modelo rápido más apropiado del catálogo de Codex (evitando
+    /// modelos pesados cuando exista una variante mini/spark/fast).
+    fn pick_lightweight_model(&self, requested: Option<&str>) -> Option<String> {
+        if let Some(m) = requested.map(str::trim).filter(|m| !m.is_empty()) {
+            return Some(m.to_string());
+        }
+        let sh = self.shared.lock().ok()?;
+        let prefer = |m: &str| {
+            let l = m.to_ascii_lowercase();
+            l.contains("mini") || l.contains("spark") || l.contains("nano") || l.contains("flash") || l.contains("fast")
+        };
+        sh.low_text_models.iter().find(|m| prefer(m)).cloned()
+            .or_else(|| sh.low_text_models.first().cloned())
+    }
+
+    /// Turno ligero y cancelable en un hilo efímero de solo lectura con esfuerzo
+    /// `low` y salida estructurada JSON. Nunca crea sesiones visibles ni toca disco.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_lightweight(
+        &self,
+        app: &AppHandle,
+        cwd: &str,
+        instructions: &str,
+        prompt: &str,
+        schema: Value,
+        model: Option<&str>,
+        limit: Duration,
+        cancel: &std::sync::atomic::AtomicBool,
+    ) -> CmdResult<crate::composer::LightReply> {
+        use std::sync::atomic::Ordering;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelado".into());
+        }
+        let _execution = crate::updates::Execution::enter()?;
+        let rpc = self.rpc(app)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelado".into());
+        }
+        let chosen_model = self.pick_lightweight_model(model);
+        let mut thread_args = json!({
+            "cwd": cwd,
+            "sandbox": "read-only",
+            "approvalPolicy": "never",
+            "developerInstructions": instructions,
+            "ephemeral": true,
+        });
+        if let Some(m) = &chosen_model {
+            thread_args["model"] = json!(m);
+        }
+        let res = rpc.request("thread/start", thread_args, SHORT)?;
+        let thread = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        let mut reported_model = res["model"].as_str().map(str::to_string).or(chosen_model);
+        let (tx, rx) = channel();
+        self.shared.lock().map_err(err)?.waiters.insert(thread.clone(), tx);
+        let deadline = std::time::Instant::now() + limit;
+        let result = (|| {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelado".into());
+            }
+            let started = rpc.request(
+                "turn/start",
+                json!({
+                    "threadId": thread,
+                    "effort": "low",
+                    "outputSchema": schema,
+                    "input": [{ "type": "text", "text": prompt, "text_elements": [] }]
+                }),
+                SHORT,
+            )?;
+            let turn = started.pointer("/turn/id").and_then(Value::as_str).unwrap_or("").to_string();
+            let mut last = String::new();
+            let mut input_tokens: Option<u64> = None;
+            let mut output_tokens: Option<u64> = None;
+            loop {
+                if cancel.load(Ordering::Relaxed) {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Duration::from_secs(3));
+                    return Err("cancelado".into());
+                }
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    let _ = rpc.request("turn/interrupt", json!({ "threadId": thread, "turnId": turn }), Duration::from_secs(3));
+                    return Err(format!("codex no respondió en {} s", limit.as_secs()));
+                }
+                match rx.recv_timeout(left.min(Duration::from_millis(120))) {
+                    Ok((method, params)) => match method.as_str() {
+                        "model/selected" => {
+                            if let Some(m) = params["model"].as_str() {
+                                reported_model = Some(m.to_string());
+                            }
+                        }
+                        "model/rerouted" => {
+                            if let Some(m) = params["toModel"].as_str() {
+                                reported_model = Some(m.to_string());
+                            }
+                        }
+                        "thread/tokenUsage/updated" => {
+                            let u = runs::Usage::codex(&params["tokenUsage"]["last"]);
+                            if let Some(i) = u.input { input_tokens = Some(i as u64); }
+                            if let Some(o) = u.output { output_tokens = Some(o as u64); }
+                        }
+                        "item/completed" if params.pointer("/item/type") == Some(&json!("agentMessage")) => {
+                            last = params.pointer("/item/text").and_then(Value::as_str).unwrap_or("").to_string();
+                        }
+                        "turn/completed" => {
+                            if let Some(e) = params.pointer("/turn/error/message").and_then(Value::as_str) {
+                                return Err(e.to_string());
+                            }
+                            return Ok(crate::composer::LightReply {
+                                text: last,
+                                provider: "codex".into(),
+                                model: reported_model,
+                                input_tokens,
+                                output_tokens,
+                                cost_usd: None,
+                            });
+                        }
+                        _ => {}
+                    },
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err("codex cerró la conexión".into());
+                    }
+                }
+            }
+        })();
+        if let Ok(mut sh) = self.shared.lock() {
+            sh.waiters.remove(&thread);
+        }
+        result
     }
 
     /// Turno único en un hilo efímero de solo lectura, con salida JSON según
@@ -323,7 +470,7 @@ impl Codex {
                         }
                         "turn/completed" => {
                             sh.turns.remove(&thread);
-                            sh.patch_paths.retain(|key,_| !key.starts_with(&format!("{thread}:")));
+                            sh.approvals.retain(|_,owner|owner!=&thread);
                         }
                         // Resuelta por otra vía (p. ej. turno interrumpido).
                         "serverRequest/resolved" => {
@@ -379,31 +526,12 @@ impl Codex {
                         } else {
                             crate::autoapprove::Mode::Ask
                         };
-                        let cwd = sh.sessions.get(&thread).and_then(|sid| {
-                            let state = handle.state::<AppState>();
-                            let conn = state.db.lock().ok()?;
-                            db::session(&conn, *sid).ok().flatten().map(|s| s.worktree.unwrap_or(s.project))
-                        }).or_else(|| sh.projects.get(&thread).cloned()).unwrap_or_default();
-                        let (kind, mut paths, command) = crate::autoapprove::codex_request(&method, &params);
-                        if method == "item/fileChange/requestApproval" && paths.is_empty() {
-                            paths = sh.patch_paths.get(&format!("{thread}:{}", params["itemId"].as_str().unwrap_or(""))).cloned().unwrap_or_default();
-                        }
-                        match crate::autoapprove::evaluate(mode, std::path::Path::new(&cwd), kind, &paths, command.as_deref()) {
-                            crate::autoapprove::PolicyDecision::Allow => {
-                                let _ = rpc.respond(id, json!({ "decision": "accept" }));
-                                Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": { "command": command } }), request_id: None }
-                            }
-                            crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } => {
-                                let _ = rpc.respond(id, json!({ "decision": "decline" }));
-                                Event { method: "filigranas/policyDenied".into(), params: json!({ "threadId": thread, "origin": origin, "reason": reason }), request_id: None }
-                            }
-                            crate::autoapprove::PolicyDecision::Ask { origin, reason } => {
-                                let mut params = params;
-                                params["origin"] = json!(origin);
-                                if let Some(reason) = reason { params["reason"] = json!(reason); }
-                                sh.approvals.insert(id.to_string());
-                                Event { method, params, request_id: Some(id) }
-                            }
+                        let full = mode == crate::autoapprove::Mode::Full;
+                        if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
+                            Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
+                        } else {
+                            sh.approvals.insert(id.to_string(),thread.clone());
+                            Event { method, params, request_id: Some(id) }
                         }
                     }
                 }
@@ -417,6 +545,13 @@ impl Codex {
             };
             let observation = observation(&mut sh, &event);
             drop(sh);
+            if event.method=="turn/completed" && !event.params["turn"]["error"].is_null() {
+                let thread=event.params["threadId"].as_str().unwrap_or("");
+                runs::record(&handle,|conn| {
+                    if let Some(run)=runs::active(conn,thread)? {runs::result(conn,run,None,Some(&event.params["turn"]["error"].to_string())).map_err(err)?;}
+                    Ok(())
+                });
+            }
             if let Some(observation) = observation {
                 runs::record(&handle, |conn| observation.store(conn));
             }
@@ -477,6 +612,7 @@ impl Codex {
         };
         let cwd = session.map(db::Session::cwd).unwrap_or(path);
         let rpc = self.rpc(app)?;
+        let upgrading=upgrade_from.is_some();
         if let Some(previous) = upgrade_from {
             let history = self.read_history(app, &previous)?;
             crate::chat::archive_tool_upgrade(&mut *state.db.lock().map_err(err)?, path, &previous, &history)?;
@@ -516,6 +652,11 @@ impl Codex {
         }
         let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        if upgrading {
+            let items:String=state.db.lock().map_err(err)?.query_row("SELECT items FROM chat_history WHERE scope=?1",[format!("pm:{path}")],|r|r.get(0)).map_err(err)?;
+            rpc.request("thread/inject_items",json!({"threadId":id,"items":[{"type":"message","role":"developer","content":[{"type":"input_text","text":format!("Historial accesible de mensajes de usuario/asistente archivados, sin truncamiento. No incluye razonamiento ni todas las salidas de herramientas: {items}")}]}]}),LONG)
+                .map_err(|e|format!("No se pudo transferir el historial completo accesible; se conserva el hilo anterior: {e}"))?;
+        }
         let conn = state.db.lock().map_err(err)?;
         if let Some(session) = session {
             db::set_provider_session(&conn, session.id, &id).map_err(err)?;
@@ -688,7 +829,26 @@ fn failed_start_outcome(error: &str, provider_alive: bool) -> Option<&'static st
 
 /// Usa el mismo app-server para el PM y las conversaciones directas.
 pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
-    mut message: crate::attachments::Message, effort: Option<String>,
+    message: crate::attachments::Message, effort: Option<String>,
+) -> CmdResult<()> {
+    let state=app.state::<AppState>();
+    let (run,task)={
+        let mut conn=state.db.lock().map_err(err)?;
+        let task=match direct {Some(s)=>tasks::linked(&conn,s.id).map_err(err)?,None=>task};
+        let task=if task.is_none() && direct.is_some() {Some(tasks::delegation(&mut conn,path,None,&message.text.lines().find(|l|!l.trim().is_empty()).unwrap_or("Encargo").chars().take(110).collect::<String>(),&message.text,&message.text,"codex","senior")?)} else {task};
+        if let (Some(s),Some(task))=(direct,task) { tasks::link(&conn,path,task,s.id)?; }
+        let scope=direct.map(|s|runs::session_scope(s.id)).unwrap_or_else(||format!("pm:{path}"));
+        (runs::prepare(&conn,path,&scope,"codex",direct.map(|s|s.id),task,&message.text,direct.is_none())?,task)
+    };
+    let result=send_prepared(app,path,direct,task,message,effort,run);
+    if let Err(error)=&result { runs::record(app,|conn|runs::fail_start(conn,run,error).map_err(err)); }
+    tasks::changed(app);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_prepared(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
+    mut message: crate::attachments::Message, effort: Option<String>, prepared: i64,
 ) -> CmdResult<()> {
     let text = &message.text;
     let state = app.state::<AppState>();
@@ -735,7 +895,7 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
         let tx = conn.transaction().map_err(err)?;
         let task = if let Some(session) = direct { tasks::linked(&tx, session.id).map_err(err)? } else { task };
         let previous = runs::last_task(&tx, &thread_id).map_err(err)?;
-        let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
+        let run = runs::begin_prepared(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task, Some(prepared))?;
         let input = runs::task_input(&tx, run, path, task, previous, text)?;
         let input = crate::chat::with_context(&tx, path, session_id, run, input)?;
         let input = crate::skills::with_catalog(app, &tx, path, session_id, input)?;
@@ -900,11 +1060,18 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     if !DECISIONS.contains(&decision.as_str()) {
         return Err("decisión no válida".into());
     }
-    if !state.codex.shared.lock().map_err(err)?.approvals.remove(&request_id.to_string()) {
-        return Err("esa petición ya no está pendiente".into());
+    let key=request_id.to_string();
+    let thread=state.codex.shared.lock().map_err(err)?.approvals.remove(&key).ok_or("esa petición ya no está pendiente")?;
+    if let Err(error)=state.codex.rpc(&app)?.respond(request_id,json!({"decision":decision})) {
+        state.codex.shared.lock().map_err(err)?.approvals.insert(key,thread);
+        return Err(error);
     }
-    let decision = if decision == "acceptForSession" { "accept" } else { decision.as_str() };
-    state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
+    let waiting=state.codex.shared.lock().map_err(err)?.approvals.values().any(|owner|owner==&thread);
+    runs::record(&app,|conn| {
+        if let Some(run)=runs::active(conn,&thread)? {runs::phase(conn,run,if waiting {"waiting_approval"} else {"running"}).map_err(err)?;}
+        Ok(())
+    });
+    Ok(())
 }
 
 /// Lee la cuota de la cuenta sin abrir ni crear una conversación.
@@ -933,6 +1100,24 @@ fn read_rate_limits(rpc: &Rpc) -> CmdResult<Value> {
 mod tests {
     use super::*;
     use crate::rpc::tests::{fake, write};
+
+    #[test]
+    fn flow_codex_final_output_and_permission_resolution_are_persistent() {
+        let mut conn=db::open(std::path::Path::new(":memory:")).unwrap();
+        let tx=conn.transaction().unwrap();
+        let run=runs::begin(&tx,"/a","thread","codex",None,None).unwrap();
+        tx.commit().unwrap();
+        let mut shared=Shared::default();
+        let event=|method:&str,params:Value|Event{method:method.into(),params,request_id:None};
+        observation(&mut shared,&event("turn/started",json!({"threadId":"thread","turn":{"id":"turn"}}))).unwrap().store(&conn).unwrap();
+        observation(&mut shared,&event("item/completed",json!({"threadId":"thread","item":{"type":"agentMessage","text":"durable final"}}))).unwrap().store(&conn).unwrap();
+        runs::phase(&conn,run,"waiting_approval").unwrap();
+        observation(&mut shared,&event("serverRequest/resolved",json!({"threadId":"thread"}))).unwrap().store(&conn).unwrap();
+        assert_eq!(conn.query_row("SELECT waiting_permissions FROM task_runs WHERE id=?1",[run],|r|r.get::<_,i64>(0)).unwrap(),0);
+        observation(&mut shared,&event("turn/completed",json!({"threadId":"thread","turn":{"id":"turn","status":"completed"}}))).unwrap().store(&conn).unwrap();
+        let row:(String,String)=conn.query_row("SELECT result,outcome FROM task_runs WHERE id=?1",[run],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(row,("durable final".into(),"completed".into()));
+    }
 
     #[test]
     fn a_late_codex_start_keeps_the_reservation_until_completion() {

@@ -332,7 +332,11 @@ export const sessions = {
   handoff: (id: number, engine: string) => invoke<Session>('session_handoff', { id, engine }),
 };
 
-export type TaskEdit = {
+export type TaskPlanInput = { title: string; goal: string; criteria: string };
+export type TaskPlan = TaskPlanInput & { progress: { total: number; done: number }; id: number; project: string; createdAt: number; updatedAt: number };
+export type TaskMetadata = { planId: number | null; prompt: string | null; agent: string | null; role: string | null };
+export type TaskFlow = { plans: TaskPlan[]; tasks: Task[]; runs: Record<number, TaskRun[]> };
+export type TaskEdit = Partial<TaskMetadata> & {
   id: number | null;
   parentId: number | null;
   title: string;
@@ -345,7 +349,9 @@ export type TaskEdit = {
   tests: string | null;
   dependencies: number[];
 };
-export type Task = Omit<TaskEdit, 'id'> & {
+export type TaskPhase = 'pending' | 'queued' | 'waiting_dependencies' | 'running' | 'waiting_permission' | 'verifying' | 'blocked' | 'done' | 'failed' | 'cancelled' | 'paused_quota' | 'interrupted';
+export type Task = Omit<TaskEdit, 'id'> & TaskMetadata & {
+  phase: TaskPhase;
   id: number;
   createdAt: number;
   updatedAt: number;
@@ -356,6 +362,12 @@ export type Task = Omit<TaskEdit, 'id'> & {
   })[];
 };
 export type TaskRun = {
+  error: string | null;
+  waitingPermissions: number;
+  attempt: number | null;
+  prompt: string | null;
+  result: string | null;
+  dispatchedMs: number | null;
   id: number;
   sessionId: number | null;
   provider: string;
@@ -410,9 +422,41 @@ export const jev = {
   statusbar: () => invoke<JevStatusbar>('jev_statusbar'),
   configure: (change: Omit<JevSettings, 'model'> & { consent: boolean }) => invoke<JevStatus>('jev_configure', { change }),
 };
+export const taskPlans = {
+  create: (project: string, input: TaskPlanInput) => invoke<number>('task_plan_create', { project, input }),
+  list: (project: string) => invoke<TaskPlan[]>('task_plans_list', { project }),
+  detail: (project: string, plan: number) => invoke<TaskPlan>('task_plan_detail', { project, plan }),
+};
+export const flowRuntime = {
+  enqueue: (project: string, session: number, prompt: string, effort: string | null = null) => invoke<number>('flow_enqueue', { project, session, prompt, effort }),
+  cancelRun: (project: string, run: number) => invoke<void>('flow_cancel_run', { project, run }),
+};
+// Compositor inteligente: sugerencias y mejora de prompts (nunca envía nada).
+export type ComposerSettings = {
+  enabled: boolean;
+  suggestions: boolean;
+  ai: boolean;
+  jev: boolean;
+  resume: boolean;
+  provider: 'auto' | 'claude' | 'codex';
+  model: string | null;
+  dailyLimit: number;
+};
+export type ComposerMessage = { role: 'user' | 'assistant'; text: string };
+export type ComposerSuggestion = { text: string; source: string; action: string };
+export type ComposerUsage = { calls: number; limit: number; local: number; inputTokens: number; outputTokens: number; costUsd: number | null; providers: [string, number][] };
+export type ComposerScope = { project: string; scope: string; session: number | null; task: number | null; messages: ComposerMessage[] };
+export const composer = {
+  settings: () => invoke<ComposerSettings>('composer_settings'),
+  configure: (settings: ComposerSettings) => invoke<ComposerSettings>('composer_configure', { settings }),
+  usage: () => invoke<ComposerUsage>('composer_usage'),
+  suggest: (request: ComposerScope & { event: 'turn_end' | 'resume' }) => invoke<ComposerSuggestion | null>('composer_suggest', { request }),
+  improve: (request: ComposerScope & { text: string }) => invoke<{ text: string; provider: string; model: string | null }>('composer_improve', { request }),
+  cancel: (scope: string) => invoke<void>('composer_cancel', { scope }),
+};
 export const tasks = {
   list: (project: string) => invoke<Task[]>('tasks_list', { project }),
-  flow: (project: string) => invoke<{ tasks: Task[]; runs: Record<number, TaskRun[]> }>('task_flow', { project }),
+  flow: (project: string) => invoke<TaskFlow>('task_flow', { project }),
   save: (project: string, input: TaskEdit) => invoke<number>('task_save', { project, input }),
   link: (project: string, task: number, session: number) => invoke<void>('task_link', { project, task, session }),
   runs: (project: string, task: number) => invoke<TaskRun[]>('task_runs', { project, task }),

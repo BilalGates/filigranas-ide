@@ -18,6 +18,8 @@ export type GraphOptions = {
   dim?: boolean;
   pad?: [number, number, number, number];
   minFit?: number;
+  /** Flow keeps user pan/zoom when geometry changes. Default unchanged. */
+  preserveCamera?: boolean;
   maxFit?: number;
   label?: string;
   onSelect?: (id: string | null) => void;
@@ -181,7 +183,8 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
     N = new Map(nodes.map((n) => [n.id, n]));
     const tg = nodes.map((n) => ({ n, fx: from.get(n.id)?.x ?? n.x, fy: from.get(n.id)?.y ?? n.y + 20, tx: n.x, ty: n.y, isNew: !from.has(n.id) }));
     draw();
-    if (reduced() || dur < 10) { if (dur >= 10) fit(true); return; }
+    if (o.preserveCamera && tg.every((t) => !t.isNew && t.fx === t.tx && t.fy === t.ty)) return;
+    if (reduced() || dur < 10) { if (dur >= 10 && !o.preserveCamera) fit(true); return; }
     for (const t of tg) { const g = els.get(t.n.id); if (t.isNew && g) g.style.opacity = '0'; }
     const t0 = performance.now();
     const step = (tt: number) => {
@@ -193,7 +196,7 @@ export function createGraph(svg: SVGSVGElement, o: GraphOptions) {
       }
       eels.forEach((pe, i) => pe.setAttribute('d', path(E[i])));
       if (p < 1) morphFrame = requestAnimationFrame(step);
-      else { for (const t of tg) { t.n.x = t.tx; t.n.y = t.ty; } drawEdges(); const to = fitTo(); if (to) anim(to, 420); }
+      else { for (const t of tg) { t.n.x = t.tx; t.n.y = t.ty; } drawEdges(); const to = o.preserveCamera ? null : fitTo(); if (to) anim(to, 420); }
     };
     morphFrame = requestAnimationFrame(step);
   }

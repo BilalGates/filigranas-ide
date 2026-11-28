@@ -9,6 +9,13 @@ use crate::{db, err, workspace::project_path, AppState, CmdResult};
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "BEGIN;
+         CREATE TABLE IF NOT EXISTS task_plans (
+           id INTEGER PRIMARY KEY, project TEXT NOT NULL, title TEXT NOT NULL,
+           goal TEXT NOT NULL, criteria TEXT NOT NULL,
+           created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+           updated_at INTEGER NOT NULL DEFAULT (unixepoch()), UNIQUE(id, project)
+         );
+         CREATE INDEX IF NOT EXISTS task_plans_project ON task_plans(project);
          CREATE TABLE IF NOT EXISTS tasks (
            id INTEGER PRIMARY KEY, project TEXT NOT NULL, parent_id INTEGER REFERENCES tasks(id),
            title TEXT NOT NULL, goal TEXT NOT NULL, criteria TEXT NOT NULL,
@@ -26,12 +33,38 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS task_sessions_task ON task_sessions(task_id);
          COMMIT;",
+    )?;
+    db::add_columns(conn, "tasks", &[
+        ("plan_id", "INTEGER REFERENCES task_plans(id)"),
+        ("prompt", "TEXT"), ("agent", "TEXT"), ("role", "TEXT"),
+    ])?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS tasks_plan ON tasks(plan_id);
+         CREATE TRIGGER IF NOT EXISTS tasks_plan_project_insert BEFORE INSERT ON tasks
+         WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS
+           (SELECT 1 FROM task_plans WHERE id=NEW.plan_id AND project=NEW.project)
+         BEGIN SELECT RAISE(ABORT, 'plan fuera del proyecto'); END;
+         CREATE TRIGGER IF NOT EXISTS tasks_plan_project_update BEFORE UPDATE OF plan_id,project ON tasks
+         WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS
+           (SELECT 1 FROM task_plans WHERE id=NEW.plan_id AND project=NEW.project)
+         BEGIN SELECT RAISE(ABORT, 'plan fuera del proyecto'); END;"
     )
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    plan_id: Option<i64>,
+    prompt: Option<String>,
+    agent: Option<String>,
+    role: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edit {
+    #[serde(flatten)]
+    metadata: Metadata,
     id: Option<i64>,
     parent_id: Option<i64>,
     title: String,
@@ -48,6 +81,9 @@ pub struct Edit {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
+    #[serde(flatten)]
+    metadata: Metadata,
+    phase: String,
     id: i64,
     parent_id: Option<i64>,
     title: String,
@@ -78,7 +114,7 @@ struct Link {
     github: Option<crate::github::Branch>,
 }
 
-fn task_in(conn: &Connection, project: &str, id: i64) -> CmdResult<()> {
+pub(crate) fn task_in(conn: &Connection, project: &str, id: i64) -> CmdResult<()> {
     let exists: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=?1 AND project=?2)", params![id, project], |row| row.get(0)).map_err(err)?;
     exists.then_some(()).ok_or_else(|| "la tarea no pertenece al proyecto".into())
 }
@@ -94,13 +130,15 @@ fn waiting_for(conn: &Connection, id: i64) -> rusqlite::Result<Vec<i64>> {
 
 pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
     let mut query = conn.prepare(
-        "SELECT id,parent_id,title,goal,criteria,priority,risk,status,verification,tests,created_at,updated_at
+        "SELECT id,parent_id,title,goal,criteria,priority,risk,status,verification,tests,created_at,updated_at,plan_id,prompt,agent,role
          FROM tasks WHERE project=?1 ORDER BY id"
     ).map_err(err)?;
     let rows = query.query_map([project], |r| Ok(Task {
         id: r.get(0)?, parent_id: r.get(1)?, title: r.get(2)?, goal: r.get(3)?, criteria: r.get(4)?,
         priority: r.get(5)?, risk: r.get(6)?, status: r.get(7)?, verification: r.get(8)?,
         tests: r.get(9)?, created_at: r.get(10)?, updated_at: r.get(11)?,
+        phase: String::new(),
+        metadata: Metadata { plan_id: r.get(12)?, prompt: r.get(13)?, agent: r.get(14)?, role: r.get(15)? },
         dependencies: Vec::new(), waiting_for: Vec::new(), sessions: Vec::new(),
     })).map_err(err)?;
     let mut tasks = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
@@ -142,12 +180,32 @@ pub fn list(conn: &Connection, project: &str) -> CmdResult<Vec<Task>> {
         }
         task.sessions.push(link);
     }
+    for task in &mut tasks { task.phase = derived_phase(conn,task)?; }
     Ok(tasks)
+}
+
+fn derived_phase(conn: &Connection, task: &Task) -> CmdResult<String> {
+    if matches!(task.status.as_str(),"done"|"cancelled"|"blocked") { return Ok(task.status.clone()); }
+    let active: Option<(String,u32)> = conn.query_row("SELECT outcome,waiting_permissions FROM task_runs
+        WHERE task_id=?1 AND ended_ms IS NULL AND coordinator=0 ORDER BY waiting_permissions DESC,id DESC LIMIT 1",
+        [task.id],|r|Ok((r.get(0)?,r.get(1)?))).optional().map_err(err)?;
+    if let Some((outcome,permissions))=active {
+        return Ok(if permissions>0 {"waiting_permission"} else if outcome=="queued" {if task.waiting_for.is_empty(){"queued"}else{"waiting_dependencies"}} else if outcome=="preparing" {"pending"} else {"running"}.into());
+    }
+    if !task.waiting_for.is_empty() { return Ok("waiting_dependencies".into()); }
+    if task.status=="ready" {
+        let last: Option<String>=conn.query_row("SELECT outcome FROM task_runs WHERE task_id=?1 AND coordinator=0 ORDER BY id DESC LIMIT 1",[task.id],|r|r.get(0)).optional().map_err(err)?;
+        if let Some(last)=last.filter(|s|matches!(s.as_str(),"failed"|"interrupted"|"paused_quota")) { return Ok(last); }
+    }
+    Ok(match task.status.as_str() {
+        "ready"|"backlog"=>"pending", "waiting_approval"|"running"=>"interrupted",
+        "review"|"ready_to_merge"=>"verifying", status=>status,
+    }.into())
 }
 
 pub fn save(conn: &mut Connection, project: &str, input: Edit) -> CmdResult<i64> {
     const MANUAL: [&str; 9] = ["backlog", "ready", "blocked", "verifying", "review", "ready_to_merge", "done", "cancelled", "failed"];
-    let Edit { id, parent_id, title, goal, criteria, priority, risk, status, verification, tests, dependencies } = input;
+    let Edit { metadata, id, parent_id, title, goal, criteria, priority, risk, status, verification, tests, dependencies } = input;
     let (title, goal, criteria) = (title.trim(), goal.trim(), criteria.trim());
     if title.is_empty() || goal.is_empty() || criteria.is_empty() {
         return Err("completa el título, el objetivo y los criterios".into());
@@ -159,6 +217,13 @@ pub fn save(conn: &mut Connection, project: &str, input: Edit) -> CmdResult<i64>
         return Err("prioridad, riesgo o resultado de pruebas no válido".into());
     }
     let tx = conn.transaction().map_err(err)?;
+    if let Some(plan) = metadata.plan_id {
+        plan_detail(&tx, project, plan)?;
+    }
+    if metadata.agent.as_deref().is_some_and(|v| !["claude", "codex", "opencode", "agy", "devin"].contains(&v))
+        || metadata.role.as_deref().is_some_and(|v| !["researcher", "designer", "senior", "junior", "auditor", "auditor2"].contains(&v)) {
+        return Err("agente o rol no válido para una tarea ejecutora".into());
+    }
     let previous = id.map(|id| {
         task_in(&tx, project, id)?;
         tx.query_row("SELECT status FROM tasks WHERE id=?1", [id], |r| r.get::<_, String>(0)).map_err(err)
@@ -192,6 +257,10 @@ pub fn save(conn: &mut Connection, project: &str, input: Edit) -> CmdResult<i64>
             tx.last_insert_rowid()
         }
     };
+    // Missing/null metadata preserves existing values for legacy editors.
+    tx.execute("UPDATE tasks SET plan_id=coalesce(?2,plan_id),prompt=coalesce(?3,prompt),
+        agent=coalesce(?4,agent),role=coalesce(?5,role) WHERE id=?1",
+        params![id,metadata.plan_id,metadata.prompt,metadata.agent,metadata.role]).map_err(err)?;
     tx.execute("DELETE FROM task_dependencies WHERE task_id=?1", [id]).map_err(err)?;
     for requires in dependencies {
         tx.execute("INSERT OR IGNORE INTO task_dependencies(task_id,requires_id) VALUES(?1,?2)", [id,requires]).map_err(err)?;
@@ -237,14 +306,17 @@ pub fn save(conn: &mut Connection, project: &str, input: Edit) -> CmdResult<i64>
     Ok(id)
 }
 
-pub fn delegated(conn: &mut Connection, project: &str, goal: &str) -> CmdResult<i64> {
-    let title = goal.lines().find(|l| !l.trim().is_empty()).unwrap_or("Encargo delegado").chars().take(110).collect();
-    save(conn, project, Edit {
-        id: None, parent_id: None, title, goal: goal.into(),
-        criteria: "Validar el objetivo delegado y registrar el resultado comprobado.".into(),
-        priority: "normal".into(), risk: "normal".into(), status: "ready".into(),
-        verification: String::new(), tests: None, dependencies: Vec::new(),
-    })
+#[allow(clippy::too_many_arguments)]
+pub fn delegation(conn: &mut Connection, project: &str, parent: Option<i64>, title: &str, goal: &str, prompt: &str, agent: &str, role: &str) -> CmdResult<i64> {
+    if let Some(parent)=parent { task_in(conn,project,parent)?; }
+    let plan=create_plan(conn,project,PlanInput{title:title.into(),goal:goal.into(),criteria:"Validar el objetivo delegado y registrar el resultado comprobado.".into()})?;
+    let result=save(conn,project,Edit {
+        metadata: Metadata {plan_id:Some(plan),prompt:Some(prompt.into()),agent:Some(agent.into()),role:Some(role.into())},
+        parent_id:parent,id:None,title:title.into(),goal:goal.into(),criteria:"Validar el objetivo delegado y registrar el resultado comprobado.".into(),
+        priority:"normal".into(),risk:"normal".into(),status:"ready".into(),verification:String::new(),tests:None,dependencies:Vec::new(),
+    });
+    if result.is_err() { conn.execute("DELETE FROM task_plans WHERE id=?1",[plan]).map_err(err)?; }
+    result
 }
 
 pub fn link(conn: &Connection, project: &str, task: i64, session: i64) -> CmdResult<()> {
@@ -345,7 +417,82 @@ pub async fn tasks_list(app: AppHandle, project: String) -> CmdResult<Vec<Task>>
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    progress: PlanProgress,
+    id: i64, project: String, title: String, goal: String, criteria: String,
+    created_at: i64, updated_at: i64,
+}
+
+#[derive(Default, Serialize)]
+pub struct PlanProgress { total: u32, done: u32 }
+
+#[derive(Deserialize)]
+pub struct PlanInput { title: String, goal: String, criteria: String }
+
+fn plan_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Plan> {
+    Ok(Plan { progress: PlanProgress::default(), id: row.get(0)?, project: row.get(1)?, title: row.get(2)?, goal: row.get(3)?,
+        criteria: row.get(4)?, created_at: row.get(5)?, updated_at: row.get(6)? })
+}
+
+pub fn plans(conn: &Connection, project: &str) -> CmdResult<Vec<Plan>> {
+    let mut q = conn.prepare("SELECT id,project,title,goal,criteria,created_at,updated_at FROM task_plans WHERE project=?1 ORDER BY id").map_err(err)?;
+    let rows = q.query_map([project], plan_row).map_err(err)?;
+    let mut plans=rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
+    for plan in &mut plans { plan.progress=plan_progress(conn,plan.id)?; }
+    Ok(plans)
+}
+
+fn plan_progress(conn: &Connection, id: i64) -> CmdResult<PlanProgress> {
+    conn.query_row("SELECT count(*),coalesce(sum(status='done'),0) FROM tasks WHERE plan_id=?1",[id],|r|Ok(PlanProgress{total:r.get(0)?,done:r.get(1)?})).map_err(err)
+}
+
+pub fn plan_detail(conn: &Connection, project: &str, id: i64) -> CmdResult<Plan> {
+    let mut plan=conn.query_row("SELECT id,project,title,goal,criteria,created_at,updated_at FROM task_plans WHERE project=?1 AND id=?2",
+        params![project,id], plan_row).optional().map_err(err)?.ok_or("el plan no pertenece al proyecto")?;
+    plan.progress=plan_progress(conn,id)?;
+    Ok(plan)
+}
+
+pub fn create_plan(conn: &Connection, project: &str, input: PlanInput) -> CmdResult<i64> {
+    let (title, goal, criteria) = (input.title.trim(), input.goal.trim(), input.criteria.trim());
+    if title.is_empty() || goal.is_empty() || criteria.is_empty() || title.chars().count() > 110 {
+        return Err("completa título breve (máximo 110 caracteres), objetivo y criterios del plan".into());
+    }
+    conn.execute("INSERT INTO task_plans(project,title,goal,criteria) VALUES(?1,?2,?3,?4)",
+        params![project,title,goal,criteria]).map_err(err)?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub async fn task_plans_list(app: AppHandle, project: String) -> CmdResult<Vec<Plan>> {
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        plans(&conn, &project_path(&conn, &project)?)
+    }).await
+}
+
+#[tauri::command]
+pub async fn task_plan_detail(app: AppHandle, project: String, plan: i64) -> CmdResult<Plan> {
+    crate::background_read(app, move |state| {
+        let conn = state.db.lock().map_err(err)?;
+        plan_detail(&conn, &project_path(&conn, &project)?, plan)
+    }).await
+}
+
+#[tauri::command]
+pub fn task_plan_create(app: AppHandle, project: String, input: PlanInput) -> CmdResult<i64> {
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    let id = create_plan(&conn, &project_path(&conn, &project)?, input)?;
+    drop(conn);
+    changed(&app);
+    Ok(id)
+}
+
+#[derive(Serialize)]
 pub struct FlowSnapshot {
+    plans: Vec<Plan>,
     tasks: Vec<Task>,
     runs: HashMap<i64, Vec<crate::runs::Run>>,
 }
@@ -356,6 +503,7 @@ pub async fn task_flow(app: AppHandle, project: String) -> CmdResult<FlowSnapsho
         let conn = state.db.lock().map_err(err)?;
         let project = project_path(&conn, &project)?;
         Ok(FlowSnapshot {
+            plans: plans(&conn, &project)?,
             tasks: list(&conn, &project)?,
             runs: crate::runs::recent_for_project(&conn, &project).map_err(err)?,
         })
@@ -371,6 +519,7 @@ pub async fn task_save(app: AppHandle, project: String, input: Edit) -> CmdResul
         let id = save(&mut conn, &project, input)?;
         drop(conn);
         changed(&app);
+        crate::runs::wake_queue(&app);
         Ok(id)
     }).await.map_err(err)?
 }
@@ -403,7 +552,7 @@ mod tests {
 
     fn draft(title: &str) -> Edit {
         Edit {
-            id: None, parent_id: None, title: title.into(), goal: "objetivo".into(), criteria: "criterio".into(),
+            metadata: Metadata::default(), id: None, parent_id: None, title: title.into(), goal: "objetivo".into(), criteria: "criterio".into(),
             priority: "normal".into(), risk: "low".into(), status: "ready".into(), verification: String::new(),
             tests: None, dependencies: Vec::new(),
         }
@@ -424,6 +573,127 @@ mod tests {
         git(&repo, &["-c", "user.name=Test", "-c", "user.email=test@example.invalid",
             "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "base"]).unwrap();
         (dir, repo.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn flow_dependency_failure_keeps_prompt_and_never_marks_dispatch_or_done() {
+        let mut conn=db::open(std::path::Path::new(":memory:")).unwrap();
+        let dependency=save(&mut conn,"one",draft("Dependency")).unwrap();
+        let task=save(&mut conn,"one",Edit{dependencies:vec![dependency],..draft("Blocked")}).unwrap();
+        let prompt=" exact blocked prompt  ";
+        let run=runs::prepare(&conn,"one","scope","codex",None,Some(task),prompt,false).unwrap();
+        let tx=conn.transaction().unwrap();
+        let error=runs::begin_prepared(&tx,"one","scope","codex",None,Some(task),Some(run)).unwrap_err();
+        assert!(error.contains("dependencias")); drop(tx);
+        runs::fail_start(&conn,run,&error).unwrap();
+        let row=list(&conn,"one").unwrap().pop().unwrap();
+        assert_eq!(row.phase,"waiting_dependencies"); assert_eq!(row.metadata.prompt.as_deref(),Some(prompt));
+        let json=serde_json::to_value(runs::recent(&conn,task).unwrap()).unwrap();
+        assert_eq!(json[0]["prompt"],prompt); assert!(json[0]["dispatchedMs"].is_null()); assert_eq!(json[0]["outcome"],"failed");
+        assert!(save(&mut conn,"one",Edit{id:Some(task),status:"done".into(),..draft("Blocked")}).is_err());
+    }
+
+    #[test]
+    fn flow_delegation_keeps_independent_tasks_plans_prompts_and_parent() {
+        let mut conn=db::open(std::path::Path::new(":memory:")).unwrap();
+        let parent=save(&mut conn,"one",draft("PM objective")).unwrap();
+        for (agent,prompt) in [("claude"," literal Claude  "),("codex"," literal Codex\n"),("agy","literal ACP")] {
+            delegation(&mut conn,"one",Some(parent),"Brief title","Separate goal",prompt,agent,"senior").unwrap();
+        }
+        let rows=list(&conn,"one").unwrap();
+        assert_eq!(rows.len(),4);
+        assert!(rows[0].metadata.plan_id.is_none());
+        assert!(rows[0].metadata.prompt.is_none());
+        let plan_ids=rows[1..].iter().map(|t|t.metadata.plan_id.unwrap()).collect::<std::collections::HashSet<_>>();
+        assert_eq!(plan_ids.len(),3);
+        assert_eq!(rows[1].metadata.prompt.as_deref(),Some(" literal Claude  "));
+        for task in &rows[1..] { assert_eq!(task.parent_id,Some(parent)); assert_eq!(task.goal,"Separate goal"); assert_eq!(task.title,"Brief title"); }
+        for plan in plans(&conn,"one").unwrap() {assert_eq!(plan.progress.total,1);assert_eq!(plan.progress.done,0);}
+        let count=plans(&conn,"one").unwrap().len();
+        assert!(delegation(&mut conn,"two",Some(parent),"title","goal","prompt","codex","senior").is_err());
+        assert!(delegation(&mut conn,"one",None,"title","goal","prompt","invalid","senior").is_err());
+        assert_eq!(plans(&conn,"one").unwrap().len(),count);
+    }
+
+    #[test]
+    fn flow_contract_accepts_legacy_edits_and_validates_new_metadata() {
+        let mut conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let legacy = serde_json::json!({"id":null,"parentId":null,"title":"Legacy","goal":"Goal",
+            "criteria":"Check","priority":"normal","risk":"low","status":"ready",
+            "verification":"","tests":null,"dependencies":[]});
+        let id = save(&mut conn, "one", serde_json::from_value(legacy.clone()).unwrap()).unwrap();
+        let value = serde_json::to_value(list(&conn, "one").unwrap()).unwrap();
+        for key in ["planId", "prompt", "agent", "role"] { assert!(value[0][key].is_null()); }
+        assert_eq!(value[0]["id"], id);
+        let mut bad = legacy.clone();
+        bad["role"] = serde_json::json!("pm");
+        assert!(save(&mut conn, "one", serde_json::from_value(bad).unwrap()).is_err());
+        let mut bad = legacy;
+        bad["agent"] = serde_json::json!("unknown");
+        assert!(save(&mut conn, "one", serde_json::from_value(bad).unwrap()).is_err());
+        for title in [" ".to_owned(), "x".repeat(111)] {
+            assert!(create_plan(&conn, "one", PlanInput { title, goal: "g".into(), criteria: "c".into() }).is_err());
+        }
+        assert!(create_plan(&conn, "one", PlanInput { title: "ñ".repeat(110), goal: "g".into(), criteria: "c".into() }).is_ok());
+        assert_eq!(list(&conn, "one").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn flow_plans_persist_exact_prompt_and_reject_foreign_assignment() {
+        let path = std::env::temp_dir().join(format!("flow-plans-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut conn = db::open(&path).unwrap();
+        let plan = create_plan(&conn, "one", PlanInput { title: "Plan breve".into(), goal: "Objetivo separado".into(), criteria: "Comprobar".into() }).unwrap();
+        let prompt = "  encargo exacto\n\ncon espacios finales  ";
+        let task = save(&mut conn, "one", Edit { metadata: Metadata { plan_id: Some(plan), prompt: Some(prompt.into()), agent: Some("codex".into()), role: Some("senior".into()) }, ..draft("Título corto") }).unwrap();
+        assert!(plan_detail(&conn, "two", plan).is_err());
+        assert!(plans(&conn, "two").unwrap().is_empty());
+        assert!(save(&mut conn, "two", Edit { metadata: Metadata { plan_id: Some(plan), ..Metadata::default() }, ..draft("Ajena") }).is_err());
+        assert!(conn.execute("UPDATE tasks SET project='two' WHERE id=?1", [task]).is_err());
+        assert!(conn.execute("INSERT INTO tasks(project,title,goal,criteria,priority,risk,status,plan_id) VALUES('two','x','','','normal','low','ready',?1)", [plan]).is_err());
+        // A legacy editor must not erase metadata it does not know about.
+        save(&mut conn, "one", Edit { id: Some(task), ..draft("Renombrada") }).unwrap();
+        drop(conn);
+        let conn = db::open(&path).unwrap();
+        let tasks = list(&conn, "one").unwrap();
+        assert_eq!(tasks[0].metadata.plan_id, Some(plan));
+        assert_eq!(tasks[0].metadata.prompt.as_deref(), Some(prompt));
+        assert_eq!(tasks[0].metadata.agent.as_deref(), Some("codex"));
+        assert_eq!(tasks[0].metadata.role.as_deref(), Some("senior"));
+        assert_eq!(tasks[0].title, "Renombrada");
+        assert_eq!(plan_detail(&conn, "one", plan).unwrap().goal, "Objetivo separado");
+        assert_eq!(serde_json::to_value(&tasks[0]).unwrap()["planId"], plan);
+        drop(conn);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn flow_migration_is_additive_idempotent_and_preserves_legacy_unknowns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE tasks (
+          id INTEGER PRIMARY KEY,project TEXT NOT NULL,parent_id INTEGER,title TEXT NOT NULL,
+          goal TEXT NOT NULL,criteria TEXT NOT NULL,priority TEXT NOT NULL,risk TEXT NOT NULL,
+          status TEXT NOT NULL,verification TEXT NOT NULL DEFAULT '',tests TEXT,
+          created_at INTEGER NOT NULL DEFAULT 10,updated_at INTEGER NOT NULL DEFAULT 20);
+          INSERT INTO tasks(id,project,title,goal,criteria,priority,risk,status) VALUES(42,'one','Anterior','Objetivo','Criterios','normal','low','done');
+          CREATE TABLE task_runs (
+          id INTEGER PRIMARY KEY,task_id INTEGER,session_id INTEGER,scope TEXT NOT NULL,
+          project TEXT NOT NULL,provider TEXT NOT NULL,model TEXT,turn TEXT,started_ms INTEGER NOT NULL,
+          ended_ms INTEGER,outcome TEXT NOT NULL DEFAULT 'running',retry INTEGER NOT NULL,
+          input_tokens INTEGER,cached_input_tokens INTEGER,output_tokens INTEGER,cost_estimate_usd REAL,
+          quota_short_percent REAL,quota_long_percent REAL,quota_short_minutes INTEGER,
+          quota_long_minutes INTEGER,context_tokens INTEGER);
+          INSERT INTO task_runs(id,task_id,scope,project,provider,started_ms,ended_ms,retry,outcome)
+          VALUES(9,42,'legacy','one','codex',100,200,1,'completed');").unwrap();
+        for _ in 0..2 { migrate(&conn).unwrap(); runs::migrate(&conn).unwrap(); }
+        let legacy: (String, String, Option<i64>, Option<String>) = conn.query_row(
+            "SELECT title,status,plan_id,prompt FROM tasks WHERE id=42", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(legacy, ("Anterior".into(), "done".into(), None, None));
+        assert!(plans(&conn, "one").unwrap().is_empty());
+        let unknown: (Option<i64>, Option<String>, Option<String>, Option<i64>) = conn.query_row(
+            "SELECT attempt,prompt,result,dispatched_ms FROM task_runs WHERE id=9", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(unknown, (None, None, None, None));
+        let previous: (i64,i64,bool,String) = conn.query_row("SELECT started_ms,ended_ms,retry,outcome FROM task_runs WHERE id=9", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+        assert_eq!(previous, (100,200,true,"completed".into()));
     }
 
     #[test]

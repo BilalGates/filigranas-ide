@@ -72,7 +72,7 @@ struct Shared {
     /// Turno en marcha por hilo, para poder interrumpirlo.
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
-    approvals: HashSet<String>,
+    approvals: HashMap<String,String>,
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
     models: HashMap<String, String>,
@@ -90,6 +90,7 @@ enum Observation {
     Completed(String, String, &'static str, bool),
     Usage(String, String, runs::Usage),
     Phase(String, &'static str),
+    Result(String,Option<String>,String),
     Quota(runs::Quota),
     Closed,
 }
@@ -119,6 +120,13 @@ impl Observation {
                 }
                 Ok(())
             }
+            Self::Result(thread,turn,text) => {
+                let run=match turn { Some(turn)=>runs::for_turn(conn,&thread,&turn).map_err(err)?, None=>runs::active(conn,&thread)? };
+                // The last completed agent message is the final answer. Replayed items
+                // replace the same value rather than duplicating it; late turns cannot alter it.
+                if let Some(run)=run { runs::result(conn,run,Some(&text),None).map_err(err)?; }
+                Ok(())
+            }
             Self::Quota(quota) => runs::codex_quota(conn, quota).map_err(err),
             Self::Closed => runs::provider_closed(conn, "codex"),
         }
@@ -136,6 +144,8 @@ fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
     }
     let thread = params["threadId"].as_str()?.to_string();
     match event.method.as_str() {
+        "item/completed" if params["item"]["type"]=="agentMessage" =>
+            Some(Observation::Result(thread,params["turnId"].as_str().map(str::to_owned),params["item"]["text"].as_str().unwrap_or("").to_owned())),
         "turn/started" => Some(Observation::Started(thread, params.pointer("/turn/id")?.as_str()?.into())),
         "turn/completed" => {
             let turn = params.pointer("/turn/id")?.as_str()?;
@@ -164,7 +174,10 @@ fn observation(shared: &mut Shared, event: &Event) -> Option<Observation> {
             let turn = params["turnId"].as_str()?;
             Some(Observation::Usage(thread, turn.into(), runs::Usage { model: Some(model.into()), ..Default::default() }))
         }
-        "serverRequest/resolved" => Some(Observation::Phase(thread, "running")),
+        "serverRequest/resolved" => {
+            let phase=if shared.approvals.values().any(|owner|owner==&thread) {"waiting_approval"} else {"running"};
+            Some(Observation::Phase(thread,phase))
+        },
         method if APPROVALS.contains(&method) => Some(Observation::Phase(thread, "waiting_approval")),
         _ => None,
     }
@@ -307,6 +320,7 @@ impl Codex {
                         }
                         "turn/completed" => {
                             sh.turns.remove(&thread);
+                            sh.approvals.retain(|_,owner|owner!=&thread);
                         }
                         // Resuelta por otra vía (p. ej. turno interrumpido).
                         "serverRequest/resolved" => {
@@ -366,7 +380,7 @@ impl Codex {
                         if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
                             Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
                         } else {
-                            sh.approvals.insert(id.to_string());
+                            sh.approvals.insert(id.to_string(),thread.clone());
                             Event { method, params, request_id: Some(id) }
                         }
                     }
@@ -381,6 +395,13 @@ impl Codex {
             };
             let observation = observation(&mut sh, &event);
             drop(sh);
+            if event.method=="turn/completed" && !event.params["turn"]["error"].is_null() {
+                let thread=event.params["threadId"].as_str().unwrap_or("");
+                runs::record(&handle,|conn| {
+                    if let Some(run)=runs::active(conn,thread)? {runs::result(conn,run,None,Some(&event.params["turn"]["error"].to_string())).map_err(err)?;}
+                    Ok(())
+                });
+            }
             if let Some(observation) = observation {
                 runs::record(&handle, |conn| observation.store(conn));
             }
@@ -441,6 +462,7 @@ impl Codex {
         };
         let cwd = session.map(db::Session::cwd).unwrap_or(path);
         let rpc = self.rpc(app)?;
+        let upgrading=upgrade_from.is_some();
         if let Some(previous) = upgrade_from {
             let history = self.read_history(app, &previous)?;
             crate::chat::archive_tool_upgrade(&mut *state.db.lock().map_err(err)?, path, &previous, &history)?;
@@ -480,6 +502,11 @@ impl Codex {
         }
         let res = rpc.request("thread/start", params, LONG)?;
         let id = res.pointer("/thread/id").and_then(Value::as_str).ok_or("codex no devolvió el hilo")?.to_string();
+        if upgrading {
+            let items:String=state.db.lock().map_err(err)?.query_row("SELECT items FROM chat_history WHERE scope=?1",[format!("pm:{path}")],|r|r.get(0)).map_err(err)?;
+            rpc.request("thread/inject_items",json!({"threadId":id,"items":[{"type":"message","role":"developer","content":[{"type":"input_text","text":format!("Historial accesible de mensajes de usuario/asistente archivados, sin truncamiento. No incluye razonamiento ni todas las salidas de herramientas: {items}")}]}]}),LONG)
+                .map_err(|e|format!("No se pudo transferir el historial completo accesible; se conserva el hilo anterior: {e}"))?;
+        }
         let conn = state.db.lock().map_err(err)?;
         if let Some(session) = session {
             db::set_provider_session(&conn, session.id, &id).map_err(err)?;
@@ -652,7 +679,26 @@ fn failed_start_outcome(error: &str, provider_alive: bool) -> Option<&'static st
 
 /// Usa el mismo app-server para el PM y las conversaciones directas.
 pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
-    mut message: crate::attachments::Message, effort: Option<String>,
+    message: crate::attachments::Message, effort: Option<String>,
+) -> CmdResult<()> {
+    let state=app.state::<AppState>();
+    let (run,task)={
+        let mut conn=state.db.lock().map_err(err)?;
+        let task=match direct {Some(s)=>tasks::linked(&conn,s.id).map_err(err)?,None=>task};
+        let task=if task.is_none() && direct.is_some() {Some(tasks::delegation(&mut conn,path,None,&message.text.lines().find(|l|!l.trim().is_empty()).unwrap_or("Encargo").chars().take(110).collect::<String>(),&message.text,&message.text,"codex","senior")?)} else {task};
+        if let (Some(s),Some(task))=(direct,task) { tasks::link(&conn,path,task,s.id)?; }
+        let scope=direct.map(|s|runs::session_scope(s.id)).unwrap_or_else(||format!("pm:{path}"));
+        (runs::prepare(&conn,path,&scope,"codex",direct.map(|s|s.id),task,&message.text,direct.is_none())?,task)
+    };
+    let result=send_prepared(app,path,direct,task,message,effort,run);
+    if let Err(error)=&result { runs::record(app,|conn|runs::fail_start(conn,run,error).map_err(err)); }
+    tasks::changed(app);
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn send_prepared(app: &AppHandle, path: &str, direct: Option<&db::Session>, task: Option<i64>,
+    mut message: crate::attachments::Message, effort: Option<String>, prepared: i64,
 ) -> CmdResult<()> {
     let text = &message.text;
     let state = app.state::<AppState>();
@@ -699,7 +745,7 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
         let tx = conn.transaction().map_err(err)?;
         let task = if let Some(session) = direct { tasks::linked(&tx, session.id).map_err(err)? } else { task };
         let previous = runs::last_task(&tx, &thread_id).map_err(err)?;
-        let run = runs::begin(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task)?;
+        let run = runs::begin_prepared(&tx, path, &thread_id, "codex", direct.map(|s| s.id), task, Some(prepared))?;
         let input = runs::task_input(&tx, run, path, task, previous, text)?;
         let input = crate::chat::with_context(&tx, path, session_id, run, input)?;
         let input = crate::skills::with_catalog(app, &tx, path, session_id, input)?;
@@ -856,10 +902,18 @@ pub fn coordinator_respond(app: AppHandle, state: State<AppState>, request_id: V
     if !DECISIONS.contains(&decision.as_str()) {
         return Err("decisión no válida".into());
     }
-    if !state.codex.shared.lock().map_err(err)?.approvals.remove(&request_id.to_string()) {
-        return Err("esa petición ya no está pendiente".into());
+    let key=request_id.to_string();
+    let thread=state.codex.shared.lock().map_err(err)?.approvals.remove(&key).ok_or("esa petición ya no está pendiente")?;
+    if let Err(error)=state.codex.rpc(&app)?.respond(request_id,json!({"decision":decision})) {
+        state.codex.shared.lock().map_err(err)?.approvals.insert(key,thread);
+        return Err(error);
     }
-    state.codex.rpc(&app)?.respond(request_id, json!({ "decision": decision }))
+    let waiting=state.codex.shared.lock().map_err(err)?.approvals.values().any(|owner|owner==&thread);
+    runs::record(&app,|conn| {
+        if let Some(run)=runs::active(conn,&thread)? {runs::phase(conn,run,if waiting {"waiting_approval"} else {"running"}).map_err(err)?;}
+        Ok(())
+    });
+    Ok(())
 }
 
 /// Lee la cuota de la cuenta sin abrir ni crear una conversación.
@@ -888,6 +942,24 @@ fn read_rate_limits(rpc: &Rpc) -> CmdResult<Value> {
 mod tests {
     use super::*;
     use crate::rpc::tests::{fake, write};
+
+    #[test]
+    fn flow_codex_final_output_and_permission_resolution_are_persistent() {
+        let mut conn=db::open(std::path::Path::new(":memory:")).unwrap();
+        let tx=conn.transaction().unwrap();
+        let run=runs::begin(&tx,"/a","thread","codex",None,None).unwrap();
+        tx.commit().unwrap();
+        let mut shared=Shared::default();
+        let event=|method:&str,params:Value|Event{method:method.into(),params,request_id:None};
+        observation(&mut shared,&event("turn/started",json!({"threadId":"thread","turn":{"id":"turn"}}))).unwrap().store(&conn).unwrap();
+        observation(&mut shared,&event("item/completed",json!({"threadId":"thread","item":{"type":"agentMessage","text":"durable final"}}))).unwrap().store(&conn).unwrap();
+        runs::phase(&conn,run,"waiting_approval").unwrap();
+        observation(&mut shared,&event("serverRequest/resolved",json!({"threadId":"thread"}))).unwrap().store(&conn).unwrap();
+        assert_eq!(conn.query_row("SELECT waiting_permissions FROM task_runs WHERE id=?1",[run],|r|r.get::<_,i64>(0)).unwrap(),0);
+        observation(&mut shared,&event("turn/completed",json!({"threadId":"thread","turn":{"id":"turn","status":"completed"}}))).unwrap().store(&conn).unwrap();
+        let row:(String,String)=conn.query_row("SELECT result,outcome FROM task_runs WHERE id=?1",[run],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(row,("durable final".into(),"completed".into()));
+    }
 
     #[test]
     fn a_late_codex_start_keeps_the_reservation_until_completion() {

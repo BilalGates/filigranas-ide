@@ -1,0 +1,977 @@
+{
+  "pid": 83593,
+  "app": "/Applications/Filigranas.app/Contents/MacOS/filigranas",
+  "samples": 31,
+  "interval_s": 2.0,
+  "note": "%CPU de ps: 100 = un núcleo, media decaída por el kernel. RSS incluye memoria compartida.",
+  "summary": {
+    "agy": {
+      "cpu_avg": 0.0,
+      "cpu_max": 0.5,
+      "rss_mib_avg": 42.3,
+      "rss_mib_max": 111.2
+    },
+    "claude": {
+      "cpu_avg": 0.1,
+      "cpu_max": 2.5,
+      "rss_mib_avg": 142.3,
+      "rss_mib_max": 225.2
+    },
+    "codex": {
+      "cpu_avg": 0.2,
+      "cpu_max": 2.7,
+      "rss_mib_avg": 291.7,
+      "rss_mib_max": 318.6
+    },
+    "filigranas": {
+      "cpu_avg": 3.5,
+      "cpu_max": 4.9,
+      "rss_mib_avg": 33.2,
+      "rss_mib_max": 37.4
+    },
+    "webview": {
+      "cpu_avg": 47.2,
+      "cpu_max": 53.8,
+      "rss_mib_avg": 144.9,
+      "rss_mib_max": 192.2
+    },
+    "total": {
+      "cpu_avg": 51.0,
+      "cpu_max": 58.5,
+      "rss_mib_avg": 654.4,
+      "rss_mib_max": 828.3000000000001
+    }
+  },
+  "series": [
+    {
+      "t": 1795857897.9,
+      "groups": {
+        "filigranas": {
+          "cpu": 2.9,
+          "rss_mib": 35.3,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 282.0,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.4,
+          "rss_mib": 143.9,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 22.7,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 53.8,
+          "rss_mib": 155.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857900.0,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.4,
+          "rss_mib": 36.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.4,
+          "rss_mib": 284.4,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.1,
+          "rss_mib": 157.8,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.1,
+          "rss_mib": 111.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 41.5,
+          "rss_mib": 180.1,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857902.0,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.2,
+          "rss_mib": 36.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 291.8,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 205.0,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 111.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 43.4,
+          "rss_mib": 181.9,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857904.0,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.5,
+          "rss_mib": 36.9,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 292.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 205.0,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 111.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 45.7,
+          "rss_mib": 182.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857906.1,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.1,
+          "rss_mib": 36.9,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 290.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 205.6,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 73.5,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 53.1,
+          "rss_mib": 176.7,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857908.1,
+      "groups": {
+        "filigranas": {
+          "cpu": 4.9,
+          "rss_mib": 37.4,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 290.2,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 205.6,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 73.4,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 37.1,
+          "rss_mib": 177.5,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857910.2,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.1,
+          "rss_mib": 36.5,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 1.1,
+          "rss_mib": 291.8,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 158.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 73.6,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 51.3,
+          "rss_mib": 152.8,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857912.2,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 36.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 273.0,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 93.8,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 71.6,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 53.2,
+          "rss_mib": 123.0,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857914.2,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 32.6,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 269.8,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 108.0,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.9,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 47.1,
+          "rss_mib": 110.9,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857916.3,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.4,
+          "rss_mib": 33.9,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 268.0,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 90.7,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 20.0,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 49.4,
+          "rss_mib": 113.5,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857918.3,
+      "groups": {
+        "filigranas": {
+          "cpu": 4.1,
+          "rss_mib": 34.3,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.3,
+          "rss_mib": 268.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 92.0,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 20.0,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 42.1,
+          "rss_mib": 106.2,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857920.4,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.9,
+          "rss_mib": 35.0,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 1.2,
+          "rss_mib": 310.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.2,
+          "rss_mib": 89.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.3,
+          "rss_mib": 32.4,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 46.9,
+          "rss_mib": 126.1,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857922.5,
+      "groups": {
+        "filigranas": {
+          "cpu": 4.2,
+          "rss_mib": 34.5,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 2.7,
+          "rss_mib": 280.7,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.3,
+          "rss_mib": 90.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 22.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 43.8,
+          "rss_mib": 108.9,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857924.5,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.9,
+          "rss_mib": 34.5,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.2,
+          "rss_mib": 300.3,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.2,
+          "rss_mib": 114.7,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 23.0,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 48.6,
+          "rss_mib": 132.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857926.5,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.6,
+          "rss_mib": 33.5,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 295.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.1,
+          "rss_mib": 89.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 21.5,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 44.1,
+          "rss_mib": 120.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857928.6,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 29.1,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 276.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.1,
+          "rss_mib": 86.9,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 18.3,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 52.2,
+          "rss_mib": 120.3,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857930.6,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 28.6,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 283.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.2,
+          "rss_mib": 122.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 18.1,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 46.5,
+          "rss_mib": 121.9,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857932.6,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 29.6,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.1,
+          "rss_mib": 291.8,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 117.0,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.1,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 45.9,
+          "rss_mib": 124.8,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857934.7,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.1,
+          "rss_mib": 30.2,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 293.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.2,
+          "rss_mib": 117.4,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 45.2,
+          "rss_mib": 125.4,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857936.7,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 30.5,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 293.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 122.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.2,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 44.7,
+          "rss_mib": 125.5,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857938.7,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.4,
+          "rss_mib": 31.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 293.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 122.4,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.5,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 43.9,
+          "rss_mib": 130.7,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857940.8,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.3,
+          "rss_mib": 31.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 293.2,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 123.1,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.7,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 41.8,
+          "rss_mib": 130.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857942.8,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.2,
+          "rss_mib": 31.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 295.1,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 2.5,
+          "rss_mib": 173.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.7,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 52.8,
+          "rss_mib": 132.8,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857944.8,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.2,
+          "rss_mib": 31.8,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 295.5,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 173.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 19.8,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 46.6,
+          "rss_mib": 134.1,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857946.9,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.4,
+          "rss_mib": 31.9,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 307.3,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 173.4,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 26.6,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 52.2,
+          "rss_mib": 134.4,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857948.9,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.6,
+          "rss_mib": 31.9,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 307.8,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 175.8,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 47.8,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 52.9,
+          "rss_mib": 137.1,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857951.0,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.4,
+          "rss_mib": 32.6,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 318.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 225.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 50.3,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 44.5,
+          "rss_mib": 182.2,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857953.0,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.6,
+          "rss_mib": 32.4,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.1,
+          "rss_mib": 311.5,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 224.9,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 49.6,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 50.9,
+          "rss_mib": 182.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857955.1,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.2,
+          "rss_mib": 31.7,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 300.2,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.0,
+          "rss_mib": 147.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.5,
+          "rss_mib": 55.9,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 48.5,
+          "rss_mib": 192.2,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857957.1,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.1,
+          "rss_mib": 31.3,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 295.2,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.1,
+          "rss_mib": 129.3,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 55.9,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 50.1,
+          "rss_mib": 186.6,
+          "procs": 3
+        }
+      }
+    },
+    {
+      "t": 1795857959.1,
+      "groups": {
+        "filigranas": {
+          "cpu": 3.6,
+          "rss_mib": 31.1,
+          "procs": 2
+        },
+        "codex": {
+          "cpu": 0.0,
+          "rss_mib": 297.6,
+          "procs": 50
+        },
+        "claude": {
+          "cpu": 0.1,
+          "rss_mib": 129.2,
+          "procs": 4
+        },
+        "agy": {
+          "cpu": 0.0,
+          "rss_mib": 44.8,
+          "procs": 2
+        },
+        "webview": {
+          "cpu": 42.9,
+          "rss_mib": 180.6,
+          "procs": 3
+        }
+      }
+    }
+  ]
+}

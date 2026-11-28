@@ -32,9 +32,9 @@ function readMode(scope: string, fallbackScope?: string): PermissionMode {
 }
 
 /** Nivel guardado del chat; se vuelve a fijar en el núcleo al abrirlo. */
-export function usePermissionMode(id: number | null, project: string | null = null, storageScope?: string, fallbackScope?: string) {
+export function usePermissionMode(id: number | null, project: string | null = null, storageScope?: string, fallbackScope?: string, restricted = false) {
   const scope = storageScope ?? (id != null ? String(id) : project ? `pm:${project}` : null);
-  const [mode, setModeState] = useState<PermissionMode>(() => scope == null ? 'ask' : readMode(scope, fallbackScope));
+  const [mode, setModeState] = useState<PermissionMode>(() => scope == null ? 'ask' : (restricted && readMode(scope, fallbackScope) === 'full' ? 'auto' : readMode(scope, fallbackScope)));
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (scope == null || (id == null && !project)) return;
@@ -42,13 +42,14 @@ export function usePermissionMode(id: number | null, project: string | null = nu
     // El backend conserva la herencia de una subsesión recién creada. Montar
     // una vista sin preferencia propia nunca la sobrescribe con ask.
     const own = localStorage.getItem(KEY(scope));
-    const saved = own == null ? null : readMode(scope, fallbackScope);
+    const read = own == null ? null : readMode(scope, fallbackScope);
+    const saved = restricted && read === 'full' ? 'auto' : read;
     const loading = saved == null
       ? sessions.getPermissionMode(id, project)
       : sessions.permissionMode(id, saved, project);
-    loading.then((value) => { if (active) setModeState(value as PermissionMode); }, (e) => { if (active) setError(String(e)); });
+    loading.then((value) => { if (active) setModeState(restricted && value === 'full' ? 'auto' : value as PermissionMode); }, (e) => { if (active) setError(String(e)); });
     return () => { active = false; };
-  }, [id, project, scope, fallbackScope]);
+  }, [id, project, scope, fallbackScope, restricted]);
   const setMode = useCallback((next: PermissionMode) => {
     if (scope == null || (id == null && !project)) return;
     sessions.permissionMode(id, next, project).then(() => {
@@ -76,7 +77,7 @@ function useOutside(open: boolean, close: () => void) {
 }
 
 /** Chip de modo de trabajo (permisos) de la barra del compositor. */
-export function PermissionChip({ mode, onMode, disabled }: { mode: PermissionMode; onMode: (m: PermissionMode) => void; disabled?: boolean }) {
+export function PermissionChip({ mode, onMode, disabled, restricted = false }: { mode: PermissionMode; onMode: (m: PermissionMode) => void; disabled?: boolean; restricted?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const current = MODES.find((m) => m.id === mode)!;
@@ -92,7 +93,7 @@ export function PermissionChip({ mode, onMode, disabled }: { mode: PermissionMod
       </button>
       {open && <div className="sb-menu up" role="menu" aria-label="Modo de trabajo del modelo">
         <div className="cm-heading">Modo de trabajo</div>
-        {MODES.map((m) => <button key={m.id} type="button" role="menuitemradio" aria-checked={m.id === mode} className={`sb-item is-${m.id}`}
+        {MODES.filter((m) => !restricted || m.id !== 'full').map((m) => <button key={m.id} type="button" role="menuitemradio" aria-checked={m.id === mode} className={`sb-item is-${m.id}`}
           onClick={() => { onMode(m.id); setOpen(false); }}>
           <Icon name={m.icon} size={14} /><span className="sb-text"><b>{m.label}</b><small>{m.text}</small></span>{m.id === mode && <Icon name="check" size={13} />}
         </button>)}

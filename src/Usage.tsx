@@ -8,14 +8,14 @@ const tokens = new Intl.NumberFormat('es-ES');
 const euros = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 8 });
 
 function Quota({ window }: { window: QuotaWindow }) {
-  const remaining = Math.max(0, Math.min(100, 100 - window.percent));
+  const used = Math.max(0, Math.min(100, window.percent));
   return (
     <div className="uso-row" title={window.resetsAt ? `Se renueva el ${dateTime.format(window.resetsAt * 1000)}` : undefined}>
       <span>{window.label}</span>
       <span className="bar" aria-hidden="true">
-        <i style={{ width: `${remaining}%` }} className={remaining <= 10 ? 'is-hot' : undefined} />
+        <i style={{ width: `${used}%` }} className={used >= 90 ? 'is-hot' : undefined} />
       </span>
-      <span className="num">{percentLabel(remaining)}</span>
+      <span className="num">{percentLabel(used)}</span>
     </div>
   );
 }
@@ -63,14 +63,14 @@ export default function UsagePanel({ engine, label, model, quota, surface }: { e
     ? null
     : euros.format(usage.costUsd / (usdPerEuro ?? 1));
 
-  const provider = engine === 'codex' || engine === 'claude' ? engine : null;
+  const provider = engine === 'codex' || engine === 'claude' || engine === 'agy' ? engine : null;
   const { windows, exhausted, loading } = quota;
 
   return (
-    <section className={surface === 'settings' ? "uso tr-settings-usage" : "uso"} aria-label="Uso restante y consumo de Jev">
+    <section className={surface === 'settings' ? "uso tr-settings-usage" : "uso"} aria-label="Consumo utilizado y consumo de Jev">
       {label ? (
           <div>
-            <div className="uso-h">{label}{provider && ' · cuota restante'}</div>
+            <div className="uso-h">{label}{provider && ' · consumo utilizado'}</div>
             {model && <div className="usage-model">{model}</div>}
             {exhausted && <div className="usage-limit" role="status">Cuota del plan agotada</div>}
             {windows.length > 0 ? windows.map((w, i) => <Quota key={i} window={w} />) :

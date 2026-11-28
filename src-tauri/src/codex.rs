@@ -80,6 +80,8 @@ struct Shared {
     turns: HashMap<String, String>,
     /// Peticiones de aprobación sin responder (id JSON serializado).
     approvals: HashMap<String,String>,
+    /// Paths announced by the provider before a patch approval; never diffs.
+    patch_paths: HashMap<String, Vec<String>>,
     /// Hilos internos (p. ej. Larry) cuyos avisos espera el núcleo.
     waiters: HashMap<String, Sender<(String, Value)>>,
     models: HashMap<String, String>,
@@ -471,6 +473,7 @@ impl Codex {
                         "turn/completed" => {
                             sh.turns.remove(&thread);
                             sh.approvals.retain(|_,owner|owner!=&thread);
+                            sh.patch_paths.retain(|key,_| !key.starts_with(&format!("{thread}:")));
                         }
                         // Resuelta por otra vía (p. ej. turno interrumpido).
                         "serverRequest/resolved" => {
@@ -526,12 +529,31 @@ impl Codex {
                         } else {
                             crate::autoapprove::Mode::Ask
                         };
-                        let full = mode == crate::autoapprove::Mode::Full;
-                        if full && rpc.respond(id.clone(), json!({ "decision": "accept" })).is_ok() {
-                            Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": params }), request_id: None }
-                        } else {
-                            sh.approvals.insert(id.to_string(),thread.clone());
-                            Event { method, params, request_id: Some(id) }
+                        let cwd = sh.sessions.get(&thread).and_then(|sid| {
+                            let state = handle.state::<AppState>();
+                            let conn = state.db.lock().ok()?;
+                            db::session(&conn, *sid).ok().flatten().map(|s| s.worktree.unwrap_or(s.project))
+                        }).or_else(|| sh.projects.get(&thread).cloned()).unwrap_or_default();
+                        let (kind, mut paths, command) = crate::autoapprove::codex_request(&method, &params);
+                        if method == "item/fileChange/requestApproval" && paths.is_empty() {
+                            paths = sh.patch_paths.get(&format!("{thread}:{}", params["itemId"].as_str().unwrap_or(""))).cloned().unwrap_or_default();
+                        }
+                        match crate::autoapprove::evaluate(mode, std::path::Path::new(&cwd), kind, &paths, command.as_deref()) {
+                            crate::autoapprove::PolicyDecision::Allow => {
+                                let _ = rpc.respond(id, json!({ "decision": "accept" }));
+                                Event { method: "filigranas/autoApproved".into(), params: json!({ "threadId": thread, "request": method, "params": { "command": command } }), request_id: None }
+                            }
+                            crate::autoapprove::PolicyDecision::DenyPolicy { origin, reason } => {
+                                let _ = rpc.respond(id, json!({ "decision": "decline" }));
+                                Event { method: "filigranas/policyDenied".into(), params: json!({ "threadId": thread, "origin": origin, "reason": reason }), request_id: None }
+                            }
+                            crate::autoapprove::PolicyDecision::Ask { origin, reason } => {
+                                let mut params = params;
+                                params["origin"] = json!(origin);
+                                if let Some(reason) = reason { params["reason"] = json!(reason); }
+                                sh.approvals.insert(id.to_string(),thread.clone());
+                                Event { method, params, request_id: Some(id) }
+                            }
                         }
                     }
                 }

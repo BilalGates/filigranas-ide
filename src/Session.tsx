@@ -1,4 +1,4 @@
-import { pushAgentCompletion } from './trama/notifications';
+import { pushAgentCompletion, pushOperationalError } from './trama/notifications';
 import { useSharedPermissions } from './trama/pendingPermissions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
@@ -197,6 +197,7 @@ export default function Session({ session, project, hidden, switching, providerS
   const [loadingClaudeModels, setLoadingClaudeModels] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (error) pushOperationalError(error, { source: ENGINE_LABEL[session.engine] ?? session.engine, action: { label: 'Abrir sesión', target: 'session', session: session.id, project } }); }, [error, session.engine, session.id, project]);
   const [effort, setEffort] = useState(session.effort ?? 'medium');
   const declined = useRef(new Set<string>());
   // ACP no numera los mensajes: el texto se acumula en el ítem en curso
@@ -212,7 +213,7 @@ export default function Session({ session, project, hidden, switching, providerS
   const [integrated, setIntegrated] = useState(!!session.integrated);
   const [notice, setNotice] = useState<string | null>(null);
   const [autoNotes, setAutoNotes] = useState<string[]>([]);
-  const permission = usePermissionMode(isCodex ? null : session.id, manager ? project : null, manager ? `pm:${project}` : undefined, parentPermissionScope);
+  const permission = usePermissionMode(isCodex ? null : session.id, manager ? project : null, manager ? `pm:${project}` : undefined, parentPermissionScope, session.engine === 'agy');
   const [busy, setBusy] = useState(false);
   const [paused, setPaused] = useState<string | null>(session.paused);
   const pausedReason = useRef<string | null>(session.paused);
@@ -338,6 +339,7 @@ export default function Session({ session, project, hidden, switching, providerS
           setStarting(false);
           if (msg.model) setModel(msg.model);
           if (Array.isArray(msg.options)) setAcpOptions(msg.options);
+          if (typeof msg.running === 'boolean') setRunning(msg.running);
           break;
         case 'update': {
           const u = msg.update ?? {};
@@ -740,7 +742,7 @@ export default function Session({ session, project, hidden, switching, providerS
         return (
           <Composer
             context={<SessionContext project={project} worktree={session.worktree} branch={session.branch} base={session.base} hidden={hidden} />}
-            permission={<PermissionChip mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
+            permission={<PermissionChip restricted={session.engine === 'agy'} mode={permission.mode} onMode={permission.setMode} disabled={switching === true} />}
             draftKey={manager ? `pm:${project}` : `session:${session.id}`}
             assist={{ project, session: manager ? null : session.id, task: manager?.task?.id ?? null, items: [...history.items, ...items] }}
             disabled={switching === true}

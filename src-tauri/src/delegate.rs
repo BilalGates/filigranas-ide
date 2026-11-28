@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 5;
+pub const TOOLS_VERSION: i64 = 6;
 
 const ENGINES: [(&str, &str); 5] = [
     ("claude", "claude code"),
@@ -95,7 +95,7 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
                     "objetivo": { "type": "string", "description": "Objetivo separado del prompt literal." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
-                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
+                    "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo; Antigravity valida el valor contra su catálogo real y usa el nivel actual si se omite." }
                 },
                 "required": ["tarea"],
                 "additionalProperties": false
@@ -146,7 +146,11 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
                 "required": ["sesion"],
                 "additionalProperties": false
             }
-        }
+        }, {
+        "type":"function","name":"catalogo_proveedores",
+        "description":"Consulta disponibilidad, opciones reales de modelos/razonamiento, capacidades, cuota conocida y concurrencia de los proveedores. Solo coordinación; datos desconocidos permanecen null.",
+        "inputSchema":{"type":"object","properties":{},"additionalProperties":false}
+    }
     ])
 }
 
@@ -212,7 +216,11 @@ fn describe(state: &AppState, s: &db::Session, max: usize) -> String {
             line.push_str(&format!("\nSesión #{} · intento #{id} · {outcome}",s.id));
             if let Some(result)=result { line.push_str(&format!("\nResultado persistido:\n{}",clip(&result,max))); }
             if let Some(error)=error { line.push_str(&format!("\nError:\n{}",clip(&error,max))); }
-        } else if !t.last.trim().is_empty() { line.push_str(&format!("\nÚltima respuesta:\n{}",clip(&t.last,max))); }
+        } else {
+            let durable=crate::acp::last_result(&conn,s.id).unwrap_or_default();
+            let last=if t.last.trim().is_empty() { durable.as_str() } else { t.last.as_str() };
+            if !last.trim().is_empty() { line.push_str(&format!("\nÚltima respuesta:\n{}",clip(last.trim(),max))); }
+        }
     }
     line
 }
@@ -241,6 +249,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
     let project = db::project_for_thread(&*state.db.lock().map_err(err)?, thread).map_err(err)?.ok_or("este hilo no pertenece a ningún proyecto del IDE")?;
     if FLOW_TOOLS.contains(&tool) {return flow_tool(app,&project,tool,args);}
     match tool {
+        "catalogo_proveedores" => crate::providers::overview(&state),
         "delegar" => {
             let parent_task=crate::runs::task_for_thread(&*state.db.lock().map_err(err)?,thread).map_err(err)?;
             dispatch_delegation(app,&project,None,parent_task,args)
@@ -294,15 +303,18 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
 /// Both PM providers use this path: independent task, plan and linked session.
 fn dispatch_delegation(app: &AppHandle, project: &str, parent: Option<i64>, parent_task: Option<i64>, args: &Value) -> CmdResult<String> {
     let state=app.state::<AppState>();
-    let engine=args["agente"].as_str().unwrap_or("claude");
-    if !ENGINES.iter().any(|(id,_)|*id==engine) { return Err("agente desconocido".into()); }
+    let requested=args["agente"].as_str().unwrap_or("claude");
+    if requested!="auto" && !ENGINES.iter().any(|(id,_)|*id==requested) { return Err("agente desconocido".into()); }
     let prompt=args["tarea"].as_str().filter(|p|!p.trim().is_empty()).ok_or("falta el encargo")?;
     let title=derive_title(args["titulo"].as_str(),prompt);
     let goal=args["objetivo"].as_str().filter(|g|!g.trim().is_empty()).unwrap_or(prompt);
     let role=args["rol"].as_str().unwrap_or("senior");
     if !["researcher","designer","senior","junior","auditor","auditor2"].contains(&role) { return Err("rol ejecutor no válido".into()); }
+    let (chosen,route)=crate::jev::provider_choice(&state,requested,crate::skills::Role::from_key(Some(role)))?;
+    let engine=chosen.as_str();
     let task={let mut conn=state.db.lock().map_err(err)?;crate::tasks::delegation(&mut conn,project,parent_task,&title,goal,prompt,engine,role)?};
     let session=claude::create_pm_subsession(app,project,parent,engine,Some(&title),Some(crate::skills::Role::from_key(Some(role))),Some(task))?;
+    crate::jev::assign_provider(&*state.db.lock().map_err(err)?,session.id,&parent.map(crate::runs::session_scope).unwrap_or_else(|| project.to_owned()),&route)?;
     if let Some(paths)=args["archivos"].as_array() {
         let paths=paths.iter().map(|p|p.as_str().map(str::to_owned).ok_or("ruta no válida")).collect::<Result<Vec<_>,_>>()?;
         let conn=state.db.lock().map_err(err)?;
@@ -336,6 +348,7 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
     let project = parent.project.clone();
     if FLOW_TOOLS.contains(&tool) {return flow_tool(app,&project,tool,args);}
     match tool {
+        "catalogo_proveedores" => crate::providers::overview(&state),
         "delegar" => {
             let parent_task={
                 let conn=state.db.lock().map_err(err)?;
@@ -420,6 +433,7 @@ mod tests {
         let specs = specs();
         let names: Vec<&str> = specs.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"flow_retry"));
+        assert!(names.contains(&"catalogo_proveedores"));
         for t in specs.as_array().unwrap() {
             assert_eq!(t["type"], json!("function"));
             assert_eq!(t["inputSchema"]["type"], json!("object"));
@@ -438,6 +452,7 @@ mod tests {
         let arr = tools.as_array().unwrap();
         let names: Vec<&str> = arr.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"flow_tasks"));
+        assert!(names.contains(&"catalogo_proveedores"));
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);

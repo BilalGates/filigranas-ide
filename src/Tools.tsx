@@ -33,7 +33,7 @@ function toolState(t: Tool): 'ok' | 'sin sesión' | 'falta' | 'instalada' {
 /** Estado y acceso a las herramientas del IDE. */
 export default function Tools({ tools, checking, hidden, onLogin, onRefresh, autoUpdates, surface }: Props) {
   const settings = surface === 'settings';
-  const visible = tools?.filter(({ id }) => ['codex', 'claude', 'gh'].includes(id));
+  const visible = tools?.filter(({ id }) => ['claude', 'codex', 'agy', 'gh'].includes(id));
   // En Ajustes cada bloque es una tarjeta; en el panel emergente, una lista seguida.
   const block = settings ? 'tools-block tr-settings-card' : 'tools-block';
   return (

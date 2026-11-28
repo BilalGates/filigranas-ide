@@ -1112,7 +1112,7 @@ html[data-resizing] .right {
   display: none;
 }
 /* La barra de la sesión (pausar, relevar) sube a la cabecera del panel. */
-.main-view > .coach > .co-head {
+.main-view:not(.is-panes) > .ws-cell > .coach > .co-head {
   position: absolute;
   top: -44px;
   right: 44px;

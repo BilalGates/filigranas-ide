@@ -671,7 +671,7 @@ export default function Session({ session, project, hidden, switching, providerS
       </> : <>
       {observation && <ConversationObservation target={observation} items={[...history.items, ...items]}
         agent={session.name} project={session.worktree ?? project} onDiff={openDiff} />}
-      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff} workflow={hidden ? undefined : workflow}>
+      <ConversationLog items={[...history.items, ...items]} asks={asks} agent={session.name} project={session.worktree ?? project} onDiff={openDiff} workflow={hidden ? undefined : workflow} streaming={running}>
         {history.error && <div className="co-error">{history.error}</div>}
         {items.length === 0 && !history.items.length && !error && !starting && <div className="co-empty">¿Qué hacemos?</div>}
         {starting && items.length === 0 && <div className="muted">recuperando la sesión de {engine}…</div>}

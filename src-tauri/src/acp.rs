@@ -161,6 +161,7 @@ impl Acp {
                         if update["sessionUpdate"] == json!("agent_message_chunk") {
                             if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
                                 tracker_handle.state::<AppState>().tracker.chunk(id, text);
+                                crate::runs::on_active(&tracker_handle,id,|conn,run|crate::runs::append_result(conn,run,text));
                             }
                         }
                         crate::capabilities::observe_acp(&tracker_handle, id, update);
@@ -316,7 +317,10 @@ impl Acp {
                     crate::claude::notify_subsession(&handle, id);
                     let quota = crate::handoff::quota_reason(&message);
                     let outcome = if quota.is_some() { "paused_quota" } else if !rpc.alive() { "interrupted" } else { "failed" };
-                    crate::runs::record(&handle, |conn| crate::runs::finish(conn, run, outcome).map_err(err));
+                    crate::runs::record(&handle, |conn| {
+                        crate::runs::result(conn,run,None,Some(&message)).map_err(err)?;
+                        crate::runs::finish(conn, run, outcome).map_err(err)
+                    });
                     if let Some(reason) = quota {
                         crate::handoff::pause(&handle, id, &reason);
                     }
@@ -355,7 +359,10 @@ impl Acp {
             Some(option) => json!({ "outcome": "selected", "optionId": option }),
             None => json!({ "outcome": "cancelled" }),
         };
-        p.rpc.respond(rid, json!({ "outcome": outcome }))?;
+        if let Err(error)=p.rpc.respond(rid.clone(), json!({ "outcome": outcome })) {
+            self.pending.lock().map_err(err)?.insert(request_id.into(),(id,rid,options));
+            return Err(error);
+        }
         drop(guard);
         if self.pending_for(id) == 0 {
             crate::runs::on_active(app, id, |conn, run| crate::runs::phase(conn, run, "running"));

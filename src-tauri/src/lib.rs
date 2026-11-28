@@ -74,6 +74,7 @@ pub(crate) struct AppState {
     pub permissions: autoapprove::Modes,
     pub sysmon: sysmon::Monitor,
     pub jev_gate: Mutex<()>,
+    pub flow_dispatch: Mutex<()>,
     pub chat_gate: Mutex<()>,
     // Se libera después de destruir los recursos del perfil.
     _profile_lock: std::fs::File,
@@ -163,8 +164,10 @@ pub fn run() {
                 permissions: Default::default(),
                 sysmon: Default::default(),
                 jev_gate: Default::default(),
+                flow_dispatch: Default::default(),
                 chat_gate: Default::default(),
             });
+            runs::wake_queue(app.handle());
             tools::start_auto(app.handle().clone());
             if let Some(root) = root {
                 if let Err(e) = watch::start(app.handle(), std::path::Path::new(&root)) {
@@ -312,7 +315,12 @@ pub fn run() {
             work::work_prepare,
             work::work_resume,
             tasks::tasks_list,
+            tasks::task_plans_list,
+            tasks::task_plan_detail,
+            tasks::task_plan_create,
             tasks::task_flow,
+            runs::flow_enqueue,
+            runs::flow_cancel_run,
             tasks::task_save,
             tasks::task_link,
             tasks::task_runs,

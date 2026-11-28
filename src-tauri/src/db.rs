@@ -62,6 +62,21 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
+/// Internal schema declarations only; names and types must be static constants.
+pub(crate) fn add_columns(conn: &Connection, table: &str, columns: &[(&str, &str)]) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (column, definition) in columns {
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name=?2)",
+            [table, column], |row| row.get(0),
+        )?;
+        if !exists {
+            tx.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"))?;
+        }
+    }
+    tx.commit()
+}
+
 /// Cambios aditivos sobre bases ya creadas: solo añaden columnas que falten.
 fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let has_in = |table: &str, col: &str| -> rusqlite::Result<bool> {

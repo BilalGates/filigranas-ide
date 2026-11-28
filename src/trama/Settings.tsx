@@ -9,6 +9,8 @@ import { Icon } from './icons';
 import { setFieldIntensity, setMotion, useMotion, type Motion } from './motion';
 import { Root } from './kit';
 import { setComposerSettings, useComposerSettings } from '../composerStore';
+import { ExtensionsManager } from './ExtensionsSettings';
+import { ROLE_NAMES, ROLE_ORDER } from './capabilityLabels';
 
 // Ajustes de Trama v2 con configuración real: cada opción indica dónde está
 // definida (global, proyecto o sesión). Lo que no existe en el núcleo no se

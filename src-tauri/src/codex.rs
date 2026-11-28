@@ -751,24 +751,27 @@ pub(crate) fn send_turn(app: &AppHandle, path: &str, direct: Option<&db::Session
     drop(git_gate);
     drop(gate);
     tasks::changed(app);
-    let (effort, model_override) = if automatic {
-        crate::jev::route(&state, run, model.as_deref(), &available, !model_pinned && !message.has_images()).ok().and_then(|trace| {
-            let mut conn = state.db.lock().ok()?;
-            let tx = conn.transaction().ok()?;
-            let override_model = if let Some(execution_model) = &trace.execution_model {
-                crate::jev::preserve_baseline(&tx, &thread_id, model.as_deref()?).ok()?;
-                runs::usage(&tx, run, runs::Usage { model: Some(execution_model.clone()), ..Default::default() }).ok()?;
-                Some(execution_model.clone())
-            } else {
-                model_override.clone()
-            };
-            crate::jev::record(&tx, run, &trace).ok()?;
-            tx.commit().ok()?;
-            drop(conn);
-            tasks::changed(app);
-            Some((trace.effort, override_model))
-        }).unwrap_or((None, model_override))
-    } else { (effort, model_override) };
+    let routing = if automatic { (|| -> CmdResult<_> {
+        let trace = crate::jev::route(&state, run, model.as_deref(), &available, !model_pinned && !message.has_images())?;
+        let mut conn = state.db.lock().map_err(err)?;
+        let tx = conn.transaction().map_err(err)?;
+        let override_model = if let Some(execution_model) = &trace.execution_model {
+            if let Some(baseline) = model.as_deref() { crate::jev::preserve_baseline(&tx, &thread_id, baseline).map_err(err)?; }
+            runs::usage(&tx, run, runs::Usage { model: Some(execution_model.clone()), ..Default::default() }).map_err(err)?;
+            Some(execution_model.clone())
+        } else { model_override.clone() };
+        crate::jev::record(&tx, run, &trace)?;
+        tx.commit().map_err(err)?;
+        Ok((trace.effort, override_model))
+    })() } else { Ok((effort, model_override)) };
+    let (effort, model_override) = match routing {
+        Ok(selected) => selected,
+        Err(error) => {
+            let conn = state.db.lock().map_err(err)?;
+            runs::finish(&conn, run, "failed").map_err(err)?;
+            return Err(format!("No se pudo registrar el enrutamiento Jev: {error}"));
+        }
+    };
     let inputs: Vec<_> = std::iter::once(json!({ "type": "text", "text": input, "text_elements": [] }))
         .chain(message.codex_images()).collect();
     // Keep mutations behind app-server approval requests even in Full Control.

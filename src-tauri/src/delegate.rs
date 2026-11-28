@@ -12,7 +12,7 @@ use crate::{claude, db, err, AppState, CmdResult};
 
 /// Sube al cambiar las herramientas: los hilos creados con otra versión se
 /// sustituyen, porque Codex solo las acepta al crear el hilo.
-pub const TOOLS_VERSION: i64 = 4;
+pub const TOOLS_VERSION: i64 = 5;
 
 const ENGINES: [(&str, &str); 5] = [
     ("claude", "claude code"),
@@ -35,14 +35,14 @@ La tarea debe ser autocontenida: objetivo, contexto, archivos relevantes, restri
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "claude = Claude Code, codex = Codex, opencode = OpenCode, agy = Antigravity (Gemini), devin = Devin" },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "auto (preferido) consulta Jev cuando hay una decisión real; fijar proveedor es selección explícita del llamante. claude = Claude Code, codex = Codex, agy = Antigravity" },
                     "titulo": { "type": "string", "description": "Título breve visible en «Conversaciones» (p. ej. «Investigar delegación»)." },
                     "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills del ejecutor. Por defecto senior." },
                     "archivos": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Opcional. Rutas relativas asignadas si existe una sesión de trabajo compartida activa." },
                     "tarea": { "type": "string", "description": "Encargo completo para el agente ejecutor." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
                 },
-                "required": ["agente", "tarea"],
+                "required": ["tarea"],
                 "additionalProperties": false
             }
         },
@@ -106,7 +106,7 @@ pub fn claude_mcp_tools() -> Value {
                 "properties": {
                     "titulo": { "type": "string", "description": "Título breve de la subsesión visible en el panel «Conversaciones» (p. ej. «Investigar autenticación»)." },
                     "tarea": { "type": "string", "description": "Encargo completo y autocontenido: objetivo, contexto, archivos relevantes y qué resultado devolver." },
-                    "agente": { "type": "string", "enum": ["claude", "codex", "opencode", "agy", "devin"], "description": "Motor que ejecutará la subsesión. Por defecto claude." },
+                    "agente": { "type": "string", "enum": ["auto", "claude", "codex", "opencode", "agy", "devin"], "description": "Usa auto para que Jev resuelva el proveedor cuando haya varias opciones; un proveedor fijo es selección explícita del llamante." },
                     "rol": { "type": "string", "enum": ["researcher", "designer", "senior", "junior", "auditor", "auditor2"], "description": "Rol de skills de la subsesión. Por defecto senior." },
                     "esfuerzo": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Nivel de esfuerzo para Claude Code o Codex. Por defecto medium." }
                 },
@@ -225,20 +225,18 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
     let project = db::project_for_thread(&*state.db.lock().map_err(err)?, thread).map_err(err)?.ok_or("este hilo no pertenece a ningún proyecto del IDE")?;
     match tool {
         "delegar" => {
-            let engine = args["agente"].as_str().unwrap_or("");
-            if !ENGINES.iter().any(|(id, _)| *id == engine) {
-                return Err(format!("agente desconocido: {engine}"));
-            }
             let task = args["tarea"].as_str().unwrap_or("").trim();
             if task.is_empty() {
                 return Err("falta la tarea".into());
             }
+            let routing = crate::jev::delegation::select(&state, args, task)?;
+            let engine = routing.engine.as_str();
             let title = derive_title(args["titulo"].as_str(), task);
             let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
             let paths = args["archivos"].as_array().map(|paths| {
                 paths.iter().map(|p| p.as_str().map(str::to_owned).ok_or("cada archivo debe ser una ruta de texto")).collect::<Result<Vec<_>, _>>()
             }).transpose()?;
-            let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
+            let effort = matches!(engine, "claude" | "codex").then(|| routing.effort.clone()).flatten();
             let task_id = {
                 let mut conn = state.db.lock().map_err(err)?;
                 match crate::runs::task_for_thread(&conn, thread).map_err(err)? {
@@ -256,6 +254,7 @@ pub fn handle(app: &AppHandle, thread: &str, tool: &str, args: &Value) -> CmdRes
                     crate::work::assign(&conn, &project, session.id, paths)?;
                 }
             }
+            crate::jev::delegation::stage(&*state.db.lock().map_err(err)?, session.id, &routing.trace)?;
             let _ = app.emit("sessions-changed", json!({ "project": project, "focus": null }));
             if let Err(error) = claude::send_message(app, session.id, format!("Encargo del Project manager ({title}):\n\n{task}"), effort) {
                 return Ok(format!("Subsesión «{}» ({title}) creada para la tarea #{task_id}, pero el turno no se inició: {error}. Puedes reintentar con continuar_sesion.", session.name));
@@ -337,18 +336,24 @@ pub fn handle_claude(app: &AppHandle, parent_id: i64, tool: &str, args: &Value) 
     let project = parent.project.clone();
     match tool {
         "delegar" => {
-            let engine = args["agente"].as_str().filter(|s| !s.is_empty()).unwrap_or("claude");
-            if !ENGINES.iter().any(|(id, _)| *id == engine) {
-                return Err(format!("agente desconocido: {engine}"));
-            }
             let task = args["tarea"].as_str().unwrap_or("").trim();
             if task.is_empty() {
                 return Err("falta la tarea".into());
             }
+            let routing = crate::jev::delegation::select(&state, args, task)?;
+            let engine = routing.engine.as_str();
             let title = derive_title(args["titulo"].as_str(), task);
             let role = args["rol"].as_str().filter(|r| *r != "pm").map(|r| crate::skills::Role::from_key(Some(r)));
-            let effort = matches!(engine, "claude" | "codex").then(|| args["esfuerzo"].as_str().map(str::to_string)).flatten();
-            let session = claude::create_subsession(app, parent_id, engine, Some(&title), role)?;
+            let effort = matches!(engine, "claude" | "codex").then(|| routing.effort.clone()).flatten();
+            let task_id = {
+                let mut conn = state.db.lock().map_err(err)?;
+                match crate::tasks::linked(&conn, parent_id).map_err(err)? {
+                    Some(id) => id,
+                    None => crate::tasks::delegated(&mut conn, &project, task)?,
+                }
+            };
+            let session = claude::create_pm_subsession(app, &project, Some(parent_id), engine, Some(&title), role, Some(task_id))?;
+            crate::jev::delegation::stage(&*state.db.lock().map_err(err)?, session.id, &routing.trace)?;
             let prompt = format!("Encargo delegado desde «{}» ({title}):\n\n{task}", parent.name);
             if let Err(error) = claude::send_message(app, session.id, prompt, effort) {
                 return Ok(format!(
@@ -435,7 +440,7 @@ mod tests {
         assert_eq!(names, ["delegar", "estado_sesiones", "esperar_sesion", "continuar_sesion"]);
         let engines: Vec<&str> = arr[0]["inputSchema"]["properties"]["agente"]["enum"]
             .as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
-        assert_eq!(engines, ["claude", "codex", "opencode", "agy", "devin"]);
+        assert_eq!(engines, ["auto", "claude", "codex", "opencode", "agy", "devin"]);
         assert_eq!(derive_title(Some("  Investigar auth "), "tarea"), "Investigar auth");
         assert_eq!(derive_title(None, "\nPrimera línea\nSegunda"), "Primera línea");
     }

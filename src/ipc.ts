@@ -373,7 +373,7 @@ export type TaskRun = {
   contextTokens: number | null;
   memory: BrainReference[];
   routing: {
-    source: 'local' | 'shadow' | 'jev';
+    source: 'local' | 'shadow' | 'jev' | 'manual' | 'api_error' | 'unconfigured';
     reason: string | null;
     effort: string | null;
     recommendedEffort: string | null;
@@ -397,10 +397,13 @@ export type JevSettings = {
   model: string | null;
   lightModel: string | null;
 };
-export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[] };
+export type JevStatus = { settings: JevSettings; supported: boolean; service: string; account: string; codexModels: string[]; credential: 'available' | 'missing_or_locked' };
 export type JevStatusbar = { mode: JevSettings['mode']; used: number; limit: number };
 export type JevUsage = { tokens: number; costUsd: number | null };
 export const jev = {
+  setCredential: (key: string) => invoke<void>('jev_credential_set', { key }),
+  deleteCredential: () => invoke<void>('jev_credential_delete'),
+  testConnection: () => invoke<{ authenticated: boolean; model: string | null; durationMs: number; error: string | null }>('jev_test_connection'),
   usage: () => invoke<JevUsage>('jev_usage'),
   euroRate: () => invoke<number>('jev_euro_rate'),
   status: () => invoke<JevStatus>('jev_status'),

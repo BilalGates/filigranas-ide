@@ -328,6 +328,14 @@ pub fn tools_auto_update(state: tauri::State<AppState>, enabled: Option<bool>) -
     Ok(db::get_setting(&conn, AUTO_KEY).map_err(err)?.as_deref() != Some("0"))
 }
 
+/// Only providers whose login status is actually confirmed. ACP providers with
+/// no official status command remain manual until availability can be verified.
+pub fn routing_candidates() -> Vec<String> {
+    SPECS.iter().filter(|s| matches!(s.id, "claude" | "codex"))
+        .map(check).filter(|t| t.installed && t.logged_in == Some(true))
+        .map(|t| t.id.to_string()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

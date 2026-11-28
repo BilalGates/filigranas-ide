@@ -59,6 +59,10 @@ pub fn begin(tx: &rusqlite::Transaction<'_>, project: &str, scope: &str, provide
          VALUES(?1,?2,?3,?4,?5,?6,?7)", params![project,scope,provider,session,task,now(),retry],
     ).map_err(err)?;
     let id = tx.last_insert_rowid();
+    if let Some(session) = session {
+        tx.execute("INSERT INTO jev_routes(run_id,data) SELECT ?1,data FROM jev_delegations WHERE session_id=?2", params![id,session]).map_err(err)?;
+        tx.execute("DELETE FROM jev_delegations WHERE session_id=?1", [session]).map_err(err)?;
+    }
     if let Some(task) = task {
         tx.execute("UPDATE tasks SET status='running',tests=NULL,updated_at=unixepoch() WHERE id=?1", [task]).map_err(err)?;
     }

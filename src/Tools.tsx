@@ -155,6 +155,8 @@ function CliUpdates({ className, onRefresh, last }: { className: string; onRefre
 
 function JevRouting({ className }: { className: string }) {
   const [status, setStatus] = useState<JevStatus | null>(null);
+  const [personalKey, setPersonalKey] = useState('');
+  const [diagnostic, setDiagnostic] = useState<string | null>(null);
   const [policy, setPolicy] = useState<JevSettings['policy']>('balanced');
   const [timeout, setTimeout] = useState(3);
   const [lightModel, setLightModel] = useState('');
@@ -229,10 +231,31 @@ function JevRouting({ className }: { className: string }) {
             </label>}
           </div>
           {status.supported ? <>
-            <details className="co-aside jev-credential">
-              <summary>Configurar la credencial del sistema</summary>
-              <p>Guarda tu clave de TypeSafe como contraseña genérica en el llavero de inicio de sesión de macOS o en el Administrador de credenciales de Windows. Usa <code>{status.service}</code> como nombre y <code>{status.account}</code> como cuenta. Si macOS pide acceso, permite el acceso permanente para los turnos automáticos.</p>
-            </details>
+            <div className="co-aside jev-credential">
+              <label>Tu API key personal de TypeSafe
+                <input type="password" autoComplete="off" spellCheck={false} value={personalKey} disabled={busy}
+                  onChange={(e) => setPersonalKey(e.target.value)} aria-label="API key personal de TypeSafe" />
+              </label>
+              <p>Se guarda en el almacén seguro de tu usuario de macOS o Windows. Cada usuario configura su propia clave. Estado: {status.credential === 'available' ? 'disponible' : 'sin configurar o acceso nativo pendiente'}.</p>
+              <button type="button" disabled={busy || !personalKey.trim()} onClick={() => {
+                setBusy(true); setError(null);
+                void jev.setCredential(personalKey).then(async () => {
+                  setPersonalKey(''); setDiagnostic('Clave guardada. Prueba la conexión para comprobar la autenticación.'); setStatus(await jev.status());
+                }).catch((e) => setError(String(e))).finally(() => setBusy(false));
+              }}>Guardar / sustituir clave</button>
+              <button type="button" disabled={busy} onClick={() => {
+                setBusy(true); setError(null);
+                void jev.testConnection().then((r) => setDiagnostic(r.authenticated
+                  ? `Autenticación correcta · ${r.model ?? 'sin modelo compatible'} · ${r.durationMs} ms`
+                  : `Conexión fallida · ${r.error} · ${r.durationMs} ms`)).catch((e) => setError(String(e))).finally(() => setBusy(false));
+              }}>Probar conexión real</button>
+              <button type="button" disabled={busy} onClick={() => {
+                setBusy(true); setError(null);
+                void jev.deleteCredential().then(async () => { setPersonalKey(''); setDiagnostic('Clave eliminada; Jev desactivado.'); setStatus(await jev.status()); })
+                  .catch((e) => setError(String(e))).finally(() => setBusy(false));
+              }}>Eliminar clave</button>
+              {diagnostic && <p role="status">{diagnostic}</p>}
+            </div>
             <div className="jev-checks">
               <label className="jev-check">
                 <input type="checkbox" checked={shadow} disabled={busy} onChange={(e) => setShadow(e.target.checked)} />
@@ -240,7 +263,7 @@ function JevRouting({ className }: { className: string }) {
               </label>
               <label className="jev-check">
                 <input type="checkbox" checked={consent} disabled={busy} onChange={(e) => setConsent(e.target.checked)} />
-                <span>Autorizo consultar el catálogo y enviar a api.typesafe.ai el riesgo, la prioridad, el tamaño aproximado y el estado del turno anterior de mis tareas automáticas, además de la política y las opciones de Codex disponibles.</span>
+                <span>Autorizo consultar el catálogo y enviar a api.typesafe.ai el riesgo, la prioridad, el tamaño aproximado y el estado del turno anterior de mis tareas automáticas, además de la política, el rol, el tamaño aproximado del encargo delegado y los proveedores autenticados disponibles. No se envían archivos, prompts ni credenciales de otros proveedores.</span>
               </label>
             </div>
           </> : <p className="muted">El almacén de credenciales de esta plataforma no está disponible para Jev.</p>}

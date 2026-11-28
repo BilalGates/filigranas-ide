@@ -1367,6 +1367,7 @@ export default function App() {
             {entregaOrigin?.session != null && <div role="status" className="ent-warn-banner">Entrega muestra el proyecto; los cambios de la sesión aislada no están disponibles aquí.</div>}
             <Entrega key={entregaProject ?? 'none'} initialScope={entregaOrigin ? null : entregaScope} initialStage={entregaStage} initialCi={focusCi === entregaProject && focusCi != null} onConsumeCi={() => setFocusCi(null)} project={entregaProject} projectName={entregaProjectName} agentSessions={entregaProject ? sessionsByProject[entregaProject] ?? [] : []}
               onConflicts={(files) => { if (entregaProject && entregaProject !== project) selectProject(entregaProject, { keepTool: true }); showConflicts(files); }} onBranchesChanged={entregaProject === project ? countPending : undefined}
+              onOpenSettings={() => { openToolInShell('ajustes'); window.setTimeout(() => window.dispatchEvent(new CustomEvent('settings-section', { detail: 'entrega' })), 0); }}
               onFile={(path, id, root) => { setEditorProject(entregaProject); setFile(path); setFileSession(id); setFileRoot(root); setDiff(null); openEditor(); }} />
           </Boundary>
         );

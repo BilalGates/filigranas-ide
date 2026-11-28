@@ -290,7 +290,10 @@ export type AcpOption = { id: string; name: string; category: string; currentVal
 
 export type ChatEngine = import('./providers').ExecutionProvider;
 export type ProviderHealth = { id: string; connected: boolean | null; observedAt: number; message: string; config: AcpOption[] | null; capabilities: unknown; quotaModel: string | null; quotaObservedAt: number | null };
-export const providers = { health: () => invoke<ProviderHealth[]>('provider_health') };
+export const providers = {
+  health: () => invoke<ProviderHealth[]>('provider_health'),
+  openUsage: (provider: import('./providers').ExecutionProvider) => invoke<void>('provider_usage_open', { provider }),
+};
 
 export const chats = {
   pm: (project: string) => invoke<Session | null>('chat_pm', { project }),

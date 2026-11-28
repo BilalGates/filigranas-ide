@@ -725,6 +725,7 @@ pub fn wake_queue(app: &AppHandle) {
             let (run,id,prompt,effort)=match next {Ok(Some(next))=>next,Ok(None)=>break,Err(e)=>{eprintln!("cola Flow: {e}");break}};
             let result=(|| {
                 let session=crate::claude::open_session(&state,id)?;
+                let effort=crate::routing::prepare(&app,&session,run,effort)?;
                 let message=crate::attachments::Message::text(prompt);
                 if session.engine=="codex" {
                     let task=tasks::linked(&*state.db.lock().map_err(err)?,id).map_err(err)?;

@@ -279,11 +279,11 @@ html.is-light .ws-inner.has-side-drawer > .sidebar {
   background: var(--skyhi);
 }
 
-/* Lengüeta fija en el borde derecho cuando el chat está oculto (Variante C) */
+/* Lengüeta fija en el carril derecho cuando el chat está oculto (Variante C) */
 .ws-dock-tab {
   position: absolute;
   top: 96px;
-  right: 0;
+  right: 6px;
   z-index: 40;
   width: 32px;
   display: flex;
@@ -291,11 +291,10 @@ html.is-light .ws-inner.has-side-drawer > .sidebar {
   align-items: center;
   gap: 5px;
   padding: 10px 5px;
-  border-radius: 10px 0 0 10px;
+  border-radius: 10px;
   border: 1px solid var(--line-2);
-  border-right: 0;
   background: rgb(18 20 26 / 0.94);
-  box-shadow: -8px 8px 24px -10px rgb(0 0 0 / 0.85);
+  box-shadow: 0 8px 18px -12px rgb(0 0 0 / 0.85);
   backdrop-filter: blur(14px);
   color: var(--tx2);
   cursor: pointer;
@@ -327,7 +326,7 @@ html.is-light .ws-inner.has-side-drawer > .sidebar {
 }
 html.is-light .ws-dock-tab {
   background: rgb(250 251 253 / 0.95);
-  box-shadow: -6px 8px 22px -10px rgb(10 14 24 / 0.22);
+  box-shadow: 0 8px 18px -12px rgb(10 14 24 / 0.22);
 }
 html.is-light .ws-dock-tab:hover,
 html.is-light .ws-dock-tab:focus-visible {
@@ -409,13 +408,18 @@ html[data-motion='reducido'] .tool-pane {
   .tool-pane { animation: none; }
   .ws-dock-tab { transition: none; }
 }
-/* Reserva un margen lateral derecho cuando la lengüeta está visible para
-   no tapar barras de scroll ni controles laterales en Inicio, Flow, Entrega y Git. */
+/* Carril propio de la lengüeta: la línea divisoria separa las barras de scroll
+   y los controles de cada herramienta, que terminan antes de él. */
 .tool-pane:is(.is-compact, .is-maximized) > .tool-body {
-  padding-right: 36px;
+  padding-right: 44px;
 }
-.tool-pane:is(.is-compact, .is-maximized) :is(.ent-insp, .insp) {
-  border-right: 1px solid var(--line);
+.tool-pane:is(.is-compact, .is-maximized) > .tool-body::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  right: 43px;
+  width: 1px;
+  background: var(--line);
 }
 .tool-body {
   flex: 1;

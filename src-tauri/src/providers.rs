@@ -102,6 +102,8 @@ pub fn concurrency_limit(conn: &rusqlite::Connection, id: &str) -> u32 {
 /// Coordination metadata only: no credentials, task text, paths or fabricated prices.
 pub fn overview(state: &AppState) -> CmdResult<String> {
     use rusqlite::OptionalExtension;
+    let codex_models=state.codex.cached_models()?;
+    let claude_models=state.claude.cached_models()?;
     let conn=state.db.lock().map_err(err)?;
     let mut items=Vec::new();
     for provider in &PROVIDERS {
@@ -109,7 +111,7 @@ pub fn overview(state: &AppState) -> CmdResult<String> {
         let active: u32=conn.query_row("SELECT count(*) FROM task_runs WHERE provider=?1 AND ended_ms IS NULL",[provider.id],|r|r.get(0)).map_err(err)?;
         let last: Option<String>=conn.query_row("SELECT outcome FROM task_runs WHERE provider=?1 ORDER BY id DESC LIMIT 1",[provider.id],|r|r.get(0)).optional().map_err(err)?;
         items.push(json!({"provider":provider,"connected":health.connected,"observedAt":health.observed_at,"stale":now()-health.observed_at>1800,
-            "options":health.config,"capabilities":health.capabilities,"lastQuotaModel":health.quota_model,"quotaObservedAt":health.quota_observed_at,"lastOutcome":last,
+            "options":health.config,"models":match provider.id {"codex"=>&codex_models,"claude"=>&claude_models,_=>&Value::Null},"capabilities":health.capabilities,"lastQuotaModel":health.quota_model,"quotaObservedAt":health.quota_observed_at,"lastOutcome":last,
             "activeExecutions":active,"concurrencyLimit":concurrency_limit(&conn,provider.id),"cost":null,"aggregateQuota":null}));
     }
     serde_json::to_string(&items).map_err(err)

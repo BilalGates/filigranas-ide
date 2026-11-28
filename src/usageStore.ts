@@ -147,7 +147,7 @@ export function useProviderQuota(engine: string | null, model: string | null, re
   const snapshot = engine === 'claude' || engine === 'codex' || engine === 'agy' ? snapshots[engine] : EMPTY;
   const windows = snapshot.windows.filter((w) =>
     (w.resetsAt == null || w.resetsAt > now) &&
-    (!['Opus', 'Sonnet'].includes(w.label) || model?.toLowerCase().includes(w.label.toLowerCase())));
+    (!model || !['Opus', 'Sonnet'].includes(w.label) || model.toLowerCase().includes(w.label.toLowerCase())));
   const remaining = windows.length ? Math.max(0, 100 - Math.max(...windows.map((w) => w.percent))) : null;
   const provider = engine ? health[engine] : undefined;
   const representative = windows.reduce<QuotaWindow | null>((chosen, window) => !chosen || window.percent > chosen.percent ? window : chosen, null);

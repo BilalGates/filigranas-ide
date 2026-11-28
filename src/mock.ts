@@ -191,6 +191,8 @@ mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
     switch (cmd) {
+      case 'provider_health':
+        return [];
       case 'work_current':
         return mockWorks.get(a.project) ?? null;
       case 'work_start': {
@@ -599,6 +601,14 @@ mockIPC(
         return { number: 7, url: 'https://github.com/demo/bitacola/pull/7', state: 'OPEN', isDraft: a.edit?.draftPr ?? true,
           branch: 'feat/autonomia', base: a.edit?.base ?? 'main', head: '9af2c5a462f7618732f102a1f12442411c737cb3',
           checks: [2, 0, 1], checksState: 'pending', checksKnown: true, review: null, mergeState: 'BLOCKED', observedAt: Date.now() / 1000 };
+      case 'provider_usage_open':
+        {
+          const urls: Record<string, string> = { codex: 'https://chatgpt.com/codex/settings/usage', claude: 'https://claude.ai/settings/usage', agy: 'https://antigravity.google/docs/plans/' };
+          const url = urls[a.provider];
+          if (!url) return fail('Proveedor desconocido');
+          window.open(url, '_blank', 'noopener,noreferrer');
+          return null;
+        }
       case 'open_pr_url':
         return null;
       case 'brain_graph':

@@ -79,7 +79,7 @@ export const MIN_WORKSPACE_RATIO = 0.2;
 export const MAX_WORKSPACE_RATIO = 0.65;
 export const MIN_WORKSPACE_PX = 340;
 export const MIN_TOOL_PX = 440;
-/** Sin carril lateral al ocultar Workspace: la herramienta ocupa todo el ancho y la lengüeta flota en el borde derecho. */
+/** Sin carril lateral al ocultar Workspace: la herramienta ocupa todo el ancho y el CSS reserva el carril de la lengüeta. */
 export const COMPACT_RAIL_PX = 0;
 export const SPLITTER_PX = 8;
 /** Por debajo de este ancho de Workspace en dividida, se repliega su columna interna de hilos. */

@@ -208,6 +208,22 @@ struct Event {
 }
 
 impl Codex {
+    pub fn delegation_models(&self, app: &AppHandle) -> CmdResult<Vec<crate::routing::Model>> {
+        let catalog = self.rpc(app)?.request("model/list", json!({}), SHORT)?;
+        let models = parse_models(Some(&catalog));
+        self.shared.lock().map_err(err)?.model_efforts = models.iter().map(|m| (m.id.clone(),m.efforts.clone())).collect();
+        Ok(models.into_iter().filter(|m| m.accepts_text).map(|m| crate::routing::Model {
+            id: m.id, efforts: m.efforts, current: m.is_default,
+        }).collect())
+    }
+
+    pub fn cached_models(&self) -> CmdResult<Value> {
+        let shared = self.shared.lock().map_err(err)?;
+        let mut models: Vec<_> = shared.model_efforts.iter().map(|(id,efforts)| json!({"id":id,"efforts":efforts})).collect();
+        models.sort_by(|a,b| a["id"].as_str().cmp(&b["id"].as_str()));
+        Ok(json!(models))
+    }
+
     pub fn jev_models(&self) -> CmdResult<Vec<String>> {
         Ok(self.shared.lock().map_err(err)?.low_text_models.clone())
     }

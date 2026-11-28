@@ -31,6 +31,16 @@ import { Modal } from './ui';
 const SUMMARY_LIMIT = 30;
 const REFRESH_TTL_MS = 30_000;
 
+// Inicio se desmonta al salir. Esta caché conserva los últimos datos para que,
+// al volver, la pantalla se pinte con la misma estructura y se refresque después
+// sin que las secciones aparezcan por fases ni cambie el orden de los proyectos.
+const homeCache: {
+  root: string | null | undefined;
+  recentSessions: RecentSession[] | null;
+  backendActivity: HomeActivityItem[];
+  snaps: Record<string, HomeSummary>;
+} = { root: undefined, recentSessions: null, backendActivity: [], snaps: {} };
+
 function engineLabel(engine: string) {
   if (engine === 'claude') return 'Claude Code';
   if (engine === 'codex') return 'Codex';
@@ -87,13 +97,14 @@ export default function Home({
   onError: (e: string) => void;
 }) {
   const { activity } = useUi();
-  const [summaryState, setSummaryState] = useState<{ key: string; snaps: Record<string, HomeSummary> }>({
-    key: '',
-    snaps: {},
-  });
-  const [recentSessions, setRecentSessions] = useState<RecentSession[]>([]);
-  const [backendActivity, setBackendActivity] = useState<HomeActivityItem[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [allSnaps, setAllSnaps] = useState<Record<string, HomeSummary>>(() => homeCache.snaps);
+  const [recentSessions, setRecentSessions] = useState<RecentSession[]>(() => homeCache.recentSessions ?? []);
+  const [backendActivity, setBackendActivity] = useState<HomeActivityItem[]>(() => homeCache.backendActivity);
+  // Raíz cuyos datos ya se han cargado. Hasta que coincide con la actual, Inicio
+  // muestra un único estado de carga en vez de pintar secciones a medias.
+  const [loadedRoot, setLoadedRoot] = useState<string | null | undefined>(() => homeCache.root);
+  const rootRef = useRef(ws.root);
+  rootRef.current = ws.root;
 
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [showAllAttention, setShowAllAttention] = useState(false);
@@ -117,7 +128,13 @@ export default function Home({
 
   const pathsKey = useMemo(() => JSON.stringify(allPaths), [allPaths]);
   const summaryKey = useMemo(() => JSON.stringify([summaryPaths, project]), [summaryPaths, project]);
-  const snaps = summaryState.key === summaryKey ? summaryState.snaps : {};
+  // Mantiene los resúmenes previos mientras llegan los nuevos; solo se filtran
+  // los proyectos que ya no forman parte de la biblioteca.
+  const snaps = useMemo(() => {
+    const out: Record<string, HomeSummary> = {};
+    for (const path of summaryPaths) if (allSnaps[path]) out[path] = allSnaps[path];
+    return out;
+  }, [allSnaps, summaryPaths]);
 
   const shown = useRef(active);
   shown.current = active;
@@ -128,10 +145,14 @@ export default function Home({
     const paths: string[] = JSON.parse(pathsKey);
     const [sumPaths, focus]: [string[], string | null] = JSON.parse(summaryKey);
     if (!paths.length) {
+      homeCache.recentSessions = [];
+      homeCache.backendActivity = [];
+      homeCache.snaps = {};
       setRecentSessions([]);
       setBackendActivity([]);
-      setSummaryState({ key: summaryKey, snaps: {} });
-      setLoadingSessions(false);
+      setAllSnaps({});
+      homeCache.root = rootRef.current;
+      setLoadedRoot(rootRef.current);
       return;
     }
 
@@ -144,6 +165,7 @@ export default function Home({
     const load = async () => {
       if (!alive || !shown.current || loading || document.hidden || Date.now() < expiresAt) return;
       const id = revision;
+      const root = rootRef.current;
       loading = true;
       try {
         const [recentRes, actRes, sumRes] = await Promise.allSettled([
@@ -153,17 +175,23 @@ export default function Home({
         ]);
         if (!alive || id !== revision) return;
         expiresAt = Date.now() + REFRESH_TTL_MS;
-        if (recentRes.status === 'fulfilled') setRecentSessions(recentRes.value);
-        if (actRes.status === 'fulfilled') setBackendActivity(actRes.value);
-        if (sumRes.status === 'fulfilled') {
-          setSummaryState({
-            key: summaryKey,
-            snaps: Object.fromEntries(sumRes.value.map((item) => [item.path, item])),
-          });
+        if (recentRes.status === 'fulfilled') {
+          homeCache.recentSessions = recentRes.value;
+          setRecentSessions(recentRes.value);
         }
+        if (actRes.status === 'fulfilled') {
+          homeCache.backendActivity = actRes.value;
+          setBackendActivity(actRes.value);
+        }
+        if (sumRes.status === 'fulfilled') {
+          const next = Object.fromEntries(sumRes.value.map((item) => [item.path, item]));
+          homeCache.snaps = next;
+          setAllSnaps(next);
+        }
+        homeCache.root = root;
+        setLoadedRoot(root);
       } finally {
         loading = false;
-        if (alive) setLoadingSessions(false);
         if (alive && id !== revision) invalidate();
       }
     };
@@ -307,6 +335,24 @@ export default function Home({
 
   if (!active) return null;
 
+  if (loadedRoot !== ws.root) {
+    return (
+      <Root label="Inicio">
+        <div className="home-hub scr">
+          <div className="home-hub-inner">
+            <header className="home-top">
+              <div className="home-top-title">
+                <div className="home-date">{dateLabel}</div>
+                <h1>Inicio</h1>
+              </div>
+            </header>
+            <p className="home-quiet" role="status">Cargando proyectos y sesiones…</p>
+          </div>
+        </div>
+      </Root>
+    );
+  }
+
   const visibleSessions = showAllSessions ? continueSessions : continueSessions.slice(0, 5);
   const visibleAttention = showAllAttention ? attentionItems : attentionItems.slice(0, 5);
 
@@ -351,9 +397,7 @@ export default function Home({
               )}
             </div>
 
-            {loadingSessions && continueSessions.length === 0 ? (
-              <p className="home-quiet" role="status">Cargando sesiones recientes…</p>
-            ) : continueSessions.length === 0 ? (
+            {continueSessions.length === 0 ? (
               <div className="home-empty-inline">
                 <p>No hay sesiones recientes todavía. Abre cualquier proyecto de tu biblioteca o crea uno nuevo para empezar.</p>
               </div>

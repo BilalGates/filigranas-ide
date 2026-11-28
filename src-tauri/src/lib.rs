@@ -19,6 +19,7 @@ mod composer;
 mod containers;
 mod db;
 mod delegate;
+mod routing;
 mod delivery_auto;
 mod design;
 mod design_components;
@@ -390,6 +391,7 @@ pub fn run() {
             delivery_auto::delivery_cancel_autofix,
             post_merge::delivery_cleanup_preview,
             post_merge::delivery_cleanup_execute,
+            tools::provider_usage_open,
             tools::tools_status,
             tools::tools_update,
             tools::tools_auto_update,

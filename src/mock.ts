@@ -191,6 +191,8 @@ mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, any>;
     switch (cmd) {
+      case 'provider_health':
+        return [];
       case 'work_current':
         return mockWorks.get(a.project) ?? null;
       case 'work_start': {

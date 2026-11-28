@@ -147,7 +147,10 @@ def check_right_chat_drawer_and_dock(browser, url):
     expect(dock).to_be_focused()
     dock_box = dock.bounding_box()
     shell_box = page.locator(".ws-shell").bounding_box()
-    assert dock_box and shell_box and abs((dock_box["x"] + dock_box["width"]) - (shell_box["x"] + shell_box["width"])) <= 2
+    # Centrada en su carril de 44 px, con margen respecto al borde derecho.
+    assert dock_box and shell_box and 0 <= (shell_box["x"] + shell_box["width"]) - (dock_box["x"] + dock_box["width"]) <= 8
+    tool_box = page.locator(".tool-body > :first-child").bounding_box()
+    assert tool_box and tool_box["x"] + tool_box["width"] <= dock_box["x"], "La lengüeta no debe solaparse con la herramienta"
 
     # Recuperar con Enter desde la lengüeta restaura la vista dividida y devuelve el foco a Ocultar chat.
     page.keyboard.press("Enter")
